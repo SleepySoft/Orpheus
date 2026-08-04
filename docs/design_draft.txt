@@ -1,0 +1,2455 @@
+可视化音频组件框架开发指导文档
+文档目的
+
+本文用于指导开发 Agent 对可视化音频组件框架进行需求分析、任务拆分、实现、测试和交付。
+
+Agent 应遵循以下原则：
+
+先定义稳定的数据契约和接口，再实现 UI 与运行功能。
+按可独立验证的子系统拆分任务。
+每个阶段必须形成可运行闭环。
+实时路径由 C/C++ 实现。
+Python 负责工程编排、构建、验证和代码生成。
+UI 只通过统一控制接口访问运行实例。
+PC 仿真与目标部署使用相同的工程模型、组件定义和控制语义。
+生成代码以复制组件源码、生成实例和连接代码为主。
+每项任务必须提供测试、文档和验收结果。
+未冻结上层契约前，不并行开发依赖该契约的子系统。
+1. 原始需求
+1.1 产品目标
+
+开发一套面向音频 DSP 学习、算法实验、PC 实时处理和嵌入式部署的可视化组件框架。
+
+用户通过图形界面添加组件、连接端口、配置参数和组织子系统。工程可以在 PC 上动态编译和运行，也可以生成完整、可读、可编译的 C/C++ 工程。
+
+框架应覆盖以下使用流程：
+
+创建音频工程。
+添加和连接 DSP 组件。
+配置采样率、块长度、通道数和任务。
+在 PC 上编译组件并运行工程。
+为每一路输入注入音频。
+监听任意输出或中间信号。
+修改运行参数并获取反馈。
+添加波形、频谱、性能和内存探针。
+连接正式部署目标并进行在线调试。
+生成完整 C/C++ 工程或静态库。
+对 PC 结果与生成代码结果进行一致性验证。
+1.2 基础组件需求
+
+第一阶段支持以下类别。
+
+1.2.1 音频输入输出
+音频设备输入
+音频设备输出
+音频文件输入
+音频文件输出
+测试信号输入
+空输出
+通道监听
+1.2.2 通道路由
+Gain
+Mute
+Mixer
+Split
+Merge
+Channel Mapper
+Interleave
+Deinterleave
+Delay
+1.2.3 滤波与处理
+FIR
+IIR
+Biquad
+Biquad Cascade
+低通
+高通
+带通
+陷波
+分频器
+DC Blocker
+1.2.4 采样率与块处理
+整数倍上采样
+整数倍下采样
+有理数重采样
+Rebuffer
+Block Splitter
+Block Accumulator
+Task Bridge
+Ring Buffer
+1.2.5 分析与调试
+Waveform Probe
+RMS Probe
+Peak Probe
+Spectrum Probe
+Frequency Response
+CPU Meter
+Buffer Level Probe
+Parameter Trace
+Memory Watch
+Event Log
+1.3 组件化需求
+
+每个基础组件必须满足：
+
+使用可独立编译的 C 或 C++ 源文件实现。
+提供稳定的 C ABI。
+提供组件描述文件。
+声明输入输出端口。
+声明参数类型、范围、单位和更新策略。
+声明状态内存、临时内存和对齐要求。
+声明支持的数据格式、通道数、采样率和块长度。
+声明延迟、原地处理能力和实时安全属性。
+提供单元测试。
+支持 PC 动态库构建。
+支持目标工程静态编译。
+不在实时处理函数中创建线程、打开设备或进行动态内存分配。
+不直接访问 UI 和通信设备。
+1.4 图形编辑需求
+
+图形编辑器需要支持：
+
+节点添加、删除、复制和搜索。
+类型化输入输出端口。
+拖拽连线。
+连接合法性检查。
+子系统和嵌套子系统。
+节点折叠。
+参数快速编辑。
+高级参数面板。
+采样率、块长度和任务域显示。
+音频流、控制流、事件流和调试流的视觉区分。
+运行状态显示。
+探针拖放。
+工程模板。
+撤销和重做。
+自动保存。
+中文优先的提示和错误信息。
+教学视图、工程视图和调试视图。
+
+界面风格强调直接、轻量、易上手和即时反馈。用户创建工程后应能快速获得声音和可视化结果。
+
+1.5 PC 运行需求
+
+PC 端需要支持：
+
+Windows、Linux 和 macOS。
+动态编译 C/C++ 组件。
+动态加载组件库。
+同一组件类型创建多个实例。
+音频设备实时输入输出。
+WAV 等音频文件输入输出。
+每一路输入独立注入。
+任意端口监听。
+实时参数控制。
+实时探针。
+运行性能统计。
+离线快速处理。
+工程热重载。
+组件编译错误反馈。
+1.6 多任务需求
+
+框架需要支持多个执行入口，每个入口可以具有独立的：
+
+Task ID
+采样率
+块长度
+执行周期
+优先级
+核心归属
+目标平台入口函数
+
+框架需要支持：
+
+同任务同采样率连接。
+同任务不同采样率连接。
+不同任务同采样率连接。
+不同任务不同采样率连接。
+同步任务桥接。
+异步任务桥接。
+Ring Buffer。
+Ping-pong Buffer。
+欠载和溢出策略。
+固定延迟和弹性延迟。
+时钟漂移处理接口。
+临界资源保护。
+跨任务状态和性能探针。
+1.7 控制与调音需求
+
+UI 不能直接操作本地 DLL、组件结构体或目标内存。
+
+框架需要提供统一控制层，支持：
+
+本地 PC Runtime。
+独立 PC Runtime 进程。
+正式部署目标。
+外部通信适配器。
+参数读写。
+批量参数事务。
+参数读回。
+状态查询。
+生命周期控制。
+Probe 配置与读取。
+大块调音数据加载。
+目标能力发现。
+协议版本协商。
+错误反馈。
+
+通信实现由外部模块提供。核心框架只定义控制协议和 Transport 接口。
+
+1.8 调音数据需求
+
+框架需要区分两种数据通路。
+
+大块调音数据
+
+适用于：
+
+FIR 系数
+脉冲响应
+查找表
+路由矩阵
+模型参数
+校准数据
+Preset 数据
+
+需要支持：
+
+连续内存。
+分块传输。
+长度与版本信息。
+数据校验。
+Staging Bank。
+原子提交。
+失败回滚。
+传输取消。
+实时控制数据
+
+适用于：
+
+Gain
+Mute
+EQ 参数
+Mixer 开关
+Compressor 参数
+Probe 开关
+状态读取
+
+需要支持：
+
+立即更新。
+Block Boundary 更新。
+平滑更新。
+多参数事务提交。
+需要重新初始化的参数。
+参数生效反馈。
+1.9 代码生成需求
+
+代码生成器需要：
+
+校验工程图。
+展开结构型子系统。
+确定端口类型和信号属性。
+划分任务域和采样率域。
+生成执行顺序。
+生成 Buffer 连接。
+生成状态内存。
+生成临时内存。
+复制所需组件源码。
+生成组件实例。
+生成任务入口。
+生成控制注册表。
+生成 Probe 注册表。
+生成构建文件。
+生成内存、延迟和执行报告。
+生成 PC 静态库工程。
+提供目标平台适配接口。
+
+生成代码需要清晰、稳定、可调试。复杂算法代码保留在组件源码中，生成器负责装配。
+
+1.10 教学需求
+
+教学功能需要连接以下流程：
+
+听见现象
+→ 观察信号
+→ 调整参数
+→ 理解结构
+→ 查看公式
+→ 阅读实现
+→ 生成代码
+→ 部署运行
+
+
+课程内容需要支持：
+
+初始工程。
+目标工程。
+教学说明。
+操作步骤。
+实验音频。
+参数任务。
+自动检查。
+教师答案。
+学习结果保存。
+
+Pure Data 和 Max/MSP 已证明可运行 Patch、音频流与控制流、子 Patch 和交互式帮助适合 DSP 与计算机音乐教学。
+
+2. 技术选型
+2.1 总体技术栈
+图形界面：TypeScript + React + React Flow
+桌面容器：Tauri
+工程编排：Python 3.12+
+运行时：C++20
+组件接口：C ABI
+组件实现：C11 或 C++20
+构建系统：CMake + Ninja
+工程描述：YAML
+运行计划：JSON 或二进制中间表示
+控制协议：自定义消息模型
+音频后端：JUCE 或 miniaudio
+测试：GoogleTest + pytest
+数据校验：JSON Schema
+文档：Markdown
+
+2.2 图形界面
+
+选择 TypeScript、React 和 React Flow。
+
+React Flow 提供自定义节点、多端口、连线、缩放、选择、MiniMap、分组和嵌套子图支持，适合作为图编辑表现层。
+
+UI 层负责：
+
+图形编辑。
+参数展示。
+用户交互。
+运行状态展示。
+教学内容展示。
+Probe 数据可视化。
+
+UI 层不负责：
+
+DSP 图调度。
+端口语义推导。
+组件动态加载。
+实时代码执行。
+目标通信细节。
+
+Rete.js 可作为视觉编程框架的设计参考，其类型化节点、数据流和控制流模型具有参考价值。核心实现采用独立领域模型，避免前端框架决定 DSP 执行语义。
+
+2.3 桌面应用容器
+
+选择 Tauri。
+
+主要职责：
+
+承载 Web UI。
+管理 Python Orchestrator 进程。
+管理 Runtime 进程。
+提供文件系统权限。
+提供本地进程生命周期控制。
+打包 Windows、Linux 和 macOS 应用。
+
+第一阶段允许通过浏览器开发 UI，桌面打包在核心闭环稳定后接入。
+
+2.4 工程编排层
+
+选择 Python。
+
+主要职责：
+
+工程文件读写。
+Schema 校验。
+组件扫描。
+依赖解析。
+构建任务生成。
+CMake 调用。
+动态库产物管理。
+Runtime 启动。
+控制客户端。
+代码生成。
+自动化测试。
+教学课程管理。
+
+Python 不进入实时音频处理回调。
+
+2.5 实时运行时
+
+选择 C++20。
+
+主要职责：
+
+组件加载。
+组件实例管理。
+Signal Buffer 管理。
+执行计划加载。
+实时调度。
+多任务桥接。
+参数提交。
+Probe 采集。
+运行统计。
+音频设备输入输出。
+
+运行时内部允许使用 C++ 类型和模板。对组件和外部集成提供稳定 C ABI。
+
+2.6 组件实现语言
+
+基础组件优先使用 C11。
+
+允许组件使用 C++20，要求：
+
+通过 C ABI 导出。
+不将 C++ 对象跨越 ABI 边界。
+不在 ABI 中使用 STL。
+不通过 ABI 抛出异常。
+实时处理函数不进行异常传播。
+声明动态内存和实时安全特性。
+2.7 PC 音频后端
+
+优先评估 JUCE 和 miniaudio。
+
+JUCE 提供跨平台音频设备、音频 Buffer、文件格式和 DSP 模块，可用于 PC Host、音频设备适配和组件参考实现。生成的嵌入式组件不依赖 JUCE。
+
+选择规则：
+
+需要完整桌面音频生态时使用 JUCE。
+需要轻量运行时和简单设备接入时使用 miniaudio。
+通过 IAudioBackend 接口隔离具体实现。
+2.8 构建系统
+
+选择 CMake 和 Ninja。
+
+需要支持：
+
+单组件动态库构建。
+Runtime 构建。
+生成工程构建。
+测试构建。
+多平台预设。
+编译缓存。
+构建日志结构化解析。
+2.9 配置与序列化
+
+使用 YAML 保存用户工程和组件 Manifest。
+
+使用 JSON Schema 校验可编辑配置。
+
+Runtime 使用编译后的中间表示，减少运行前解析工作。中间表示需要包含：
+
+节点实例。
+函数入口。
+Buffer 地址关系。
+执行顺序。
+参数初值。
+Task 分组。
+Probe 配置。
+内存布局。
+2.10 测试技术
+
+使用：
+
+GoogleTest：C/C++ 组件和 Runtime 单元测试。
+pytest：Python 编排、构建和代码生成测试。
+Playwright：UI 端到端测试。
+Golden File：生成代码结构验证。
+WAV 或二进制向量：DSP 一致性验证。
+Sanitizer：内存和线程问题检测。
+静态分析：Clang-Tidy、Cppcheck。
+Schema 测试：Manifest 与工程格式兼容性。
+3. 架构描述
+3.1 总体架构
+┌───────────────────────────────────────────┐
+│ Presentation Layer                        │
+│ React UI / Graph Editor / Teaching UI     │
+└──────────────────────┬────────────────────┘
+                       │ Application API
+┌──────────────────────▼────────────────────┐
+│ Python Orchestrator                       │
+│ Project / Registry / Build / Generator    │
+└───────────────┬───────────────────┬───────┘
+                │                   │
+         Build Interface      Control Client
+                │                   │
+┌───────────────▼───────┐   ┌───────▼───────────┐
+│ Component Toolchain   │   │ Control Protocol  │
+│ CMake / Compiler      │   │ Session / Command │
+└───────────────┬───────┘   └───────┬───────────┘
+                │                   │
+                │           ┌───────▼───────────┐
+                │           │ Transport Adapter │
+                │           │ Local / External  │
+                │           └───────┬───────────┘
+                │                   │
+┌───────────────▼───────────────────▼───────────┐
+│ C++ Runtime                                  │
+│ Scheduler / Buffers / Control / Probe / I/O  │
+└───────────────┬───────────────────────────────┘
+                │ Component ABI
+┌───────────────▼───────────────────────────────┐
+│ C/C++ Component Library                      │
+│ DSP / Routing / Bridge / Debug / Adapter     │
+└───────────────────────────────────────────────┘
+
+3.2 核心数据流
+编辑阶段
+用户操作
+→ UI Graph
+→ Project Model
+→ Schema Validation
+→ Semantic Validation
+→ 保存工程
+
+PC 运行阶段
+Project Model
+→ 图编译
+→ 组件构建
+→ Execution Plan
+→ Runtime 加载
+→ 音频设备或文件输入
+→ 组件执行
+→ 音频输出
+→ Probe 数据
+→ UI 展示
+
+目标部署阶段
+Project Model
+→ 目标能力检查
+→ 子系统展开
+→ 静态调度
+→ 内存规划
+→ 源码复制
+→ 桥接代码生成
+→ 构建工程生成
+→ 目标平台编译
+
+在线控制阶段
+UI
+→ Control Client
+→ Control Protocol
+→ Transport
+→ Runtime Control Service
+→ Block Boundary Commit
+→ 参数反馈
+
+3.3 分层依赖规则
+
+依赖方向如下：
+
+UI
+↓
+Application Service
+↓
+Domain Model
+↓
+Runtime Contract / Build Contract
+↓
+Component ABI
+
+
+约束：
+
+Domain Model 不依赖 React。
+Component ABI 不依赖 Python。
+Runtime 不依赖 UI。
+DSP 组件不依赖 Runtime 的具体调度器实现。
+Control Protocol 不依赖具体通信方式。
+代码生成器不依赖 PC 音频设备。
+教学模块通过公开工程和 Probe 接口工作。
+3.4 工程编译阶段
+
+工程图需要经过以下处理：
+
+格式校验。
+组件版本解析。
+节点和端口解析。
+连接类型检查。
+属性推导。
+子系统展开。
+Task Domain 划分。
+Rate Domain 划分。
+桥接检查。
+环路检查。
+延迟计算。
+拓扑排序。
+Buffer 生命周期分析。
+状态和临时内存规划。
+控制注册表生成。
+Probe 注册表生成。
+Execution Plan 输出。
+3.5 运行模式
+
+框架支持三种运行模式。
+
+动态 PC 模式
+组件构建为动态库。
+Runtime 动态加载组件。
+支持快速修改和调试。
+支持热重载。
+静态 PC 模式
+组件和生成代码编译为静态库或可执行程序。
+用于验证生成工程。
+用于性能和一致性测试。
+目标模式
+使用生成的 C/C++ 工程。
+使用目标平台适配层。
+使用固定内存。
+通过外部 Transport 接入控制协议。
+4. 设计中的概念定义和解释
+4.1 Project
+
+Project 是用户工程的顶层对象，包含：
+
+工程元数据。
+Graph。
+组件依赖。
+Target Profile。
+运行配置。
+UI Presentation。
+Probe 配置。
+教学状态。
+
+Project 是保存、版本控制、构建和生成代码的基本单位。
+
+4.2 Graph
+
+Graph 描述组件实例及其连接关系。
+
+Graph 包含：
+
+Node。
+Port。
+Connection。
+Subsystem。
+Execution Domain。
+参数初值。
+调试配置。
+
+Graph 不保存运行时对象地址和动态库句柄。
+
+4.3 Node
+
+Node 是组件类型在工程中的实例。
+
+Node 包含：
+
+实例 ID。
+Component ID。
+Component Version。
+参数值。
+所属 Subsystem。
+所属 Task。
+UI Presentation。
+实例级构建选项。
+
+同一组件类型可以创建多个 Node。
+
+4.4 Component
+
+Component 是可复用处理单元。
+
+Component 由以下内容组成：
+
+Manifest。
+C/C++ 源码。
+公共头文件。
+测试。
+文档。
+UI 元数据。
+可选教学内容。
+
+Component 具有稳定 ID 和版本。
+
+4.5 Manifest
+
+Manifest 是组件的机器可读契约。
+
+Manifest 描述：
+
+组件身份。
+ABI 版本。
+源文件。
+端口。
+参数。
+内存。
+执行属性。
+平台支持。
+构建需求。
+实时安全能力。
+UI 展示信息。
+4.6 Port
+
+Port 是组件接收或输出数据的接口。
+
+端口具有：
+
+名称。
+方向。
+类型。
+数据格式。
+通道数。
+采样率。
+块长度。
+时序域。
+可选性。
+多连接规则。
+4.7 Audio Port
+
+Audio Port 传输连续音频块。
+
+其完整类型需要包含：
+
+Sample Format
+Channel Count
+Sample Rate
+Block Size
+Memory Layout
+Clock Domain
+
+4.8 Control Port
+
+Control Port 传输参数值和低速连续控制数据。
+
+Control Port 需要声明：
+
+数据类型。
+更新周期。
+插值方式。
+缺省值。
+时间戳需求。
+跨任务规则。
+4.9 Event Port
+
+Event Port 传输离散事件。
+
+Event 包含：
+
+类型。
+时间戳。
+有效载荷。
+来源。
+顺序信息。
+4.10 Bulk Port
+
+Bulk Port 用于传输大块配置和调音数据。
+
+Bulk Port 支持：
+
+分块写入。
+完整性校验。
+暂存。
+提交。
+回滚。
+4.11 Debug Port
+
+Debug Port 用于输出调试和观察数据。
+
+Debug 数据可以丢弃。实时线程不得等待 Debug 数据被消费。
+
+4.12 Parameter
+
+Parameter 是组件可配置属性。
+
+每个 Parameter 需要声明：
+
+ID。
+名称。
+类型。
+默认值。
+范围。
+单位。
+更新策略。
+是否可读回。
+是否持久化。
+是否触发重新初始化。
+UI 控件类型。
+4.13 Parameter Update Policy
+
+参数更新策略定义参数何时生效。
+
+支持：
+
+Immediate。
+Block Boundary。
+Smoothed。
+Transactional。
+Restart Required。
+4.14 Execution Domain
+
+Execution Domain 描述一组具有共同执行条件的节点。
+
+包含：
+
+Sample Rate。
+Block Size。
+Task ID。
+Clock ID。
+执行周期。
+优先级。
+目标核心。
+
+任务周期计算方式：
+
+Task Period = Block Size / Sample Rate
+
+
+多采样率系统需要分别描述采样率、块长度和块周期。现有 Audio Weaver 的多速率模型同样使用采样率、块长度和 Block Time 描述执行关系。
+
+4.15 Rate Domain
+
+Rate Domain 是具有相同采样率和时钟来源的音频处理区域。
+
+跨 Rate Domain 连接需要显式 Resampler。
+
+4.16 Task Domain
+
+Task Domain 是由同一任务入口调用的节点集合。
+
+跨 Task Domain 连接需要 Task Bridge。
+
+4.17 Clock Domain
+
+Clock Domain 表示数据采样时钟来源。
+
+两个相同标称采样率的设备可能属于不同 Clock Domain。跨异步 Clock Domain 需要缓冲水位监测和异步采样率转换能力。
+
+4.18 Adapter
+
+Adapter 用于转换连接两端的属性。
+
+包括：
+
+Sample Format Converter。
+Channel Mapper。
+Interleave Converter。
+Resampler。
+Rebuffer。
+Task Bridge。
+Clock Domain Bridge。
+
+Adapter 作为显式节点保存在 Graph 中。
+
+4.19 Subsystem
+
+Subsystem 是包含内部 Graph 的复合节点。
+
+Subsystem 具有公开端口和公开参数。
+
+支持：
+
+结构型 Subsystem。
+封装型 Subsystem。
+
+结构型 Subsystem 在编译和代码生成时展开。封装型 Subsystem 可以形成独立组件或库。
+
+4.20 Runtime
+
+Runtime 是执行已编译 Graph 的 C++ 引擎。
+
+Runtime 持有：
+
+组件实例。
+Buffer。
+Execution Plan。
+参数存储。
+Probe。
+Task 状态。
+音频设备。
+控制服务。
+4.21 Execution Plan
+
+Execution Plan 是 Graph 编译后的运行表示。
+
+包含：
+
+节点实例表。
+执行顺序。
+函数入口。
+输入输出 Buffer 映射。
+参数地址。
+Task 分组。
+内存布局。
+Probe 映射。
+4.22 Persistent Memory
+
+Persistent Memory 是组件整个生命周期内持续存在的状态内存。
+
+用于：
+
+滤波历史。
+延迟线。
+包络状态。
+重采样相位。
+统计状态。
+4.23 Scratch Memory
+
+Scratch Memory 是单次执行过程中使用的临时内存。
+
+Runtime 可以根据生命周期在多个组件之间复用 Scratch Memory。
+
+4.24 Signal Buffer
+
+Signal Buffer 是组件间传输数据的运行时存储。
+
+需要声明：
+
+地址。
+大小。
+对齐。
+数据格式。
+通道布局。
+生命周期。
+所属内存区域。
+4.25 Task Bridge
+
+Task Bridge 连接不同 Task Domain。
+
+Task Bridge 负责：
+
+数据缓存。
+Producer 和 Consumer 协调。
+欠载与溢出处理。
+时间戳维护。
+运行状态统计。
+4.26 Probe
+
+Probe 是旁路观察机制。
+
+Probe 可以绑定：
+
+Port。
+Parameter。
+Component State。
+Task。
+Buffer。
+Runtime Counter。
+
+Probe 使用非阻塞传输，并支持降采样、触发、限流和丢弃。
+
+4.27 Control Protocol
+
+Control Protocol 定义 UI、工具和 Runtime 之间的控制语义。
+
+包含：
+
+Session。
+Object Address。
+Command。
+Request ID。
+Response。
+Event。
+Capability。
+Error Code。
+Version。
+4.28 Transport
+
+Transport 负责传输控制协议数据。
+
+框架定义 Transport 接口。具体通信方式由外部实现。
+
+4.29 Target Profile
+
+Target Profile 描述部署平台能力。
+
+包含：
+
+编译器。
+CPU 架构。
+数据格式。
+内存区域。
+对齐要求。
+最大任务数。
+线程和中断模型。
+支持的组件。
+Transport Binding。
+构建模板。
+4.30 Teaching Package
+
+Teaching Package 是可运行的课程单元。
+
+包含：
+
+课程元数据。
+初始工程。
+目标状态。
+说明。
+操作步骤。
+实验资源。
+检查规则。
+教师内容。
+5. 子系统与模块详述
+5.1 工程模型子系统
+需求
+提供稳定、可版本化的工程格式。
+支持图、子系统、任务、参数、Probe 和 UI 状态。
+支持向后兼容和格式迁移。
+支持版本控制工具处理。
+功能
+创建和加载 Project。
+保存 Project。
+校验格式。
+管理工程版本。
+迁移旧版本。
+分离运行语义与 UI Presentation。
+设计
+
+使用 YAML 保存。
+
+工程文件分为：
+
+Metadata。
+Dependencies。
+Graph。
+Domains。
+Target。
+Runtime Configuration。
+Probes。
+Presentation。
+Teaching State。
+子功能
+Project Loader
+Project Writer
+Schema Validator
+Version Migrator
+Project Diff
+Auto Save
+Recovery
+Dependency Lock
+Agent 任务
+定义 Project Schema。
+编写合法与非法测试样本。
+实现 Python 数据模型。
+实现加载和保存。
+实现版本检查。
+实现迁移框架。
+验证保存后语义不变。
+验收标准
+工程可以加载、修改和保存。
+非法字段能够定位到具体路径。
+UI 状态不影响执行图。
+旧版本工程可通过迁移器转换。
+保存结果稳定，字段顺序可预测。
+5.2 组件注册与包管理子系统
+需求
+发现本地组件。
+解析组件 Manifest。
+管理组件版本。
+检查构建依赖。
+向 UI 提供组件目录。
+向生成器提供源码清单。
+功能
+扫描组件目录。
+加载 Manifest。
+校验 ABI。
+建立组件索引。
+解析版本约束。
+处理组件冲突。
+生成依赖锁定文件。
+设计
+
+每个组件使用独立目录，组件身份采用：
+
+namespace.category.name
+
+
+组件版本遵循语义化版本。
+
+Registry 存储：
+
+Component ID。
+Version。
+Manifest Path。
+Source Path。
+Build Metadata。
+UI Metadata。
+Documentation Path。
+Supported Targets。
+子功能
+Manifest Parser
+Registry Scanner
+Version Resolver
+Dependency Resolver
+Component Cache
+Compatibility Checker
+Search Index
+Agent 任务
+定义 Component Manifest Schema。
+实现目录扫描。
+实现 ID 和版本冲突检测。
+实现版本解析。
+实现组件搜索接口。
+为基础组件建立模板。
+建立 Manifest 测试集。
+验收标准
+Registry 能发现全部合法组件。
+错误 Manifest 不进入可用列表。
+同组件多个版本可共存。
+Project 可锁定精确版本。
+UI 能按类别和关键词查询组件。
+5.3 图编译与语义验证子系统
+需求
+将用户 Graph 转换成可执行和可生成代码的中间表示。
+在运行前发现连接、类型、采样率和任务问题。
+输出可定位的诊断信息。
+功能
+节点解析。
+端口解析。
+连接检查。
+属性推导。
+子系统展开。
+Cycle 检查。
+Task 和 Rate Domain 分析。
+拓扑排序。
+Adapter 需求识别。
+延迟分析。
+Execution Plan 生成。
+设计
+
+处理过程分为多个 Pass：
+
+Parse Pass
+Reference Resolution Pass
+Type Inference Pass
+Subsystem Expansion Pass
+Domain Analysis Pass
+Connection Validation Pass
+Cycle Validation Pass
+Scheduling Pass
+Memory Planning Pass
+Registry Generation Pass
+
+每个 Pass 输入和输出使用明确的数据结构，不直接修改 UI Graph。
+
+子功能
+Node Resolver
+Port Type Checker
+Attribute Inference
+Subsystem Flattener
+Domain Analyzer
+Cycle Detector
+Scheduler
+Latency Analyzer
+Diagnostic Reporter
+Intermediate Representation Writer
+Agent 任务
+定义 Graph IR。
+定义诊断格式。
+实现节点和端口解析。
+实现类型检查。
+实现属性推导。
+实现子系统展开。
+实现拓扑排序。
+实现域分析。
+实现执行计划输出。
+建立错误图测试集。
+验收标准
+所有连接均在运行前完成类型检查。
+诊断包含节点、端口、错误代码和修复建议。
+同一工程多次编译得到稳定执行顺序。
+子系统展开后端口映射正确。
+非法反馈环能够被识别。
+跨域连接必须包含明确 Adapter。
+5.4 组件 ABI 子系统
+需求
+支持 C 和 C++ 组件。
+支持 PC 动态加载。
+支持生成工程静态调用。
+保持版本兼容。
+支持固定内存和实时执行。
+功能
+查询组件元数据。
+查询状态内存大小。
+初始化。
+Reset。
+Process。
+参数更新。
+状态查询。
+生命周期管理。
+设计
+
+ABI 使用 C 数据结构和函数指针。
+
+ABI 需要定义：
+
+ABI Version。
+Component Descriptor。
+Prepare Configuration。
+Process Context。
+Memory Context。
+Parameter Context。
+Error Code。
+
+实时处理函数接收预先准备的：
+
+State。
+输入 Buffer。
+输出 Buffer。
+Frame Count。
+Event Buffer。
+Scratch Memory。
+子功能
+ABI Header
+Version Negotiation
+Component Descriptor
+Instance Lifecycle
+Parameter Access
+Processing Entry
+Error Mapping
+Static Binding Adapter
+Dynamic Binding Adapter
+Agent 任务
+冻结 ABI v1。
+实现一个 Gain 参考组件。
+实现 C 组件加载测试。
+实现 C++ 组件加载测试。
+实现多实例测试。
+实现静态和动态调用一致性测试。
+检查 ABI 中不包含平台相关 C++ 类型。
+验收标准
+同一动态库可创建多个组件实例。
+C 和 C++ 编译器均可使用 ABI Header。
+PC 动态模式和静态模式输出一致。
+ABI Version 不兼容时返回明确错误。
+Process 期间不发生隐式内存分配。
+5.5 组件构建子系统
+需求
+自动构建组件动态库。
+支持按需增量编译。
+提供结构化编译错误。
+支持多平台工具链。
+功能
+生成 CMake 配置。
+调用编译器。
+管理构建缓存。
+记录输入源码哈希。
+管理构建产物。
+清理过期产物。
+返回诊断信息。
+设计
+
+构建缓存键包含：
+
+Component ID。
+Version。
+Source Hash。
+Compiler ID。
+Compiler Version。
+Platform。
+Architecture。
+Build Options。
+ABI Version。
+子功能
+Toolchain Detector
+Build Plan Generator
+CMake Runner
+Compiler Output Parser
+Artifact Cache
+Build Cancellation
+Parallel Build Queue
+Agent 任务
+定义 Build Request 和 Build Result。
+实现工具链检测。
+实现单组件构建。
+实现缓存。
+实现错误解析。
+实现并行构建限制。
+实现构建取消。
+验收标准
+首次构建生成动态库。
+源码未变化时使用缓存。
+修改源码后自动重建。
+编译错误可定位到文件和行。
+构建失败不影响已加载稳定版本。
+5.6 PC Runtime 子系统
+需求
+运行编译后的 Graph。
+动态加载组件。
+实时处理音频。
+管理组件实例和 Buffer。
+提供控制和 Probe 服务。
+功能
+加载 Execution Plan。
+加载动态库。
+创建组件实例。
+分配内存。
+绑定 Buffer。
+启动和停止任务。
+处理音频。
+收集统计。
+安全卸载工程。
+设计
+
+Runtime 内部分为：
+
+Plan Loader。
+Component Loader。
+Instance Manager。
+Buffer Manager。
+Scheduler。
+Audio Backend。
+Control Service。
+Probe Service。
+Statistics Service。
+
+主实时路径不使用：
+
+堆分配。
+阻塞锁。
+文件 I/O。
+日志格式化。
+网络操作。
+UI 回调。
+子功能
+Runtime Session
+Dynamic Library Loader
+Instance Table
+Buffer Binding
+Audio Callback
+Runtime State Machine
+Error State
+Performance Counter
+Hot Reload Coordinator
+Agent 任务
+实现 Runtime 状态机。
+实现动态库加载。
+实现组件实例创建。
+实现 Execution Plan 绑定。
+实现离线 Block 执行。
+实现实时音频回调。
+实现启动和停止。
+实现异常隔离。
+实现资源释放测试。
+验收标准
+三节点工程能够实时运行。
+同一组件类型支持多个实例。
+启停过程无资源泄漏。
+Runtime 能报告每个 Task 的执行时间。
+组件错误会使 Session 进入明确错误状态。
+音频回调无动态内存分配。
+5.7 Buffer 与内存规划子系统
+需求
+支持固定内存。
+计算组件状态、Scratch 和 Signal Buffer 需求。
+支持对齐和内存区域。
+支持 Buffer 复用。
+生成内存报告。
+功能
+Persistent Memory 规划。
+Scratch Memory 峰值规划。
+Signal Buffer 分配。
+生命周期分析。
+In-place 分析。
+内存区映射。
+地址和偏移生成。
+设计
+
+内存规划分阶段实现：
+
+独立 Buffer 分配。
+In-place 支持。
+Signal Buffer 生命周期复用。
+Scratch Memory 复用。
+Target Memory Region 映射。
+
+输出包括：
+
+总内存。
+每类内存。
+每个组件内存。
+每个 Task 内存。
+对齐损耗。
+峰值 Scratch。
+Buffer 生命周期。
+子功能
+State Allocator
+Signal Allocator
+Scratch Allocator
+Lifetime Analyzer
+In-place Planner
+Region Mapper
+Memory Report Generator
+Agent 任务
+定义 Memory Requirement。
+实现保守分配器。
+实现对齐计算。
+实现 In-place 规则。
+实现生命周期分析。
+实现复用分配。
+实现生成地址偏移。
+建立边界和溢出测试。
+验收标准
+所有地址满足组件对齐要求。
+内存报告与运行分配一致。
+固定内存模式不调用运行时堆。
+Buffer 复用不改变输出结果。
+内存不足时在构建阶段报告。
+5.8 调度与多任务子系统
+需求
+支持多个 Task Domain。
+支持不同采样率和块长度。
+支持显式任务入口。
+支持任务间数据桥接。
+支持目标平台调度适配。
+功能
+Task 分组。
+Task 内拓扑排序。
+Task 周期计算。
+任务入口生成。
+跨任务连接检查。
+调度性能统计。
+Deadline 检测。
+设计
+
+每个 Task 具有独立 Execution List。
+
+Task 内节点顺序静态确定。
+
+跨 Task 数据通过 Task Bridge 传递。
+
+第一阶段由用户明确指定 Task。后续阶段提供自动分配建议。
+
+子功能
+Domain Builder
+Task Execution List
+Task Entry API
+Deadline Monitor
+Task Statistics
+Platform Scheduler Adapter
+Priority Metadata
+Core Affinity Metadata
+Agent 任务
+定义 Task Domain Schema。
+实现 Task 分组。
+实现每个 Task 的执行列表。
+实现 PC 线程模拟。
+实现外部调用式 Task Entry。
+实现 Deadline 统计。
+实现多任务一致性测试。
+验收标准
+每个 Task 可独立触发。
+Task 周期和执行统计可查询。
+跨 Task 连接必须通过 Task Bridge。
+PC 模拟和手动 Task Entry 输出一致。
+Runtime 停止时所有 Task 有序退出。
+5.9 重采样、Rebuffer 与任务桥接子系统
+需求
+连接不同采样率、块长度、任务和时钟域。
+明确延迟、缓存和错误策略。
+支持同步和异步场景。
+功能
+Resampler。
+Rebuffer。
+Block Splitter。
+Block Accumulator。
+SPSC Ring Buffer。
+Ping-pong Buffer。
+Async Bridge 接口。
+水位监控。
+欠载和溢出统计。
+设计
+
+桥接分为：
+
+同 Task、不同 Block Size。
+同 Task、不同 Sample Rate。
+不同 Task、相同 Sample Rate。
+不同 Task、不同 Sample Rate。
+不同 Clock Domain。
+
+每种桥接必须声明：
+
+输入输出速率。
+输入输出块长。
+缓冲容量。
+固定延迟。
+最大延迟。
+欠载策略。
+溢出策略。
+初始填充策略。
+时钟漂移处理能力。
+子功能
+Rebuffer Component
+Resampler Component
+SPSC Ring Buffer
+Task Bridge Component
+Watermark Monitor
+Underflow Policy
+Overflow Policy
+Clock Drift Interface
+Bridge Probe
+Agent 任务
+实现 Rebuffer。
+实现同步整数重采样。
+实现有理数重采样。
+实现 SPSC Ring Buffer。
+实现 Task Bridge。
+实现水位统计。
+实现欠载和溢出策略。
+建立长时间稳定性测试。
+再实现异步采样率接口。
+验收标准
+块长转换不丢失样本。
+同步采样率转换保持正确样本数量。
+SPSC Ring Buffer 通过并发测试。
+欠载和溢出均有明确计数。
+桥接延迟可计算和报告。
+时钟域不一致时系统拒绝缺少 Async Bridge 的连接。
+5.10 参数与实时控制子系统
+需求
+统一管理 PC 和目标参数。
+保证实时线程安全。
+支持参数读回和事务。
+支持平滑更新。
+功能
+参数注册。
+参数寻址。
+参数读取。
+参数写入。
+Block Boundary 提交。
+参数平滑。
+参数事务。
+状态反馈。
+Preset 应用。
+设计
+
+参数访问路径采用稳定对象地址：
+
+Project / Subsystem / Node / Parameter
+
+
+Runtime 内部使用数值 ID 加速访问。
+
+控制线程写入 Staging Parameter Store。实时线程在安全边界交换或复制参数。
+
+子功能
+Parameter Registry
+Parameter Address Resolver
+Staging Store
+Commit Queue
+Smoothing Processor
+Transaction Manager
+Readback Service
+Preset Manager
+Agent 任务
+定义 Parameter Descriptor。
+实现参数注册表。
+实现读写接口。
+实现 Block Boundary Commit。
+实现平滑更新。
+实现事务提交。
+实现参数反馈。
+进行高频控制压力测试。
+验收标准
+参数修改按声明策略生效。
+多参数事务在同一边界生效。
+实时线程不等待控制线程。
+参数读回反映当前生效值。
+非法参数值返回明确错误。
+5.11 Bulk 调音数据子系统
+需求
+高效加载大块连续数据。
+支持部分传输和校验。
+支持原子提交。
+避免实时处理读取不完整数据。
+功能
+创建传输会话。
+分块写入。
+进度查询。
+校验。
+提交。
+回滚。
+取消。
+Bank 切换。
+设计
+
+每次传输具有：
+
+Transfer ID。
+Object ID。
+Total Size。
+Chunk Size。
+Expected Hash。
+Staging Address。
+Transfer State。
+
+状态机：
+
+Created
+→ Receiving
+→ Received
+→ Validated
+→ Committed
+
+
+失败进入：
+
+Failed
+或
+Aborted
+
+子功能
+Transfer Session
+Chunk Receiver
+Integrity Validator
+Staging Bank
+Commit Manager
+Rollback Manager
+Progress Reporter
+Bulk Capability Descriptor
+Agent 任务
+定义 Bulk Transfer 协议。
+实现内存目标写入。
+实现分块顺序和重复块处理。
+实现 Hash 校验。
+实现双 Bank 提交。
+实现取消和回滚。
+实现中断恢复策略。
+验收标准
+未完成数据不会被实时线程使用。
+校验失败不能提交。
+Commit 在声明的安全边界生效。
+取消后资源完整释放。
+大数据传输过程可查询进度。
+5.12 Probe 与调试子系统
+需求
+观察任意合法信号和运行状态。
+不阻塞实时线程。
+支持 PC 和资源受限目标。
+支持动态启停。
+功能
+创建 Probe。
+绑定数据源。
+配置采样策略。
+配置触发条件。
+数据缓存。
+数据传输。
+丢弃统计。
+UI 可视化。
+设计
+
+Probe Pipeline：
+
+Probe Source
+→ Sampler
+→ Optional Reducer
+→ Capture Buffer
+→ Debug Queue
+→ Transport
+
+
+Probe 描述包含：
+
+Probe ID。
+Source Address。
+Data Type。
+Sample Mode。
+Decimation。
+Trigger。
+Buffer Size。
+Priority。
+Drop Policy。
+子功能
+Probe Registry
+Source Binder
+Waveform Sampler
+RMS/Peak Reducer
+Spectrum Input Capture
+Trigger Manager
+Debug Queue
+Drop Counter
+Probe Capability Manager
+Agent 任务
+定义 Probe Descriptor。
+实现端口 Probe。
+实现 RMS 和 Peak Probe。
+实现 Waveform Probe。
+实现 Ring Buffer 水位 Probe。
+实现 Task Timing Probe。
+实现限流和丢弃。
+实现动态启停。
+验收标准
+Probe 关闭时开销接近零。
+Probe 队列满时实时线程继续执行。
+丢弃数据能够统计。
+Probe 数据包含时间和来源信息。
+资源不足时 Runtime 拒绝创建并返回原因。
+5.13 统一控制协议子系统
+需求
+UI 使用同一接口控制 PC Runtime 和目标 Runtime。
+协议与底层通信解耦。
+支持请求、响应、事件和流式调试数据。
+支持版本和能力协商。
+功能
+建立 Session。
+查询 Runtime 信息。
+加载和卸载工程。
+启动和停止运行。
+参数读写。
+Bulk Transfer。
+Probe 管理。
+状态和错误查询。
+运行事件订阅。
+设计
+
+消息分为：
+
+Request。
+Response。
+Event。
+Stream Packet。
+
+每条消息包含：
+
+Protocol Version。
+Message Type。
+Request ID。
+Session ID。
+Payload Length。
+Payload。
+Integrity Field。
+
+协议编解码与 Transport 分离。
+
+子功能
+Protocol Schema
+Encoder
+Decoder
+Session Manager
+Command Dispatcher
+Response Correlator
+Event Publisher
+Capability Negotiation
+Error Registry
+Agent 任务
+定义协议命令集合。
+定义错误码。
+实现内存 Transport。
+实现 Local Runtime Transport。
+实现协议编解码。
+实现 Session。
+实现能力协商。
+实现断开和重连处理。
+验收标准
+UI 不直接调用 Runtime 内部接口。
+Local Transport 和测试 Transport 使用相同协议。
+未支持命令返回标准错误。
+协议版本不兼容时停止 Session 建立。
+Request ID 能正确关联响应。
+5.14 Transport 扩展接口子系统
+需求
+允许外部实现 TCP、UART、共享内存、调试器和厂商链路。
+核心框架不包含特定设备通信逻辑。
+支持同步和异步 Transport。
+功能
+注册 Transport。
+打开和关闭。
+发送数据。
+接收数据。
+查询 MTU。
+查询可靠性和顺序能力。
+上报链路状态。
+设计
+
+Transport Capability 包含：
+
+Maximum Packet Size。
+Reliable。
+Ordered。
+Full Duplex。
+Streaming。
+Latency Class。
+Bandwidth Class。
+
+控制协议根据能力决定分片和超时策略。
+
+子功能
+Transport Interface
+Transport Factory
+Capability Descriptor
+Packet Framing Adapter
+Timeout Manager
+Reconnect Policy
+Test Loopback Transport
+Agent 任务
+冻结 Transport C ABI。
+实现 Loopback Transport。
+实现进程内 Transport。
+实现故障注入 Transport。
+测试丢包、延迟和断连。
+编写外部 Transport 开发文档。
+验收标准
+新 Transport 无需修改 Runtime 核心代码。
+Transport 断开时 Session 状态正确变化。
+分片策略符合 MTU。
+故障不会阻塞实时线程。
+外部开发者可仅依赖公开 Header 完成适配。
+5.15 图形编辑器子系统
+需求
+提供直观的音频系统编辑体验。
+支持中文界面。
+支持类型化连线和修复建议。
+支持运行、调音和调试。
+功能
+节点库。
+搜索和分类。
+图编辑。
+参数面板。
+子系统。
+运行控制。
+Probe 添加。
+错误展示。
+工程模板。
+三种工作视图。
+设计
+
+前端状态分为：
+
+Project Semantic State。
+Presentation State。
+Runtime State。
+Temporary Interaction State。
+
+UI 通过 Application API 修改 Project，通过 Control Client 操作 Runtime。
+
+子功能
+Canvas
+Node Palette
+Custom Node Renderer
+Typed Connection
+Property Inspector
+Subsystem Navigation
+Diagnostic Panel
+Runtime Toolbar
+Probe Panel
+Teaching Panel
+Template Browser
+Undo/Redo
+Agent 任务
+建立 UI 组件规范。
+实现基础 Canvas。
+实现节点库。
+实现拖拽创建。
+实现类型化连线。
+实现参数面板。
+实现诊断定位。
+实现运行状态。
+实现 Probe 图表。
+实现子系统导航。
+实现三种视图。
+验收标准
+用户可完成创建、连接、配置、运行和监听。
+非法连接在操作时提示。
+错误可一键定位节点。
+工程运行状态与 Runtime 一致。
+UI 刷新不影响实时处理。
+教学视图隐藏非必要工程细节。
+5.16 音频输入输出子系统
+需求
+提供 PC 音频设备和文件输入输出。
+每路输入可以独立注入。
+每路输出可以监听。
+支持通道映射。
+功能
+设备枚举。
+设备打开。
+Sample Rate 配置。
+Block Size 配置。
+输入通道选择。
+输出通道选择。
+文件播放。
+文件录制。
+测试信号生成。
+输出监听。
+设计
+
+通过 IAudioBackend 隔离音频库。
+
+Runtime 使用统一 Audio Device Adapter 连接 Graph。
+
+输入注入通过 Input Endpoint Router 完成。
+
+输出监听通过 Monitor Endpoint 和 Probe 完成。
+
+子功能
+Device Enumerator
+Device Session
+Input Endpoint
+Output Endpoint
+Channel Router
+WAV Source
+WAV Sink
+Signal Generator
+Monitor Bus
+Offline Renderer
+Agent 任务
+定义 Audio Backend 接口。
+实现设备枚举。
+实现全双工设备。
+实现 WAV 输入输出。
+实现通道映射。
+实现测试信号。
+实现离线渲染。
+实现设备切换错误处理。
+验收标准
+可以选择输入和输出设备。
+每个输入通道可绑定不同信号源。
+任意输出端可监听。
+文件处理与实时处理使用同一 Graph。
+设备丢失时 Runtime 进入可恢复状态。
+5.17 基础 DSP 组件库子系统
+需求
+提供首批可用组件。
+组件具有一致的接口、测试和文档。
+支持 PC 动态构建和目标静态构建。
+功能
+
+首批组件：
+
+Gain
+Mixer
+Split
+Merge
+Interleave
+Deinterleave
+Channel Mapper
+Delay
+FIR
+Biquad
+Biquad Cascade
+Resampler
+Rebuffer
+Task Bridge
+RMS
+Peak
+Signal Generator
+设计
+
+每个组件包包含：
+
+component.yaml
+include/
+src/
+tests/
+docs/
+ui/
+
+
+每个组件需要提供：
+
+单元测试。
+边界测试。
+Golden Vector。
+参数说明。
+内存报告。
+实时安全声明。
+固定延迟声明。
+子功能
+Component Template
+Reference DSP Utilities
+Test Vector Loader
+Numerical Tolerance Policy
+Component Documentation Generator
+Component Compliance Test
+Agent 任务
+
+按以下顺序执行：
+
+Gain。
+Split 和 Merge。
+Mixer。
+Interleave 和 Deinterleave。
+Channel Mapper。
+Biquad。
+FIR。
+Rebuffer。
+Resampler。
+Task Bridge。
+Probe Components。
+验收标准
+所有组件通过 ABI Compliance Test。
+所有组件通过动态和静态构建。
+数值输出满足定义的误差范围。
+参数边界有测试。
+组件 Manifest 与实际内存需求一致。
+组件文档可由 UI 打开。
+5.18 子系统与复合组件子系统
+需求
+支持嵌套 Graph。
+支持公开端口和参数。
+支持展开和复用。
+支持从选中节点创建子系统。
+功能
+创建 Subsystem。
+进入和退出 Subsystem。
+定义公开端口。
+参数映射。
+节点折叠。
+保存为模板。
+展开为平面图。
+转换为封装组件。
+设计
+
+每个 Subsystem 具有：
+
+Internal Graph。
+Public Port Mapping。
+Public Parameter Mapping。
+Presentation。
+Version Metadata。
+
+结构型 Subsystem 在 Graph Compile 阶段展开，并保留源路径用于诊断。
+
+子功能
+Subsystem Model
+Port Exposure
+Parameter Exposure
+Graph Extraction
+Graph Expansion
+Path Mapping
+Template Export
+Encapsulation Interface
+Agent 任务
+定义 Subsystem Schema。
+实现端口映射。
+实现参数映射。
+实现展开算法。
+实现诊断路径恢复。
+实现 UI 导航。
+实现模板保存和复用。
+验收标准
+展开前后处理结果一致。
+嵌套层级不影响端口类型检查。
+内部错误能定位到原始子系统节点。
+公开参数可通过统一控制协议访问。
+子系统模板可在其他工程实例化。
+5.19 代码生成子系统
+需求
+生成完整可编译 C/C++ 工程。
+保持代码清晰。
+复制组件算法源码。
+生成连接、实例、任务和注册代码。
+功能
+解析 Graph IR。
+选择组件源码。
+展开子系统。
+生成配置 Header。
+生成状态结构。
+生成 Buffer。
+生成 Task Entry。
+生成初始化和 Reset。
+生成控制注册表。
+生成 Probe 注册表。
+生成 CMake。
+生成报告。
+设计
+
+生成目录：
+
+generated/
+├── CMakeLists.txt
+├── include/
+├── src/
+├── components/
+├── platform/
+├── config/
+├── tests/
+└── reports/
+
+
+生成器采用确定性输出。相同输入、组件版本和 Target Profile 产生相同文件。
+
+算法实现通过复制组件目录进入生成工程。桥接代码由模板生成。
+
+子功能
+Source Collector
+Name Allocator
+State Generator
+Buffer Generator
+Schedule Generator
+Task Entry Generator
+Control Registry Generator
+Probe Registry Generator
+Build File Generator
+Report Generator
+Golden Output Tester
+Agent 任务
+定义 Generated Project Layout。
+实现源码收集。
+实现实例命名。
+生成单 Task 入口。
+生成状态和 Buffer。
+生成初始化和处理代码。
+生成控制注册表。
+生成 Probe 注册表。
+生成 CMake。
+实现多 Task 代码生成。
+实现目标平台模板。
+验收标准
+生成工程可独立编译。
+生成工程不依赖 Python Runtime。
+算法组件源码保持原文件结构。
+相同输入得到确定性输出。
+生成工程结果与 PC 动态模式一致。
+生成报告包含内存、延迟、任务和组件清单。
+5.20 目标平台适配子系统
+需求
+支持不同 MCU、DSP、OS 和编译器。
+隔离平台相关代码。
+描述平台能力和限制。
+支持外部调度和通信。
+功能
+Target Profile。
+编译器配置。
+内存区域配置。
+Task Entry Binding。
+时间测量。
+临界区。
+Cache 操作。
+Transport Binding。
+平台启动和停止。
+设计
+
+平台适配层提供：
+
+Platform Init。
+Memory Sections。
+Critical Section API。
+Timestamp API。
+Task Binding API。
+Cache Maintenance API。
+Transport Registration API。
+
+Target Profile 用于构建阶段能力检查。
+
+子功能
+Target Profile Loader
+Toolchain File Generator
+Platform HAL
+Critical Section Adapter
+Timestamp Adapter
+Task Adapter
+Memory Section Mapper
+Capability Validator
+Agent 任务
+定义 Target Profile Schema。
+实现 Generic Desktop Target。
+实现 Generic Bare-metal Target。
+实现 Generic RTOS Target。
+实现能力检查。
+编写平台移植指南。
+建立 Mock Target 测试。
+验收标准
+新平台通过公开接口接入。
+目标能力不足时在生成阶段报告。
+Task Entry 可由目标调度器调用。
+平台相关代码集中在 platform 目录。
+核心 DSP 组件不包含平台条件分支。
+5.21 教学内容子系统
+需求
+支持教师创建课程。
+支持学生按步骤操作。
+支持实时声音和图形反馈。
+支持自动检查。
+支持查看实际组件实现。
+功能
+课程列表。
+课程加载。
+步骤导航。
+操作提示。
+参数任务。
+图结构检查。
+信号结果检查。
+学习进度。
+教师答案。
+组件原理说明。
+设计
+
+Teaching Package 独立于组件和运行时。
+
+检查规则包含：
+
+节点存在。
+连接存在。
+参数范围。
+输出信号特征。
+Probe 结果。
+运行状态。
+
+教学视图调用真实 Graph、Runtime 和 Probe。
+
+Pure Data、Max/MSP 和 GNU Radio 的教学材料均采用可操作工程、可视化信号和逐步实验组织内容，可以作为课程包设计参考。
+
+子功能
+Lesson Loader
+Step Navigator
+Instruction Renderer
+Graph Rule Checker
+Signal Rule Checker
+Progress Store
+Teacher Mode
+Answer Package
+Lesson Authoring Tool
+Agent 任务
+定义 Teaching Package Schema。
+实现课程加载。
+实现步骤导航。
+实现图结构检查。
+实现参数检查。
+实现 Probe 结果检查。
+实现学习进度。
+制作首批基础课程。
+实现教师编辑入口。
+验收标准
+课程能够加载初始工程。
+学生操作可以自动检查。
+检查失败给出明确指引。
+教学视图使用实际运行数据。
+教师答案与学生工程分离。
+教学包可独立发布和版本管理。
+5.22 测试与质量保障子系统
+需求
+验证组件、Runtime、图编译、控制和生成代码。
+保证 PC 动态模式和生成代码一致。
+保证实时安全。
+保证跨平台构建稳定。
+功能
+单元测试。
+集成测试。
+端到端测试。
+Golden Vector。
+性能测试。
+长时间运行测试。
+并发测试。
+内存检查。
+生成工程测试。
+协议兼容测试。
+设计
+
+测试分层：
+
+Component Unit Test
+ABI Compliance Test
+Graph Compiler Test
+Runtime Integration Test
+Control Protocol Test
+UI End-to-End Test
+Generated Project Test
+Cross-mode Consistency Test
+Long-running Stability Test
+子功能
+Test Vector Repository
+Golden Output Manager
+Runtime Test Harness
+Mock Transport
+Mock Audio Backend
+Generated Build Runner
+Numerical Comparator
+Performance Baseline
+Regression Dashboard
+Agent 任务
+建立测试目录规范。
+建立 CI 构建矩阵。
+实现组件 Compliance Test。
+实现 Graph 测试。
+实现 Runtime Harness。
+实现动态与静态结果比较。
+实现内存和线程 Sanitizer。
+实现长时间 Ring Buffer 测试。
+实现 UI 端到端测试。
+验收标准
+每个子系统具有自动化测试。
+合并代码前必须通过核心闭环测试。
+生成工程在 CI 中实际编译和运行。
+DSP 数值误差有明确标准。
+性能退化超过阈值时报告。
+Sanitizer 不报告未处理问题。
+Agent 任务执行顺序
+阶段一：契约冻结
+
+依次完成：
+
+Project Schema。
+Component Manifest Schema。
+Component ABI v1。
+Port Type System。
+Parameter Model。
+Execution Domain Model。
+Probe Model。
+Control Protocol。
+Target Profile。
+
+阶段交付物：
+
+Schema 文件。
+ABI Header。
+概念说明。
+合法与非法样本。
+设计测试。
+
+阶段验收条件：
+
+核心对象均可序列化。
+关键接口均有版本字段。
+核心术语无重复含义。
+后续模块可以仅依赖公开契约开发。
+阶段二：命令行最小闭环
+
+依次完成：
+
+组件 Registry。
+Gain 组件。
+图编译器最小版本。
+组件构建器。
+PC Runtime 离线模式。
+WAV 输入输出。
+单 Task 代码生成。
+结果一致性测试。
+
+目标闭环：
+
+YAML Graph
+→ 构建 Gain 动态库
+→ 加载 Runtime
+→ 处理 WAV
+→ 输出 WAV
+→ 生成静态 C/C++ 工程
+→ 编译运行
+→ 比较输出
+
+阶段三：实时运行闭环
+
+依次完成：
+
+Audio Backend。
+实时 Runtime。
+Local Control Transport。
+参数注册表。
+Block Boundary Commit。
+RMS Probe。
+Waveform Probe。
+Runtime 统计。
+
+目标闭环：
+
+音频输入
+→ Gain
+→ Biquad
+→ 音频输出
+→ 修改参数
+→ 下一 Block 生效
+→ UI 或 CLI 读取 Probe
+
+阶段四：图形编辑闭环
+
+依次完成：
+
+Canvas。
+节点库。
+连线。
+参数面板。
+诊断显示。
+运行工具栏。
+Probe 面板。
+工程保存。
+子系统基础功能。
+
+目标闭环：
+
+拖入组件
+→ 连接
+→ 配置
+→ 运行
+→ 听音
+→ 调参
+→ 查看波形
+→ 保存工程
+
+阶段五：基础 DSP 和代码生成
+
+依次完成：
+
+Mixer。
+Interleave 和 Deinterleave。
+FIR。
+Biquad。
+Rebuffer。
+Resampler。
+内存规划。
+控制注册表生成。
+Probe 注册表生成。
+生成工程报告。
+阶段六：多任务
+
+依次完成：
+
+Task Domain。
+多 Task Execution Plan。
+SPSC Ring Buffer。
+Task Bridge。
+Rebuffer 跨任务支持。
+多 Task 代码生成。
+Deadline 和水位 Probe。
+长时间稳定性测试。
+阶段七：目标接入和教学功能
+
+依次完成：
+
+Target Profile。
+Generic Bare-metal Adapter。
+Generic RTOS Adapter。
+External Transport ABI。
+Bulk Transfer。
+Teaching Package。
+教学视图。
+自动检查。
+教师内容编辑工具。
+Agent 交付规则
+
+每个任务必须交付：
+
+设计说明。
+接口定义。
+实现代码。
+自动化测试。
+最小使用文档。
+示例输入。
+验收结果。
+已知限制。
+后续依赖。
+
+Agent 不得仅以编译通过作为完成标准。
+
+每个任务完成前需要检查：
+
+是否违反实时线程规则。
+是否引入 UI 与 Runtime 直接依赖。
+是否绕过统一控制协议。
+是否破坏工程格式兼容性。
+是否在生成代码中复制了不必要的框架复杂度。
+是否提供 PC 动态模式与静态模式测试。
+是否存在未声明的内存分配。
+是否有明确错误码和诊断。
+是否能够在无 UI 环境下测试。
+首个里程碑
+
+首个里程碑应实现：
+
+WAV Input
+→ Gain
+→ Biquad
+→ WAV Output
+
+
+并同时满足：
+
+工程由 YAML 描述。
+Gain 和 Biquad 使用独立 C/C++ 组件实现。
+Python 自动构建动态库。
+C++ Runtime 动态加载并处理音频。
+参数通过统一控制协议修改。
+RMS Probe 通过统一控制协议读取。
+同一工程可生成独立 CMake 项目。
+生成项目可以编译运行。
+动态运行与生成项目的输出满足一致性误差标准。
+全流程可由自动化测试执行。
+
+该里程碑完成后，再开始大规模 UI、多任务和目标平台适配开发。
