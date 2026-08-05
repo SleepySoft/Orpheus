@@ -304,3 +304,89 @@ def test_mp3_in_chinese_filename(client):
         assert (pdir / "outputs" / "test_output.wav").exists()
     finally:
         client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_output_fanout_reaches_all_downstream(client):
+    """A source output connected to multiple nodes must feed every consumer."""
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        resp = client.post("/api/projects", json={"name": name})
+        assert resp.status_code == 201, resp.text
+        doc = {
+            "version": "0.1.0",
+            "metadata": {"name": name, "description": "fanout"},
+            "sample_rate": 48000,
+            "block_size": 128,
+            "tasks": [
+                {"id": "default", "name": "Default", "sample_rate": 48000, "block_size": 128, "priority": 0}
+            ],
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "sig",
+                        "component": "orpheus.builtin.signal_gen",
+                        "task": "default",
+                        "params": {"frequency": 440.0, "amplitude": 0.5, "channels": 1},
+                        "position": {"x": 0, "y": 0},
+                    },
+                    {
+                        "id": "rms1",
+                        "component": "orpheus.builtin.probe_rms",
+                        "task": "default",
+                        "params": {"channels": 1},
+                        "position": {"x": 200, "y": 0},
+                    },
+                    {
+                        "id": "rms2",
+                        "component": "orpheus.builtin.probe_rms",
+                        "task": "default",
+                        "params": {"channels": 1},
+                        "position": {"x": 200, "y": 120},
+                    },
+                    {
+                        "id": "w1",
+                        "component": "orpheus.builtin.wav_out",
+                        "task": "default",
+                        "params": {"file_path": "outputs/o1.wav", "channels": 1, "sample_rate": 48000},
+                        "position": {"x": 400, "y": 0},
+                    },
+                    {
+                        "id": "w2",
+                        "component": "orpheus.builtin.wav_out",
+                        "task": "default",
+                        "params": {"file_path": "outputs/o2.wav", "channels": 1, "sample_rate": 48000},
+                        "position": {"x": 400, "y": 120},
+                    },
+                ],
+                "connections": [
+                    {"from": "sig:out", "to": "rms1:in"},
+                    {"from": "sig:out", "to": "rms2:in"},
+                    {"from": "rms1:out", "to": "w1:in"},
+                    {"from": "rms2:out", "to": "w2:in"},
+                ],
+            },
+        }
+        resp = client.put(f"/api/projects/{name}", json=doc)
+        assert resp.status_code == 200, resp.text
+
+        resp = client.post(f"/api/projects/{name}/run")
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+        by = {(p["node"], p["param"]): p["value"] for p in result["probes"]}
+        r1 = by.get(("rms1", "rms"))
+        r2 = by.get(("rms2", "rms"))
+        assert r1 is not None and r2 is not None, result["probes"]
+        assert r1 > 0.1, f"first branch silent: {r1}"
+        assert abs(r1 - r2) < 1e-6, f"fan-out branches differ: {r1} vs {r2}"
+
+        pdir = ROOT / "workspace" / name
+        b1 = (pdir / "outputs" / "o1.wav").read_bytes()
+        b2 = (pdir / "outputs" / "o2.wav").read_bytes()
+        assert b1 == b2 and len(b1) > 44
+    finally:
+        client.delete(f"/api/projects/{name}")

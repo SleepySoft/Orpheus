@@ -169,11 +169,20 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         inst.outputs.resize(cfg.output_ports.size(), nullptr);
     }
 
-    // Bind buffers to instance inputs/outputs by port id (unconnected pins stay nullptr)
+    // Bind buffers to instance inputs/outputs by port id (unconnected pins stay nullptr).
+    // Fan-out: connections sharing the same source port share one buffer, so every
+    // downstream node reads the data written by the producer (consumers are read-only).
+    std::map<std::string, OrpheusBuffer*> fanout_buffer;
     for (const auto& conn : plan_.connections) {
         PortRef from_ref(conn.from);
         PortRef to_ref(conn.to);
         OrpheusBuffer* buf = buffers_[conn.buffer].get();
+        auto shared = fanout_buffer.find(conn.from);
+        if (shared != fanout_buffer.end()) {
+            buf = shared->second;
+        } else {
+            fanout_buffer[conn.from] = buf;
+        }
 
         Instance* from_inst = instances_[from_ref.node_id].get();
         Instance* to_inst = instances_[to_ref.node_id].get();

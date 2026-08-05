@@ -113,8 +113,12 @@ class CodeGenerator:
         # Input/output buffer pointer arrays per node, sized by the ordered port
         # lists and bound by port id (unconnected pins stay NULL).
         port_buffer: dict[str, str] = {}  # "node:port" -> buffer global name
+        fanout_buf: dict[str, str] = {}   # source "node:port" -> first buffer id
         for conn in plan.connections:
             s_buf = conn["buffer"].replace("-", "_").replace(".", "_")
+            if conn["from"] not in fanout_buf:
+                fanout_buf[conn["from"]] = s_buf
+            s_buf = fanout_buf[conn["from"]]
             port_buffer[conn["from"]] = f'&g_buffer_{s_buf}'
             port_buffer[conn["to"]] = f'&g_buffer_{s_buf}'
 
