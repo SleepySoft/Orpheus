@@ -21,6 +21,7 @@ export const saveProject = (name, doc) => unwrap(api.put(`/projects/${name}`, do
 export const deleteProject = (name) => unwrap(api.delete(`/projects/${name}`));
 export const compileProject = (name) => unwrap(api.post(`/projects/${name}/compile`));
 export const runProject = (name) => unwrap(api.post(`/projects/${name}/run`));
+export const runGenerated = (name) => unwrap(api.post(`/projects/${name}/run_generated`));
 export const listDevices = () => unwrap(api.get('/devices'));
 export const rtStart = (name) => unwrap(api.post(`/projects/${name}/rt/start`));
 export const rtStop = (name) => unwrap(api.post(`/projects/${name}/rt/stop`));

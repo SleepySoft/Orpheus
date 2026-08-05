@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from orpheus_core.builder import BuildError, ComponentBuilder
 from orpheus_core.compiler import CompileError, ExecutionPlan, GraphCompiler
+from orpheus_core.generator import CodeGenerator
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.server.manager import ProjectError, ProjectManager, ProjectRecord
 from orpheus_core.server.rt import RtSessionManager
@@ -26,6 +27,17 @@ from orpheus_core.subgraph import flatten_project
 
 RUN_TIMEOUT_SECONDS = 60
 DEVICES_CACHE_SECONDS = 30
+DEVICE_COMPONENTS = {"orpheus.builtin.device_in", "orpheus.builtin.device_out"}
+
+
+def _wav_total_frames(path: Path) -> int:
+    try:
+        import wave
+
+        with wave.open(str(path), "rb") as w:
+            return w.getnframes()
+    except Exception:
+        return 0
 
 
 def _parse_probe_lines(stdout: str) -> list[dict[str, Any]]:
@@ -263,14 +275,33 @@ def create_app(project_root: Path) -> FastAPI:
 
     @app.post("/api/projects/{name}/run")
     def run_project(name: str) -> dict[str, Any]:
+        """Base-host run: dispatch by graph IO. Graphs with device components run
+        as a realtime session; pure file graphs run the offline host."""
         try:
             rec = manager.get(name)
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-        built = ensure_components_built(flattened_project(rec))
-        _, plan_path = compile_record(rec)
-        exe = ensure_runtime_built()
+        flat = flattened_project(rec)
+        has_device = any(n.component in DEVICE_COMPONENTS for n in flat.graph.nodes.values())
 
+        built = ensure_components_built(flat)
+        _, plan_path = compile_record(rec)
+
+        if has_device:
+            suffix = ".exe" if sys.platform == "win32" else ""
+            rt_exe = ensure_target_built("orpheus_rt_host", f"orpheus_rt_host{suffix}")
+            try:
+                session = rt_sessions.start(
+                    name,
+                    [str(rt_exe), str(plan_path), str(root / "build" / "components")],
+                    cwd=rec.directory,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            return {"mode": "realtime", "status": "started", "pid": session.proc.pid,
+                    "built_components": built}
+
+        exe = ensure_runtime_built()
         project_dir = rec.directory
         (project_dir / "outputs").mkdir(exist_ok=True)
         try:
@@ -291,6 +322,7 @@ def create_app(project_root: Path) -> FastAPI:
             if p.is_file()
         )
         return {
+            "mode": "offline",
             "status": "ok" if result.returncode == 0 else "error",
             "returncode": result.returncode,
             "stdout": result.stdout,
@@ -298,6 +330,88 @@ def create_app(project_root: Path) -> FastAPI:
             "built_components": built,
             "outputs": outputs,
             "probes": _parse_probe_lines(result.stdout),
+        }
+
+    @app.post("/api/projects/{name}/run_generated")
+    def run_generated_project(name: str) -> dict[str, Any]:
+        """Codegen run: generate a standalone C project, build it statically, run it."""
+        try:
+            rec = manager.get(name)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        flat = flattened_project(rec)
+        if any(n.component in DEVICE_COMPONENTS for n in flat.graph.nodes.values()):
+            raise HTTPException(
+                status_code=400,
+                detail="生成模式暂不支持设备组件（生成宿主为文件时钟）",
+            )
+        plan, _ = compile_record(rec)
+
+        gen_dir = rec.directory / "generated"
+        CodeGenerator(registry, root).generate(plan, gen_dir)
+
+        # reuse the toolchain of the main build (PATH may resolve a broken gcc)
+        build_dir = gen_dir / "build"
+        configure_args = ["cmake", "-S", str(gen_dir), "-B", str(build_dir), "-G", "Ninja"]
+        cache = root / "build" / "CMakeCache.txt"
+        if cache.exists():
+            for line in cache.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith("CMAKE_C_COMPILER:FILEPATH="):
+                    configure_args.append(f"-DCMAKE_C_COMPILER={line.split('=', 1)[1]}")
+
+        configure = subprocess.run(
+            configure_args, cwd=rec.directory, capture_output=True, text=True,
+        )
+        if configure.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"generated configure failed:\n{configure.stderr}")
+        build = subprocess.run(
+            ["cmake", "--build", str(build_dir)], cwd=rec.directory, capture_output=True, text=True
+        )
+        if build.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"generated build failed:\n{build.stderr}\n{build.stdout}",
+            )
+
+        suffix = ".exe" if sys.platform == "win32" else ""
+        exe = build_dir / f"orpheus_generated_app{suffix}"
+
+        # match the offline host's duration: blocks = ceil(wav_in frames / block_size)
+        blocks = 1000
+        for node in flat.graph.nodes.values():
+            if node.component == "orpheus.builtin.wav_in":
+                fp = node.params.get("file_path")
+                if fp:
+                    frames = _wav_total_frames(rec.directory / str(fp))
+                    if frames > 0:
+                        blocks = (frames + plan.block_size - 1) // plan.block_size
+                break
+
+        project_dir = rec.directory
+        (project_dir / "outputs").mkdir(exist_ok=True)
+        try:
+            result = subprocess.run(
+                [str(exe), str(blocks)], cwd=project_dir, capture_output=True, text=True,
+                timeout=RUN_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(
+                status_code=500, detail=f"generated app timed out after {RUN_TIMEOUT_SECONDS}s"
+            ) from exc
+
+        outputs = sorted(
+            p.relative_to(project_dir).as_posix()
+            for p in (project_dir / "outputs").rglob("*")
+            if p.is_file()
+        )
+        return {
+            "mode": "generated",
+            "status": "ok" if result.returncode == 0 else "error",
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "blocks": blocks,
+            "outputs": outputs,
         }
 
     @app.get("/api/projects/{name}/files")

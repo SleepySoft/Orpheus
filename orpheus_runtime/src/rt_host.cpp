@@ -290,25 +290,29 @@ int main(int argc, char** argv) {
             if (kv.second.component == "orpheus.builtin.device_in") device_in_id = kv.first;
             else if (kv.second.component == "orpheus.builtin.device_out") device_out_id = kv.first;
         }
-        if (device_in_id.empty() || device_out_id.empty()) {
-            std::cerr << "Plan must contain device_in and device_out nodes" << std::endl;
+        bool has_in = !device_in_id.empty();
+        bool has_out = !device_out_id.empty();
+        if (!has_in && !has_out) {
+            std::cerr << "Plan has no device_in/device_out nodes; "
+                         "use orpheus_runtime (file-clocked host) instead" << std::endl;
             return 1;
         }
 
         HostContext host;
         host.runtime = &runtime;
-        host.device_in_buf = runtime.get_output_buffer(device_in_id, "out");
-        host.device_out_buf = runtime.get_input_buffer(device_out_id, "in");
+        host.device_in_buf = has_in ? runtime.get_output_buffer(device_in_id, "out") : nullptr;
+        host.device_out_buf = has_out ? runtime.get_input_buffer(device_out_id, "in") : nullptr;
         host.channels = 2;
         host.block_size = block_size;
         host.rb = nullptr;
 
-        std::string chs = get_param(plan, device_in_id, "channels");
+        std::string chs = has_in ? get_param(plan, device_in_id, "channels")
+                                 : get_param(plan, device_out_id, "channels");
         if (!chs.empty()) host.channels = (uint32_t)std::atoi(chs.c_str());
 
-        std::string in_device = get_param(plan, device_in_id, "device");
-        std::string out_device = get_param(plan, device_out_id, "device");
-        std::string source = get_param(plan, device_in_id, "source", "microphone");
+        std::string in_device = has_in ? get_param(plan, device_in_id, "device") : "";
+        std::string out_device = has_out ? get_param(plan, device_out_id, "device") : "";
+        std::string source = has_in ? get_param(plan, device_in_id, "source", "microphone") : "";
         bool loopback = (source == "loopback");
 
         ma_device_id in_id, out_id;
@@ -324,8 +328,12 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        if (!loopback) {
-            // microphone/line-in: one duplex device
+        // Device topology by graph content (IO is the graph's business):
+        //   in+out, mic:      one duplex device
+        //   in+out, loopback: loopback capture -> ring buffer -> playback master clock
+        //   out only:         playback device clock (e.g. wav_in -> speakers)
+        //   in only:          capture/loopback device clock (e.g. system audio -> wav_out)
+        if (has_in && has_out && !loopback) {
             ma_device_config cfg = ma_device_config_init(ma_device_type_duplex);
             cfg.capture.pDeviceID = p_in_id;
             cfg.capture.format = ma_format_f32;
@@ -347,8 +355,7 @@ int main(int argc, char** argv) {
                 ma_device_uninit(&play_device);
                 return 1;
             }
-        } else {
-            // loopback: capture system mix into ring buffer, playback device drives the graph
+        } else if (has_in && has_out && loopback) {
             if (ma_pcm_rb_init(ma_format_f32, host.channels, sample_rate / 10, NULL, NULL, &rb) != MA_SUCCESS) {
                 std::cerr << "Failed to init ring buffer" << std::endl;
                 return 1;
@@ -395,9 +402,38 @@ int main(int argc, char** argv) {
                 ma_pcm_rb_uninit(&rb);
                 return 1;
             }
+        } else {
+            // single device: it is the clock; data_callback handles null in/out
+            ma_device_config cfg = ma_device_config_init(
+                has_out ? ma_device_type_playback
+                        : (loopback ? ma_device_type_loopback : ma_device_type_capture));
+            if (has_out) {
+                cfg.playback.pDeviceID = p_out_id;
+                cfg.playback.format = ma_format_f32;
+                cfg.playback.channels = host.channels;
+            } else {
+                cfg.capture.pDeviceID = p_in_id;
+                cfg.capture.format = ma_format_f32;
+                cfg.capture.channels = host.channels;
+            }
+            cfg.sampleRate = sample_rate;
+            cfg.periodSizeInFrames = block_size;
+            cfg.dataCallback = data_callback;
+            cfg.pUserData = &host;
+            if (ma_device_init(NULL, &cfg, &play_device) != MA_SUCCESS) {
+                std::cerr << "Failed to initialize audio device" << std::endl;
+                return 1;
+            }
+            play_inited = true;
+            if (ma_device_start(&play_device) != MA_SUCCESS) {
+                std::cerr << "Failed to start audio device" << std::endl;
+                ma_device_uninit(&play_device);
+                return 1;
+            }
         }
 
-        std::cout << "LOG rt_host running (source=" << (loopback ? "loopback" : "microphone")
+        std::cout << "LOG rt_host running (in=" << (has_in ? (loopback ? "loopback" : "mic") : "none")
+                  << ", out=" << (has_out ? "playback" : "none")
                   << ", channels=" << host.channels << ", sample_rate=" << sample_rate
                   << ", block_size=" << block_size << ")" << std::endl;
 

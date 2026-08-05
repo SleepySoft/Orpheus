@@ -87,4 +87,7 @@ static int get_param(void* state, const char* id, OrpheusValue* v) {
 static const OrpheusComponentInterface iface = {
     get_desc, create, destroy, prepare, reset, process, set_param, get_param, NULL
 };
-ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void) { return &iface; }
+#ifndef ORPHEUS_ENTRY_NAME
+#define ORPHEUS_ENTRY_NAME orpheus_get_interface
+#endif
+ORPHEUS_API const OrpheusComponentInterface* ORPHEUS_ENTRY_NAME(void) { return &iface; }

@@ -23,6 +23,10 @@ class CodeGenerator:
     def _sanitized_node_id(self, node_id: str) -> str:
         return node_id.replace("-", "_").replace(" ", "_")
 
+    @staticmethod
+    def _c_escape(value: str) -> str:
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
     def generate(self, plan: ExecutionPlan, output_dir: Path) -> None:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -32,6 +36,10 @@ class CodeGenerator:
         include_dir = output_dir / "include"
         for d in [components_dir, src_dir, include_dir]:
             d.mkdir(parents=True, exist_ok=True)
+
+        # The generated project must be self-contained: vendor the ABI header.
+        abi_header = self.project_root / "orpheus_abi" / "include" / "orpheus_abi.h"
+        shutil.copy2(abi_header, include_dir / "orpheus_abi.h")
 
         # Collect unique components
         component_ids = sorted({plan.node_configs[n]["component"] for n in plan.nodes})
@@ -73,11 +81,12 @@ class CodeGenerator:
             lines.append(f'#include "{header_name}"')
         lines.append("")
 
-        # External component interface getters
-        lines.append('extern const OrpheusComponentInterface* orpheus_get_interface(void);')
+        # Per-component entry points: each component lib is compiled with
+        # ORPHEUS_ENTRY_NAME=<target>_get_interface so static linking has no
+        # symbol collision (dynamic loading keeps the default orpheus_get_interface).
         for cid in component_ids:
             comp_target = self._component_target_name(cid)
-            lines.append(f'static const OrpheusComponentInterface* {comp_target}_get_interface(void) {{ return orpheus_get_interface(); }}')
+            lines.append(f'extern const OrpheusComponentInterface* {comp_target}_get_interface(void);')
         lines.append("")
 
         # State declarations
@@ -95,23 +104,49 @@ class CodeGenerator:
             lines.append(f'static OrpheusBuffer g_buffer_{s_buf} = {{0}};')
         lines.append("")
 
-        # Input/output buffer pointer arrays per node
+        # Input/output buffer pointer arrays per node, sized by the ordered port
+        # lists and bound by port id (unconnected pins stay NULL).
+        port_buffer: dict[str, str] = {}  # "node:port" -> buffer global name
+        for conn in plan.connections:
+            s_buf = conn["buffer"].replace("-", "_").replace(".", "_")
+            port_buffer[conn["from"]] = f'&g_buffer_{s_buf}'
+            port_buffer[conn["to"]] = f'&g_buffer_{s_buf}'
+
         for node_id in plan.execution_order:
             s = self._sanitized_node_id(node_id)
-            in_bufs = []
-            out_bufs = []
-            for conn in plan.connections:
-                from_node, from_port = conn["from"].split(":")
-                to_node, to_port = conn["to"].split(":")
-                s_buf = conn["buffer"].replace("-", "_").replace(".", "_")
-                if from_node == node_id:
-                    out_bufs.append(f'&g_buffer_{s_buf}')
-                if to_node == node_id:
-                    in_bufs.append(f'&g_buffer_{s_buf}')
-            if in_bufs:
-                lines.append(f'static OrpheusBuffer* g_inputs_{s}[{len(in_bufs)}];')
-            if out_bufs:
-                lines.append(f'static OrpheusBuffer* g_outputs_{s}[{len(out_bufs)}];')
+            cfg = plan.node_configs[node_id]
+            n_in = len(cfg.get("input_ports", []))
+            n_out = len(cfg.get("output_ports", []))
+            if n_in:
+                lines.append(f'static OrpheusBuffer* g_inputs_{s}[{n_in}] = {{0}};')
+            if n_out:
+                lines.append(f'static OrpheusBuffer* g_outputs_{s}[{n_out}] = {{0}};')
+        lines.append("")
+
+        # Static parameter tables per node (ids + typed values)
+        for node_id in plan.execution_order:
+            s = self._sanitized_node_id(node_id)
+            cfg = plan.node_configs[node_id]
+            params = cfg.get("params", {})
+            if not params:
+                continue
+            ids = ", ".join(f'"{pid}"' for pid in params)
+            lines.append(f'static const char* g_param_ids_{s}[] = {{{ids}}};')
+            vals = []
+            for pid, pval in params.items():
+                if isinstance(pval, bool):
+                    vals.append(f'{{ .type = ORPHEUS_VALUE_BOOL, .value.b = {str(pval).lower()} }}')
+                elif isinstance(pval, int):
+                    vals.append(f'{{ .type = ORPHEUS_VALUE_INT, .value.i32 = {pval} }}')
+                elif isinstance(pval, float):
+                    vals.append(f'{{ .type = ORPHEUS_VALUE_FLOAT, .value.f32 = {pval}f }}')
+                else:
+                    vals.append(
+                        f'{{ .type = ORPHEUS_VALUE_STRING, .value.str = "{self._c_escape(str(pval))}" }}'
+                    )
+            lines.append(f'static OrpheusValue g_param_vals_{s}[] = {{')
+            lines.append(f'    {", ".join(vals)}')
+            lines.append('};')
         lines.append("")
 
         # Init function
@@ -133,21 +168,18 @@ class CodeGenerator:
             lines.append(f'    g_iface_{s} = {comp_target}_get_interface();')
         lines.append("")
 
-        # Assign buffer pointer arrays
+        # Assign buffer pointer arrays by port id -> slot index
         for node_id in plan.execution_order:
             s = self._sanitized_node_id(node_id)
-            in_idx = 0
-            out_idx = 0
-            for conn in plan.connections:
-                from_node, from_port = conn["from"].split(":")
-                to_node, to_port = conn["to"].split(":")
-                s_buf = conn["buffer"].replace("-", "_").replace(".", "_")
-                if from_node == node_id:
-                    lines.append(f'    g_outputs_{s}[{out_idx}] = &g_buffer_{s_buf};')
-                    out_idx += 1
-                if to_node == node_id:
-                    lines.append(f'    g_inputs_{s}[{in_idx}] = &g_buffer_{s_buf};')
-                    in_idx += 1
+            cfg = plan.node_configs[node_id]
+            for idx, port_id in enumerate(cfg.get("input_ports", [])):
+                buf = port_buffer.get(f"{node_id}:{port_id}")
+                if buf:
+                    lines.append(f'    g_inputs_{s}[{idx}] = {buf};')
+            for idx, port_id in enumerate(cfg.get("output_ports", [])):
+                buf = port_buffer.get(f"{node_id}:{port_id}")
+                if buf:
+                    lines.append(f'    g_outputs_{s}[{idx}] = {buf};')
         lines.append("")
 
         # Initialize buffer structs
@@ -161,17 +193,21 @@ class CodeGenerator:
             lines.append(f'    g_buffer_{s_buf}.interleaved = 1;')
         lines.append("")
 
-        # Create and prepare instances
+        # Create and prepare instances (with per-node parameter tables)
         for node_id in plan.execution_order:
             cfg = plan.node_configs[node_id]
             s = self._sanitized_node_id(node_id)
-            comp = cfg["component"]
-            info = self.registry.get(comp)
-            channels = 2
-            for pid, pval in cfg.get("params", {}).items():
-                if pid == "channels":
-                    channels = int(float(pval))
+            params = cfg.get("params", {})
+            channels = int(float(params.get("channels", 2)))
             lines.append(f'    config.channels = {channels};')
+            if params:
+                lines.append(f'    config.param_ids = g_param_ids_{s};')
+                lines.append(f'    config.param_values = g_param_vals_{s};')
+                lines.append(f'    config.param_count = {len(params)};')
+            else:
+                lines.append('    config.param_ids = NULL;')
+                lines.append('    config.param_values = NULL;')
+                lines.append('    config.param_count = 0;')
             lines.append(f'    rc = g_iface_{s}->create(&g_state_{s}, &config);')
             lines.append(f'    if (rc != ORPHEUS_OK) return rc;')
             lines.append(f'    rc = g_iface_{s}->prepare(g_state_{s}, &config);')
@@ -193,40 +229,30 @@ class CodeGenerator:
         for node_id in plan.execution_order:
             cfg = plan.node_configs[node_id]
             s = self._sanitized_node_id(node_id)
-            in_bufs = []
-            out_bufs = []
-            for conn in plan.connections:
-                from_node, from_port = conn["from"].split(":")
-                to_node, to_port = conn["to"].split(":")
-                if from_node == node_id:
-                    out_bufs.append(f'g_outputs_{s}')
-                if to_node == node_id:
-                    in_bufs.append(f'g_inputs_{s}')
-            # Dedup
-            in_name = in_bufs[0] if in_bufs else 'NULL'
-            out_name = out_bufs[0] if out_bufs else 'NULL'
-            in_count = len(set(in_bufs)) if in_bufs else 0
-            out_count = len(set(out_bufs)) if out_bufs else 0
+            n_in = len(cfg.get("input_ports", []))
+            n_out = len(cfg.get("output_ports", []))
+            in_name = f'g_inputs_{s}' if n_in else 'NULL'
+            out_name = f'g_outputs_{s}' if n_out else 'NULL'
             lines.append(f'    ctx.state = g_state_{s};')
             lines.append(f'    ctx.inputs = (const OrpheusBuffer* const*){in_name};')
             lines.append(f'    ctx.outputs = {out_name};')
-            lines.append(f'    ctx.input_count = {in_count};')
-            lines.append(f'    ctx.output_count = {out_count};')
+            lines.append(f'    ctx.input_count = {n_in};')
+            lines.append(f'    ctx.output_count = {n_out};')
             lines.append(f'    rc = g_iface_{s}->process(g_state_{s}, &ctx);')
             lines.append(f'    if (rc != ORPHEUS_OK) return rc;')
         lines.append('    return ORPHEUS_OK;')
         lines.append('}')
         lines.append("")
 
-        # Main stub
+        # Main stub: argv[1] = number of blocks to process (default 1000)
         lines.append('int main(int argc, char** argv) {')
-        lines.append('    (void)argc; (void)argv;')
+        lines.append('    int blocks = argc > 1 ? atoi(argv[1]) : 1000;')
         lines.append(f'    int rc = orpheus_generated_init({plan.sample_rate}, {plan.block_size});')
         lines.append('    if (rc != ORPHEUS_OK) {')
         lines.append('        fprintf(stderr, "init failed: %d\\n", rc);')
         lines.append('        return 1;')
         lines.append('    }')
-        lines.append(f'    for (int i = 0; i < 1000; ++i) {{')
+        lines.append('    for (int i = 0; i < blocks; ++i) {')
         lines.append(f'        rc = orpheus_generated_process({plan.block_size});')
         lines.append('        if (rc != ORPHEUS_OK) return 1;')
         lines.append('    }')
@@ -244,7 +270,6 @@ class CodeGenerator:
         lines.append('set(CMAKE_C_STANDARD_REQUIRED ON)')
         lines.append("")
         lines.append('include_directories(${CMAKE_SOURCE_DIR}/include)')
-        lines.append('include_directories(${CMAKE_SOURCE_DIR}/../orpheus_abi/include)')
         lines.append('add_definitions(-DORPHEUS_API=)')
         lines.append("")
 
@@ -254,6 +279,9 @@ class CodeGenerator:
             lines.append(f'add_library({comp_target} STATIC)')
             lines.append(f'target_sources({comp_target} PRIVATE components/{comp_target}/src/{short}.c)')
             lines.append(f'target_include_directories({comp_target} PUBLIC components/{comp_target}/include)')
+            lines.append(
+                f'target_compile_definitions({comp_target} PRIVATE ORPHEUS_ENTRY_NAME={comp_target}_get_interface)'
+            )
             lines.append("")
 
         lines.append('add_executable(orpheus_generated_app src/main.c)')

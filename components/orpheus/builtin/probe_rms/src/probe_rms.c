@@ -159,6 +159,9 @@ static const OrpheusComponentInterface probe_rms_interface = {
     .get_state_value = NULL
 };
 
-ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void) {
+#ifndef ORPHEUS_ENTRY_NAME
+#define ORPHEUS_ENTRY_NAME orpheus_get_interface
+#endif
+ORPHEUS_API const OrpheusComponentInterface* ORPHEUS_ENTRY_NAME(void) {
     return &probe_rms_interface;
 }

@@ -83,8 +83,10 @@ def test_rt_session_lifecycle(client):
         resp = client.post("/api/projects", json={"name": name, "from_example": "device_gain_biquad"})
         assert resp.status_code == 201, resp.text
 
-        resp = client.post(f"/api/projects/{name}/rt/start")
+        # /run auto-dispatches device graphs to a realtime session
+        resp = client.post(f"/api/projects/{name}/run")
         assert resp.status_code == 200, resp.text
+        assert resp.json()["mode"] == "realtime"
 
         # wait for the host to come up (or fail on machines without audio devices)
         snap = None
@@ -118,6 +120,36 @@ def test_rt_session_lifecycle(client):
         assert not snap["running"]
     finally:
         client.post(f"/api/projects/{name}/rt/stop")
+        client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_generated_run_matches_dynamic_run(client):
+    """Design principle: codegen mode and dynamic mode must produce identical audio."""
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        resp = client.post("/api/projects", json={"name": name, "from_example": "wav_gain_biquad"})
+        assert resp.status_code == 201, resp.text
+        out = ROOT / "workspace" / name / "outputs" / "test_output.wav"
+
+        resp = client.post(f"/api/projects/{name}/run")
+        assert resp.status_code == 200 and resp.json()["status"] == "ok", resp.text
+        dynamic_bytes = out.read_bytes()
+
+        resp = client.post(f"/api/projects/{name}/run_generated")
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["mode"] == "generated"
+        assert result["status"] == "ok", result["stderr"]
+        generated_bytes = out.read_bytes()
+
+        assert len(generated_bytes) == len(dynamic_bytes)
+        assert generated_bytes == dynamic_bytes, "generated output differs from dynamic run"
+    finally:
         client.delete(f"/api/projects/{name}")
 
 

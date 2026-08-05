@@ -748,3 +748,13 @@ orpheus_platform_memory_section_bind(...);
 - **动态加载（UI 运行所走）**：图编译只产出 plan.json 数据（拓扑、Buffer 分配、签名），不含任何代码生成；组件 DLL 预编译（缺了才补建）；基座程序（orpheus_runtime / orpheus_rt_host）LoadLibrary 动态加载，经 C ABI 函数表调用。图改动零 C 编译，编辑-运行循环快，面向 PC 设计/调试。
 - **代码生成（部署路径）**：`orpheus-cli generate` 展开为独立 C 工程，静态编译，无 DLL 依赖，可交叉编译到嵌入式目标。目前仅支持单 Task、无探针。
 - 两条路径共享同一份组件 C 源码与 ABI 契约，设计原则要求结果一致（自动化一致性测试待补）。
+
+---
+
+## 22. 运行方式统一与生成模式修复（已实现）
+
+- **概念澄清**：运行方式只有两种——基座动态加载 / 代码生成后静态编译运行。WAV 还是系统音频是**输入输出组件**的事，可自由组合（如系统声音 → 处理 → WAV 录制）。
+- **统一入口**：`POST /api/projects/{name}/run` 按图内容分流——含 device_in/device_out 的图进入实时会话（rt_host），纯文件图走离线宿主；UI 只有一个「▶ 运行」按钮。「⚙ 编译后运行」走 `run_generated`（生成独立 C 工程 → 静态构建 → 运行）。
+- **rt_host 按图组合设备**：in+out+mic=duplex；in+out+loopback=环回+播放双设备；仅 out=播放时钟（WAV 播到声卡）；仅 in=采集/环回时钟（系统声音录到 WAV）。
+- **生成器修复**：组件入口函数支持 `ORPHEUS_ENTRY_NAME` 宏（静态链接时各组件入口唯一，修复了之前所有节点共享第一个组件入口符号导致的崩溃——此前生成工程只验证过编译未验证运行）；生成参数表（类型化 OrpheusValue）传入 prepare；Buffer 指针按端口 ID 槽位绑定；ABI 头文件随工程复制（自包含，可脱离仓库编译）；main 支持 argv 指定块数。
+- **一致性测试**：`test_generated_run_matches_dynamic_run` 对同一工程分别走动态/生成两条路径，逐字节比较输出 WAV（设计原则 5 的自动化落实）。

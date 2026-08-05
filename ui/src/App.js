@@ -603,6 +603,12 @@ function Editor() {
     setStatus('运行中…');
     try {
       const r = await api.runProject(current);
+      if (r.mode === 'realtime') {
+        // device graph: base host started a realtime session
+        setRt({ running: true, logs: [], probes: {} });
+        setStatus('实时运行中（含设备组件，调参数即时生效）');
+        return;
+      }
       setStatus(r.status === 'ok' ? '运行成功' : `运行失败 (exit ${r.returncode})`);
       setOutputs(r.outputs || []);
       // inject probe readback values into node bodies (e.g. level meters)
@@ -638,17 +644,23 @@ function Editor() {
     }
   }, [current, ensureSaved]);
 
-  const doRtStart = useCallback(async () => {
+  const doRunGenerated = useCallback(async () => {
     if (!current) return;
     await ensureSaved();
-    setStatus('启动实时会话…');
+    setStatus('生成代码并构建中…');
     try {
-      await api.rtStart(current);
-      setRt({ running: true, logs: [], probes: {} });
-      setStatus('实时运行中（调参数即时生效）');
+      const r = await api.runGenerated(current);
+      setStatus(
+        r.status === 'ok' ? `编译后运行成功（${r.blocks} 块）` : `编译后运行失败 (exit ${r.returncode})`
+      );
+      setOutputs(r.outputs || []);
+      setLog({
+        title: '编译后运行输出',
+        lines: [r.stdout, r.stderr ? `stderr:\n${r.stderr}` : null].filter(Boolean),
+      });
     } catch (e) {
-      setStatus('实时启动失败');
-      setLog({ title: '实时启动错误', lines: [api.errorDetail(e)] });
+      setStatus('编译后运行失败');
+      setLog({ title: '编译后运行错误', lines: [api.errorDetail(e)] });
     }
   }, [current, ensureSaved]);
 
@@ -738,15 +750,14 @@ function Editor() {
           编译
         </button>
         <button className="primary" onClick={doRun} disabled={!current || rt.running}>
-          ▶ 离线运行
+          ▶ 运行
         </button>
-        {rt.running ? (
+        <button onClick={doRunGenerated} disabled={!current || rt.running}>
+          ⚙ 编译后运行
+        </button>
+        {rt.running && (
           <button className="danger-tool" onClick={doRtStop}>
             ■ 停止
-          </button>
-        ) : (
-          <button className="primary" onClick={doRtStart} disabled={!current}>
-            ⏺ 实时运行
           </button>
         )}
         {current && (

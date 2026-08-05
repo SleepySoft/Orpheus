@@ -112,6 +112,7 @@ def test_run_example_end_to_end(client):
         resp = client.post(f"/api/projects/{name}/run")
         assert resp.status_code == 200, resp.text
         result = resp.json()
+        assert result["mode"] == "offline"  # pure file graph -> offline host
         assert result["status"] == "ok", result["stderr"]
         assert "outputs/test_output.wav" in result["outputs"]
 
