@@ -786,3 +786,4 @@ orpheus_platform_memory_section_bind(...);
 - **文件控件扩展**：参数级 `file_ext`（如 `.mp3`）控制文件浏览/上传的扩展名过滤（`widgets.js` FileWidget），默认仍为 `.wav`。
 - **代码生成**：生成器改为按 manifest `sources` 列表编译组件（支持多源文件），并复制 `third_party/miniaudio.h` 到生成工程（自包含，可脱离仓库编译）；修复生成 main 不调用 `destroy` 导致 wav_out 不落盘的问题（此前一致性测试空洞通过——比较的是动态运行留下的同一文件）。
 - 示例：`examples/mp3_play.yaml`（MP3 → Gain → WAV），测试素材 `examples/test_input.mp3`（ffmpeg 生成的 2s 440Hz 正弦）。
+- **Windows 中文文件名**：wav_in / mp3_in 的文件路径是 UTF-8，而 Windows 窄 `fopen` 按 ANSI 代码页解释，中文/特殊字符文件名会打不开（prepare 返回 -6）。已改用宽字符 API（`_wfopen` / `ma_decoder_init_file_w`）打开。

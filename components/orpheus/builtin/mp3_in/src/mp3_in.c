@@ -6,8 +6,25 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #define MP3_IN_MAX_FRAMES (1024 * 1024 * 16) /* 16M 帧上限（基本版） */
 #define MP3_IN_READ_CHUNK 4096
+
+#ifdef _WIN32
+/* Windows 窄 fopen 按 ANSI 代码页解释路径，UTF-8 中文文件名打不开，
+   这里转成 UTF-16 使用宽字符 API。 */
+static wchar_t* utf8_to_wide(const char* utf8) {
+    int len = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
+    if (len <= 0) return NULL;
+    wchar_t* w = (wchar_t*)malloc((size_t)len * sizeof(wchar_t));
+    if (!w) return NULL;
+    MultiByteToWideChar(CP_UTF8, 0, utf8, -1, w, len);
+    return w;
+}
+#endif
 
 typedef struct {
     char file_path[512];
@@ -125,7 +142,15 @@ static int mp3_in_prepare(void* state, const OrpheusConfig* config) {
     uint32_t sample_rate = config->sample_rate > 0 ? config->sample_rate : 48000;
     ma_decoder_config dec_cfg = ma_decoder_config_init(ma_format_f32, s->channels, sample_rate);
     ma_decoder decoder;
-    if (ma_decoder_init_file(s->file_path, &dec_cfg, &decoder) != MA_SUCCESS) {
+#ifdef _WIN32
+    wchar_t* wpath = utf8_to_wide(s->file_path);
+    if (!wpath) return ORPHEUS_ERR_OUT_OF_MEMORY;
+    ma_result mr = ma_decoder_init_file_w(wpath, &dec_cfg, &decoder);
+    free(wpath);
+#else
+    ma_result mr = ma_decoder_init_file(s->file_path, &dec_cfg, &decoder);
+#endif
+    if (mr != MA_SUCCESS) {
         return ORPHEUS_ERR_NOT_FOUND;
     }
 

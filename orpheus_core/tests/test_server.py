@@ -250,3 +250,57 @@ def test_mp3_in_offline_run(client):
         assert out.exists() and out.stat().st_size > 44
     finally:
         client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_mp3_in_chinese_filename(client):
+    """MP3 input must open UTF-8 (Chinese) filenames on Windows via wide APIs."""
+    import shutil
+
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    fname = "测试 音乐.mp3"
+    try:
+        resp = client.post("/api/projects", json={"name": name})
+        assert resp.status_code == 201, resp.text
+        pdir = ROOT / "workspace" / name
+        shutil.copy2(ROOT / "examples" / "test_input.mp3", pdir / fname)
+
+        doc = {
+            "version": "0.1.0",
+            "metadata": {"name": name, "description": "chinese filename"},
+            "sample_rate": 48000,
+            "block_size": 128,
+            "tasks": [
+                {"id": "default", "name": "Default", "sample_rate": 48000, "block_size": 128, "priority": 0}
+            ],
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "mp3",
+                        "component": "orpheus.builtin.mp3_in",
+                        "task": "default",
+                        "params": {"file_path": fname, "channels": 2},
+                        "position": {"x": 0, "y": 0},
+                    },
+                    {
+                        "id": "wav_out",
+                        "component": "orpheus.builtin.wav_out",
+                        "task": "default",
+                        "params": {"file_path": "outputs/test_output.wav", "channels": 2, "sample_rate": 48000},
+                        "position": {"x": 200, "y": 0},
+                    },
+                ],
+                "connections": [{"from": "mp3:out", "to": "wav_out:in"}],
+            },
+        }
+        client.put(f"/api/projects/{name}", json=doc)
+        resp = client.post(f"/api/projects/{name}/run")
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+        assert (pdir / "outputs" / "test_output.wav").exists()
+    finally:
+        client.delete(f"/api/projects/{name}")

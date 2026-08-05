@@ -4,7 +4,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #define WAV_IN_MAX_SAMPLES (1024 * 1024 * 16) /* 16M samples limit for basic version */
+
+#ifdef _WIN32
+/* Windows 窄 fopen 按 ANSI 代码页解释路径，UTF-8 中文文件名打不开，
+   这里转成 UTF-16 使用宽字符 API。 */
+static wchar_t* utf8_to_wide(const char* utf8) {
+    int len = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
+    if (len <= 0) return NULL;
+    wchar_t* w = (wchar_t*)malloc((size_t)len * sizeof(wchar_t));
+    if (!w) return NULL;
+    MultiByteToWideChar(CP_UTF8, 0, utf8, -1, w, len);
+    return w;
+}
+#endif
 
 typedef struct {
     char file_path[512];
@@ -78,7 +95,13 @@ static uint32_t read_u32(const uint8_t* p) {
 }
 
 static int wav_read_file(const char* path, float** out_samples, uint32_t* out_total_frames, uint32_t channels) {
+#ifdef _WIN32
+    wchar_t* wpath = utf8_to_wide(path);
+    FILE* f = wpath ? _wfopen(wpath, L"rb") : NULL;
+    free(wpath);
+#else
     FILE* f = fopen(path, "rb");
+#endif
     if (!f) return ORPHEUS_ERR_NOT_FOUND;
 
     uint8_t header[44];
