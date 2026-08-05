@@ -4,6 +4,8 @@ category: 文件
 version: 1.0.0
 abi_version: 1
 package_type: source
+clock_source: true
+clock_domain: file
 sources:
   - src/wav_in.c
 headers:

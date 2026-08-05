@@ -57,6 +57,7 @@ private:
     std::map<std::string, std::unique_ptr<Instance>> instances_;
     std::map<std::string, std::unique_ptr<OrpheusBuffer>> buffers_;
     std::vector<float> buffer_memory_;
+    uint64_t block_counter_ = 0;  // for rate-divisor scheduling
 
     int prepare_instance(Instance& inst, const NodeConfig& cfg);
 };

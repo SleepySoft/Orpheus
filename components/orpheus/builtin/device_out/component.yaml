@@ -4,6 +4,8 @@ category: 设备
 version: 1.0.0
 abi_version: 1
 package_type: source
+clock_source: true
+clock_domain: device
 sources:
   - src/device_out.c
 headers:

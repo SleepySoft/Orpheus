@@ -73,6 +73,14 @@
         }
       }
     },
+    "clock_source": { "type": "boolean", "description": "This component binds the graph to an external clock (device/file/timer)" },
+    "clock_domain": { "type": "string", "description": "Clock domain id, e.g. device/file; equal domains are compatible" },
+    "scheduling": {
+      "type": "object",
+      "properties": {
+        "divisor": { "type": ["integer", "string"], "description": "Rate divisor expression for the OUTPUT domain, e.g. param:factor" }
+      }
+    },
     "memory": {
       "type": "object",
       "properties": {

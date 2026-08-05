@@ -576,6 +576,20 @@ button.danger {
 .node-title {
   font-weight: 600;
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rate-badge {
+  font-size: 10px;
+  font-weight: 500;
+  color: #1864ab;
+  background: #d0ebff;
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
 }
 
 .node-subtitle {

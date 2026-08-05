@@ -216,11 +216,11 @@ class CodeGenerator:
         lines.append('}')
         lines.append("")
 
-        # Process function
+        # Process function (multi-rate: per-node frames + divisor-gated firing)
+        lines.append('static uint64_t g_block_counter = 0;')
         lines.append('static int orpheus_generated_process(uint32_t frame_count) {')
         lines.append('    int rc;')
         lines.append('    OrpheusProcessContext ctx;')
-        lines.append('    ctx.frame_count = frame_count;')
         lines.append(f'    ctx.sample_rate = {plan.sample_rate};')
         lines.append('    ctx.scratch = NULL;')
         lines.append('    ctx.scratch_size = 0;')
@@ -233,13 +233,22 @@ class CodeGenerator:
             n_out = len(cfg.get("output_ports", []))
             in_name = f'g_inputs_{s}' if n_in else 'NULL'
             out_name = f'g_outputs_{s}' if n_out else 'NULL'
-            lines.append(f'    ctx.state = g_state_{s};')
-            lines.append(f'    ctx.inputs = (const OrpheusBuffer* const*){in_name};')
-            lines.append(f'    ctx.outputs = {out_name};')
-            lines.append(f'    ctx.input_count = {n_in};')
-            lines.append(f'    ctx.output_count = {n_out};')
-            lines.append(f'    rc = g_iface_{s}->process(g_state_{s}, &ctx);')
-            lines.append(f'    if (rc != ORPHEUS_OK) return rc;')
+            divisor = cfg.get("divisor", 1)
+            frames = cfg.get("frames", 0)
+            if divisor > 1:
+                lines.append(f'    if ((g_block_counter + 1) % {divisor} == 0) {{')
+            indent = '        ' if divisor > 1 else '    '
+            lines.append(f'{indent}ctx.state = g_state_{s};')
+            lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
+            lines.append(f'{indent}ctx.inputs = (const OrpheusBuffer* const*){in_name};')
+            lines.append(f'{indent}ctx.outputs = {out_name};')
+            lines.append(f'{indent}ctx.input_count = {n_in};')
+            lines.append(f'{indent}ctx.output_count = {n_out};')
+            lines.append(f'{indent}rc = g_iface_{s}->process(g_state_{s}, &ctx);')
+            lines.append(f'{indent}if (rc != ORPHEUS_OK) return rc;')
+            if divisor > 1:
+                lines.append('    }')
+        lines.append('    g_block_counter++;')
         lines.append('    return ORPHEUS_OK;')
         lines.append('}')
         lines.append("")

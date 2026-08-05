@@ -14,6 +14,7 @@ ports:
     type: audio
     sample_format: f32
     channels: param:channels
+    sample_rate: param:sample_rate
 parameters:
   - id: file_path
     name: 文件路径

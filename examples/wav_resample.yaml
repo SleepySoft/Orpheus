@@ -1,0 +1,47 @@
+version: "0.1.0"
+metadata:
+  name: wav_resample
+  description: WAV In(48k) -> 降采样(2:1) -> WAV Out(24k)，演示速率域与分频调度
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: wav_in
+      component: orpheus.builtin.wav_in
+      task: default
+      params:
+        file_path: C:\D\Code\git\Orpheus\examples\test_input.wav
+        channels: 2
+      position:
+        x: 100
+        y: 100
+    - id: rs
+      component: orpheus.builtin.resample
+      task: default
+      params:
+        factor: 2
+        channels: 2
+      position:
+        x: 350
+        y: 100
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      task: default
+      params:
+        file_path: C:\D\Code\git\Orpheus\examples\test_output.wav
+        channels: 2
+        sample_rate: 24000
+      position:
+        x: 600
+        y: 100
+  connections:
+    - from: wav_in:out
+      to: rs:in
+    - from: rs:out
+      to: wav_out:in

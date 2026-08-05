@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -39,8 +40,7 @@ class ExecutionPlan:
     connections: list[dict[str, str]] = field(default_factory=list)
 
 
-def _resolve_value(expr: Any, node: Node, task: Task) -> Any:
-    """Resolve a manifest expression against node params and task context."""
+def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
     if isinstance(expr, str) and expr.startswith("param:"):
         param_id = expr[6:]
         return node.params.get(param_id)
@@ -49,6 +49,32 @@ def _resolve_value(expr: Any, node: Node, task: Task) -> Any:
     if expr == "task:block_size":
         return task.block_size
     return expr
+
+
+def _resolve_value(expr: Any, node: Node, task: Task) -> Any:
+    """Resolve a manifest expression against node params and task context.
+
+    Supports integer arithmetic chains over atoms, e.g.
+    ``task:block_size*param:factor`` or ``task:sample_rate/param:factor``.
+    """
+    if isinstance(expr, str) and ("*" in expr or "/" in expr):
+        tokens = [t.strip() for t in re.split(r"([*/])", expr)]
+        result = _resolve_atom(tokens[0], node, task)
+        i = 1
+        while i < len(tokens) - 1:
+            op = tokens[i]
+            operand = _resolve_atom(tokens[i + 1], node, task)
+            if result is None or operand is None:
+                return None
+            if op == "*":
+                result = int(result) * int(operand)
+            else:
+                if int(operand) == 0:
+                    raise CompileError(f"division by zero in expression {expr!r} (node {node.id})")
+                result = int(result) // int(operand)
+            i += 2
+        return result
+    return _resolve_atom(expr, node, task)
 
 
 def _expand_port_manifests(
@@ -189,8 +215,14 @@ class GraphCompiler:
                     f"sample rate mismatch: {from_key} ({from_port.sample_rate}) -> {to_key} ({to_port.sample_rate})"
                 )
 
+        # 2.5 Clock domains: every flow must be driven by exactly one clock
+        self._validate_clock_domains(graph)
+
         # 3. Topological sort
         execution_order = self._topological_sort(graph)
+
+        # 3.5 Rate divisor propagation (multi-rate scheduling)
+        node_divisor = self._propagate_rate_divisors(graph, expanded_ports, execution_order, task)
 
         # 4. Build execution plan
         plan = ExecutionPlan(
@@ -202,14 +234,37 @@ class GraphCompiler:
             execution_order=execution_order,
         )
 
+        # per-node processing quantum: the producer buffer's frame count
+        # (differs from task block size in rate-shifted domains)
+        in_frames: dict[str, int] = {}
+        for conn in graph.connections:
+            from_port = resolved_ports[str(conn.from_ref)]
+            to_node = conn.to_ref.node_id
+            if to_node in in_frames and in_frames[to_node] != from_port.block_size:
+                raise CompileError(
+                    f"block size mismatch at node {to_node}: inputs differ "
+                    f"({in_frames[to_node]} vs {from_port.block_size})"
+                )
+            in_frames[to_node] = from_port.block_size
+
         for node in graph.nodes.values():
             comp = self.registry.get(node.component)
             port_manifests = expanded_ports[node.id]
+            # effective sample rate: from any resolved port of this node
+            node_rate = task.sample_rate
+            for pm in port_manifests:
+                rp = resolved_ports.get(f"{node.id}:{pm['id']}")
+                if rp is not None:
+                    node_rate = rp.sample_rate
+                    break
             plan.node_configs[node.id] = {
                 "component": node.component,
                 "version": comp.version if comp else "",
                 "params": dict(node.params),
                 "task": node.task,
+                "divisor": node_divisor[node.id],
+                "frames": in_frames.get(node.id, task.block_size),
+                "sample_rate": node_rate,
                 # ordered port ids: runtime binds buffers by port id, not order
                 "input_ports": [p["id"] for p in port_manifests if p["direction"] == "input"],
                 "output_ports": [p["id"] for p in port_manifests if p["direction"] == "output"],
@@ -237,6 +292,98 @@ class GraphCompiler:
             )
 
         return plan
+
+    def _validate_clock_domains(self, graph: Graph) -> None:
+        """Every connected flow must be driven by exactly one clock domain.
+
+        Clock sources are components tagged `clock_source: true` with a
+        `clock_domain` (e.g. device/file). A graph without any clock source
+        runs on the implicit host clock (legacy behavior). Otherwise every
+        connected component must contain a clock source, and no component may
+        mix two strong (non-file) domains.
+        """
+        parent = {nid: nid for nid in graph.nodes}
+
+        def find(x: str) -> str:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for conn in graph.connections:
+            a, b = find(conn.from_ref.node_id), find(conn.to_ref.node_id)
+            if a != b:
+                parent[a] = b
+
+        components: dict[str, list[str]] = {}
+        for nid in graph.nodes:
+            components.setdefault(find(nid), []).append(nid)
+
+        any_clocked = False
+        undriven: list[str] = []
+        for members in components.values():
+            domains: set[str] = set()
+            for nid in members:
+                info = self.registry.get(graph.nodes[nid].component)
+                manifest = info.manifest if info else {}
+                if manifest.get("clock_source"):
+                    domains.add(manifest.get("clock_domain", graph.nodes[nid].component))
+            strong = domains - {"file"}
+            if len(strong) > 1:
+                raise CompileError(
+                    f"conflicting clock domains {sorted(strong)} in flow {sorted(members)}; "
+                    f"separate them or insert an async bridge"
+                )
+            if domains:
+                any_clocked = True
+            else:
+                undriven.extend(members)
+        if any_clocked and undriven:
+            raise CompileError(
+                f"flow not driven by any clock source (cannot start): {sorted(undriven)}. "
+                f"Connect it to a clocked flow or remove it."
+            )
+
+    def _propagate_rate_divisors(
+        self,
+        graph: Graph,
+        expanded_ports: dict[str, list[dict[str, Any]]],
+        execution_order: list[str],
+        task: Task,
+    ) -> dict[str, int]:
+        """Propagate rate divisors along edges.
+
+        A component may declare ``scheduling.divisor: <expr>`` (e.g. resample):
+        it runs at its input rate every block, while its output domain (and all
+        downstream nodes) run once every N blocks.
+        """
+        port_divisor: dict[str, int] = {}
+        node_divisor: dict[str, int] = {}
+        for node_id in execution_order:
+            node = graph.nodes[node_id]
+            incoming = [c for c in graph.connections if c.to_ref.node_id == node_id]
+            up = {port_divisor[str(c.from_ref)] for c in incoming}
+            if len(up) > 1:
+                raise CompileError(
+                    f"rate mismatch at node {node_id}: input divisors {sorted(up)} "
+                    f"(merge different rates via appropriate rate components)"
+                )
+            d_in = next(iter(up)) if up else 1
+            node_divisor[node_id] = d_in
+            comp = self.registry.get(node.component)
+            factor_expr = (comp.manifest.get("scheduling") or {}).get("divisor") if comp else None
+            factor = 1
+            if factor_expr is not None:
+                resolved = _resolve_value(factor_expr, node, task)
+                if resolved is None:
+                    raise CompileError(f"cannot resolve rate divisor for node {node_id}")
+                factor = int(resolved)
+                if factor < 1:
+                    raise CompileError(f"invalid rate divisor {factor} for node {node_id}")
+            for pm in expanded_ports[node_id]:
+                if pm["direction"] == "output":
+                    port_divisor[f"{node_id}:{pm['id']}"] = d_in * factor
+        return node_divisor
 
     def _topological_sort(self, graph: Graph) -> list[str]:
         in_degree: dict[str, int] = {n: 0 for n in graph.nodes}

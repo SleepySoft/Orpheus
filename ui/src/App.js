@@ -625,6 +625,23 @@ function Editor() {
       const r = await api.compileProject(current);
       setStatus(`编译成功: ${r.nodes} 节点, ${r.buffers} buffers`);
       setLog({ title: '编译结果', lines: [`执行顺序: ${r.execution_order.join(' → ')}`, r.plan_path] });
+      // annotate nodes with compiled rate info (time-tree badges)
+      if (r.node_rates) {
+        setViews((prev) => {
+          const next = {};
+          for (const [key, v] of Object.entries(prev)) {
+            next[key] = {
+              ...v,
+              nodes: v.nodes.map((nd) =>
+                r.node_rates[nd.id]
+                  ? { ...nd, data: { ...nd.data, rate: r.node_rates[nd.id] } }
+                  : nd
+              ),
+            };
+          }
+          return next;
+        });
+      }
     } catch (e) {
       setStatus('编译失败');
       setLog({ title: '编译错误', lines: [api.errorDetail(e)] });

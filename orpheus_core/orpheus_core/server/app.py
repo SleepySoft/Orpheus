@@ -272,6 +272,15 @@ def create_app(project_root: Path) -> FastAPI:
             "execution_order": plan.execution_order,
             "buffers": len(plan.buffers),
             "connections": len(plan.connections),
+            # per-node rate info for UI badges (time-tree visualization)
+            "node_rates": {
+                nid: {
+                    "divisor": cfg.get("divisor", 1),
+                    "sample_rate": cfg.get("sample_rate"),
+                    "frames": cfg.get("frames"),
+                }
+                for nid, cfg in plan.node_configs.items()
+            },
         }
 
     @app.post("/api/projects/{name}/run")

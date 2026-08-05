@@ -758,3 +758,16 @@ orpheus_platform_memory_section_bind(...);
 - **rt_host 按图组合设备**：in+out+mic=duplex；in+out+loopback=环回+播放双设备；仅 out=播放时钟（WAV 播到声卡）；仅 in=采集/环回时钟（系统声音录到 WAV）。
 - **生成器修复**：组件入口函数支持 `ORPHEUS_ENTRY_NAME` 宏（静态链接时各组件入口唯一，修复了之前所有节点共享第一个组件入口符号导致的崩溃——此前生成工程只验证过编译未验证运行）；生成参数表（类型化 OrpheusValue）传入 prepare；Buffer 指针按端口 ID 槽位绑定；ABI 头文件随工程复制（自包含，可脱离仓库编译）；main 支持 argv 指定块数。
 - **一致性测试**：`test_generated_run_matches_dynamic_run` 对同一工程分别走动态/生成两条路径，逐字节比较输出 WAV（设计原则 5 的自动化落实）。
+
+---
+
+## 23. 时钟域与多速率模型（已实现 v1）
+
+- **时钟源打标**：组件 manifest 声明 `clock_source: true` + `clock_domain`（device/file）。task 不显式建模——时钟源组件即时钟域的根。
+- **编译期校验**：无时钟源的图走隐式宿主时钟（旧行为）；有时钟源时，任何不含时钟源的连通流报错（"算法流没有时钟驱动，无法启动"）；同一连通流混入两个强时钟域（非 file）报错并提示异步桥。
+- **速率调整**：组件可声明 `scheduling.divisor: <expr>`——节点本身每块都跑，其输出域（及下游）每 N 块触发一次。表达式求值支持整数乘除链（`task:block_size*param:factor`、`task:sample_rate/param:factor`）。
+- **新组件**：`downrate`（分频/重缓冲，超块 N×块长，速率不变，供控制速率算法）、`resample`（整数倍降采样 N:1，滑动平均抗混叠，输出速率=task/N）。
+- **Runtime/生成器**：plan 每节点携带 `divisor` 与 `frames`（处理量子=上游 buffer 帧数）；执行时块计数相位触发（`(counter+1)%divisor==0`）。动态/生成两路径一致（逐字节一致性测试覆盖重采样链）。
+- **时间树可视化**：编译响应携带每节点 `node_rates`（采样率/分频比/帧量子），UI 节点头部显示速率徽标（如 `24kHz ÷2`）。逻辑速率编译期可知；物理设备协商速率运行时由 rt_host 日志给出。
+- 边界行为：块式抽取在输入块数为奇数倍时丢弃末尾未完成的输出块（≤1 个输出块）。
+- 待做：async_bridge 组件（跨时钟域，rt_host 的 ma_pcm_rb 模式下沉）、timer 时钟源组件（控制周期任务）、升采样。

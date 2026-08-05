@@ -23,6 +23,18 @@ export default function OrpheusNode({ data, selected }) {
 
   const BodyWidget = NODE_WIDGETS[data.component];
 
+  // compiled rate badge, e.g. "48kHz" or "24kHz ÷2" (visible time tree)
+  const rateBadge = (() => {
+    const r = data.rate;
+    if (!r || !r.sample_rate) return null;
+    const khz = r.sample_rate % 1000 === 0 ? `${r.sample_rate / 1000}k` : `${(r.sample_rate / 1000).toFixed(1)}k`;
+    return (
+      <span className="rate-badge" title={`采样率 ${r.sample_rate} Hz，块量子 ${r.frames} 帧，分频比 ${r.divisor}`}>
+        {khz}Hz{r.divisor > 1 ? ` ÷${r.divisor}` : ''}
+      </span>
+    );
+  })();
+
   const renderRow = (p, isInput) => (
     <div key={p.id} className="port-row">
       {isInput && (
@@ -39,7 +51,10 @@ export default function OrpheusNode({ data, selected }) {
   return (
     <div className={`orpheus-node ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''}`}>
       <div className="node-header">
-        <div className="node-title">{data.label}</div>
+        <div className="node-title">
+          {data.label}
+          {rateBadge}
+        </div>
         <div className="node-subtitle">{shortName}</div>
       </div>
       <div className="node-body">

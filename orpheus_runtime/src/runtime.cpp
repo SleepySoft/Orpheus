@@ -276,14 +276,19 @@ const OrpheusComponentInterface* Runtime::get_interface(const std::string& node_
 
 int Runtime::process_block(uint32_t frame_count) {
     OrpheusProcessContext ctx;
-    ctx.frame_count = frame_count;
     ctx.scratch = nullptr;
     ctx.scratch_size = 0;
     ctx.timestamp = 0.0;
 
     for (const auto& node_id : plan_.execution_order) {
+        const NodeConfig& cfg = plan_.node_configs[node_id];
+        // multi-rate scheduling: fire only on the node's rate phase
+        if (cfg.divisor > 1 && (block_counter_ + 1) % cfg.divisor != 0) {
+            continue;
+        }
         Instance& inst = *instances_[node_id];
         ctx.state = inst.state;
+        ctx.frame_count = cfg.frames > 0 ? cfg.frames : frame_count;
         ctx.inputs = inst.inputs.empty() ? nullptr : const_cast<const OrpheusBuffer**>(inst.inputs.data());
         ctx.outputs = inst.outputs.empty() ? nullptr : inst.outputs.data();
         ctx.input_count = static_cast<uint32_t>(inst.inputs.size());
@@ -295,6 +300,7 @@ int Runtime::process_block(uint32_t frame_count) {
             return result;
         }
     }
+    block_counter_++;
     return 0;
 }
 

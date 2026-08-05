@@ -47,6 +47,8 @@ Plan Plan::load_from_file(const std::string& path) {
         for (const auto& pid : it.value().value("output_ports", json::array())) {
             cfg.output_ports.push_back(pid.get<std::string>());
         }
+        cfg.divisor = it.value().value("divisor", 1u);
+        cfg.frames = it.value().value("frames", 0u);
         p.node_configs[it.key()] = cfg;
     }
 
