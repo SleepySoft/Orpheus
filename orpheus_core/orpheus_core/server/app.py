@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from orpheus_core.builder import BuildError, ComponentBuilder
+from orpheus_core.builder import BuildError, ComponentBuilder, run_cmake_with_msvc_env
 from orpheus_core.compiler import CompileError, ExecutionPlan, GraphCompiler
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.registry import ComponentInfo, Registry
@@ -162,9 +162,9 @@ def create_app(project_root: Path) -> FastAPI:
         if exe.exists():
             return exe
         ensure_cmake_configured()
-        result = subprocess.run(
+        result = run_cmake_with_msvc_env(
             ["cmake", "--build", str(root / "build"), "--target", target],
-            cwd=root, capture_output=True, text=True,
+            cwd=root, build_dir=root / "build",
         )
         if result.returncode != 0 or not exe.exists():
             raise HTTPException(
@@ -378,18 +378,16 @@ def create_app(project_root: Path) -> FastAPI:
         cache = root / "build" / "CMakeCache.txt"
         if cache.exists():
             for line in cache.read_text(encoding="utf-8", errors="ignore").splitlines():
-                if line.startswith("CMAKE_C_COMPILER:FILEPATH="):
+                if line.startswith("CMAKE_C_COMPILER:") and "=" in line:
                     configure_args.append(f"-DCMAKE_C_COMPILER={line.split('=', 1)[1]}")
 
-        configure = subprocess.run(
-            configure_args, cwd=rec.directory, capture_output=True, text=True,
-            encoding="utf-8", errors="replace",
+        configure = run_cmake_with_msvc_env(
+            configure_args, cwd=rec.directory, build_dir=root / "build",
         )
         if configure.returncode != 0:
             raise HTTPException(status_code=500, detail=f"generated configure failed:\n{configure.stderr}")
-        build = subprocess.run(
-            ["cmake", "--build", str(build_dir)], cwd=rec.directory, capture_output=True,
-            text=True, encoding="utf-8", errors="replace",
+        build = run_cmake_with_msvc_env(
+            ["cmake", "--build", str(build_dir)], cwd=rec.directory, build_dir=root / "build",
         )
         if build.returncode != 0:
             raise HTTPException(

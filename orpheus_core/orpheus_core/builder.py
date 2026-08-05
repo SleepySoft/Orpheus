@@ -15,6 +15,82 @@ class BuildError(Exception):
     pass
 
 
+def _find_vcvars64() -> str | None:
+    """Locate vcvars64.bat for the latest VS install, or None."""
+    candidates: list[Path] = []
+    if os.environ.get("VSINSTALLDIR"):
+        candidates.append(Path(os.environ["VSINSTALLDIR"]) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat")
+    vswhere = (
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+        / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+    )
+    if vswhere.exists():
+        try:
+            out = subprocess.run(
+                [
+                    str(vswhere),
+                    "-latest",
+                    "-products",
+                    "*",
+                    "-requires",
+                    "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                    "-property",
+                    "installationPath",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            install = out.stdout.strip()
+            if install:
+                candidates.append(Path(install) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat")
+        except (OSError, subprocess.SubprocessError):
+            pass
+    for p in candidates:
+        if p.exists():
+            return str(p)
+    return None
+
+
+def _configured_compiler_is_msvc(build_dir: Path) -> bool:
+    """Check whether the configured C compiler is MSVC (cl.exe)."""
+    cache = Path(build_dir) / "CMakeCache.txt"
+    if not cache.exists():
+        return False
+    try:
+        for line in cache.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.startswith("CMAKE_C_COMPILER:") and "=" in line:
+                return "MSVC" in line.split("=", 1)[1] or "cl.exe" in line.lower()
+    except OSError:
+        pass
+    return False
+
+
+def run_cmake_with_msvc_env(
+    args: list[str], cwd: Path, build_dir: Path
+) -> subprocess.CompletedProcess[str]:
+    """Run a cmake command, loading the MSVC environment first when needed.
+
+    Ninja + MSVC requires INCLUDE/LIB environment variables (from vcvars64.bat).
+    When the configured compiler is MSVC, wrap the command via cmd so plain
+    shells work too; MinGW/gcc builds are unaffected.
+    """
+    env = os.environ.copy()
+    if _configured_compiler_is_msvc(build_dir):
+        vcvars = _find_vcvars64()
+        if vcvars:
+            quoted = " ".join(f'"{a}"' for a in args)
+            cmd_line = f'call "{vcvars}" >nul && {quoted}'
+            return subprocess.run(
+                cmd_line, cwd=cwd, env=env, shell=True, capture_output=True,
+                text=True, encoding="utf-8", errors="replace",
+            )
+    return subprocess.run(
+        args, cwd=cwd, env=env, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
+    )
+
+
 class ComponentBuilder:
     def __init__(
         self,
@@ -27,6 +103,9 @@ class ComponentBuilder:
         self.build_dir = Path(build_dir)
         self.registry = registry
         self.cmake_generator = cmake_generator
+
+    def _run_cmake(self, args: list[str]) -> subprocess.CompletedProcess[str]:
+        return run_cmake_with_msvc_env(args, self.project_root, self.build_dir)
 
     def _cmake_target_name(self, component_id: str) -> str:
         # orpheus.builtin.gain -> orpheus_builtin_gain
@@ -62,8 +141,7 @@ class ComponentBuilder:
         ]
         if extra_cmake_args:
             args.extend(extra_cmake_args)
-        env = os.environ.copy()
-        result = subprocess.run(args, cwd=self.project_root, env=env, capture_output=True, text=True)
+        result = self._run_cmake(args)
         if result.returncode != 0:
             raise BuildError(f"cmake configure failed:\n{result.stderr}\n{result.stdout}")
 
@@ -80,8 +158,7 @@ class ComponentBuilder:
 
         target = self._cmake_target_name(component_id)
         args = ["cmake", "--build", str(self.build_dir), "--target", target]
-        env = os.environ.copy()
-        result = subprocess.run(args, cwd=self.project_root, env=env, capture_output=True, text=True)
+        result = self._run_cmake(args)
         if result.returncode != 0:
             raise BuildError(f"build failed for {component_id}:\n{result.stderr}\n{result.stdout}")
 

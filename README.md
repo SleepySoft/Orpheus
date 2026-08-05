@@ -23,7 +23,7 @@ An intuitive, easily extensible audio processing framework based on visual progr
 - **Ninja**：`winget install Ninja-build.Ninja`（或 `pip install ninja`）。Ninja 不随 CMake / VS Build Tools 自动加入 PATH；缺它时 `cli build` 会报 `ninja: not found`。
 - **编译器**，二选一：
   - **方案 A（MinGW，推荐）**：安装 Strawberry Perl（自带 GCC）：https://strawberryperl.com/ ，并把 `C:\Strawberry\c\bin` 加入 PATH。注意：PATH 里 Perl 自带的老 gcc 4.9.2 不可用，请用 Strawberry 的版本。
-  - **方案 B（MSVC）**：Visual Studio 2022 Build Tools：https://my.visualstudio.com/Downloads?q=visual%20studio%202022&wt.mc_id=o~msft~vscom~older-downloads（勾选「使用 C++ 的桌面开发」），然后在 **x64 Native Tools Command Prompt for VS 2022** 中运行下面的构建命令。项目已支持 MSVC 构建（UTF-8 源码与 DLL 命名已兼容）。
+  - **方案 B（MSVC）**：Visual Studio 2022 Build Tools：https://my.visualstudio.com/Downloads?q=visual%20studio%202022&wt.mc_id=o~msft~vscom~older-downloads（勾选「使用 C++ 的桌面开发」）。**首次**配置请在「x64 Native Tools Command Prompt for VS 2022」中运行一次 `python -m orpheus_core.cli build`；之后任意终端均可——`cli build` 检测到 MSVC 会自动加载 VS 环境（`vcvars64.bat`），无需手动切换。项目已支持 MSVC 构建（UTF-8 源码与 DLL 命名已兼容）。
 
 ```powershell
 # 1. 安装 Python 工具链（含 HTTP 服务依赖）
