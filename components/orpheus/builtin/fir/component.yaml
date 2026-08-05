@@ -1,0 +1,50 @@
+id: orpheus.builtin.fir
+name: FIR 滤波器
+category: 基础算法
+version: 1.0.0
+abi_version: 1
+package_type: source
+sources:
+  - src/fir.c
+headers:
+  - include/orpheus_fir.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: coefficients
+    name: 系数
+    type: string
+    default: "1.0"
+    widget: text
+    update_policy: restart_required
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: taps
+    name: 阶数
+    type: int
+    default: 0
+    readback: true
+    update_policy: immediate
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

@@ -390,3 +390,87 @@ def test_output_fanout_reaches_all_downstream(client):
         assert b1 == b2 and len(b1) > 44
     finally:
         client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_fir_matches_numpy_convolution(client):
+    """FIR coefficients [0.5,0.5] must equal a two-tap moving average."""
+    import math
+    import wave
+
+    import numpy as np
+
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    n = 4800
+    try:
+        resp = client.post("/api/projects", json={"name": name})
+        assert resp.status_code == 201, resp.text
+        pdir = ROOT / "workspace" / name
+
+        sine = np.array([0.8 * math.sin(2 * math.pi * 440.0 * i / 48000.0) for i in range(n)])
+        with wave.open(str(pdir / "input.wav"), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(48000)
+            w.writeframes((np.clip(sine, -1, 1) * 32767).astype("<i2").tobytes())
+
+        doc = {
+            "version": "0.1.0",
+            "metadata": {"name": name, "description": "fir numeric"},
+            "sample_rate": 48000,
+            "block_size": 128,
+            "tasks": [
+                {"id": "default", "name": "Default", "sample_rate": 48000, "block_size": 128, "priority": 0}
+            ],
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "wav_in",
+                        "component": "orpheus.builtin.wav_in",
+                        "task": "default",
+                        "params": {"file_path": "input.wav", "channels": 1},
+                        "position": {"x": 0, "y": 0},
+                    },
+                    {
+                        "id": "fir",
+                        "component": "orpheus.builtin.fir",
+                        "task": "default",
+                        "params": {"coefficients": "1.0,-1.0", "channels": 1},
+                        "position": {"x": 200, "y": 0},
+                    },
+                    {
+                        "id": "wav_out",
+                        "component": "orpheus.builtin.wav_out",
+                        "task": "default",
+                        "params": {"file_path": "outputs/out.wav", "channels": 1, "sample_rate": 48000},
+                        "position": {"x": 400, "y": 0},
+                    },
+                ],
+                "connections": [
+                    {"from": "wav_in:out", "to": "fir:in"},
+                    {"from": "fir:out", "to": "wav_out:in"},
+                ],
+            },
+        }
+        client.put(f"/api/projects/{name}", json=doc)
+        resp = client.post(f"/api/projects/{name}/run")
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+
+        with wave.open(str(pdir / "outputs" / "out.wav"), "rb") as w:
+            raw = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+        got = raw.astype(np.float32) / 32767.0
+
+        block = 128
+        padded_n = ((n + block - 1) // block) * block
+        expected = np.zeros(padded_n, dtype=np.float32)
+        expected[:n] = np.convolve(sine, [1.0, -1.0], mode="full")[:n]
+        diff = np.max(np.abs(got[:n] - expected[:n]))
+        assert diff < 0.01, f"FIR output deviates from convolution: max diff {diff}"
+        assert np.max(np.abs(got[:n] - sine)) > 0.05, "output identical to input; filter not applied"
+    finally:
+        client.delete(f"/api/projects/{name}")
