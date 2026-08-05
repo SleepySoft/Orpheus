@@ -70,6 +70,58 @@ def test_upload_sanitizes_filename(client, project):
 
 
 @pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_rt_host.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="rt_host and components not built",
+)
+def test_rt_session_lifecycle(client):
+    """Start a realtime session, push a parameter, read logs, stop."""
+    import time
+
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        resp = client.post("/api/projects", json={"name": name, "from_example": "device_gain_biquad"})
+        assert resp.status_code == 201, resp.text
+
+        resp = client.post(f"/api/projects/{name}/rt/start")
+        assert resp.status_code == 200, resp.text
+
+        # wait for the host to come up (or fail on machines without audio devices)
+        snap = None
+        for _ in range(30):
+            snap = client.get(f"/api/projects/{name}/rt/status").json()
+            joined = "\n".join(snap["logs"])
+            if "LOG rt_host running" in joined or not snap["running"]:
+                break
+            time.sleep(0.2)
+        joined = "\n".join(snap["logs"])
+        if "LOG rt_host running" not in joined:
+            pytest.skip(f"audio device unavailable on this machine: {joined}")
+        assert snap["running"]
+
+        # live parameter push
+        resp = client.post(
+            f"/api/projects/{name}/rt/param",
+            json={"node": "gain", "param": "gain_db", "value": -3.0},
+        )
+        assert resp.status_code == 200, resp.text
+        time.sleep(0.5)
+        snap = client.get(f"/api/projects/{name}/rt/status").json()
+        assert any("OK SET gain gain_db" in line for line in snap["logs"])
+
+        # duplicate start rejected
+        assert client.post(f"/api/projects/{name}/rt/start").status_code == 409
+
+        resp = client.post(f"/api/projects/{name}/rt/stop")
+        assert resp.status_code == 200
+        snap = client.get(f"/api/projects/{name}/rt/status").json()
+        assert not snap["running"]
+    finally:
+        client.post(f"/api/projects/{name}/rt/stop")
+        client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
     not (ROOT / "build" / "orpheus_runtime.exe").exists()
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",

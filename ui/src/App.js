@@ -59,7 +59,11 @@ function Editor() {
   const [log, setLog] = useState(null);
   const [outputs, setOutputs] = useState([]);
   const [deviceOptions, setDeviceOptions] = useState([{ value: '', label: '默认设备' }]);
+  const [rt, setRt] = useState({ running: false, logs: [], probes: {} });
   const { screenToFlowPosition } = useReactFlow();
+
+  const rtRef = useRef(rt);
+  rtRef.current = rt;
 
   const paramCtx = useMemo(
     () => ({ projectName: current, dynamicOptions: { devices: deviceOptions } }),
@@ -105,6 +109,7 @@ function Editor() {
     setDirty(false);
     setOutputs([]);
     setLog(null);
+    setRt({ running: false, logs: [], probes: {} });
   }, []);
 
   const openProject = useCallback(
@@ -153,6 +158,34 @@ function Editor() {
       }
     })();
   }, [loadDocument]);
+
+  // poll realtime session status (logs + probe values) while it is running
+  useEffect(() => {
+    if (!rt.running || !current) return undefined;
+    const timer = setInterval(async () => {
+      try {
+        const s = await api.rtStatus(current);
+        setRt({ running: s.running, logs: s.logs || [], probes: s.probes || {} });
+        if (Object.keys(s.probes || {}).length > 0) {
+          setViews((prev) => {
+            const next = {};
+            for (const [key, v] of Object.entries(prev)) {
+              next[key] = {
+                ...v,
+                nodes: v.nodes.map((nd) =>
+                  s.probes[nd.id] ? { ...nd, data: { ...nd.data, probe: s.probes[nd.id] } } : nd
+                ),
+              };
+            }
+            return next;
+          });
+        }
+      } catch {
+        /* ignore transient poll errors */
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [rt.running, current]);
 
   // keep sub-instance node ports in sync with subcomponent definitions
   useEffect(() => {
@@ -296,6 +329,16 @@ function Editor() {
 
   const onParamChange = useCallback(
     (paramId, value) => {
+      // live-push to the running realtime session (unless recompile is required)
+      if (rtRef.current.running && current && selectedId) {
+        const node = view.nodes.find((nd) => nd.id === selectedId);
+        const schema = (node?.data.parameters || []).find((p) => p.id === paramId);
+        if (schema && schema.update_policy !== 'restart_required') {
+          api.rtSetParam(current, selectedId, paramId, value).catch(() => {});
+        } else if (schema) {
+          setStatus(`参数 ${paramId} 需重新编译，实时会话中不生效`);
+        }
+      }
       updateView(activeView, (v) => {
         const nodes = v.nodes.map((nd) => {
           if (nd.id !== selectedId) return nd;
@@ -595,6 +638,32 @@ function Editor() {
     }
   }, [current, ensureSaved]);
 
+  const doRtStart = useCallback(async () => {
+    if (!current) return;
+    await ensureSaved();
+    setStatus('启动实时会话…');
+    try {
+      await api.rtStart(current);
+      setRt({ running: true, logs: [], probes: {} });
+      setStatus('实时运行中（调参数即时生效）');
+    } catch (e) {
+      setStatus('实时启动失败');
+      setLog({ title: '实时启动错误', lines: [api.errorDetail(e)] });
+    }
+  }, [current, ensureSaved]);
+
+  const doRtStop = useCallback(async () => {
+    if (!current) return;
+    try {
+      await api.rtStop(current);
+      const s = await api.rtStatus(current);
+      setRt({ running: false, logs: s.logs || [], probes: s.probes || {} });
+      setStatus('实时会话已停止');
+    } catch (e) {
+      setStatus(`停止失败: ${api.errorDetail(e)}`);
+    }
+  }, [current]);
+
   const doCreate = useCallback(async () => {
     const name = window.prompt('新工程名称（字母/数字/-/_）:');
     if (!name) return;
@@ -668,15 +737,26 @@ function Editor() {
         <button onClick={doCompile} disabled={!current}>
           编译
         </button>
-        <button className="primary" onClick={doRun} disabled={!current}>
-          ▶ 运行
+        <button className="primary" onClick={doRun} disabled={!current || rt.running}>
+          ▶ 离线运行
         </button>
+        {rt.running ? (
+          <button className="danger-tool" onClick={doRtStop}>
+            ■ 停止
+          </button>
+        ) : (
+          <button className="primary" onClick={doRtStart} disabled={!current}>
+            ⏺ 实时运行
+          </button>
+        )}
         {current && (
           <a className="button" href={api.downloadUrl(current)} download>
             下载 zip
           </a>
         )}
-        <span className={`status ${dirty ? 'dirty' : ''}`}>{dirty ? '● 未保存' : status}</span>
+        <span className={`status ${dirty ? 'dirty' : ''}`}>
+          {rt.running ? '⏺ 实时运行中' : dirty ? '● 未保存' : status}
+        </span>
       </div>
       <div className="tabbar">
         {openTabs.map((key) => (
@@ -744,8 +824,14 @@ function Editor() {
           />
         </div>
       </div>
-      {(log || outputs.length > 0) && (
+      {(log || outputs.length > 0 || rt.logs.length > 0 || rt.running) && (
         <div className="bottombar">
+          {(rt.running || rt.logs.length > 0) && (
+            <div className="log">
+              <strong>实时日志</strong>
+              <pre>{rt.logs.slice(-100).join('\n') || '（等待日志…）'}</pre>
+            </div>
+          )}
           {log && (
             <div className="log">
               <strong>{log.title}</strong>

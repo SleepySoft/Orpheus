@@ -38,6 +38,11 @@
   background: #4cc9f0;
 }
 
+.toolbar button.danger-tool {
+  background: #e03131;
+  color: white;
+}
+
 .toolbar button:disabled {
   opacity: 0.45;
   cursor: default;

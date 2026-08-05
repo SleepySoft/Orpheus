@@ -21,6 +21,7 @@ from orpheus_core.builder import BuildError, ComponentBuilder
 from orpheus_core.compiler import CompileError, ExecutionPlan, GraphCompiler
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.server.manager import ProjectError, ProjectManager, ProjectRecord
+from orpheus_core.server.rt import RtSessionManager
 from orpheus_core.subgraph import flatten_project
 
 RUN_TIMEOUT_SECONDS = 60
@@ -44,6 +45,12 @@ def _parse_probe_lines(stdout: str) -> list[dict[str, Any]]:
 class CreateProjectRequest(BaseModel):
     name: str
     from_example: str | None = None
+
+
+class RtParamRequest(BaseModel):
+    node: str
+    param: str
+    value: float | int | str
 
 
 def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
@@ -80,6 +87,7 @@ def create_app(project_root: Path) -> FastAPI:
     registry.scan()
     manager = ProjectManager(root)
     builder = ComponentBuilder(root, root / "build", registry)
+    rt_sessions = RtSessionManager()
     state: dict[str, Any] = {"cmake_configured": (root / "build" / "CMakeCache.txt").exists()}
 
     # ------------------------------------------------------------- helpers
@@ -127,21 +135,24 @@ def create_app(project_root: Path) -> FastAPI:
             built.append(cid)
         return built
 
-    def ensure_runtime_built() -> Path:
-        exe = root / "build" / _runtime_exe_name()
+    def ensure_target_built(target: str, exe_name: str) -> Path:
+        exe = root / "build" / exe_name
         if exe.exists():
             return exe
         ensure_cmake_configured()
         result = subprocess.run(
-            ["cmake", "--build", str(root / "build"), "--target", "orpheus_runtime"],
+            ["cmake", "--build", str(root / "build"), "--target", target],
             cwd=root, capture_output=True, text=True,
         )
         if result.returncode != 0 or not exe.exists():
             raise HTTPException(
                 status_code=500,
-                detail=f"failed to build orpheus_runtime:\n{result.stderr}\n{result.stdout}",
+                detail=f"failed to build {target}:\n{result.stderr}\n{result.stdout}",
             )
         return exe
+
+    def ensure_runtime_built() -> Path:
+        return ensure_target_built("orpheus_runtime", _runtime_exe_name())
 
     def safe_project_file(name: str, relpath: str) -> Path:
         pdir = manager.project_dir(name).resolve()
@@ -324,6 +335,54 @@ def create_app(project_root: Path) -> FastAPI:
         with open(dest, "wb") as f:
             f.write(await file.read())
         return {"path": filename, "size": dest.stat().st_size}
+
+    # ---- realtime sessions (rt_host subprocess)
+
+    @app.post("/api/projects/{name}/rt/start")
+    def rt_start(name: str) -> dict[str, Any]:
+        try:
+            rec = manager.get(name)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        ensure_components_built(flattened_project(rec))
+        _, plan_path = compile_record(rec)
+        suffix = ".exe" if sys.platform == "win32" else ""
+        rt_exe = ensure_target_built("orpheus_rt_host", f"orpheus_rt_host{suffix}")
+        try:
+            session = rt_sessions.start(
+                name,
+                [str(rt_exe), str(plan_path), str(root / "build" / "components")],
+                cwd=rec.directory,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"status": "started", "pid": session.proc.pid}
+
+    @app.post("/api/projects/{name}/rt/stop")
+    def rt_stop(name: str) -> dict[str, Any]:
+        session = rt_sessions.get(name)
+        if session is None:
+            raise HTTPException(status_code=404, detail="no realtime session for this project")
+        session.stop()
+        return {"status": "stopped", "exit_code": session.proc.poll()}
+
+    @app.get("/api/projects/{name}/rt/status")
+    def rt_status(name: str) -> dict[str, Any]:
+        session = rt_sessions.get(name)
+        if session is None:
+            return {"running": False, "logs": [], "probes": {}}
+        return session.snapshot()
+
+    @app.post("/api/projects/{name}/rt/param")
+    def rt_set_param(name: str, req: RtParamRequest) -> dict[str, Any]:
+        session = rt_sessions.get(name)
+        if session is None or not session.running:
+            raise HTTPException(status_code=400, detail="realtime session not running")
+        try:
+            session.set_parameter(req.node, req.param, req.value)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": "sent"}
 
     @app.get("/api/projects/{name}/files/{relpath:path}")
     def get_project_file(name: str, relpath: str) -> FileResponse:

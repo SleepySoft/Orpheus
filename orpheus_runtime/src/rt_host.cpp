@@ -4,16 +4,21 @@
 #include "orpheus_runtime/plan.h"
 #include "orpheus_runtime/runtime.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <thread>
 
 struct HostContext {
     orpheus::Runtime* runtime;
     OrpheusBuffer* device_in_buf;
     OrpheusBuffer* device_out_buf;
     uint32_t channels;
-    ma_pcm_rb* rb;  // loopback mode: ring buffer fed by the loopback capture device
+    uint32_t block_size;  // graph buffers are sized for this; chunk larger device periods
+    ma_pcm_rb* rb;        // loopback mode: ring buffer fed by the loopback capture device
 };
 
 // ---------------------------------------------------------------- helpers
@@ -85,7 +90,8 @@ static bool find_device_id(ma_device_type type, const std::string& match, ma_dev
 
 // ---------------------------------------------------------------- callbacks
 
-// duplex (microphone) mode: capture+playback in one device
+// duplex (microphone) mode: capture+playback in one device.
+// The device period may exceed the graph block size -> process in chunks.
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
     HostContext* host = (HostContext*)pDevice->pUserData;
     if (!host || !host->runtime) return;
@@ -93,18 +99,20 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     float* out = (float*)pOutput;
     const float* in = (const float*)pInput;
     uint32_t ch = host->channels;
+    uint32_t bs = host->block_size > 0 ? host->block_size : frameCount;
 
-    if (host->device_in_buf && in) {
-        std::memcpy(host->device_in_buf->data, in, frameCount * ch * sizeof(float));
-        host->device_in_buf->frame_count = frameCount;
-    }
-
-    host->runtime->process_block(frameCount);
-
-    if (host->device_out_buf && out) {
-        std::memcpy(out, host->device_out_buf->data, frameCount * ch * sizeof(float));
-    } else if (out) {
-        std::memset(out, 0, frameCount * ch * sizeof(float));
+    for (ma_uint32 done = 0; done < frameCount; done += bs) {
+        uint32_t n = (uint32_t)((frameCount - done) < bs ? (frameCount - done) : bs);
+        if (host->device_in_buf && in) {
+            std::memcpy(host->device_in_buf->data, in + (size_t)done * ch, n * ch * sizeof(float));
+            host->device_in_buf->frame_count = n;
+        }
+        host->runtime->process_block(n);
+        if (host->device_out_buf && out) {
+            std::memcpy(out + (size_t)done * ch, host->device_out_buf->data, n * ch * sizeof(float));
+        } else if (out) {
+            std::memset(out + (size_t)done * ch, 0, n * ch * sizeof(float));
+        }
     }
 }
 
@@ -128,30 +136,107 @@ void loopback_playback_callback(ma_device* pDevice, void* pOutput, const void* p
     if (!host || !host->runtime) return;
     float* out = (float*)pOutput;
     uint32_t ch = host->channels;
+    uint32_t bs = host->block_size > 0 ? host->block_size : frameCount;
 
-    if (host->device_in_buf) {
-        float* buf = (float*)host->device_in_buf->data;
-        ma_uint32 readable = frameCount;
-        void* r = nullptr;
-        ma_uint32 got = 0;
-        if (host->rb && ma_pcm_rb_acquire_read(host->rb, &readable, &r) == MA_SUCCESS && readable > 0) {
-            std::memcpy(buf, r, readable * ch * sizeof(float));
-            ma_pcm_rb_commit_read(host->rb, readable);
-            got = readable;
+    for (ma_uint32 done = 0; done < frameCount; done += bs) {
+        uint32_t n = (uint32_t)((frameCount - done) < bs ? (frameCount - done) : bs);
+        if (host->device_in_buf) {
+            float* buf = (float*)host->device_in_buf->data;
+            ma_uint32 readable = n;
+            void* r = nullptr;
+            ma_uint32 got = 0;
+            if (host->rb && ma_pcm_rb_acquire_read(host->rb, &readable, &r) == MA_SUCCESS && readable > 0) {
+                std::memcpy(buf, r, readable * ch * sizeof(float));
+                ma_pcm_rb_commit_read(host->rb, readable);
+                got = readable;
+            }
+            if (got < n) {
+                std::memset(buf + (size_t)got * ch, 0, (n - got) * ch * sizeof(float));
+            }
+            host->device_in_buf->frame_count = n;
         }
-        if (got < frameCount) {
-            std::memset(buf + got * ch, 0, (frameCount - got) * ch * sizeof(float));
+        host->runtime->process_block(n);
+        if (host->device_out_buf && out) {
+            std::memcpy(out + (size_t)done * ch, host->device_out_buf->data, n * ch * sizeof(float));
+        } else if (out) {
+            std::memset(out + (size_t)done * ch, 0, n * ch * sizeof(float));
         }
-        host->device_in_buf->frame_count = frameCount;
     }
+}
 
-    host->runtime->process_block(frameCount);
+// ---------------------------------------------------------------- control
 
-    if (host->device_out_buf && out) {
-        std::memcpy(out, host->device_out_buf->data, frameCount * ch * sizeof(float));
-    } else if (out) {
-        std::memset(out, 0, frameCount * ch * sizeof(float));
+// Print readback values of all probe nodes: PROBE <node> <param> <value>
+static void report_probes(orpheus::Runtime& runtime, const orpheus::Plan& plan) {
+    for (const auto& node_id : plan.execution_order) {
+        auto it = plan.node_configs.find(node_id);
+        if (it == plan.node_configs.end()) continue;
+        if (it->second.component.find(".probe") == std::string::npos) continue;
+        const OrpheusComponentInterface* iface = runtime.get_interface(node_id);
+        if (!iface || !iface->get_descriptor) continue;
+        const OrpheusComponentDescriptor* desc = iface->get_descriptor();
+        for (uint32_t i = 0; i < desc->param_count; ++i) {
+            const OrpheusParameter& p = desc->params[i];
+            if (!p.readback || p.affects_signature) continue;
+            OrpheusValue v;
+            if (runtime.get_parameter(node_id, p.id, &v) == ORPHEUS_OK) {
+                if (v.type == ORPHEUS_VALUE_FLOAT) {
+                    std::cout << "PROBE " << node_id << " " << p.id << " " << v.value.f32 << std::endl;
+                } else if (v.type == ORPHEUS_VALUE_INT) {
+                    std::cout << "PROBE " << node_id << " " << p.id << " " << v.value.i32 << std::endl;
+                }
+            }
+        }
     }
+}
+
+// stdin control protocol (one command per line):
+//   SET <node> <param> <value>   -> runtime.set_parameter (numeric -> float, else string)
+//   GET <node> <param>           -> prints VALUE <node> <param> <value>
+//   STOP (or empty line / EOF)   -> shut down
+static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) {
+    std::string line;
+    while (running && std::getline(std::cin, line)) {
+        if (line.empty()) break;  // Enter = stop
+        std::istringstream iss(line);
+        std::string cmd;
+        iss >> cmd;
+        if (cmd == "STOP") {
+            break;
+        } else if (cmd == "SET") {
+            std::string node, param, raw;
+            iss >> node >> param;
+            std::getline(iss, raw);
+            if (!raw.empty() && raw[0] == ' ') raw.erase(0, 1);
+            OrpheusValue v;
+            char* end = nullptr;
+            float f = std::strtof(raw.c_str(), &end);
+            std::string storage = raw;
+            if (end != raw.c_str() && end && *end == '\0') {
+                v.type = ORPHEUS_VALUE_FLOAT;
+                v.value.f32 = f;
+            } else {
+                v.type = ORPHEUS_VALUE_STRING;
+                v.value.str = storage.c_str();
+            }
+            int r = runtime.set_parameter(node, param, v);
+            std::cout << (r == ORPHEUS_OK ? "OK SET " : "ERR SET ") << node << " " << param << std::endl;
+        } else if (cmd == "GET") {
+            std::string node, param;
+            iss >> node >> param;
+            OrpheusValue v;
+            int r = runtime.get_parameter(node, param, &v);
+            if (r == ORPHEUS_OK) {
+                if (v.type == ORPHEUS_VALUE_FLOAT)
+                    std::cout << "VALUE " << node << " " << param << " " << v.value.f32 << std::endl;
+                else if (v.type == ORPHEUS_VALUE_INT)
+                    std::cout << "VALUE " << node << " " << param << " " << v.value.i32 << std::endl;
+            } else {
+                std::cout << "ERR GET " << node << " " << param << std::endl;
+            }
+        }
+    }
+    running = false;
 }
 
 // ---------------------------------------------------------------- main
@@ -162,6 +247,10 @@ void print_usage(const char* prog) {
 }
 
 int main(int argc, char** argv) {
+    // unbuffered stdout: log/probe lines must reach the parent process immediately
+    setvbuf(stdout, NULL, _IONBF, 0);
+    std::cout << std::unitbuf;
+
     if (argc < 2) {
         print_usage(argv[0]);
         return 1;
@@ -211,6 +300,7 @@ int main(int argc, char** argv) {
         host.device_in_buf = runtime.get_output_buffer(device_in_id, "out");
         host.device_out_buf = runtime.get_input_buffer(device_out_id, "in");
         host.channels = 2;
+        host.block_size = block_size;
         host.rb = nullptr;
 
         std::string chs = get_param(plan, device_in_id, "channels");
@@ -244,6 +334,7 @@ int main(int argc, char** argv) {
             cfg.playback.format = ma_format_f32;
             cfg.playback.channels = host.channels;
             cfg.sampleRate = sample_rate;
+            cfg.periodSizeInFrames = block_size;
             cfg.dataCallback = data_callback;
             cfg.pUserData = &host;
             if (ma_device_init(NULL, &cfg, &play_device) != MA_SUCCESS) {
@@ -270,6 +361,7 @@ int main(int argc, char** argv) {
             cap_cfg.capture.format = ma_format_f32;
             cap_cfg.capture.channels = host.channels;
             cap_cfg.sampleRate = sample_rate;
+            cap_cfg.periodSizeInFrames = block_size;
             cap_cfg.dataCallback = loopback_capture_callback;
             cap_cfg.pUserData = &host;
             if (ma_device_init(NULL, &cap_cfg, &cap_device) != MA_SUCCESS) {
@@ -284,6 +376,7 @@ int main(int argc, char** argv) {
             play_cfg.playback.format = ma_format_f32;
             play_cfg.playback.channels = host.channels;
             play_cfg.sampleRate = sample_rate;
+            play_cfg.periodSizeInFrames = block_size;
             play_cfg.dataCallback = loopback_playback_callback;
             play_cfg.pUserData = &host;
             if (ma_device_init(NULL, &play_cfg, &play_device) != MA_SUCCESS) {
@@ -304,13 +397,27 @@ int main(int argc, char** argv) {
             }
         }
 
-        std::cout << "Real-time audio running (" << (loopback ? "loopback" : "microphone")
-                  << "). Press Enter to stop..." << std::endl;
-        std::cin.get();
+        std::cout << "LOG rt_host running (source=" << (loopback ? "loopback" : "microphone")
+                  << ", channels=" << host.channels << ", sample_rate=" << sample_rate
+                  << ", block_size=" << block_size << ")" << std::endl;
+
+        std::atomic<bool> running{true};
+        std::thread probe_thread([&]() {
+            while (running) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                if (running) report_probes(runtime, plan);
+            }
+        });
+
+        control_loop(runtime, running);  // returns on STOP / Enter / stdin EOF
+
+        running = false;
+        if (probe_thread.joinable()) probe_thread.join();
 
         if (play_inited) ma_device_uninit(&play_device);
         if (cap_inited) ma_device_uninit(&cap_device);
         if (rb_inited) ma_pcm_rb_uninit(&rb);
+        std::cout << "LOG rt_host stopped" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         if (play_inited) ma_device_uninit(&play_device);

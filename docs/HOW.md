@@ -730,3 +730,21 @@ orpheus_platform_memory_section_bind(...);
 - **设备选择 + Loopback**：rt_host 支持 `--list-devices`（JSON 输出，供 `GET /api/devices` 使用）；device_in/device_out 新增 `device` 参数（设备名子串匹配，空=默认设备）；device_in 的 `source` 可选 `microphone`（duplex）或 `loopback`（WASAPI 环回采集系统混音，`ma_pcm_rb` 环形缓冲桥接到播放设备主时钟）。配合 VB-Cable 等现成虚拟声卡即可做应用间路由（不自研内核驱动）。
 - **参数控件定制**：manifest 参数支持 `widget`（number/text/slider/select/checkbox/file，缺省按 type 推断）、`options`、`options_source`（动态下拉如设备列表）、`readonly`。前端 `widgets.js` 为控件注册表，新组件个性化控件 = 注册 widget + manifest 声明。file 控件走工程内文件浏览/上传（`POST /api/projects/{name}/uploads`），保持工程可移植。
 - **探针回读**：probe 组件 readback 参数经 `Runtime::get_parameter` 透传；离线宿主跑完打印 `PROBE <node> <param> <value>`，run 响应携带 `probes`；前端 `nodeWidgets` 注册表按组件 id 定制节点本体（电平条）。运行中实时回读/节点当场操作待实时宿主 UI 化后提供。
+
+---
+
+## 20. 实时会话与控制协议（已实现 v1）
+
+- **架构**：`POST /api/projects/{name}/rt/start` 由后端拉起 `rt_host` 子进程（stdin/stdout 管道），`RtSession` 读线程解析输出；UI 轮询 `rt/status` 刷新日志与探针值。
+- **stdin 控制协议**：`SET <node> <param> <value>`（运行中调参，OK/ERR 回显）、`GET <node> <param>`（VALUE 回显）、`STOP`（或回车/stdin EOF 退出）。
+- **日志机制**：约定 stdout 行为日志流——`LOG ...` 为主机生命周期事件；组件在**非实时函数**（create/prepare/destroy/set_parameter）中可 printf，输出被捕获进 UI 日志窗口；实时过程中的组件输出走 PROBE 轮询（每 200ms 上报 readback 参数），实时线程内禁止 printf/IO。
+- **UI**：工具栏「⏺ 实时运行 / ■ 停止」；底部实时日志窗口；运行中修改非 `restart_required` 参数（如 gain_db）即时推送到 rt_host 生效；探针节点电平条每秒刷新。
+- **关键修复**：设备回调周期可大于图 block_size（如 480 vs 128 帧）导致缓冲溢出崩溃——回调内按 block_size 分块处理；MinGW 管道输出需 setvbuf(_IONBF)+unitbuf；Python 侧用 readline() 而非迭代读子进程管道（迭代有预读缓冲）。
+
+---
+
+## 21. 两条执行路径（设计澄清）
+
+- **动态加载（UI 运行所走）**：图编译只产出 plan.json 数据（拓扑、Buffer 分配、签名），不含任何代码生成；组件 DLL 预编译（缺了才补建）；基座程序（orpheus_runtime / orpheus_rt_host）LoadLibrary 动态加载，经 C ABI 函数表调用。图改动零 C 编译，编辑-运行循环快，面向 PC 设计/调试。
+- **代码生成（部署路径）**：`orpheus-cli generate` 展开为独立 C 工程，静态编译，无 DLL 依赖，可交叉编译到嵌入式目标。目前仅支持单 Task、无探针。
+- 两条路径共享同一份组件 C 源码与 ABI 契约，设计原则要求结果一致（自动化一致性测试待补）。

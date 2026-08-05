@@ -22,6 +22,11 @@ export const deleteProject = (name) => unwrap(api.delete(`/projects/${name}`));
 export const compileProject = (name) => unwrap(api.post(`/projects/${name}/compile`));
 export const runProject = (name) => unwrap(api.post(`/projects/${name}/run`));
 export const listDevices = () => unwrap(api.get('/devices'));
+export const rtStart = (name) => unwrap(api.post(`/projects/${name}/rt/start`));
+export const rtStop = (name) => unwrap(api.post(`/projects/${name}/rt/stop`));
+export const rtStatus = (name) => unwrap(api.get(`/projects/${name}/rt/status`));
+export const rtSetParam = (name, node, param, value) =>
+  unwrap(api.post(`/projects/${name}/rt/param`, { node, param, value }));
 export const listProjectFiles = (name, ext = null) =>
   unwrap(api.get(`/projects/${name}/files`, { params: ext ? { ext } : {} }));
 export const uploadProjectFile = (name, file) => {
