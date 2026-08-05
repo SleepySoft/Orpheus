@@ -147,6 +147,8 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
 
         result = prepare_instance(*inst, cfg);
         if (result != ORPHEUS_OK) {
+            std::cerr << "[Runtime] prepare failed for node " << node_id
+                      << " (" << cfg.component << "): " << result << std::endl;
             return result;
         }
 

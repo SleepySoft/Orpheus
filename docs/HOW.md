@@ -740,6 +740,7 @@ orpheus_platform_memory_section_bind(...);
 - **日志机制**：约定 stdout 行为日志流——`LOG ...` 为主机生命周期事件；组件在**非实时函数**（create/prepare/destroy/set_parameter）中可 printf，输出被捕获进 UI 日志窗口；实时过程中的组件输出走 PROBE 轮询（每 200ms 上报 readback 参数），实时线程内禁止 printf/IO。
 - **UI**：工具栏「⏺ 实时运行 / ■ 停止」；底部实时日志窗口；运行中修改非 `restart_required` 参数（如 gain_db）即时推送到 rt_host 生效；探针节点电平条每秒刷新。
 - **关键修复**：设备回调周期可大于图 block_size（如 480 vs 128 帧）导致缓冲溢出崩溃——回调内按 block_size 分块处理；MinGW 管道输出需 setvbuf(_IONBF)+unitbuf；Python 侧用 readline() 而非迭代读子进程管道（迭代有预读缓冲）。
+- **错误定位**：Runtime `load_plan` 的 prepare 失败会打印失败节点与组件（如 `[Runtime] prepare failed for node wav (orpheus.builtin.wav_in): -6`），实时/离线日志可直接定位到具体组件；-6 = ORPHEUS_ERR_NOT_FOUND（wav_in/mp3_in 多为文件路径不存在，路径相对工程目录）。
 
 ---
 
