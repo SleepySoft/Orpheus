@@ -1,0 +1,36 @@
+id: orpheus.builtin.wav_in
+version: 1.0.0
+abi_version: 1
+package_type: source
+sources:
+  - src/wav_in.c
+headers:
+  - include/orpheus_wav_in.h
+ports:
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: file_path
+    name: File Path
+    type: string
+    default: ""
+    update_policy: restart_required
+  - id: channels
+    name: Channels
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: false

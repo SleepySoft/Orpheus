@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orpheus-core"
+version = "0.1.0"
+description = "Orpheus audio framework core: project model, registry, compiler, builder."
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+    "jsonschema>=4.0",
+    "click>=8.0",
+    "numpy>=1.24",
+]
+
+[project.scripts]
+orpheus-cli = "orpheus_core.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["orpheus_core*"]

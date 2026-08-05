@@ -1,0 +1,35 @@
+version: "0.1.0"
+metadata:
+  name: test_gain_chain
+  description: Two gain nodes connected for compiler testing
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: gain1
+      component: orpheus.builtin.gain
+      task: default
+      params:
+        gain_db: -6.0
+        channels: 2
+      position:
+        x: 100
+        y: 100
+    - id: gain2
+      component: orpheus.builtin.gain
+      task: default
+      params:
+        gain_db: 3.0
+        channels: 2
+      position:
+        x: 300
+        y: 100
+  connections:
+    - from: gain1:out
+      to: gain2:in

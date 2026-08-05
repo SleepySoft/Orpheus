@@ -1,0 +1,689 @@
+# Orpheus — 怎么做（HOW）
+
+> 本文回答：Orpheus 用什么技术、如何分层、关键机制如何实现、分几个阶段落地。它是 `WHAT.md` 的技术实现方案。
+
+---
+
+## 1. 技术栈决策
+
+| 层级 | 选型 | 说明 |
+|---|---|---|
+| 图形界面 | **TypeScript + React + React Flow** | React Flow 提供自由画布、多端口、类型化连线、子图、分组，风格接近 ComfyUI，适合“中式直观”体验 |
+| 桌面容器 | **Tauri**（v2） | 承载 Web UI，管理本地进程与文件权限；第一阶段允许先用浏览器开发，稳定后再打包 |
+| 工程编排/构建/代码生成 | **Python 3.12+** | 工程读写、Schema 校验、组件扫描、CMake 调用、Runtime 启动、控制客户端、代码生成 |
+| 实时运行时 | **C++11** | 组件加载、Buffer 管理、调度、控制、Probe、音频 I/O；对外提供 C ABI |
+| 组件实现 | **优先 C11，允许 C++11** | 必须暴露 C ABI，不得跨 ABI 传 C++ 对象/STL/异常；C++11 为嵌入式兼容上限 |
+| 音频后端 | **miniaudio** | 轻量、跨平台、单头文件，适合 Runtime 与嵌入式生成代码解耦；JUCE 仅作为可选 PC 宿主参考 |
+| 构建系统 | **CMake + Ninja** | 组件动态库、Runtime、生成工程、测试统一使用 |
+| 工程描述 | **YAML** | 人类可读、Git diff 友好 |
+| Schema 校验 | **JSON Schema** | 校验 Project、Component Manifest、Target Profile |
+| 运行中间表示 | **二进制 IR（JSON/MsgPack 描述 + 可选二进制 blob）** | Runtime 加载编译后的执行计划，避免运行时解析 YAML |
+| 控制协议 | **自定义二进制消息协议** | 请求/响应/事件/流数据分离，与 Transport 解耦 |
+| 测试 | **GoogleTest（C++）+ pytest（Python）+ Playwright（UI）** | 单元、集成、端到端、Golden Vector |
+| 代码质量 | **Clang-Tidy、Cppcheck、AddressSanitizer、ThreadSanitizer** | 静态分析与动态检测 |
+| 文档 | **Markdown** | 与代码仓库共存 |
+
+### 1.1 为什么这样选
+
+- **React Flow + Tauri**：比传统 Simulink/Audio Weaver 更自由、更现代，符合“剪映式”直观操作；同时保留桌面应用能力。
+- **Python 做编排**：Python 在构建脚本、CMake 调用、代码生成、测试编排上生态成熟，且**不进入实时音频回调**。
+- **miniaudio 替代 JUCE**：Runtime 需要尽量轻量，避免把 JUCE 的 GUI/插件生态引入核心；miniaudio 单头文件、跨平台、支持 WASAPI/CoreAudio/ALSA/JACK。
+- **C ABI 作为组件边界**：保证 C/C++ 组件、动态库、生成静态工程、外部目标平台之间的一致性。
+
+---
+
+## 2. 总体架构
+
+```
+┌─────────────────────────────────────────────┐
+│  Presentation Layer                         │
+│  React + React Flow（图编辑器 / 参数面板 /    │
+│  Probe 可视化 / 教学视图 / 调试视图）          │
+└───────────────┬─────────────────────────────┘
+                │ HTTP / WebSocket / Tauri IPC
+┌───────────────▼─────────────────────────────┐
+│  Application Service                        │
+│  Python Orchestrator                        │
+│  Project / Registry / Build / Generator     │
+│  Control Client                             │
+└───────┬───────────────┬─────────────────────┘
+        │               │
+┌───────▼───────┐   ┌───▼─────────────────┐
+│ Build Toolchain│   │ Control Protocol     │
+│ CMake + Ninja  │   │ Local / External     │
+└───────┬───────┘   └───┬─────────────────┘
+                        │
+┌───────────────────────▼─────────────────────┐
+│  C++ Runtime                                  │
+│  Plan Loader / Scheduler / Buffer Manager     │
+│  Control Service / Probe Service / Audio I/O  │
+└───────────────┬─────────────────────────────┘
+                │ Component ABI (C)
+┌───────────────▼─────────────────────────────┐
+│  C/C++ Component Library                    │
+│  DSP / Routing / Resampler / Bridge / Debug │
+└─────────────────────────────────────────────┘
+```
+
+### 2.1 分层依赖规则
+
+```
+UI → Application Service → Domain Model → Runtime Contract / Build Contract → Component ABI
+```
+
+- Domain Model 不依赖 React。
+- Component ABI 不依赖 Python。
+- Runtime 不依赖 UI。
+- DSP 组件不依赖具体调度器实现。
+- 控制协议不依赖具体通信方式。
+- 代码生成器不依赖 PC 音频设备。
+
+---
+
+## 3. 组件模型与 ABI
+
+### 3.1 组件目录结构
+
+```
+components/<namespace>/<category>/<name>/<version>/
+├── component.yaml      # metadata
+├── include/
+│   └── orpheus_gain.h  # 公开 C ABI 头
+├── src/
+│   ├── gain.c          # 算法实现
+│   └── gain_abi.c      # ABI 适配（可选合并）
+├── tests/
+│   ├── test_gain.cpp
+│   └── golden/
+├── docs/
+│   └── README.md
+└── ui/
+    └── icons/
+```
+
+### 3.2 Component Manifest（component.yaml）
+
+```yaml
+id: orpheus.builtin.gain
+version: 1.0.0
+abi_version: 1
+sources:
+  - src/gain.c
+  - src/gain_abi.c
+headers:
+  - include/orpheus_gain.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: gain_db
+    type: float
+    default: 0.0
+    range: [-96.0, 24.0]
+    unit: dB
+    update_policy: smoothed
+    smoothing_time_ms: 10
+  - id: channels
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true
+```
+
+### 3.3 C ABI v1（核心接口）
+
+```c
+// orpheus_abi.h
+#define ORPHEUS_ABI_VERSION 1
+
+typedef struct OrpheusComponentDescriptor {
+    const char* id;
+    const char* version;
+    uint32_t abi_version;
+    const OrpheusPort* ports;
+    size_t port_count;
+    const OrpheusParameter* params;
+    size_t param_count;
+    size_t state_size;
+    size_t scratch_size;
+    size_t alignment;
+} OrpheusComponentDescriptor;
+
+typedef struct OrpheusProcessContext {
+    void* state;
+    const OrpheusBuffer** inputs;
+    OrpheusBuffer** outputs;
+    size_t frame_count;
+    void* scratch;
+    const OrpheusEvent* events;
+    size_t event_count;
+} OrpheusProcessContext;
+
+typedef struct OrpheusComponentInterface {
+    const OrpheusComponentDescriptor* (*get_descriptor)(void);
+    int (*prepare)(void* state, const OrpheusConfig* config);
+    int (*reset)(void* state);
+    int (*process)(void* state, const OrpheusProcessContext* ctx);
+    int (*set_parameter)(void* state, uint32_t param_id, const OrpheusValue* value);
+    int (*get_parameter)(void* state, uint32_t param_id, OrpheusValue* value);
+} OrpheusComponentInterface;
+
+ORPHEUS_EXPORT const OrpheusComponentInterface* orpheus_get_interface(void);
+```
+
+### 3.4 参数更新策略
+
+| 策略 | 说明 |
+|---|---|
+| `immediate` | 立即写入，当前块即生效 |
+| `block_boundary` | 在下一块边界生效，保证无 glitch |
+| `smoothed` | 在指定时间常数内平滑过渡 |
+| `transactional` | 多参数事务，统一边界提交 |
+| `restart_required` | 改变后需要重新初始化组件 |
+
+### 3.5 组件包类型
+
+组件以**包（Package）**为单位发布，支持两种形态：
+
+| 类型 | 说明 | 适用场景 |
+|---|---|---|
+| **Source Package** | 包含 `component.yaml` + 源码 + 头文件 + 测试 | PC 动态编译、目标静态编译、学习阅读源码 |
+| **Binary Package** | 包含 `component.yaml` + 预编译库（`.a` / `.lib` / `.so`）+ 头文件 | 保护知识产权、加速构建、第三方闭源组件 |
+
+Binary Package 的 `component.yaml` 必须声明：
+
+```yaml
+package_type: binary
+binaries:
+  - platform: windows-x86_64
+    compiler: msvc19
+    artifact: lib/gain_x64.lib
+  - platform: generic-arm
+    compiler: gcc-arm-none-eabi
+    artifact: lib/gain_arm.a
+```
+
+两种包在图编译、执行计划、控制协议、代码生成阶段使用相同的 metadata；构建系统根据当前目标选择源码编译或链接预编译库。
+
+### 3.6 分层组件与嵌套组合
+
+组件可以像芯片模块一样逐层堆叠：
+
+```
+Top System
+├── Subsystem: Crossover
+│   ├── Split (2-way)
+│   ├── Biquad (LP)
+│   └── Biquad (HP)
+├── Subsystem: EQ Bank
+│   ├── Biquad (Peak)
+│   └── Biquad (High Shelf)
+└── Mixer
+```
+
+组合规则：
+
+- **原子组件（Atomic Component）**：由 C/C++ 源码或二进制库实现，不可再展开。
+- **复合组件（Composite Component / Subsystem）**：内部包含 Graph，可展开为平面图；也可封装为独立组件复用。
+- **复合组件的公开端口和参数**通过显式映射声明，内部细节对上层隐藏。
+- 图编译时，结构型复合组件必须完全展开；封装型复合组件可作为独立编译单元。
+- 嵌套层级不影响端口类型检查，错误可定位到原始节点路径（如 `Top/Crossover/Biquad_LP`）。
+
+复合组件同样使用 `component.yaml` 描述，区别是包含 `graph` 字段而非 `sources`：
+
+```yaml
+id: myteam.audio.crossover
+version: 1.0.0
+package_type: composite
+graph:
+  nodes:
+    - id: split
+      component: orpheus.builtin.split
+      params: { channels: 2, ways: 2 }
+    - id: lp
+      component: orpheus.builtin.biquad
+      params: { type: lowpass, fc: 1000 }
+  connections:
+    - from: @in
+      to: split:in
+    - from: split:out0
+      to: lp:in
+    - from: lp:out
+      to: @out0
+public_ports:
+  - id: in
+    direction: input
+    binds_to: split:in
+  - id: out0
+    direction: output
+    binds_to: lp:out
+```
+
+### 3.7 参数化端口与可变签名
+
+通用音频组件的接口签名（通道数、采样格式、块长度等）通常由参数决定。例如：
+
+- `Gain` 的 `channels` 参数改变时，输入/输出端口通道数同步改变。
+- `Mixer` 的 `inputs` 参数改变时，输入端口数量同步改变。
+- `Resampler` 的 `ratio` 参数改变时，输出采样率同步改变。
+
+设计要点：
+
+1. **端口签名表达式**：`component.yaml` 中端口属性可引用参数，如 `channels: param:channels`、`sample_rate: param:output_rate`。
+2. **签名解析时机**：图编译阶段，根据节点参数实例值解析出确定性签名，生成执行计划。
+3. **签名变更触发**：改变影响端口签名的参数属于 `restart_required` 策略，必须重新编译执行计划。
+4. **连接校验**：编译器比较两端端口签名（格式、通道数、采样率、块长、时钟域），不兼容时给出明确诊断。
+5. **多态端口**：支持可变数量端口（如 Mixer 的多输入），通过参数 `port_count` 声明。
+
+示例：
+
+```yaml
+parameters:
+  - id: channels
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+```
+
+### 3.8 构建时元数据推断
+
+Source Package 在构建后，应能从编译产物中自动提取或验证 metadata：
+
+```
+component.yaml  （声明式 metadata）
+      ↓
+构建 Source Package → 动态库 / 静态库
+      ↓
+Metadata Extractor 读取 ABI 导出符号
+      ↓
+生成 inferred_manifest.json
+```
+
+推断内容：
+
+- 端口数量与方向（通过 ABI `get_descriptor`）。
+- 状态内存大小、对齐要求（通过 ABI 查询）。
+- 参数列表与默认值（通过 ABI 查询）。
+- 实际支持的采样率、块长度范围。
+
+用途：
+
+- 校验 `component.yaml` 声明与实现是否一致。
+- 为 Binary Package 自动生成 metadata（无源码时）。
+- 在图编译阶段使用确定性签名。
+
+---
+
+## 4. Runtime 设计
+
+### 4.1 Runtime 内部模块
+
+```
+Runtime
+├── Plan Loader          # 加载编译后的 Execution Plan
+├── Component Loader     # 动态加载 DLL/SO/DYLIB
+├── Instance Manager     # 组件实例生命周期
+├── Buffer Manager       # Signal / State / Scratch 内存
+├── Scheduler            # Task 内拓扑执行
+├── Audio Backend        # miniaudio 适配
+├── Control Service      # 统一控制协议服务
+├── Probe Service        # Probe 采集与限流
+└── Statistics Service   # CPU、Buffer Level、Deadline
+```
+
+### 4.2 实时路径禁令
+
+实时处理函数与回调中禁止：
+
+- `malloc` / `free` / `new` / `delete`
+- 阻塞锁、文件 I/O、网络 I/O
+- 日志格式化、UI 回调
+- 异常传播
+
+### 4.3 内存规划
+
+三种内存类型：
+
+| 类型 | 说明 | 生命周期 |
+|---|---|---|
+| Persistent / State | 滤波历史、延迟线、包络状态 | 工程运行期间持续 |
+| Signal Buffer | 组件间传输数据 | 按执行计划生命周期 |
+| Scratch | 单次 process 临时内存 | 单次 process，可跨节点复用 |
+
+规划阶段输出：
+
+- 总内存、每类内存、每组件内存、每 Task 内存。
+- 对齐损耗、峰值 Scratch、Buffer 生命周期。
+- 目标内存区域映射（SRAM / DDR / TCM 等）。
+
+---
+
+## 5. 图形编辑器设计
+
+### 5.1 前端状态分层
+
+- **Project Semantic State**：节点、连接、参数、Task、Probe 等。
+- **Presentation State**：画布位置、缩放、选中、折叠、颜色主题。
+- **Runtime State**：运行/停止/错误、参数反馈、Probe 数据。
+- **Temporary Interaction State**：拖拽、连线预览、上下文菜单。
+
+### 5.2 与后端交互
+
+- 编辑操作 → Python Orchestrator Project API。
+- 运行控制 → Python Control Client → Runtime Control Service。
+- Probe 数据 → Control Protocol Stream Packet → React 可视化组件。
+
+### 5.3 视觉风格
+
+- 节点卡片化，端口在左右两侧，参数可内联编辑。
+- 不同 Task 的节点用不同颜色/边框高亮。
+- 跨 Task 的连接通过 Task Bridge 组件显示为“半色”连线。
+- 非法连接即时红色提示并给出修复建议。
+- 三种视图切换：教学视图（简化）、工程视图（完整）、调试视图（Probe + 统计）。
+
+---
+
+## 6. 工程编译与执行计划
+
+### 6.1 图编译 Pass
+
+```
+1. Parse Pass              # 解析节点、端口、参数
+2. Reference Resolution   # 连接引用解析
+3. Type Inference         # 端口类型、通道数、采样率推导
+4. Subsystem Expansion    # 展开结构型子系统
+5. Domain Analysis        # 划分 Task Domain / Rate Domain / Clock Domain
+6. Connection Validation  # 类型、采样率、跨域合法性
+7. Cycle Validation       # 检测非法反馈环
+8. Scheduling             # 每个 Task 内拓扑排序
+9. Memory Planning        # 分配 State / Signal / Scratch
+10. Registry Generation   # 参数、Probe、Control 注册表
+11. Execution Plan Output # 输出二进制 IR
+```
+
+### 6.2 Execution Plan 内容
+
+```json
+{
+  "abi_version": 1,
+  "tasks": [
+    {
+      "id": 0,
+      "sample_rate": 48000,
+      "block_size": 128,
+      "nodes": ["n0", "n1", "n2"],
+      "execution_order": ["n0", "n1", "n2"]
+    }
+  ],
+  "nodes": {
+    "n0": { "component": "orpheus.builtin.wav_in", "params": {} }
+  },
+  "buffers": { ... },
+  "memory_layout": { ... },
+  "parameter_registry": { ... },
+  "probe_registry": { ... }
+}
+```
+
+---
+
+## 7. 代码生成策略
+
+### 7.1 生成目录结构
+
+```
+generated/
+├── CMakeLists.txt
+├── include/
+│   └── orpheus_config.h
+├── src/
+│   ├── main.c              # 可选 PC 可执行入口
+│   ├── task_entries.c      # 任务入口与执行列表
+│   ├── buffers.c           # Buffer 与内存布局
+│   ├── control_registry.c  # 参数注册表
+│   └── probe_registry.c    # Probe 注册表
+├── components/
+│   └── orpheus_builtin_gain/  # 复制组件源码
+├── platform/
+│   └── generic/            # 平台适配层
+├── tests/
+└── reports/
+    ├── memory_report.md
+    └── latency_report.md
+```
+
+### 7.2 生成原则
+
+1. **源码复制**：组件算法源码原样复制到 `components/`。
+2. **桥接生成**：实例化、连接、任务入口、注册表由生成器按模板生成。
+3. **确定性**：相同输入、组件版本、Target Profile 产生相同输出。
+4. **可读性**：生成代码人工可读，命名稳定，便于在目标芯片上调试。
+5. **无 Python 依赖**：生成工程独立编译。
+
+---
+
+## 8. 控制协议与 Transport
+
+### 8.1 消息类型
+
+- **Request**：参数读写、生命周期、Bulk 操作、Probe 配置。
+- **Response**：请求响应，含错误码。
+- **Event**：运行状态变化、错误、任务统计。
+- **Stream Packet**：Probe 数据、日志、性能计数。
+
+### 8.2 消息头
+
+```c
+typedef struct {
+    uint16_t protocol_version;
+    uint16_t message_type;     // Request / Response / Event / Stream
+    uint32_t request_id;
+    uint32_t session_id;
+    uint32_t payload_length;
+    // 完整性校验字段（CRC32 或更轻量校验）
+} OrpheusMessageHeader;
+```
+
+### 8.3 Transport 接口
+
+```c
+typedef struct {
+    const char* name;
+    size_t max_packet_size;
+    bool reliable;
+    bool ordered;
+    bool full_duplex;
+    int (*open)(void* ctx);
+    int (*close)(void* ctx);
+    int (*send)(void* ctx, const uint8_t* data, size_t len);
+    int (*recv)(void* ctx, uint8_t* buf, size_t* len);
+    int (*query_status)(void* ctx);
+} OrpheusTransportInterface;
+```
+
+核心框架提供：
+
+- In-process Transport（本地 Runtime 直接调用）。
+- Loopback Transport（测试）。
+- Shared Memory Transport（跨进程低延迟）。
+
+外部实现：TCP、UART、SWD、厂商链路。
+
+---
+
+## 9. 多任务与桥接
+
+### 9.1 Task 模型
+
+```yaml
+tasks:
+  - id: 0
+    name: audio_processing
+    sample_rate: 48000
+    block_size: 128
+    priority: high
+    core_affinity: [0]
+    target_entry: process_audio
+  - id: 1
+    name: slow_control
+    sample_rate: 1000
+    block_size: 1
+    priority: low
+    target_entry: process_control
+```
+
+### 9.2 桥接矩阵
+
+| 场景 | 需要的组件 |
+|---|---|
+| 同 Task、不同 Block Size | Rebuffer / Block Splitter / Accumulator |
+| 同 Task、不同 Sample Rate | Resampler |
+| 不同 Task、同 Sample Rate | Task Bridge + Ring Buffer |
+| 不同 Task、不同 Sample Rate | Task Bridge + Resampler |
+| 不同 Clock Domain | Async Bridge + 水位监控 + 漂移处理 |
+
+### 9.3 Task Bridge
+
+- 使用 SPSC Ring Buffer 作为默认跨 Task 缓冲。
+- 声明输入/输出速率、块长、缓冲容量、固定延迟、最大延迟。
+- 欠载/溢出策略：zero-fill / hold-last / mute / report。
+- 提供水位 Probe。
+
+---
+
+## 10. 目标平台适配
+
+### 10.1 Target Profile
+
+```yaml
+id: generic_bare_metal
+cpu: cortex-m7
+compiler: gcc-arm-none-eabi
+sample_format: q31
+memory_regions:
+  - name: dtcm
+    size: 0x80000
+    alignment: 8
+  - name: sdram
+    size: 0x800000
+    alignment: 32
+max_tasks: 8
+thread_model: none
+critical_section: disable_interrupts
+timestamp: dwt_cyccnt
+transport_binding: external
+```
+
+### 10.2 平台适配层（platform/）
+
+```c
+orpheus_platform_init();
+orpheus_platform_critical_section_enter();
+orpheus_platform_critical_section_exit();
+orpheus_platform_timestamp_us();
+orpheus_platform_task_register(...);
+orpheus_platform_memory_section_bind(...);
+```
+
+---
+
+## 11. 测试策略
+
+| 层级 | 工具 | 内容 |
+|---|---|---|
+| 组件单元 | GoogleTest | 每个组件数值正确性、边界、参数 |
+| ABI 合规 | GoogleTest | 动态/静态调用一致性、多实例 |
+| 图编译器 | pytest | 合法/非法图、诊断、稳定执行顺序 |
+| Runtime 集成 | pytest + C++ | 离线 WAV、实时回调、启停资源 |
+| 控制协议 | pytest | 请求/响应、会话、错误码 |
+| UI 端到端 | Playwright | 创建、连接、运行、监听 |
+| 生成工程 | pytest | 生成 CMake 可编译、与动态模式一致 |
+| 长时间稳定性 | pytest | Ring Buffer、桥接、内存 |
+| 静态/动态检测 | Sanitizer / Clang-Tidy | 内存、线程、未定义行为 |
+
+---
+
+## 12. 开发路线图
+
+### 阶段一：契约冻结（4~6 周）
+
+- Project Schema、Component Manifest Schema、ABI v1、Port Type System、Parameter Model、Execution Domain Model、Probe Model、Control Protocol、Target Profile。
+- 交付：Schema 文件、ABI Header、概念说明、合法/非法样本、设计测试。
+
+### 阶段二：命令行最小闭环（4~6 周）
+
+- 组件 Registry、Gain 组件、图编译器最小版本、组件构建器、PC Runtime 离线模式、WAV I/O、单 Task 代码生成、结果一致性测试。
+- 目标闭环：`YAML Graph → 构建 Gain → Runtime 处理 WAV → 生成静态工程 → 编译运行 → 比较输出`。
+
+### 阶段三：实时运行闭环（4~6 周）
+
+- miniaudio Audio Backend、实时 Runtime、Local Control Transport、参数注册表、Block Boundary Commit、RMS/Waveform Probe、Runtime 统计。
+- 目标闭环：`音频输入 → Gain → Biquad → 输出 → 调参 → 下一 Block 生效 → UI/CLI 读取 Probe`。
+
+### 阶段四：图形编辑闭环（4~6 周）
+
+- React Flow Canvas、节点库、连线、参数面板、诊断、运行工具栏、Probe 面板、工程保存、子系统基础。
+- 目标闭环：`拖入组件 → 连接 → 配置 → 运行 → 听音 → 调参 → 看波形 → 保存`。
+
+### 阶段五：基础 DSP 与代码生成（4~6 周）
+
+- Mixer、Interleave/Deinterleave、FIR、Biquad、Rebuffer、Resampler、内存规划、控制/Probe 注册表生成、生成报告。
+
+### 阶段六：多任务（4~6 周）
+
+- Task Domain、多 Task Execution Plan、SPSC Ring Buffer、Task Bridge、Rebuffer 跨任务、多 Task 代码生成、Deadline/水位 Probe、长时间稳定性测试。
+
+### 阶段七：目标接入与教学（4~6 周）
+
+- Target Profile、Generic Bare-metal/RTOS Adapter、External Transport ABI、Bulk Transfer、Teaching Package、教学视图、自动检查、教师内容编辑工具。
+
+---
+
+## 13. 关键设计原则
+
+1. **先冻结契约，再实现功能**。Project / ABI / Control Protocol 是上层模块唯一依赖。
+2. **UI 与 Runtime 完全解耦**。所有交互走统一控制协议。
+3. **实时路径极简**。无堆分配、无阻塞、无异常。
+4. **生成代码保持可读**。复杂度留在框架和组件，不在生成代码中叠加。
+5. **PC 动态模式与生成模式结果一致**。任何算法改动必须同时通过两种模式验证。
+6. **文本化、版本友好**。工程与组件 metadata 均为 YAML/Markdown，便于 Git 管理。
+7. **组件自包含**。每个组件可独立编译、独立测试、独立版本化。
+
+---
+
+## 14. 文档关系
+
+- `WHAT.md`：产品定义与需求基准。
+- `HOW.md`（本文）：技术栈、架构与实现方案。
+- `design_draft.txt`：历史设计草案与详细子系统分解。
+- `design_v1.md`：高层概念草稿。
+

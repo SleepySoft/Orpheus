@@ -1,0 +1,154 @@
+"""Command-line interface for Orpheus Core."""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import click
+
+from orpheus_core.builder import BuildError, ComponentBuilder
+from orpheus_core.compiler import CompileError, GraphCompiler
+from orpheus_core.generator import CodeGenerator
+from orpheus_core.project import ProjectLoader
+from orpheus_core.registry import Registry
+
+
+@click.group()
+@click.option(
+    "--project-root",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=Path.cwd(),
+)
+@click.pass_context
+def cli(ctx: click.Context, project_root: Path) -> None:
+    ctx.ensure_object(dict)
+    ctx.obj["project_root"] = project_root
+
+
+@cli.command()
+@click.pass_context
+def scan(ctx: click.Context) -> None:
+    """Scan and list available components."""
+    root = ctx.obj["project_root"]
+    registry = Registry()
+    registry.add_search_path(root / "components")
+    registry.scan()
+    for info in registry.list_components():
+        click.echo(f"{info.id}\t{info.version}\t{info.package_type}\t{info.root_dir}")
+
+
+@cli.command()
+@click.argument("project_file", type=click.Path(exists=True, path_type=Path))
+@click.pass_context
+def compile(ctx: click.Context, project_file: Path) -> None:
+    """Compile a project YAML into an execution plan JSON."""
+    root = ctx.obj["project_root"]
+    registry = Registry()
+    registry.add_search_path(root / "components")
+    registry.scan()
+
+    loader = ProjectLoader()
+    project = loader.load(project_file)
+
+    compiler = GraphCompiler(registry)
+    try:
+        plan = compiler.compile(project)
+    except CompileError as exc:
+        click.echo(f"compile error: {exc}", err=True)
+        sys.exit(1)
+
+    output = project_file.with_suffix(".plan.json")
+    with open(output, "w", encoding="utf-8") as f:
+        json.dump(plan.__dict__, f, indent=2, ensure_ascii=False)
+    click.echo(f"execution plan written to {output}")
+
+
+@cli.command()
+@click.argument("component_ids", nargs=-1)
+@click.option("--build-dir", type=click.Path(path_type=Path), default=None)
+@click.pass_context
+def build(ctx: click.Context, component_ids: tuple[str, ...], build_dir: Path | None) -> None:
+    """Build one or more components."""
+    root = ctx.obj["project_root"]
+    registry = Registry()
+    registry.add_search_path(root / "components")
+    registry.scan()
+
+    if build_dir is None:
+        build_dir = root / "build"
+
+    builder = ComponentBuilder(root, build_dir, registry)
+    try:
+        builder.configure()
+    except BuildError as exc:
+        click.echo(f"configure error: {exc}", err=True)
+        sys.exit(1)
+
+    if not component_ids:
+        component_ids = tuple(info.id for info in registry.list_components())
+
+    for cid in component_ids:
+        try:
+            lib_path = builder.build_component(cid)
+            click.echo(f"{cid} -> {lib_path}")
+        except BuildError as exc:
+            click.echo(f"build error for {cid}: {exc}", err=True)
+            sys.exit(1)
+
+
+@cli.command()
+@click.argument("project_file", type=click.Path(exists=True, path_type=Path))
+@click.argument("output_dir", type=click.Path(path_type=Path))
+@click.pass_context
+def generate(ctx: click.Context, project_file: Path, output_dir: Path) -> None:
+    """Generate a standalone C project from a project YAML."""
+    root = ctx.obj["project_root"]
+    registry = Registry()
+    registry.add_search_path(root / "components")
+    registry.scan()
+
+    loader = ProjectLoader()
+    project = loader.load(project_file)
+
+    compiler = GraphCompiler(registry)
+    try:
+        plan = compiler.compile(project)
+    except CompileError as exc:
+        click.echo(f"compile error: {exc}", err=True)
+        sys.exit(1)
+
+    generator = CodeGenerator(registry, root)
+    generator.generate(plan, output_dir)
+    click.echo(f"generated project written to {output_dir}")
+
+
+@cli.command()
+@click.argument("name")
+@click.pass_context
+def new(ctx: click.Context, name: str) -> None:
+    """Create a minimal project YAML."""
+    root = ctx.obj["project_root"]
+    path = root / "examples" / f"{name}.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    loader = ProjectLoader()
+    from orpheus_core.project import Graph, Project, Task
+
+    project = Project(
+        metadata={"name": name, "description": "Generated project"},
+        sample_rate=48000,
+        block_size=128,
+    )
+    project.tasks["default"] = Task(id="default", sample_rate=48000, block_size=128)
+    project.graph = Graph()
+    loader.save(project, path)
+    click.echo(f"created {path}")
+
+
+def main() -> None:
+    cli()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,98 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #1a1a2e;
+  color: white;
+}
+
+.toolbar h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.toolbar button {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  background: #4cc9f0;
+  color: #1a1a2e;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.canvas {
+  flex: 1;
+  position: relative;
+}
+
+.sidebar {
+  width: 280px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-left: 1px solid #dee2e6;
+  overflow-y: auto;
+}
+
+.orpheus-node {
+  background: white;
+  border: 1px solid #ced4da;
+  border-radius: 8px;
+  min-width: 140px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.orpheus-node.selected {
+  border-color: #4cc9f0;
+  box-shadow: 0 0 0 2px rgba(76, 201, 240, 0.3);
+}
+
+.node-header {
+  padding: 8px 12px;
+  background: #e9ecef;
+  border-radius: 8px 8px 0 0;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: pre-line;
+}
+
+.node-body {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.node-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.port-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+pre {
+  background: #e9ecef;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  overflow-x: auto;
+}

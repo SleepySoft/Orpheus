@@ -1,0 +1,50 @@
+id: orpheus.builtin.gain
+version: 1.0.0
+abi_version: 1
+package_type: source
+sources:
+  - src/gain.c
+headers:
+  - include/orpheus_gain.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: gain_db
+    name: Gain
+    type: float
+    default: 0.0
+    range: [-96.0, 24.0]
+    unit: dB
+    update_policy: smoothed
+  - id: channels
+    name: Channels
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: smoothing_ms
+    name: Smoothing Time
+    type: float
+    default: 5.0
+    range: [0.0, 1000.0]
+    unit: ms
+    update_policy: restart_required
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

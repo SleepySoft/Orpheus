@@ -1,0 +1,61 @@
+id: orpheus.builtin.biquad
+version: 1.0.0
+abi_version: 1
+package_type: source
+sources:
+  - src/biquad.c
+headers:
+  - include/orpheus_biquad.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: type
+    name: Filter Type
+    type: string
+    default: lowpass
+    update_policy: restart_required
+  - id: fc
+    name: Cutoff Frequency
+    type: float
+    default: 1000.0
+    range: [20.0, 20000.0]
+    unit: Hz
+    update_policy: restart_required
+  - id: q
+    name: Q
+    type: float
+    default: 0.707
+    range: [0.1, 10.0]
+    update_policy: restart_required
+  - id: gain_db
+    name: Gain
+    type: float
+    default: 0.0
+    range: [-24.0, 24.0]
+    unit: dB
+    update_policy: restart_required
+  - id: channels
+    name: Channels
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

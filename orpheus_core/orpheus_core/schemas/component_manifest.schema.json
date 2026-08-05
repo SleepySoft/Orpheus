@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Orpheus Component Manifest",
+  "type": "object",
+  "required": ["id", "version", "abi_version"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$" },
+    "version": { "type": "string" },
+    "abi_version": { "type": "integer", "minimum": 1 },
+    "package_type": { "type": "string", "enum": ["source", "binary", "composite"], "default": "source" },
+    "sources": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "headers": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "binaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["platform", "compiler", "artifact"],
+        "properties": {
+          "platform": { "type": "string" },
+          "compiler": { "type": "string" },
+          "artifact": { "type": "string" }
+        }
+      }
+    },
+    "ports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "direction", "type"],
+        "properties": {
+          "id": { "type": "string" },
+          "direction": { "type": "string", "enum": ["input", "output"] },
+          "type": { "type": "string", "enum": ["audio", "control", "bulk", "debug"] },
+          "sample_format": { "type": "string", "enum": ["f32", "i16", "i24", "i32"] },
+          "channels": { "type": ["integer", "string"] },
+          "sample_rate": { "type": ["integer", "string"] },
+          "block_size": { "type": ["integer", "string"] },
+          "is_variable": { "type": "boolean" },
+          "channels_param": { "type": "string" }
+        }
+      }
+    },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["float", "int", "bool", "string"] },
+          "default": {},
+          "range": { "type": "array", "minItems": 2, "maxItems": 2 },
+          "unit": { "type": "string" },
+          "update_policy": { "type": "string", "enum": ["immediate", "block_boundary", "smoothed", "transactional", "restart_required"] },
+          "readback": { "type": "boolean" },
+          "persistent": { "type": "boolean" },
+          "affects_signature": { "type": "boolean" }
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "properties": {
+        "state_size": { "type": "integer" },
+        "scratch_size": { "type": "integer" },
+        "alignment": { "type": "integer" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "sample_rate_independent": { "type": "boolean" },
+        "latency_samples": { "type": "integer" },
+        "supports_inplace": { "type": "boolean" },
+        "realtime_safe": { "type": "boolean" }
+      }
+    },
+    "graph": { "type": "object" },
+    "public_ports": { "type": "array" },
+    "public_parameters": { "type": "array" }
+  }
+}

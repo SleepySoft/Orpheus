@@ -1,0 +1,80 @@
+version: "0.1.0"
+metadata:
+  name: wav_split_merge
+  description: WAV In -> Split -> Gain0/Gain1 -> Merge -> WAV Out
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: wav_in
+      component: orpheus.builtin.wav_in
+      task: default
+      params:
+        file_path: C:\D\Code\git\Orpheus\examples\test_input.wav
+        channels: 2
+      position:
+        x: 100
+        y: 100
+    - id: split
+      component: orpheus.builtin.split
+      task: default
+      params:
+        channels: 2
+      position:
+        x: 300
+        y: 100
+    - id: gain0
+      component: orpheus.builtin.gain
+      task: default
+      params:
+        gain_db: -12.0
+        channels: 2
+      position:
+        x: 500
+        y: 50
+    - id: gain1
+      component: orpheus.builtin.gain
+      task: default
+      params:
+        gain_db: -12.0
+        channels: 2
+      position:
+        x: 500
+        y: 150
+    - id: merge
+      component: orpheus.builtin.merge
+      task: default
+      params:
+        channels: 2
+      position:
+        x: 700
+        y: 100
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      task: default
+      params:
+        file_path: C:\D\Code\git\Orpheus\examples\test_output.wav
+        channels: 2
+        sample_rate: 48000
+      position:
+        x: 900
+        y: 100
+  connections:
+    - from: wav_in:out
+      to: split:in
+    - from: split:out0
+      to: gain0:in
+    - from: split:out1
+      to: gain1:in
+    - from: gain0:out
+      to: merge:in0
+    - from: gain1:out
+      to: merge:in1
+    - from: merge:out
+      to: wav_out:in

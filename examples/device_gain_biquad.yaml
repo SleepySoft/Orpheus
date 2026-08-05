@@ -1,0 +1,58 @@
+version: "0.1.0"
+metadata:
+  name: device_gain_biquad
+  description: Device Input -> Gain -> Biquad -> Device Output
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: device_in
+      component: orpheus.builtin.device_in
+      task: default
+      params:
+        channels: 2
+      position:
+        x: 100
+        y: 100
+    - id: gain
+      component: orpheus.builtin.gain
+      task: default
+      params:
+        gain_db: -6.0
+        channels: 2
+      position:
+        x: 300
+        y: 100
+    - id: biquad
+      component: orpheus.builtin.biquad
+      task: default
+      params:
+        type: lowpass
+        fc: 2000.0
+        q: 0.707
+        gain_db: 0.0
+        channels: 2
+      position:
+        x: 500
+        y: 100
+    - id: device_out
+      component: orpheus.builtin.device_out
+      task: default
+      params:
+        channels: 2
+      position:
+        x: 700
+        y: 100
+  connections:
+    - from: device_in:out
+      to: gain:in
+    - from: gain:out
+      to: biquad:in
+    - from: biquad:out
+      to: device_out:in

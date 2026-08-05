@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Orpheus Project",
+  "type": "object",
+  "required": ["version", "graph"],
+  "properties": {
+    "version": { "type": "string" },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "author": { "type": "string" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      }
+    },
+    "sample_rate": { "type": "integer", "default": 48000 },
+    "block_size": { "type": "integer", "default": 128 },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "sample_rate": { "type": "integer" },
+          "block_size": { "type": "integer" },
+          "priority": { "type": "integer" }
+        }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "required": ["nodes", "connections"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "component"],
+            "properties": {
+              "id": { "type": "string" },
+              "component": { "type": "string" },
+              "version": { "type": "string" },
+              "task": { "type": "string" },
+              "params": { "type": "object" },
+              "position": {
+                "type": "object",
+                "properties": {
+                  "x": { "type": "number" },
+                  "y": { "type": "number" }
+                }
+              }
+            }
+          }
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["from", "to"],
+            "properties": {
+              "from": { "type": "string" },
+              "to": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,61 @@
+version: "0.1.0"
+metadata:
+  name: wav_gain_biquad
+  description: WAV Input -> Gain -> Biquad -> WAV Output
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: wav_in
+      component: orpheus.builtin.wav_in
+      task: default
+      params:
+        file_path: C:\D\Code\git\Orpheus\examples\test_input.wav
+        channels: 2
+      position:
+        x: 100
+        y: 100
+    - id: gain
+      component: orpheus.builtin.gain
+      task: default
+      params:
+        gain_db: -6.0
+        channels: 2
+      position:
+        x: 300
+        y: 100
+    - id: biquad
+      component: orpheus.builtin.biquad
+      task: default
+      params:
+        type: lowpass
+        fc: 2000.0
+        q: 0.707
+        gain_db: 0.0
+        channels: 2
+      position:
+        x: 500
+        y: 100
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      task: default
+      params:
+        file_path: C:\D\Code\git\Orpheus\examples\test_output.wav
+        channels: 2
+        sample_rate: 48000
+      position:
+        x: 700
+        y: 100
+  connections:
+    - from: wav_in:out
+      to: gain:in
+    - from: gain:out
+      to: biquad:in
+    - from: biquad:out
+      to: wav_out:in
