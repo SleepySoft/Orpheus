@@ -4,13 +4,16 @@
   height: 100vh;
 }
 
+/* ---------------------------------------------------------- toolbar */
+
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 8px 16px;
   background: #1a1a2e;
   color: white;
+  flex-wrap: wrap;
 }
 
 .toolbar h1 {
@@ -18,20 +21,256 @@
   font-size: 18px;
 }
 
-.toolbar button {
+.toolbar button,
+.toolbar a.button {
   padding: 6px 12px;
   border: none;
   border-radius: 4px;
-  background: #4cc9f0;
+  background: #e9ecef;
   color: #1a1a2e;
   cursor: pointer;
   font-weight: 600;
+  text-decoration: none;
+  font-size: 13px;
 }
+
+.toolbar button.primary {
+  background: #4cc9f0;
+}
+
+.toolbar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.toolbar select {
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: none;
+  font-size: 13px;
+  max-width: 200px;
+}
+
+.toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.autosave {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #ced4da;
+}
+
+.status {
+  margin-left: auto;
+  font-size: 12px;
+  color: #a8dadc;
+}
+
+.status.dirty {
+  color: #ffd166;
+}
+
+/* ---------------------------------------------------------- layout */
 
 .main {
   display: flex;
   flex: 1;
   overflow: hidden;
+}
+
+/* ---------------------------------------------------------- tabs */
+
+.tabbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 12px 0;
+  background: #e9ecef;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.tab {
+  padding: 6px 14px;
+  font-size: 13px;
+  background: #dee2e6;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tab.active {
+  background: white;
+  font-weight: 600;
+}
+
+.tab-close {
+  margin-left: 8px;
+  color: #868e96;
+  font-weight: 400;
+}
+
+.tab-close:hover {
+  color: #e03131;
+}
+
+/* ---------------------------------------------------------- right bar */
+
+.rightbar {
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #dee2e6;
+  overflow-y: auto;
+  background: #f8f9fa;
+}
+
+.rightbar .sidebar {
+  width: auto;
+  flex: 1;
+  border-left: none;
+  overflow-y: visible;
+}
+
+.subports {
+  padding: 12px 16px;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.subports h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.subport-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 0;
+}
+
+.subport-dir {
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #d0ebff;
+  color: #1864ab;
+}
+
+.subport-dir.output {
+  background: #d3f9d8;
+  color: #2b8a3e;
+}
+
+.subport-id {
+  font-weight: 600;
+}
+
+.subport-maps {
+  color: #868e96;
+  flex: 1;
+}
+
+.subport-del {
+  border: none;
+  background: none;
+  color: #868e96;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.subport-del:hover {
+  color: #e03131;
+}
+
+.subport-add {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.subport-add select {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 4px;
+}
+
+.subport-add button {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 4px;
+  background: #4cc9f0;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.subport-add button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.palette {
+  width: 200px;
+  padding: 12px;
+  background: #f1f3f5;
+  border-right: 1px solid #dee2e6;
+  overflow-y: auto;
+}
+
+.palette h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.palette-item {
+  background: white;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  cursor: grab;
+  user-select: none;
+}
+
+.palette-item:hover {
+  border-color: #4cc9f0;
+}
+
+.palette-item-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.palette-item-id {
+  font-size: 11px;
+  color: #868e96;
+  word-break: break-all;
+}
+
+.palette-item.sub {
+  border-color: #b197fc;
+  background: #f8f5ff;
+}
+
+.palette-item-name {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.palette-item-del {
+  color: #adb5bd;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.palette-item-del:hover {
+  color: #e03131;
 }
 
 .canvas {
@@ -47,12 +286,61 @@
   overflow-y: auto;
 }
 
+.sidebar h3 {
+  margin-top: 0;
+}
+
+.muted {
+  color: #868e96;
+  font-size: 12px;
+}
+
+.node-ref {
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------- params */
+
+.param-field {
+  margin-bottom: 10px;
+}
+
+.param-field label {
+  display: block;
+  font-size: 12px;
+  color: #495057;
+  margin-bottom: 3px;
+}
+
+.param-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+button.danger {
+  margin-top: 12px;
+  width: 100%;
+  padding: 7px;
+  border: none;
+  border-radius: 4px;
+  background: #e03131;
+  color: white;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------- nodes */
+
 .orpheus-node {
   background: white;
   border: 1px solid #ced4da;
   border-radius: 8px;
   min-width: 140px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .orpheus-node.selected {
@@ -60,13 +348,28 @@
   box-shadow: 0 0 0 2px rgba(76, 201, 240, 0.3);
 }
 
+.orpheus-node.sub {
+  border-color: #b197fc;
+}
+
+.orpheus-node.sub .node-header {
+  background: #e5dbff;
+}
+
 .node-header {
   padding: 8px 12px;
   background: #e9ecef;
   border-radius: 8px 8px 0 0;
+}
+
+.node-title {
   font-weight: 600;
   font-size: 13px;
-  white-space: pre-line;
+}
+
+.node-subtitle {
+  font-size: 11px;
+  color: #868e96;
 }
 
 .node-body {
@@ -89,10 +392,46 @@
   padding: 0 8px;
 }
 
+/* ---------------------------------------------------------- bottom bar */
+
+.bottombar {
+  display: flex;
+  gap: 16px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 10px 16px;
+  background: #f8f9fa;
+  border-top: 1px solid #dee2e6;
+}
+
+.bottombar .log {
+  flex: 1;
+  min-width: 0;
+}
+
+.bottombar .outputs {
+  min-width: 280px;
+}
+
+.output-item {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.output-item audio {
+  width: 260px;
+  height: 32px;
+}
+
 pre {
   background: #e9ecef;
   padding: 8px;
   border-radius: 4px;
   font-size: 12px;
   overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
 }

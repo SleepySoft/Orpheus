@@ -687,3 +687,28 @@ orpheus_platform_memory_section_bind(...);
 - `design_draft.txt`：历史设计草案与详细子系统分解。
 - `design_v1.md`：高层概念草稿。
 
+
+---
+
+## 15. UI 后端服务（已实现 v0.1）
+
+当前实现的后端与持久化模型，对应「UI 与 Runtime 完全解耦」原则的落地形态：
+
+- **HTTP 服务**：`orpheus-cli serve`（FastAPI + uvicorn，默认 `127.0.0.1:8000`），代码在 `orpheus_core/server/`。API 前缀 `/api`：`components`（全局只读组件库）、`projects`（工程 CRUD / compile / run / files / download）、`examples`（可导入示例）。
+- **内存模型**：`Registry` 启动时扫描缓存组件；`ProjectManager` 持有 `dict[name -> ProjectRecord]`，工程以 `Project` 对象常驻内存，读写、编译、运行均直接操作内存对象。
+- **同步策略**：前端编辑态本地优先（React 状态），整文档写回；触发时机为 1.5s 防抖自动保存 + Ctrl+S/保存按钮 + 运行前强制保存。后端写穿（write-through）：PUT 即校验并落盘。
+- **持久化**：`workspace/<工程名>/project.yaml` 为唯一事实来源，`project.plan.json` 与 `outputs/` 为可再生产物；`GET /api/projects/{name}/download` 打包 zip 下载。工程内 WAV 路径相对工程目录（运行子进程 `cwd` 设为工程目录），导入示例时自动把绝对路径改写为相对路径并拷贝输入文件。
+- **实体区分**：组件是全局只读库（`components/` 扫描），工程是用户文档（`workspace/`）；两类实体分离建模，UI 分别以组件面板和工程选择器呈现。
+
+---
+
+## 16. 工程内子组件（已实现 v1）
+
+- **模型**：子组件定义内嵌在工程文档 `subcomponents:` 键中（id / ports / graph），工程私有；实例以 `component: "sub:<id>"` 引用。
+- **边界端口**：每个对外端口声明 `maps_to: "内部原子节点:端口"`；v1 要求映射到原子节点端口，不做参数提升（mask）。
+- **编译时展开（Flatten）**：`orpheus_core.subgraph.flatten_project()` 在编译前把 `sub:` 实例递归展开为纯原子图（内部节点 id 加 `<实例>__` 前缀、边界连接按 maps_to 重接），编译器/Runtime/代码生成对层级完全无感知。校验：未定义引用、循环引用、非法 maps_to、重复端口 id 均抛 CompileError。
+- **UI**：多视图标签页（主图 + 每个打开的子组件一个平铺标签，无层级嵌套显示）；框选节点 →「包装为子组件」自动推导边界端口；双击实例打开子组件标签；子组件视图右侧可编辑接口端口。
+
+## 17. 单命令启动（已实现）
+
+`orpheus-cli serve [--open]`：FastAPI 在 API 路由之外托管 `ui/build` 静态文件（存在时），`http://127.0.0.1:8000` 同域提供 UI 与 `/api`；前端 `api.js` 按端口自动选择 baseURL（:3000 开发模式走 CORS 直连 :8000，同域模式走相对 `/api`）。

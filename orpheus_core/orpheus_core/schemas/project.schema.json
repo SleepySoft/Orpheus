@@ -31,6 +31,34 @@
         }
       }
     },
+    "graph": { "$ref": "#/definitions/graph" },
+    "subcomponents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "graph"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "ports": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "direction", "maps_to"],
+              "properties": {
+                "id": { "type": "string" },
+                "direction": { "enum": ["input", "output"] },
+                "maps_to": { "type": "string" }
+              }
+            }
+          },
+          "graph": { "$ref": "#/definitions/graph" }
+        }
+      }
+    }
+  },
+  "definitions": {
     "graph": {
       "type": "object",
       "required": ["nodes", "connections"],

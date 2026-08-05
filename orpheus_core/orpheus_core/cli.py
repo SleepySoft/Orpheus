@@ -13,6 +13,7 @@ from orpheus_core.compiler import CompileError, GraphCompiler
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.project import ProjectLoader
 from orpheus_core.registry import Registry
+from orpheus_core.subgraph import flatten_project
 
 
 @click.group()
@@ -54,7 +55,7 @@ def compile(ctx: click.Context, project_file: Path) -> None:
 
     compiler = GraphCompiler(registry)
     try:
-        plan = compiler.compile(project)
+        plan = compiler.compile(flatten_project(project))
     except CompileError as exc:
         click.echo(f"compile error: {exc}", err=True)
         sys.exit(1)
@@ -114,7 +115,7 @@ def generate(ctx: click.Context, project_file: Path, output_dir: Path) -> None:
 
     compiler = GraphCompiler(registry)
     try:
-        plan = compiler.compile(project)
+        plan = compiler.compile(flatten_project(project))
     except CompileError as exc:
         click.echo(f"compile error: {exc}", err=True)
         sys.exit(1)
@@ -144,6 +145,31 @@ def new(ctx: click.Context, name: str) -> None:
     project.graph = Graph()
     loader.save(project, path)
     click.echo(f"created {path}")
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1")
+@click.option("--port", type=int, default=8000)
+@click.option("--open", "open_browser", is_flag=True, help="Open the UI in a browser.")
+@click.pass_context
+def serve(ctx: click.Context, host: str, port: int, open_browser: bool) -> None:
+    """Start the Orpheus server: API + hosted UI (if ui/build exists)."""
+    import uvicorn
+
+    from orpheus_core.server.app import create_app
+
+    root = ctx.obj["project_root"]
+    app = create_app(root)
+    url = f"http://{host}:{port}"
+    if (root / "ui" / "build" / "index.html").exists():
+        click.echo(f"Orpheus UI + API available at {url}")
+    else:
+        click.echo(f"Orpheus API listening on {url}/api (UI build not found; run `cd ui && npm run build`)")
+    if open_browser:
+        import webbrowser
+
+        webbrowser.open(url)
+    uvicorn.run(app, host=host, port=port)
 
 
 def main() -> None:

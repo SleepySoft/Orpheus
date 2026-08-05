@@ -45,6 +45,10 @@ class ComponentBuilder:
                 return c
         return None
 
+    def find_library(self, component_id: str) -> Path | None:
+        """Return the built library path for a component, or None if not built."""
+        return self._library_path(component_id)
+
     def configure(self, extra_cmake_args: list[str] | None = None) -> None:
         self.build_dir.mkdir(parents=True, exist_ok=True)
         args = [

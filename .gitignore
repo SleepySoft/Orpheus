@@ -2,6 +2,9 @@
 /build/
 */build/
 generated_test/
+
+# User workspace (server-managed projects)
+/workspace/
 *.exe
 *.dll
 *.so

@@ -51,6 +51,24 @@ class Graph:
 
 
 @dataclass
+class SubPort:
+    """External port of a subcomponent, mapped to an internal atomic node port."""
+    id: str
+    direction: str  # "input" | "output"
+    maps_to: str    # "inner_node:inner_port", must reference an atomic internal node
+
+
+@dataclass
+class Subcomponent:
+    """A project-private composite component wrapping a subgraph."""
+    id: str
+    name: str = ""
+    description: str = ""
+    ports: list[SubPort] = field(default_factory=list)
+    graph: Graph = field(default_factory=Graph)
+
+
+@dataclass
 class Task:
     id: str
     name: str = ""
@@ -67,11 +85,90 @@ class Project:
     block_size: int = 128
     tasks: dict[str, Task] = field(default_factory=dict)
     graph: Graph = field(default_factory=Graph)
+    subcomponents: list[Subcomponent] = field(default_factory=list)
 
     def get_default_task(self) -> Task:
         if not self.tasks:
             return Task(id="default", name="Default", sample_rate=self.sample_rate, block_size=self.block_size)
         return next(iter(self.tasks.values()))
+
+
+def _parse_graph(graph_data: dict[str, Any]) -> Graph:
+    graph = Graph()
+    for n in graph_data.get("nodes", []):
+        node = Node(
+            id=n["id"],
+            component=n["component"],
+            version=n.get("version"),
+            task=n.get("task", "default"),
+            params=n.get("params", {}),
+            position=n.get("position", {}),
+        )
+        graph.nodes[node.id] = node
+    for c in graph_data.get("connections", []):
+        graph.connections.append(
+            Connection(
+                from_ref=PortRef.parse(c["from"]),
+                to_ref=PortRef.parse(c["to"]),
+            )
+        )
+    return graph
+
+
+def _graph_to_dict(graph: Graph) -> dict[str, Any]:
+    return {
+        "nodes": [
+            {
+                "id": n.id,
+                "component": n.component,
+                **({"version": n.version} if n.version else {}),
+                "task": n.task,
+                "params": n.params,
+                "position": n.position,
+            }
+            for n in graph.nodes.values()
+        ],
+        "connections": [
+            {"from": str(c.from_ref), "to": str(c.to_ref)}
+            for c in graph.connections
+        ],
+    }
+
+
+def project_to_dict(project: Project) -> dict[str, Any]:
+    """Serialize a Project to the plain dict shape used by YAML/JSON documents."""
+    doc = {
+        "version": project.version,
+        "metadata": project.metadata,
+        "sample_rate": project.sample_rate,
+        "block_size": project.block_size,
+        "tasks": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "sample_rate": t.sample_rate,
+                "block_size": t.block_size,
+                "priority": t.priority,
+            }
+            for t in project.tasks.values()
+        ],
+        "graph": _graph_to_dict(project.graph),
+    }
+    if project.subcomponents:
+        doc["subcomponents"] = [
+            {
+                "id": s.id,
+                "name": s.name,
+                "description": s.description,
+                "ports": [
+                    {"id": p.id, "direction": p.direction, "maps_to": p.maps_to}
+                    for p in s.ports
+                ],
+                "graph": _graph_to_dict(s.graph),
+            }
+            for s in project.subcomponents
+        ]
+    return doc
 
 
 class ProjectLoader:
@@ -105,59 +202,21 @@ class ProjectLoader:
                 block_size=project.block_size,
             )
 
-        graph_data = data.get("graph", {"nodes": [], "connections": []})
-        for n in graph_data.get("nodes", []):
-            node = Node(
-                id=n["id"],
-                component=n["component"],
-                version=n.get("version"),
-                task=n.get("task", "default"),
-                params=n.get("params", {}),
-                position=n.get("position", {}),
+        project.graph = _parse_graph(data.get("graph", {"nodes": [], "connections": []}))
+        for s in data.get("subcomponents", []):
+            sub = Subcomponent(
+                id=s["id"],
+                name=s.get("name", s["id"]),
+                description=s.get("description", ""),
+                ports=[
+                    SubPort(id=p["id"], direction=p["direction"], maps_to=p["maps_to"])
+                    for p in s.get("ports", [])
+                ],
+                graph=_parse_graph(s.get("graph", {"nodes": [], "connections": []})),
             )
-            project.graph.nodes[node.id] = node
-        for c in graph_data.get("connections", []):
-            project.graph.connections.append(
-                Connection(
-                    from_ref=PortRef.parse(c["from"]),
-                    to_ref=PortRef.parse(c["to"]),
-                )
-            )
+            project.subcomponents.append(sub)
         return project
 
     def save(self, project: Project, path: Path) -> None:
-        data = {
-            "version": project.version,
-            "metadata": project.metadata,
-            "sample_rate": project.sample_rate,
-            "block_size": project.block_size,
-            "tasks": [
-                {
-                    "id": t.id,
-                    "name": t.name,
-                    "sample_rate": t.sample_rate,
-                    "block_size": t.block_size,
-                    "priority": t.priority,
-                }
-                for t in project.tasks.values()
-            ],
-            "graph": {
-                "nodes": [
-                    {
-                        "id": n.id,
-                        "component": n.component,
-                        **({"version": n.version} if n.version else {}),
-                        "task": n.task,
-                        "params": n.params,
-                        "position": n.position,
-                    }
-                    for n in project.graph.nodes.values()
-                ],
-                "connections": [
-                    {"from": str(c.from_ref), "to": str(c.to_ref)}
-                    for c in project.graph.connections
-                ],
-            },
-        }
         with open(path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+            yaml.safe_dump(project_to_dict(project), f, sort_keys=False, allow_unicode=True)
