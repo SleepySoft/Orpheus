@@ -1,4 +1,6 @@
 id: orpheus.builtin.wav_out
+name: WAV 文件输出
+category: 文件
 version: 1.0.0
 abi_version: 1
 package_type: source
@@ -14,19 +16,19 @@ ports:
     channels: param:channels
 parameters:
   - id: file_path
-    name: File Path
+    name: 文件路径
     type: string
     default: ""
     update_policy: restart_required
   - id: channels
-    name: Channels
+    name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
   - id: sample_rate
-    name: Sample Rate
+    name: 采样率
     type: int
     default: 48000
     update_policy: restart_required

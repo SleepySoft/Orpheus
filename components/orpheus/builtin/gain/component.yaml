@@ -1,4 +1,6 @@
 id: orpheus.builtin.gain
+name: 增益
+category: 基础算法
 version: 1.0.0
 abi_version: 1
 package_type: source
@@ -19,21 +21,21 @@ ports:
     channels: param:channels
 parameters:
   - id: gain_db
-    name: Gain
+    name: 增益
     type: float
     default: 0.0
     range: [-96.0, 24.0]
     unit: dB
     update_policy: smoothed
   - id: channels
-    name: Channels
+    name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
   - id: smoothing_ms
-    name: Smoothing Time
+    name: 平滑时间
     type: float
     default: 5.0
     range: [0.0, 1000.0]

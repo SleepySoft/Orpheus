@@ -227,6 +227,41 @@
   font-size: 14px;
 }
 
+.palette-category {
+  margin-bottom: 10px;
+}
+
+.palette-category-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #495057;
+  padding: 5px 4px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid #dee2e6;
+  margin-bottom: 6px;
+}
+
+.palette-category-header.static {
+  cursor: default;
+}
+
+.palette-caret {
+  font-size: 9px;
+  color: #868e96;
+  width: 10px;
+}
+
+.palette-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: #adb5bd;
+}
+
 .palette-item {
   background: white;
   border: 1px solid #ced4da;
@@ -300,6 +335,21 @@
 }
 
 /* ---------------------------------------------------------- params */
+
+.param-section {
+  font-size: 11px;
+  font-weight: 600;
+  color: #868e96;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 4px 0 8px;
+}
+
+.param-divider {
+  border: none;
+  border-top: 1px dashed #ced4da;
+  margin: 12px 0;
+}
 
 .param-field {
   margin-bottom: 10px;

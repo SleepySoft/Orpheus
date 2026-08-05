@@ -1,4 +1,6 @@
 id: orpheus.builtin.wav_in
+name: WAV 文件输入
+category: 文件
 version: 1.0.0
 abi_version: 1
 package_type: source
@@ -14,12 +16,12 @@ ports:
     channels: param:channels
 parameters:
   - id: file_path
-    name: File Path
+    name: 文件路径
     type: string
     default: ""
     update_policy: restart_required
   - id: channels
-    name: Channels
+    name: 通道数
     type: int
     default: 2
     range: [1, 32]

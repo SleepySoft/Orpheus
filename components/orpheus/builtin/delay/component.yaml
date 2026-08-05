@@ -1,4 +1,6 @@
 id: orpheus.builtin.delay
+name: 延迟
+category: 基础算法
 version: 1.0.0
 abi_version: 1
 package_type: source
@@ -19,20 +21,20 @@ ports:
     channels: param:channels
 parameters:
   - id: delay_ms
-    name: Delay Time
+    name: 延迟时间
     type: float
     default: 100.0
     range: [0.0, 5000.0]
     unit: ms
     update_policy: restart_required
   - id: mix
-    name: Mix
+    name: 混合比
     type: float
     default: 0.5
     range: [0.0, 1.0]
     update_policy: smoothed
   - id: channels
-    name: Channels
+    name: 通道数
     type: int
     default: 2
     range: [1, 32]

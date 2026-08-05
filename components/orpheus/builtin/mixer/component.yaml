@@ -1,4 +1,6 @@
 id: orpheus.builtin.mixer
+name: 混音器
+category: 基础算法
 version: 1.0.0
 abi_version: 1
 package_type: source
@@ -24,21 +26,21 @@ ports:
     channels: param:channels
 parameters:
   - id: gain0
-    name: Gain 0
+    name: 增益 0
     type: float
     default: 0.0
     range: [-96.0, 24.0]
     unit: dB
     update_policy: smoothed
   - id: gain1
-    name: Gain 1
+    name: 增益 1
     type: float
     default: 0.0
     range: [-96.0, 24.0]
     unit: dB
     update_policy: smoothed
   - id: channels
-    name: Channels
+    name: 通道数
     type: int
     default: 2
     range: [1, 32]

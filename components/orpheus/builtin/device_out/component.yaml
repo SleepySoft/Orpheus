@@ -1,4 +1,6 @@
 id: orpheus.builtin.device_out
+name: 设备输出
+category: 设备
 version: 1.0.0
 abi_version: 1
 package_type: source
@@ -14,7 +16,7 @@ ports:
     channels: param:channels
 parameters:
   - id: channels
-    name: Channels
+    name: 通道数
     type: int
     default: 2
     range: [1, 32]

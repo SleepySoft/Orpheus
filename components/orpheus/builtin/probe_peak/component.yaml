@@ -1,4 +1,6 @@
 id: orpheus.builtin.probe_peak
+name: 峰值表
+category: 监控工具
 version: 1.0.0
 abi_version: 1
 package_type: source
@@ -19,14 +21,14 @@ ports:
     channels: param:channels
 parameters:
   - id: channels
-    name: Channels
+    name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
   - id: peak
-    name: Peak
+    name: 峰值
     type: float
     default: 0.0
     readback: true

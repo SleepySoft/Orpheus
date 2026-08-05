@@ -5,6 +5,9 @@
   "required": ["id", "version", "abi_version"],
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$" },
+    "name": { "type": "string", "description": "Human-readable display name (UI palette)" },
+    "category": { "type": "string", "description": "Palette category, e.g. 基础算法/通道路由/设备" },
+    "description": { "type": "string" },
     "version": { "type": "string" },
     "abi_version": { "type": "integer", "minimum": 1 },
     "package_type": { "type": "string", "enum": ["source", "binary", "composite"], "default": "source" },

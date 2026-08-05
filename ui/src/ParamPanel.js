@@ -41,6 +41,11 @@ function ParamField({ schema, value, onChange }) {
   );
 }
 
+// Universal params (channel count, sample rate, ...) always go on top,
+// separated from component-specific params.
+const UNIVERSAL_IDS = new Set(['channels', 'sample_rate']);
+const isUniversalParam = (p) => p.affects_signature || UNIVERSAL_IDS.has(p.id);
+
 /** Right-hand panel: edit the selected node's parameters per its manifest schema. */
 export default function ParamPanel({ node, onParamChange, onDeleteNode }) {
   if (!node) {
@@ -74,6 +79,8 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode }) {
 
   const schemaIds = new Set((parameters || []).map((p) => p.id));
   const extraKeys = Object.keys(params || {}).filter((k) => !schemaIds.has(k));
+  const universal = (parameters || []).filter(isUniversalParam);
+  const specific = (parameters || []).filter((p) => !isUniversalParam(p));
 
   return (
     <div className="sidebar">
@@ -83,7 +90,22 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode }) {
         <br />
         <span className="muted">{component}</span>
       </p>
-      {(parameters || []).map((schema) => (
+      {universal.length > 0 && (
+        <>
+          <div className="param-section">通用</div>
+          {universal.map((schema) => (
+            <ParamField
+              key={schema.id}
+              schema={schema}
+              value={params?.[schema.id] ?? schema.default}
+              onChange={onParamChange}
+            />
+          ))}
+          <hr className="param-divider" />
+        </>
+      )}
+      {specific.length > 0 && universal.length > 0 && <div className="param-section">组件参数</div>}
+      {specific.map((schema) => (
         <ParamField
           key={schema.id}
           schema={schema}

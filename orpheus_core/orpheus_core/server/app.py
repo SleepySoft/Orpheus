@@ -37,6 +37,7 @@ def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
         "abi_version": info.abi_version,
         "package_type": info.package_type,
         "name": m.get("name", info.id),
+        "category": m.get("category", "未分类"),
         "description": m.get("description", ""),
         "ports": m.get("ports", []),
         "parameters": m.get("parameters", []),

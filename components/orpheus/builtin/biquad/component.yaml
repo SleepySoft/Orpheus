@@ -1,4 +1,6 @@
 id: orpheus.builtin.biquad
+name: 双二阶滤波器
+category: 基础算法
 version: 1.0.0
 abi_version: 1
 package_type: source
@@ -19,12 +21,12 @@ ports:
     channels: param:channels
 parameters:
   - id: type
-    name: Filter Type
+    name: 滤波器类型
     type: string
     default: lowpass
     update_policy: restart_required
   - id: fc
-    name: Cutoff Frequency
+    name: 截止频率
     type: float
     default: 1000.0
     range: [20.0, 20000.0]
@@ -37,14 +39,14 @@ parameters:
     range: [0.1, 10.0]
     update_policy: restart_required
   - id: gain_db
-    name: Gain
+    name: 增益
     type: float
     default: 0.0
     range: [-24.0, 24.0]
     unit: dB
     update_policy: restart_required
   - id: channels
-    name: Channels
+    name: 通道数
     type: int
     default: 2
     range: [1, 32]

@@ -39,6 +39,13 @@ def test_health_and_components(client):
     assert any(p["id"] == "gain_db" for p in gain["parameters"])
 
 
+def test_components_have_chinese_name_and_category(client):
+    comps = client.get("/api/components").json()
+    for c in comps:
+        assert c["name"] and c["name"] != c["id"], f"{c['id']} missing display name"
+        assert c["category"] and c["category"] != "未分类", f"{c['id']} missing category"
+
+
 def test_project_lifecycle(client, project):
     # listed
     names = [p["name"] for p in client.get("/api/projects").json()]

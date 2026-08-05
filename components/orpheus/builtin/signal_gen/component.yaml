@@ -1,4 +1,6 @@
 id: orpheus.builtin.signal_gen
+name: 信号发生器
+category: 信号源
 version: 1.0.0
 abi_version: 1
 package_type: source
@@ -14,20 +16,20 @@ ports:
     channels: param:channels
 parameters:
   - id: frequency
-    name: Frequency
+    name: 频率
     type: float
     default: 440.0
     range: [1.0, 20000.0]
     unit: Hz
     update_policy: restart_required
   - id: amplitude
-    name: Amplitude
+    name: 幅度
     type: float
     default: 0.5
     range: [0.0, 1.0]
     update_policy: smoothed
   - id: channels
-    name: Channels
+    name: 通道数
     type: int
     default: 2
     range: [1, 32]
