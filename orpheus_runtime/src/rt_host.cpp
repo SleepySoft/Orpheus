@@ -190,6 +190,9 @@ static void report_probes(orpheus::Runtime& runtime, const orpheus::Plan& plan) 
                     std::cout << "PROBE " << node_id << " " << p.id << " " << v.value.f32 << std::endl;
                 } else if (v.type == ORPHEUS_VALUE_INT) {
                     std::cout << "PROBE " << node_id << " " << p.id << " " << v.value.i32 << std::endl;
+                } else if (v.type == ORPHEUS_VALUE_STRING) {
+                    // 复合/结构化 readback（如波形数组）：整行 JSON
+                    std::cout << "PROBE_JSON " << node_id << " " << p.id << " " << v.value.str << std::endl;
                 }
             }
         }
@@ -237,6 +240,8 @@ static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) 
                     std::cout << "VALUE " << node << " " << param << " " << v.value.f32 << std::endl;
                 else if (v.type == ORPHEUS_VALUE_INT)
                     std::cout << "VALUE " << node << " " << param << " " << v.value.i32 << std::endl;
+                else if (v.type == ORPHEUS_VALUE_STRING)
+                    std::cout << "VALUE " << node << " " << param << " " << v.value.str << std::endl;
             } else {
                 std::cout << "ERR GET " << node << " " << param << std::endl;
             }

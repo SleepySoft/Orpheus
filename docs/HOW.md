@@ -771,3 +771,10 @@ orpheus_platform_memory_section_bind(...);
 - **时间树可视化**：编译响应携带每节点 `node_rates`（采样率/分频比/帧量子），UI 节点头部显示速率徽标（如 `24kHz ÷2`）。逻辑速率编译期可知；物理设备协商速率运行时由 rt_host 日志给出。
 - 边界行为：块式抽取在输入块数为奇数倍时丢弃末尾未完成的输出块（≤1 个输出块）。
 - 待做：async_bridge 组件（跨时钟域，rt_host 的 ma_pcm_rb 模式下沉）、timer 时钟源组件（控制周期任务）、升采样。
+
+## 24. 组件自定义 UI 与波形回读（已实现 v1）
+
+- **PROBE_JSON 数据通路**：宿主对 STRING 型 readback 参数输出 `PROBE_JSON <node> <param> <json>`（整行 JSON，数组/对象/数字），`rt.py` / `app.py` 解析为结构化值；旧 `PROBE <node> <param> <value>` 标量格式完全兼容。设计文档：`docs/design_component_ui.md`。
+- **probe_waveform 波形显示**：组件内置 1024 帧环形缓冲（取第 0 通道），`waveform` readback 参数在非实时线程编码为 JSON 数组；画布节点注册 `ScopeWidget`（canvas 示波器，消费 `data.probe.waveform`），离线与实时会话均显示。示例：`examples/probe_waveform_scope.yaml`。
+- **显示型 readback 参数**：参数面板隐藏 `readback && !affects_signature` 的参数（如 rms/peak/waveform），它们是探针输出而非可编辑输入。
+- **机制原则**：UI 定制 = manifest 软声明（可选）+ 前端注册表（`widgets.js` 参数控件 / `nodeWidgets.js` 节点本体），C ABI、plan、编译、Runtime、代码生成完全不感知；无注册时回退默认渲染。

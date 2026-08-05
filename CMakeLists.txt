@@ -6,6 +6,17 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# MSVC: source files are UTF-8 (Chinese comments/strings); enable exceptions.
+if(MSVC)
+    add_compile_options(/utf-8 /EHsc)
+endif()
+
+# Runtime loads components as "lib<name>.dll" on Windows; MinGW already
+# prefixes DLLs with "lib", MSVC does not. Unify the prefix for both.
+if(WIN32)
+    set(CMAKE_SHARED_LIBRARY_PREFIX "lib")
+endif()
+
 option(ORPHEUS_BUILD_RUNTIME "Build Orpheus Runtime" ON)
 option(ORPHEUS_BUILD_COMPONENTS "Build built-in components" ON)
 option(ORPHEUS_BUILD_TESTS "Build tests" ON)

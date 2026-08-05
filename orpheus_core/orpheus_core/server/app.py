@@ -41,14 +41,24 @@ def _wav_total_frames(path: Path) -> int:
 
 
 def _parse_probe_lines(stdout: str) -> list[dict[str, Any]]:
-    """Parse 'PROBE <node> <param> <value>' lines printed by the offline host."""
+    """Parse probe lines printed by the offline host.
+
+    - `PROBE <node> <param> <value>`: scalar value (float or raw string)
+    - `PROBE_JSON <node> <param> <json>`: structured value (array/object/number)
+    """
     probes = []
     for line in stdout.splitlines():
-        parts = line.split()
+        parts = line.split(maxsplit=3)
         if len(parts) == 4 and parts[0] == "PROBE":
             try:
                 value: Any = float(parts[3])
             except ValueError:
+                value = parts[3]
+            probes.append({"node": parts[1], "param": parts[2], "value": value})
+        elif len(parts) == 4 and parts[0] == "PROBE_JSON":
+            try:
+                value = json.loads(parts[3])
+            except (json.JSONDecodeError, ValueError):
                 value = parts[3]
             probes.append({"node": parts[1], "param": parts[2], "value": value})
     return probes

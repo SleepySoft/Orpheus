@@ -8,6 +8,7 @@ Protocol (see rt_host.cpp):
 
 from __future__ import annotations
 
+import json
 import subprocess
 import threading
 import time
@@ -16,6 +17,31 @@ from pathlib import Path
 from typing import Any
 
 MAX_LOG_LINES = 500
+
+
+def parse_probe_line(line: str) -> tuple[str, str, Any] | None:
+    """Parse one host stdout line into (node, param, value) or None.
+
+    Supports `PROBE <node> <param> <value>` (scalar) and
+    `PROBE_JSON <node> <param> <json>` (structured value).
+    """
+    parts = line.split(maxsplit=3)
+    if len(parts) != 4:
+        return None
+    kind, node, param, raw = parts
+    if kind == "PROBE":
+        try:
+            value: Any = float(raw)
+        except ValueError:
+            value = raw
+        return node, param, value
+    if kind == "PROBE_JSON":
+        try:
+            value = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            value = raw
+        return node, param, value
+    return None
 
 
 class RtSession:
@@ -37,14 +63,11 @@ class RtSession:
                 if not line:
                     break
                 line = line.rstrip("\r\n")
-                parts = line.split()
-                if len(parts) == 4 and parts[0] == "PROBE":
-                    try:
-                        value: Any = float(parts[3])
-                    except ValueError:
-                        value = parts[3]
+                parsed = parse_probe_line(line)
+                if parsed is not None:
+                    node, param, value = parsed
                     with self._lock:
-                        self._probes.setdefault(parts[1], {})[parts[2]] = value
+                        self._probes.setdefault(node, {})[param] = value
                 else:
                     with self._lock:
                         self._logs.append(line)

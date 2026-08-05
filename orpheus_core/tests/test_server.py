@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orpheus_core.server.app import create_app
+from orpheus_core.server.rt import parse_probe_line
 
 ROOT = Path(__file__).resolve().parents[2]  # repository root
 
@@ -37,6 +38,32 @@ def test_health_and_components(client):
     gain = by_id["orpheus.builtin.gain"]
     assert {p["id"] for p in gain["ports"]} == {"in", "out"}
     assert any(p["id"] == "gain_db" for p in gain["parameters"])
+
+
+def test_parse_probe_lines_scalar_and_json(client):
+    from orpheus_core.server.app import _parse_probe_lines
+
+    stdout = "\n".join(
+        [
+            "Input: test_input.wav 100 frames @ 48000 Hz",
+            "PROBE n1 rms 0.5",
+            "PROBE n2 peak 0.25",
+            "PROBE_JSON scope waveform [0.1,-0.2,0.3]",
+            "LOG lifecycle line",
+        ]
+    )
+    probes = _parse_probe_lines(stdout)
+    by = {(p["node"], p["param"]): p["value"] for p in probes}
+    assert by[("n1", "rms")] == 0.5
+    assert by[("n2", "peak")] == 0.25
+    assert by[("scope", "waveform")] == [0.1, -0.2, 0.3]
+
+
+def test_parse_probe_line_structured():
+    assert parse_probe_line("PROBE a b 0.5") == ("a", "b", 0.5)
+    assert parse_probe_line("PROBE_JSON a w [1,2,3]") == ("a", "w", [1, 2, 3])
+    assert parse_probe_line("PROBE_JSON a w [1.5,-0.5]") == ("a", "w", [1.5, -0.5])
+    assert parse_probe_line("LOG hello world") is None
 
 
 def test_components_have_chinese_name_and_category(client):
@@ -131,5 +158,32 @@ def test_run_example_end_to_end(client):
         resp = client.get(f"/api/projects/{name}/download")
         assert resp.status_code == 200
         assert resp.content[:2] == b"PK"
+    finally:
+        client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_probe_waveform_readback_offline(client):
+    """Probe waveform component reports a 1024-sample JSON array via PROBE_JSON."""
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        resp = client.post("/api/projects", json={"name": name, "from_example": "probe_waveform_scope"})
+        assert resp.status_code == 201, resp.text
+
+        resp = client.post(f"/api/projects/{name}/run")
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+
+        by = {(p["node"], p["param"]): p["value"] for p in result["probes"]}
+        wave = by.get(("scope", "waveform"))
+        assert isinstance(wave, list), f"expected waveform array, got {type(wave)}"
+        assert len(wave) == 1024
+        assert all(isinstance(x, float) for x in wave)
+        assert max(abs(x) for x in wave) > 0.1  # 440Hz sine captured
     finally:
         client.delete(f"/api/projects/{name}")
