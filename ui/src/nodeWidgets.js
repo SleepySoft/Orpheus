@@ -43,10 +43,14 @@ function ProbePeakWidget({ data }) {
 /**
  * Oscilloscope-style body widget: renders data.probe.waveform (float array,
  * produced by the probe_waveform component via PROBE_JSON readback).
+ * Keeps a rolling client-side history so consecutive snapshots scroll like a
+ * DAW waveform instead of jumping to a fresh window each poll.
  */
 function ScopeWidget({ data }) {
   const samples = data.probe?.waveform;
   const ref = React.useRef(null);
+  const histRef = React.useRef([]);
+  const HISTORY_CAP = 8192; // ~85ms @48kHz; larger = smoother scroll, smaller = faster response
 
   React.useEffect(() => {
     const canvas = ref.current;
@@ -76,6 +80,7 @@ function ScopeWidget({ data }) {
     ctx.stroke();
 
     if (!Array.isArray(samples) || samples.length === 0) {
+      histRef.current = []; // new run (or stopped): start with a clean scroll
       ctx.fillStyle = 'rgba(255,255,255,0.45)';
       ctx.font = '10px sans-serif';
       ctx.textAlign = 'center';
@@ -83,15 +88,20 @@ function ScopeWidget({ data }) {
       return;
     }
 
-    // scope-style trace: per-column min/max over the sample window
+    // rolling history: new snapshot appended at the right, old samples scroll left
+    let hist = histRef.current.concat(samples);
+    if (hist.length > HISTORY_CAP) hist = hist.slice(hist.length - HISTORY_CAP);
+    histRef.current = hist;
+
+    // scope-style trace: per-column min/max envelope over the visible history
     ctx.beginPath();
     for (let x = 0; x < W; x++) {
-      const i0 = Math.floor((x / W) * samples.length);
-      const i1 = Math.min(samples.length, Math.max(i0 + 1, Math.floor(((x + 1) / W) * samples.length)));
+      const i0 = Math.floor((x / W) * hist.length);
+      const i1 = Math.min(hist.length, Math.max(i0 + 1, Math.floor(((x + 1) / W) * hist.length)));
       let lo = Infinity;
       let hi = -Infinity;
       for (let i = i0; i < i1; i++) {
-        const v = samples[i];
+        const v = hist[i];
         if (v < lo) lo = v;
         if (v > hi) hi = v;
       }

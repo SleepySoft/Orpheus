@@ -217,7 +217,7 @@ function Editor() {
       } catch {
         /* ignore transient poll errors */
       }
-    }, 1000);
+    }, 250);
     return () => clearInterval(timer);
   }, [rt.running, current]);
 
