@@ -1,0 +1,50 @@
+id: orpheus.builtin.probe_spectrum
+name: 频谱分析仪
+category: 监控工具
+version: 1.0.0
+abi_version: 1
+package_type: source
+sources:
+  - src/probe_spectrum.c
+headers:
+  - include/orpheus_probe_spectrum.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: window_size
+    name: FFT 窗口
+    type: int
+    default: 1024
+    range: [64, 4096]
+    update_policy: restart_required
+  - id: spectrum
+    name: 频谱
+    type: string
+    default: ""
+    readback: true
+    update_policy: immediate
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

@@ -150,8 +150,103 @@ function ScopeWidget({ data, large }) {
   );
 }
 
+/**
+ * Frequency spectrum widget: renders data.probe.spectrum (magnitude bins from
+ * the probe_spectrum component). Freq axis derived from the compiled node rate
+ * and the FFT window size parameter.
+ */
+function SpectrumWidget({ data, large }) {
+  const bins = data.probe?.spectrum;
+  const ref = React.useRef(null);
+  const W = large ? 640 : 180;
+  const H = large ? 200 : 64;
+  const windowSize = data.params?.window_size ?? 1024;
+  const sampleRate = data.rate?.sample_rate ?? 48000;
+
+  React.useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const cw = canvas.width;
+    const ch = canvas.height;
+    ctx.clearRect(0, 0, cw, ch);
+
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    for (let gy = 0; gy <= 4; gy++) {
+      const y = (ch * gy) / 4;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(cw, y);
+      ctx.stroke();
+    }
+
+    if (large) {
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'left';
+      for (let i = 0; i <= 4; i++) {
+        const db = -i * 20;
+        ctx.fillText(`${db} dB`, 4, (ch * i) / 4 - 3);
+      }
+    }
+
+    if (!Array.isArray(bins) || bins.length === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('运行后显示频谱', cw / 2, ch / 2 + 3);
+      return;
+    }
+
+    const n = bins.length;
+    const nyquist = sampleRate / 2;
+    const maxDb = 0;
+    const minDb = -80;
+    const toY = (db) => {
+      const t = Math.max(0, Math.min(1, (db - minDb) / (maxDb - minDb)));
+      return ch - 2 - t * (ch - 6);
+    };
+    const xFor = (i) => (i / n) * cw;
+
+    // bars: dB-scaled magnitude, log-ish look via per-bin bars
+    ctx.fillStyle = '#4fc3f7';
+    const barW = Math.max(1, cw / n);
+    for (let i = 0; i < n; i++) {
+      const v = bins[i];
+      const db = v > 1e-6 ? 20 * Math.log10(v) : minDb;
+      const y = toY(db);
+      ctx.fillRect(xFor(i), y, barW, ch - 2 - y);
+    }
+
+    if (large) {
+      // frequency axis labels: 0, nyquist/2, nyquist
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.textAlign = 'center';
+      const fmt = (hz) => (hz >= 1000 ? `${(hz / 1000).toFixed(1)}kHz` : `${hz}Hz`);
+      ctx.fillText('0', 0, ch - 2);
+      ctx.fillText(fmt(nyquist / 2), cw / 2, ch - 2);
+      ctx.fillText(fmt(nyquist), cw - 2, ch - 2);
+    }
+  }, [bins, large, windowSize, sampleRate]);
+
+  return (
+    <div className="probe-body">
+      <canvas
+        ref={ref}
+        width={W}
+        height={H}
+        style={{ width: '100%', height: H, display: 'block', borderRadius: 4 }}
+      />
+    </div>
+  );
+}
+
 export const NODE_WIDGETS = {
   'orpheus.builtin.probe_rms': ProbeRmsWidget,
   'orpheus.builtin.probe_peak': ProbePeakWidget,
   'orpheus.builtin.probe_waveform': ScopeWidget,
+  'orpheus.builtin.probe_spectrum': SpectrumWidget,
 };
