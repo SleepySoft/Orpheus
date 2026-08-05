@@ -15,6 +15,12 @@ An intuitive, easily extensible audio processing framework based on visual progr
 
 ## 快速开始（单命令模式）
 
+需要CMake和Visual Studio 2022 Build Tools
+
+https://cmake.org/download/
+
+https://my.visualstudio.com/Downloads?q=visual%20studio%202022&wt.mc_id=o~msft~vscom~older-downloads
+
 ```powershell
 # 1. 安装 Python 工具链（含 HTTP 服务依赖）
 pip install -e orpheus_core
