@@ -787,3 +787,12 @@ orpheus_platform_memory_section_bind(...);
 - **代码生成**：生成器改为按 manifest `sources` 列表编译组件（支持多源文件），并复制 `third_party/miniaudio.h` 到生成工程（自包含，可脱离仓库编译）；修复生成 main 不调用 `destroy` 导致 wav_out 不落盘的问题（此前一致性测试空洞通过——比较的是动态运行留下的同一文件）。
 - 示例：`examples/mp3_play.yaml`（MP3 → Gain → WAV），测试素材 `examples/test_input.mp3`（ffmpeg 生成的 2s 440Hz 正弦）。
 - **Windows 中文文件名**：wav_in / mp3_in 的文件路径是 UTF-8，而 Windows 窄 `fopen` 按 ANSI 代码页解释，中文/特殊字符文件名会打不开（prepare 返回 -6）。已改用宽字符 API（`_wfopen` / `ma_decoder_init_file_w`）打开。
+
+## 26. 输出 fan-out、监控增强、FIR/扫频/频谱、子组件框选（已实现 v1）
+
+- **fan-out 修复**：源端口连接多个下游时，此前只有最后一条连接收到数据（每个连接一个 buffer、输出槽后写覆盖）。运行时与代码生成器均改为「同一源端口共享同一 buffer」，所有下游读到完整数据；e2e 测试验证两路 RMS 一致、输出 WAV 逐字节相同。
+- **监控界面增强**：电平条/示波器大屏化（`large` 模式 + 放大弹层 ⤢）；示波器改滚动历史显示（250ms 轮询）。
+- **`orpheus.builtin.fir`**：系数以逗号分隔字符串传入，每通道环形延迟线，实时安全；数值测试与 numpy 卷积逐点比对。
+- **`orpheus.builtin.sweep_gen`**：对数/线性扫频发生器（起止频率、时长、幅度）；配合 `probe_waveform`（示波）、`wav_out`（记录）和 `probe_spectrum`（绘图）形成完整扫频测量链路，示例 `examples/sweep_spectrum.yaml`。
+- **`orpheus.builtin.probe_spectrum`**：radix-2 FFT + Hann 窗，`spectrum` readback 以 PROBE_JSON 输出幅度数组；UI 频谱控件按采样率/窗口绘制 dB 柱状图，可放大。
+- **子组件框选**：React Flow 开启 `selectionOnDrag`，画布拖拽框选 + Shift 点击多选；「包装为子组件」自动推导边界端口并打开新标签页（多标签已支持），层级嵌套由 `flatten_project` 递归展开。
