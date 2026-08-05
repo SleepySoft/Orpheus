@@ -141,11 +141,14 @@ function Editor() {
         api
           .listDevices()
           .then((d) => {
-            const names = [...(d.playback || []), ...(d.capture || [])].map((x) => x.name);
-            setDeviceOptions([
-              { value: '', label: '默认设备' },
-              ...[...new Set(names)].map((n) => ({ value: n, label: n })),
-            ]);
+            const opts = [{ value: '', label: '默认设备' }];
+            for (const x of d.capture || []) {
+              opts.push({ value: x.name, label: `采集：${x.name}` });
+            }
+            for (const x of d.playback || []) {
+              opts.push({ value: x.name, label: `播放：${x.name}` });
+            }
+            setDeviceOptions(opts);
           })
           .catch(() => {});
         if (projs.length > 0) {

@@ -203,7 +203,8 @@ def create_app(project_root: Path) -> FastAPI:
             raise HTTPException(status_code=400, detail="rt_host not built; run `orpheus-cli build` first")
         try:
             result = subprocess.run(
-                [str(exe), "--list-devices"], capture_output=True, text=True, timeout=15
+                [str(exe), "--list-devices"], capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=15
             )
         except subprocess.TimeoutExpired as exc:
             raise HTTPException(status_code=500, detail="device enumeration timed out") from exc
@@ -308,6 +309,7 @@ def create_app(project_root: Path) -> FastAPI:
             result = subprocess.run(
                 [str(exe), str(plan_path), str(root / "build" / "components")],
                 cwd=project_dir, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
                 timeout=RUN_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired as exc:
@@ -361,11 +363,13 @@ def create_app(project_root: Path) -> FastAPI:
 
         configure = subprocess.run(
             configure_args, cwd=rec.directory, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
         )
         if configure.returncode != 0:
             raise HTTPException(status_code=500, detail=f"generated configure failed:\n{configure.stderr}")
         build = subprocess.run(
-            ["cmake", "--build", str(build_dir)], cwd=rec.directory, capture_output=True, text=True
+            ["cmake", "--build", str(build_dir)], cwd=rec.directory, capture_output=True,
+            text=True, encoding="utf-8", errors="replace",
         )
         if build.returncode != 0:
             raise HTTPException(
@@ -392,6 +396,7 @@ def create_app(project_root: Path) -> FastAPI:
         try:
             result = subprocess.run(
                 [str(exe), str(blocks)], cwd=project_dir, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
                 timeout=RUN_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired as exc:
