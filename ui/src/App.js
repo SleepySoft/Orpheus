@@ -220,10 +220,18 @@ function Editor() {
 
   const onConnect = useCallback(
     (params) => {
+      // an input pin may be driven by exactly one wire
+      const occupied = view.edges.some(
+        (e) => e.target === params.target && e.targetHandle === params.targetHandle
+      );
+      if (occupied) {
+        setStatus(`输入引脚 ${params.target}:${params.targetHandle} 已有连线（先删除原连线）`);
+        return;
+      }
       updateView(activeView, (v) => ({ ...v, edges: addEdge(params, v.edges) }));
       setDirty(true);
     },
-    [activeView, updateView]
+    [activeView, updateView, view.edges]
   );
 
   const onDragOver = useCallback((event) => {

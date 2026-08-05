@@ -435,11 +435,24 @@ button.danger {
 }
 
 .port-row {
+  position: relative; /* anchor for the handle: one distinct anchor per pin */
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
   padding: 0 8px;
+  min-height: 18px;
+}
+
+.port-row .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: #4cc9f0;
+  border: 1px solid #1a1a2e;
+}
+
+.port-row .react-flow__handle:hover {
+  background: #ffd166;
 }
 
 /* ---------------------------------------------------------- bottom bar */

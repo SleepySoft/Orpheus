@@ -124,6 +124,21 @@ def test_api_run_channel_map_example():
             client.delete(f"/api/projects/{name}")
 
 
+def test_input_pin_driven_twice_rejected(compiler):
+    project = make_project(
+        {
+            "s0": Node(id="s0", component="orpheus.builtin.signal_gen",
+                       params={"frequency": 440.0, "amplitude": 0.5, "channels": 1}),
+            "s1": Node(id="s1", component="orpheus.builtin.signal_gen",
+                       params={"frequency": 880.0, "amplitude": 0.5, "channels": 1}),
+            "m": Node(id="m", component="orpheus.builtin.probe_rms", params={"channels": 1}),
+        },
+        [conn("s0:out", "m:in"), conn("s1:out", "m:in")],
+    )
+    with pytest.raises(CompileError, match="multiple sources"):
+        compiler.compile(project)
+
+
 def test_unknown_variable_pin_rejected(compiler):
     project = make_project(
         {

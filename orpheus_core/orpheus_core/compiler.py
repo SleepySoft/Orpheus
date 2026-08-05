@@ -155,9 +155,13 @@ class GraphCompiler:
                 resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, task)
 
         # 2. Validate connections
+        driven_inputs: set[str] = set()
         for conn in graph.connections:
             from_key = str(conn.from_ref)
             to_key = str(conn.to_ref)
+            if to_key in driven_inputs:
+                raise CompileError(f"input port driven by multiple sources: {to_key}")
+            driven_inputs.add(to_key)
             from_port = resolved_ports.get(from_key)
             to_port = resolved_ports.get(to_key)
             if from_port is None:
