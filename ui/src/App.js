@@ -783,9 +783,11 @@ function Editor() {
           ))}
         </select>
         <span className="toolbar-sep" />
-        <button onClick={wrapSelection} disabled={!current || selectedIds.length === 0}>
-          包装为子组件
-        </button>
+        <span title="在画布空白处拖拽框选，或按住 Shift 点击多个节点">
+          <button onClick={wrapSelection} disabled={!current || selectedIds.length === 0}>
+            包装为子组件
+          </button>
+        </span>
         <button onClick={createSub} disabled={!current}>
           新建子组件
         </button>
@@ -860,6 +862,7 @@ function Editor() {
             onSelectionChange={({ nodes: sn }) => setSelectedIds((sn || []).map((n) => n.id))}
             nodeTypes={nodeTypes}
             deleteKeyCode={['Delete', 'Backspace']}
+            selectionOnDrag
             multiSelectionKeyCode="Shift"
             fitView
           >
