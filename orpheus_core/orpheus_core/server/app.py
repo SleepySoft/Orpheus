@@ -286,7 +286,7 @@ def create_app(project_root: Path) -> FastAPI:
         has_device = any(n.component in DEVICE_COMPONENTS for n in flat.graph.nodes.values())
 
         built = ensure_components_built(flat)
-        _, plan_path = compile_record(rec)
+        plan, plan_path = compile_record(rec)
 
         if has_device:
             suffix = ".exe" if sys.platform == "win32" else ""
@@ -294,7 +294,8 @@ def create_app(project_root: Path) -> FastAPI:
             try:
                 session = rt_sessions.start(
                     name,
-                    [str(rt_exe), str(plan_path), str(root / "build" / "components")],
+                    [str(rt_exe), str(plan_path), str(root / "build" / "components"),
+                     str(plan.sample_rate), str(plan.block_size)],
                     cwd=rec.directory,
                 )
             except RuntimeError as exc:
@@ -464,13 +465,14 @@ def create_app(project_root: Path) -> FastAPI:
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         ensure_components_built(flattened_project(rec))
-        _, plan_path = compile_record(rec)
+        plan, plan_path = compile_record(rec)
         suffix = ".exe" if sys.platform == "win32" else ""
         rt_exe = ensure_target_built("orpheus_rt_host", f"orpheus_rt_host{suffix}")
         try:
             session = rt_sessions.start(
                 name,
-                [str(rt_exe), str(plan_path), str(root / "build" / "components")],
+                [str(rt_exe), str(plan_path), str(root / "build" / "components"),
+                 str(plan.sample_rate), str(plan.block_size)],
                 cwd=rec.directory,
             )
         except RuntimeError as exc:

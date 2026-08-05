@@ -60,7 +60,27 @@ function Editor() {
   const [outputs, setOutputs] = useState([]);
   const [deviceOptions, setDeviceOptions] = useState([{ value: '', label: '默认设备' }]);
   const [rt, setRt] = useState({ running: false, logs: [], probes: {} });
+  const [logCollapsed, setLogCollapsed] = useState(false);
+  const [logHeight, setLogHeight] = useState(180);
   const { screenToFlowPosition } = useReactFlow();
+
+  // drag the log panel header vertically to resize it
+  const onLogDragStart = useCallback(
+    (e) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = logHeight;
+      const onMove = (ev) =>
+        setLogHeight(Math.min(window.innerHeight * 0.6, Math.max(80, startH + (startY - ev.clientY))));
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [logHeight]
+  );
 
   const rtRef = useRef(rt);
   rtRef.current = rt;
@@ -168,6 +188,17 @@ function Editor() {
     const timer = setInterval(async () => {
       try {
         const s = await api.rtStatus(current);
+        // process just died while we thought it was running: surface the reason
+        if (!s.running && rtRef.current.running) {
+          setLogCollapsed(false);
+          setLog({
+            title: s.exit_code === 0 ? '实时会话已结束' : `实时进程异常退出 (code ${s.exit_code})`,
+            lines: (s.logs || []).slice(-20),
+          });
+          setStatus(
+            s.exit_code === 0 ? '实时会话已结束' : `实时进程异常退出 (code ${s.exit_code})，原因见日志`
+          );
+        }
         setRt({ running: s.running, logs: s.logs || [], probes: s.probes || {} });
         if (Object.keys(s.probes || {}).length > 0) {
           setViews((prev) => {
@@ -839,32 +870,50 @@ function Editor() {
         </div>
       </div>
       {(log || outputs.length > 0 || rt.logs.length > 0 || rt.running) && (
-        <div className="bottombar">
-          {(rt.running || rt.logs.length > 0) && (
-            <div className="log">
-              <strong>实时日志</strong>
-              <pre>{rt.logs.slice(-100).join('\n') || '（等待日志…）'}</pre>
-            </div>
-          )}
-          {log && (
-            <div className="log">
-              <strong>{log.title}</strong>
-              {log.lines.map((line, i) => (
-                <pre key={i}>{line}</pre>
-              ))}
-            </div>
-          )}
-          {outputs.length > 0 && (
-            <div className="outputs">
-              <strong>产物</strong>
-              {outputs.map((o) => (
-                <div key={o} className="output-item">
-                  <a href={api.projectFileUrl(current, o)} target="_blank" rel="noreferrer">
-                    {o}
-                  </a>
-                  {o.endsWith('.wav') && <audio controls src={api.projectFileUrl(current, o)} />}
+        <div className={`bottombar ${logCollapsed ? 'collapsed' : ''}`}>
+          <div
+            className="bottombar-header"
+            onMouseDown={onLogDragStart}
+            title="拖拽调整高度"
+          >
+            <span className="bottombar-title">日志与产物（拖拽此栏调整高度）</span>
+            <button
+              className="bottombar-toggle"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => setLogCollapsed((c) => !c)}
+            >
+              {logCollapsed ? '展开 ▲' : '收起 ▼'}
+            </button>
+          </div>
+          {!logCollapsed && (
+            <div className="bottombar-body" style={{ height: logHeight }}>
+              {(rt.running || rt.logs.length > 0) && (
+                <div className="log">
+                  <strong>实时日志</strong>
+                  <pre>{rt.logs.slice(-100).join('\n') || '（等待日志…）'}</pre>
                 </div>
-              ))}
+              )}
+              {log && (
+                <div className="log">
+                  <strong>{log.title}</strong>
+                  {log.lines.map((line, i) => (
+                    <pre key={i}>{line}</pre>
+                  ))}
+                </div>
+              )}
+              {outputs.length > 0 && (
+                <div className="outputs">
+                  <strong>产物</strong>
+                  {outputs.map((o) => (
+                    <div key={o} className="output-item">
+                      <a href={api.projectFileUrl(current, o)} target="_blank" rel="noreferrer">
+                        {o}
+                      </a>
+                      {o.endsWith('.wav') && <audio controls src={api.projectFileUrl(current, o)} />}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

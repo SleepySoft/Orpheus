@@ -18,7 +18,9 @@ struct HostContext {
     OrpheusBuffer* device_out_buf;
     uint32_t channels;
     uint32_t block_size;  // graph buffers are sized for this; chunk larger device periods
-    ma_pcm_rb* rb;        // loopback mode: ring buffer fed by the loopback capture device
+    ma_pcm_rb* rb;        // async bridge: ring buffer from capture to playback device
+    std::atomic<uint32_t> underruns{0};  // playback starved (rb empty)
+    std::atomic<uint32_t> overruns{0};   // capture dropped (rb full, clock drift)
 };
 
 // ---------------------------------------------------------------- helpers
@@ -116,8 +118,8 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     }
 }
 
-// loopback mode: capture side pushes system mix into the ring buffer
-void loopback_capture_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
+// async bridge: capture side pushes input into the ring buffer (any capture source)
+void rb_capture_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
     (void)pOutput;
     HostContext* host = (HostContext*)pDevice->pUserData;
     if (!host || !host->rb || !pInput) return;
@@ -126,11 +128,14 @@ void loopback_capture_callback(ma_device* pDevice, void* pOutput, const void* pI
     if (ma_pcm_rb_acquire_write(host->rb, &writable, &w) == MA_SUCCESS && writable > 0) {
         std::memcpy(w, pInput, writable * host->channels * sizeof(float));
         ma_pcm_rb_commit_write(host->rb, writable);
+        if (writable < frameCount) host->overruns++;
+    } else {
+        host->overruns++;
     }
 }
 
-// loopback mode: playback side is the master clock; pull input from the ring buffer
-void loopback_playback_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
+// async bridge: playback side is the master clock; pull input from the ring buffer
+void rb_playback_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
     (void)pInput;
     HostContext* host = (HostContext*)pDevice->pUserData;
     if (!host || !host->runtime) return;
@@ -151,6 +156,7 @@ void loopback_playback_callback(ma_device* pDevice, void* pOutput, const void* p
                 got = readable;
             }
             if (got < n) {
+                host->underruns++;
                 std::memset(buf + (size_t)got * ch, 0, (n - got) * ch * sizeof(float));
             }
             host->device_in_buf->frame_count = n;
@@ -241,6 +247,15 @@ static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) 
 
 // ---------------------------------------------------------------- main
 
+// Graph block sizes can be tiny (e.g. 128 frames = 2.7ms), which is too
+// aggressive for shared-mode devices (and impossible for Bluetooth). The
+// device period is decoupled from the graph block size (callbacks already
+// chunk large periods into block_size steps), so request a sane period.
+static ma_uint32 device_period_frames(uint32_t sample_rate, uint32_t block_size) {
+    ma_uint32 floor_frames = sample_rate / 100;  // 10ms
+    return block_size > floor_frames ? block_size : floor_frames;
+}
+
 void print_usage(const char* prog) {
     std::cerr << "Usage: " << prog << " <plan.json> <component_dir> [sample_rate] [block_size]\n"
               << "       " << prog << " --list-devices" << std::endl;
@@ -329,11 +344,14 @@ int main(int argc, char** argv) {
         }
 
         // Device topology by graph content (IO is the graph's business):
-        //   in+out, mic:      one duplex device
-        //   in+out, loopback: loopback capture -> ring buffer -> playback master clock
-        //   out only:         playback device clock (e.g. wav_in -> speakers)
-        //   in only:          capture/loopback device clock (e.g. system audio -> wav_out)
-        if (has_in && has_out && !loopback) {
+        //   in+out, both default devices: one duplex device (same clock domain, lowest latency)
+        //   in+out, any explicit device or loopback: async bridge (capture -> ring buffer ->
+        //     playback master clock) — decouples mismatched device clocks (e.g. virtual cable
+        //     + headphones) and enables under/overrun detection via ring buffer water level
+        //   out only: playback device clock (e.g. wav_in -> speakers)
+        //   in only:  capture/loopback device clock (e.g. system audio -> wav_out)
+        bool async_bridge = has_in && has_out && (loopback || !in_device.empty() || !out_device.empty());
+        if (has_in && has_out && !async_bridge) {
             ma_device_config cfg = ma_device_config_init(ma_device_type_duplex);
             cfg.capture.pDeviceID = p_in_id;
             cfg.capture.format = ma_format_f32;
@@ -342,7 +360,7 @@ int main(int argc, char** argv) {
             cfg.playback.format = ma_format_f32;
             cfg.playback.channels = host.channels;
             cfg.sampleRate = sample_rate;
-            cfg.periodSizeInFrames = block_size;
+            cfg.periodSizeInFrames = device_period_frames(sample_rate, block_size);
             cfg.dataCallback = data_callback;
             cfg.pUserData = &host;
             if (ma_device_init(NULL, &cfg, &play_device) != MA_SUCCESS) {
@@ -355,7 +373,8 @@ int main(int argc, char** argv) {
                 ma_device_uninit(&play_device);
                 return 1;
             }
-        } else if (has_in && has_out && loopback) {
+        } else if (has_in && has_out) {
+            // async bridge (covers loopback and mismatched capture/playback devices)
             if (ma_pcm_rb_init(ma_format_f32, host.channels, sample_rate / 10, NULL, NULL, &rb) != MA_SUCCESS) {
                 std::cerr << "Failed to init ring buffer" << std::endl;
                 return 1;
@@ -363,13 +382,14 @@ int main(int argc, char** argv) {
             rb_inited = true;
             host.rb = &rb;
 
-            ma_device_config cap_cfg = ma_device_config_init(ma_device_type_loopback);
+            ma_device_config cap_cfg = ma_device_config_init(
+                loopback ? ma_device_type_loopback : ma_device_type_capture);
             cap_cfg.capture.pDeviceID = p_in_id;  // loopback target = playback device to tap
             cap_cfg.capture.format = ma_format_f32;
             cap_cfg.capture.channels = host.channels;
             cap_cfg.sampleRate = sample_rate;
-            cap_cfg.periodSizeInFrames = block_size;
-            cap_cfg.dataCallback = loopback_capture_callback;
+            cap_cfg.periodSizeInFrames = device_period_frames(sample_rate, block_size);
+            cap_cfg.dataCallback = rb_capture_callback;
             cap_cfg.pUserData = &host;
             if (ma_device_init(NULL, &cap_cfg, &cap_device) != MA_SUCCESS) {
                 std::cerr << "Failed to initialize loopback capture" << std::endl;
@@ -383,8 +403,8 @@ int main(int argc, char** argv) {
             play_cfg.playback.format = ma_format_f32;
             play_cfg.playback.channels = host.channels;
             play_cfg.sampleRate = sample_rate;
-            play_cfg.periodSizeInFrames = block_size;
-            play_cfg.dataCallback = loopback_playback_callback;
+            play_cfg.periodSizeInFrames = device_period_frames(sample_rate, block_size);
+            play_cfg.dataCallback = rb_playback_callback;
             play_cfg.pUserData = &host;
             if (ma_device_init(NULL, &play_cfg, &play_device) != MA_SUCCESS) {
                 std::cerr << "Failed to initialize playback device" << std::endl;
@@ -417,7 +437,7 @@ int main(int argc, char** argv) {
                 cfg.capture.channels = host.channels;
             }
             cfg.sampleRate = sample_rate;
-            cfg.periodSizeInFrames = block_size;
+            cfg.periodSizeInFrames = device_period_frames(sample_rate, block_size);
             cfg.dataCallback = data_callback;
             cfg.pUserData = &host;
             if (ma_device_init(NULL, &cfg, &play_device) != MA_SUCCESS) {
@@ -432,16 +452,48 @@ int main(int argc, char** argv) {
             }
         }
 
-        std::cout << "LOG rt_host running (in=" << (has_in ? (loopback ? "loopback" : "mic") : "none")
+        std::cout << "LOG rt_host running (in="
+                  << (has_in ? (loopback ? "loopback" : "mic") : "none")
                   << ", out=" << (has_out ? "playback" : "none")
+                  << ", mode=" << (async_bridge ? "async-bridge" : (cap_inited || play_inited) ? "device-clock" : "duplex")
                   << ", channels=" << host.channels << ", sample_rate=" << sample_rate
                   << ", block_size=" << block_size << ")" << std::endl;
+        if (play_inited) {
+            std::cout << "LOG device period: playback="
+                      << play_device.playback.internalPeriodSizeInFrames << " frames";
+            if (cap_inited) {
+                std::cout << ", capture=" << cap_device.capture.internalPeriodSizeInFrames << " frames";
+            } else if (has_in) {
+                std::cout << ", capture=" << play_device.capture.internalPeriodSizeInFrames << " frames";
+            }
+            std::cout << std::endl;
+        }
 
         std::atomic<bool> running{true};
         std::thread probe_thread([&]() {
+            uint32_t last_u = 0, last_o = 0;
+            int ticks = 0;
             while (running) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                if (running) report_probes(runtime, plan);
+                if (!running) break;
+                report_probes(runtime, plan);
+                // once per second: report ring-buffer water level problems with advice
+                if (++ticks % 5 == 0) {
+                    uint32_t u = host.underruns.load();
+                    uint32_t o = host.overruns.load();
+                    if (u != last_u) {
+                        std::cout << "LOG WARN 播放欠载 x" << (u - last_u)
+                                  << "/s：播放设备取数不足（出现杂音/哒哒声）。建议：增大工程 block_size，"
+                                     "或检查播放设备性能" << std::endl;
+                    }
+                    if (o != last_o) {
+                        std::cout << "LOG WARN 采集溢出 x" << (o - last_o)
+                                  << "/s：输入数据堆积被丢弃（采集与播放时钟漂移）。"
+                                     "建议：增大 block_size，或让输入输出共用同一设备/时钟" << std::endl;
+                    }
+                    last_u = u;
+                    last_o = o;
+                }
             }
         });
 

@@ -620,12 +620,47 @@ button.danger {
 
 .bottombar {
   display: flex;
-  gap: 16px;
-  max-height: 180px;
-  overflow-y: auto;
-  padding: 10px 16px;
+  flex-direction: column;
   background: #f8f9fa;
   border-top: 1px solid #dee2e6;
+}
+
+.bottombar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 16px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.bottombar-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #868e96;
+}
+
+.bottombar-toggle {
+  border: none;
+  background: none;
+  color: #4cc9f0;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.bottombar.collapsed .bottombar-header {
+  border-bottom: none;
+}
+
+.bottombar-body {
+  display: flex;
+  gap: 16px;
+  padding: 8px 16px 10px;
+  overflow-y: auto;
+}
+
+.bottombar-header {
+  cursor: ns-resize;
+  user-select: none;
 }
 
 .bottombar .log {
