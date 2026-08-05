@@ -1,45 +1,5 @@
 import React from 'react';
-
-function ParamField({ schema, value, onChange }) {
-  const { id, name, type, range, unit } = schema;
-  const label = (
-    <label>
-      {name || id}
-      {unit ? ` (${unit})` : ''}
-    </label>
-  );
-
-  if (type === 'float' || type === 'int') {
-    return (
-      <div className="param-field">
-        {label}
-        <input
-          type="number"
-          value={value ?? ''}
-          step={type === 'int' ? 1 : 'any'}
-          min={range?.[0]}
-          max={range?.[1]}
-          onChange={(e) => {
-            const raw = e.target.value;
-            if (raw === '') return onChange(id, type === 'int' ? 0 : 0.0);
-            onChange(id, type === 'int' ? parseInt(raw, 10) : parseFloat(raw));
-          }}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div className="param-field">
-      {label}
-      <input
-        type="text"
-        value={value ?? ''}
-        onChange={(e) => onChange(id, e.target.value)}
-      />
-    </div>
-  );
-}
+import ParamField from './widgets';
 
 // Universal params (channel count, sample rate, ...) always go on top,
 // separated from component-specific params.
@@ -47,7 +7,7 @@ const UNIVERSAL_IDS = new Set(['channels', 'sample_rate']);
 const isUniversalParam = (p) => p.affects_signature || UNIVERSAL_IDS.has(p.id);
 
 /** Right-hand panel: edit the selected node's parameters per its manifest schema. */
-export default function ParamPanel({ node, onParamChange, onDeleteNode }) {
+export default function ParamPanel({ node, onParamChange, onDeleteNode, ctx }) {
   if (!node) {
     return (
       <div className="sidebar">
@@ -82,6 +42,16 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode }) {
   const universal = (parameters || []).filter(isUniversalParam);
   const specific = (parameters || []).filter((p) => !isUniversalParam(p));
 
+  const renderField = (schema) => (
+    <ParamField
+      key={schema.id}
+      schema={schema}
+      value={params?.[schema.id] ?? schema.default}
+      onChange={onParamChange}
+      ctx={ctx}
+    />
+  );
+
   return (
     <div className="sidebar">
       <h3>参数面板</h3>
@@ -93,32 +63,19 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode }) {
       {universal.length > 0 && (
         <>
           <div className="param-section">通用</div>
-          {universal.map((schema) => (
-            <ParamField
-              key={schema.id}
-              schema={schema}
-              value={params?.[schema.id] ?? schema.default}
-              onChange={onParamChange}
-            />
-          ))}
+          {universal.map(renderField)}
           <hr className="param-divider" />
         </>
       )}
       {specific.length > 0 && universal.length > 0 && <div className="param-section">组件参数</div>}
-      {specific.map((schema) => (
-        <ParamField
-          key={schema.id}
-          schema={schema}
-          value={params?.[schema.id] ?? schema.default}
-          onChange={onParamChange}
-        />
-      ))}
+      {specific.map(renderField)}
       {extraKeys.map((key) => (
         <ParamField
           key={key}
           schema={{ id: key, name: key, type: 'string' }}
           value={params[key]}
           onChange={onParamChange}
+          ctx={ctx}
         />
       ))}
       <button className="danger" onClick={() => onDeleteNode(node.id)}>

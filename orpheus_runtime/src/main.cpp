@@ -73,6 +73,27 @@ int main(int argc, char** argv) {
         }
 
         std::cout << "Processed " << processed << " frames" << std::endl;
+
+        // Dump probe readback values: PROBE <node> <param> <value>
+        for (const auto& node_id : plan.execution_order) {
+            const auto& cfg = plan.node_configs[node_id];
+            if (cfg.component.find(".probe") == std::string::npos) continue;
+            const OrpheusComponentInterface* iface = runtime.get_interface(node_id);
+            if (!iface || !iface->get_descriptor) continue;
+            const OrpheusComponentDescriptor* desc = iface->get_descriptor();
+            for (uint32_t i = 0; i < desc->param_count; ++i) {
+                const OrpheusParameter& p = desc->params[i];
+                if (!p.readback || p.affects_signature) continue;
+                OrpheusValue v;
+                if (runtime.get_parameter(node_id, p.id, &v) == ORPHEUS_OK) {
+                    if (v.type == ORPHEUS_VALUE_FLOAT) {
+                        std::cout << "PROBE " << node_id << " " << p.id << " " << v.value.f32 << std::endl;
+                    } else if (v.type == ORPHEUS_VALUE_INT) {
+                        std::cout << "PROBE " << node_id << " " << p.id << " " << v.value.i32 << std::endl;
+                    }
+                }
+            }
+        }
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;

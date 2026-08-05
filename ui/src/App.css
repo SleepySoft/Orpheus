@@ -371,6 +371,162 @@
   font-size: 13px;
 }
 
+/* ---------------------------------------------------------- widgets */
+
+.slider-widget {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.slider-widget input[type='range'] {
+  flex: 1;
+}
+
+.slider-value {
+  font-size: 12px;
+  color: #495057;
+  min-width: 48px;
+  text-align: right;
+}
+
+.file-widget {
+  display: flex;
+  gap: 4px;
+}
+
+.file-widget input {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-widget button,
+.modal-actions button,
+.upload-btn {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 4px;
+  background: #4cc9f0;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.param-field.readonly input,
+.param-field.readonly select {
+  background: #e9ecef;
+  color: #868e96;
+}
+
+.readonly-badge {
+  margin-left: 6px;
+  font-size: 10px;
+  color: #adb5bd;
+}
+
+.ch-badge {
+  font-size: 10px;
+  color: #adb5bd;
+}
+
+/* ---------------------------------------------------------- modal */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  width: 420px;
+  max-height: 60vh;
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal h4 {
+  margin: 0 0 10px;
+}
+
+.modal-file-list {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.modal-file-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.modal-file-row:hover {
+  background: #e7f5ff;
+}
+
+.modal-error {
+  color: #e03131;
+  font-size: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.upload-btn {
+  display: inline-block;
+}
+
+/* ---------------------------------------------------------- probe nodes */
+
+.probe-body {
+  padding: 4px 10px 8px;
+}
+
+.level-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.level-label {
+  width: 32px;
+  color: #868e96;
+}
+
+.level-bar {
+  flex: 1;
+  height: 8px;
+  background: #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.level-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #51cf66, #ffd166, #e03131);
+}
+
+.level-value {
+  min-width: 52px;
+  text-align: right;
+  color: #495057;
+}
+
 button.danger {
   margin-top: 12px;
   width: 100%;

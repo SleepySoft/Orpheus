@@ -10,7 +10,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException
+import time
+
+from fastapi import Body, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -22,6 +24,21 @@ from orpheus_core.server.manager import ProjectError, ProjectManager, ProjectRec
 from orpheus_core.subgraph import flatten_project
 
 RUN_TIMEOUT_SECONDS = 60
+DEVICES_CACHE_SECONDS = 30
+
+
+def _parse_probe_lines(stdout: str) -> list[dict[str, Any]]:
+    """Parse 'PROBE <node> <param> <value>' lines printed by the offline host."""
+    probes = []
+    for line in stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 4 and parts[0] == "PROBE":
+            try:
+                value: Any = float(parts[3])
+            except ValueError:
+                value = parts[3]
+            probes.append({"node": parts[1], "param": parts[2], "value": value})
+    return probes
 
 
 class CreateProjectRequest(BaseModel):
@@ -152,6 +169,30 @@ def create_app(project_root: Path) -> FastAPI:
         registry.scan()
         return {"count": len(registry.list_components())}
 
+    @app.get("/api/devices")
+    def list_devices() -> dict[str, Any]:
+        """Enumerate audio devices via rt_host --list-devices (cached briefly)."""
+        cached = state.get("devices_cache")
+        if cached and time.time() - cached[0] < DEVICES_CACHE_SECONDS:
+            return cached[1]
+        exe = root / "build" / ("orpheus_rt_host.exe" if sys.platform == "win32" else "orpheus_rt_host")
+        if not exe.exists():
+            raise HTTPException(status_code=400, detail="rt_host not built; run `orpheus-cli build` first")
+        try:
+            result = subprocess.run(
+                [str(exe), "--list-devices"], capture_output=True, text=True, timeout=15
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(status_code=500, detail="device enumeration timed out") from exc
+        if result.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"device enumeration failed: {result.stderr}")
+        try:
+            devices = json.loads(result.stdout.strip())
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=500, detail=f"invalid device list: {result.stdout[:200]}") from exc
+        state["devices_cache"] = (time.time(), devices)
+        return devices
+
     # ---- projects (user documents in workspace/)
 
     @app.get("/api/projects")
@@ -245,7 +286,44 @@ def create_app(project_root: Path) -> FastAPI:
             "stderr": result.stderr,
             "built_components": built,
             "outputs": outputs,
+            "probes": _parse_probe_lines(result.stdout),
         }
+
+    @app.get("/api/projects/{name}/files")
+    def list_project_files(name: str, ext: str | None = None) -> list[dict[str, Any]]:
+        """List files inside a project dir (relative POSIX paths), optional extension filter."""
+        try:
+            pdir = manager.project_dir(name)
+            if not pdir.exists():
+                raise HTTPException(status_code=404, detail=f"project not found: {name}")
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        ext_filter = ext.lower() if ext else None
+        items = []
+        for p in sorted(pdir.rglob("*")):
+            if not p.is_file():
+                continue
+            if ext_filter and p.suffix.lower() != ext_filter:
+                continue
+            items.append({"path": p.relative_to(pdir).as_posix(), "size": p.stat().st_size})
+        return items
+
+    @app.post("/api/projects/{name}/uploads", status_code=201)
+    async def upload_project_file(name: str, file: UploadFile) -> dict[str, Any]:
+        """Upload a file into the project dir; returns its project-relative path."""
+        try:
+            pdir = manager.project_dir(name)
+            if not pdir.exists():
+                raise HTTPException(status_code=404, detail=f"project not found: {name}")
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        filename = Path(file.filename or "upload.bin").name  # strip any client path
+        if not filename:
+            raise HTTPException(status_code=400, detail="empty filename")
+        dest = pdir / filename
+        with open(dest, "wb") as f:
+            f.write(await file.read())
+        return {"path": filename, "size": dest.stat().st_size}
 
     @app.get("/api/projects/{name}/files/{relpath:path}")
     def get_project_file(name: str, relpath: str) -> FileResponse:

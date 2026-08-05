@@ -1,0 +1,94 @@
+"""Tests for device enumeration, project file list/upload, and probe readback."""
+
+from __future__ import annotations
+
+import io
+import uuid
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from orpheus_core.server.app import create_app
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture()
+def client():
+    with TestClient(create_app(ROOT)) as c:
+        yield c
+
+
+@pytest.fixture()
+def project(client):
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    resp = client.post("/api/projects", json={"name": name})
+    assert resp.status_code == 201, resp.text
+    yield name
+    client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_rt_host.exe").exists(), reason="rt_host not built"
+)
+def test_list_devices(client):
+    resp = client.get("/api/devices")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "playback" in data and "capture" in data
+    assert all("name" in d and "default" in d for d in data["playback"])
+
+
+def test_upload_and_list_files(client, project):
+    payload = b"RIFF" + b"\x00" * 100  # fake wav content is fine for storage test
+    resp = client.post(
+        f"/api/projects/{project}/uploads",
+        files={"file": ("tone.wav", io.BytesIO(payload), "audio/wav")},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["path"] == "tone.wav"
+
+    # listed with extension filter
+    files = client.get(f"/api/projects/{project}/files", params={"ext": ".wav"}).json()
+    assert [f["path"] for f in files] == ["tone.wav"]
+
+    # project.yaml not matched by wav filter, file content served back
+    assert client.get(f"/api/projects/{project}/files").json() != []
+    resp = client.get(f"/api/projects/{project}/files/tone.wav")
+    assert resp.status_code == 200 and resp.content == payload
+
+
+def test_upload_sanitizes_filename(client, project):
+    resp = client.post(
+        f"/api/projects/{project}/uploads",
+        files={"file": ("../../evil.wav", io.BytesIO(b"x"), "audio/wav")},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["path"] == "evil.wav"
+    assert (ROOT / "workspace" / project / "evil.wav").exists()
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_run_returns_probe_readback(client):
+    """signal_gen(0.5 sine) -> probe_rms -> wav_out: run response carries RMS value."""
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        resp = client.post("/api/projects", json={"name": name, "from_example": "signal_probe_wav"})
+        assert resp.status_code == 201, resp.text
+        resp = client.post(f"/api/projects/{name}/run")
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+
+        probes = result["probes"]
+        rms_entries = [p for p in probes if p["node"] == "rms" and p["param"] == "rms"]
+        assert len(rms_entries) == 1, f"missing probe readback: {probes}"
+        # 0.5 amplitude sine -> RMS ~ 0.354
+        assert 0.3 < rms_entries[0]["value"] < 0.4
+    finally:
+        client.delete(f"/api/projects/{name}")

@@ -21,6 +21,14 @@ export const saveProject = (name, doc) => unwrap(api.put(`/projects/${name}`, do
 export const deleteProject = (name) => unwrap(api.delete(`/projects/${name}`));
 export const compileProject = (name) => unwrap(api.post(`/projects/${name}/compile`));
 export const runProject = (name) => unwrap(api.post(`/projects/${name}/run`));
+export const listDevices = () => unwrap(api.get('/devices'));
+export const listProjectFiles = (name, ext = null) =>
+  unwrap(api.get(`/projects/${name}/files`, { params: ext ? { ext } : {} }));
+export const uploadProjectFile = (name, file) => {
+  const form = new FormData();
+  form.append('file', file);
+  return unwrap(api.post(`/projects/${name}/uploads`, form));
+};
 
 export const projectFileUrl = (name, relpath) =>
   `${api.defaults.baseURL}/projects/${name}/files/${relpath}`;

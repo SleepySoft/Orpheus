@@ -19,6 +19,7 @@ parameters:
     name: 文件路径
     type: string
     default: ""
+    widget: file
     update_policy: restart_required
   - id: channels
     name: 通道数

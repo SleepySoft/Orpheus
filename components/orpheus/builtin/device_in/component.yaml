@@ -15,6 +15,22 @@ ports:
     sample_format: f32
     channels: param:channels
 parameters:
+  - id: device
+    name: 采集设备
+    type: string
+    default: ""
+    widget: select
+    options_source: devices
+    update_policy: restart_required
+  - id: source
+    name: 采集源
+    type: string
+    default: microphone
+    widget: select
+    options:
+      - {value: microphone, label: 麦克风/线路输入}
+      - {value: loopback, label: 系统声音（Loopback）}
+    update_policy: restart_required
   - id: channels
     name: 通道数
     type: int

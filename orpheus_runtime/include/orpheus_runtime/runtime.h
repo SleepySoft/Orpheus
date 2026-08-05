@@ -34,6 +34,12 @@ public:
     // Set a parameter on a node.
     int set_parameter(const std::string& node_id, const std::string& param_id, const OrpheusValue& value);
 
+    // Get a parameter (e.g. probe readback values) from a node.
+    int get_parameter(const std::string& node_id, const std::string& param_id, OrpheusValue* value);
+
+    // Access the component interface of a loaded node (metadata/introspection).
+    const OrpheusComponentInterface* get_interface(const std::string& node_id);
+
     // Execute one block.
     int process_block(uint32_t frame_count);
 

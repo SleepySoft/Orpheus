@@ -260,6 +260,20 @@ int Runtime::set_parameter(const std::string& node_id, const std::string& param_
     return inst.interface_->set_parameter(inst.state, param_id.c_str(), &value);
 }
 
+int Runtime::get_parameter(const std::string& node_id, const std::string& param_id, OrpheusValue* value) {
+    auto it = instances_.find(node_id);
+    if (it == instances_.end()) return -1;
+    Instance& inst = *it->second;
+    if (!inst.interface_->get_parameter) return -1;
+    return inst.interface_->get_parameter(inst.state, param_id.c_str(), value);
+}
+
+const OrpheusComponentInterface* Runtime::get_interface(const std::string& node_id) {
+    auto it = instances_.find(node_id);
+    if (it == instances_.end()) return nullptr;
+    return it->second->interface_;
+}
+
 int Runtime::process_block(uint32_t frame_count) {
     OrpheusProcessContext ctx;
     ctx.frame_count = frame_count;

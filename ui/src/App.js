@@ -58,7 +58,13 @@ function Editor() {
   const [status, setStatus] = useState('未连接后端');
   const [log, setLog] = useState(null);
   const [outputs, setOutputs] = useState([]);
+  const [deviceOptions, setDeviceOptions] = useState([{ value: '', label: '默认设备' }]);
   const { screenToFlowPosition } = useReactFlow();
+
+  const paramCtx = useMemo(
+    () => ({ projectName: current, dynamicOptions: { devices: deviceOptions } }),
+    [current, deviceOptions]
+  );
 
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
@@ -126,6 +132,17 @@ function Editor() {
         setProjects(projs);
         setExamples(exs);
         setStatus('后端已连接');
+        // best-effort device enumeration (needs rt_host built)
+        api
+          .listDevices()
+          .then((d) => {
+            const names = [...(d.playback || []), ...(d.capture || [])].map((x) => x.name);
+            setDeviceOptions([
+              { value: '', label: '默认设备' },
+              ...[...new Set(names)].map((n) => ({ value: n, label: n })),
+            ]);
+          })
+          .catch(() => {});
         if (projs.length > 0) {
           const document = await api.getProject(projs[0].name);
           loadDocument(projs[0].name, document, comps);
@@ -545,6 +562,25 @@ function Editor() {
       const r = await api.runProject(current);
       setStatus(r.status === 'ok' ? '运行成功' : `运行失败 (exit ${r.returncode})`);
       setOutputs(r.outputs || []);
+      // inject probe readback values into node bodies (e.g. level meters)
+      if (r.probes?.length) {
+        const byNode = {};
+        for (const p of r.probes) {
+          (byNode[p.node] = byNode[p.node] || {})[p.param] = p.value;
+        }
+        setViews((prev) => {
+          const next = {};
+          for (const [key, v] of Object.entries(prev)) {
+            next[key] = {
+              ...v,
+              nodes: v.nodes.map((nd) =>
+                byNode[nd.id] ? { ...nd, data: { ...nd.data, probe: byNode[nd.id] } } : nd
+              ),
+            };
+          }
+          return next;
+        });
+      }
       setLog({
         title: '运行输出',
         lines: [
@@ -700,7 +736,12 @@ function Editor() {
               onRemovePort={removeSubPort}
             />
           )}
-          <ParamPanel node={selectedNode} onParamChange={onParamChange} onDeleteNode={onDeleteNode} />
+          <ParamPanel
+            node={selectedNode}
+            onParamChange={onParamChange}
+            onDeleteNode={onDeleteNode}
+            ctx={paramCtx}
+          />
         </div>
       </div>
       {(log || outputs.length > 0) && (

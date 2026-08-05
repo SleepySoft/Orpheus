@@ -722,3 +722,11 @@ orpheus_platform_memory_section_bind(...);
 - **端口精确绑定**：plan 的 node_configs 携带 `input_ports`/`output_ports` 有序端口列表，Runtime 按端口 ID 建立索引映射绑定 Buffer（替代早期按连接顺序的绑定），未连接引脚为 nullptr，组件需判空。
 - **初始参数**：组件在 `prepare` 时从 `OrpheusConfig.param_ids/param_values` 读取初始参数；Runtime 按「纯数字→FLOAT，否则→STRING」转换参数值（修复了 gain_db 初始值不生效、字符串参数被 atof 吞掉的问题）。
 - 示例：`examples/wav_channel_map.yaml`（交换左右声道 + 单通道增益，数值验证通过）。
+
+---
+
+## 19. 设备通路、参数控件与探针回读（已实现 v1）
+
+- **设备选择 + Loopback**：rt_host 支持 `--list-devices`（JSON 输出，供 `GET /api/devices` 使用）；device_in/device_out 新增 `device` 参数（设备名子串匹配，空=默认设备）；device_in 的 `source` 可选 `microphone`（duplex）或 `loopback`（WASAPI 环回采集系统混音，`ma_pcm_rb` 环形缓冲桥接到播放设备主时钟）。配合 VB-Cable 等现成虚拟声卡即可做应用间路由（不自研内核驱动）。
+- **参数控件定制**：manifest 参数支持 `widget`（number/text/slider/select/checkbox/file，缺省按 type 推断）、`options`、`options_source`（动态下拉如设备列表）、`readonly`。前端 `widgets.js` 为控件注册表，新组件个性化控件 = 注册 widget + manifest 声明。file 控件走工程内文件浏览/上传（`POST /api/projects/{name}/uploads`），保持工程可移植。
+- **探针回读**：probe 组件 readback 参数经 `Runtime::get_parameter` 透传；离线宿主跑完打印 `PROBE <node> <param> <value>`，run 响应携带 `probes`；前端 `nodeWidgets` 注册表按组件 id 定制节点本体（电平条）。运行中实时回读/节点当场操作待实时宿主 UI 化后提供。

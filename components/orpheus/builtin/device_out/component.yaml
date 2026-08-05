@@ -15,6 +15,13 @@ ports:
     sample_format: f32
     channels: param:channels
 parameters:
+  - id: device
+    name: 播放设备
+    type: string
+    default: ""
+    widget: select
+    options_source: devices
+    update_policy: restart_required
   - id: channels
     name: 通道数
     type: int
