@@ -532,6 +532,56 @@
   color: #495057;
 }
 
+.level-row.large {
+  font-size: 14px;
+}
+.level-row.large .level-label {
+  width: 48px;
+}
+.level-row.large .level-value {
+  min-width: 80px;
+  font-size: 15px;
+}
+
+.monitor-enlarge {
+  border: none;
+  background: transparent;
+  color: #868e96;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+.monitor-enlarge:hover {
+  background: rgba(76, 201, 240, 0.15);
+  color: #4cc9f0;
+}
+
+.monitor-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.monitor-panel {
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 16px 16px;
+  min-width: 680px;
+  max-width: 90vw;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.monitor-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
 button.danger {
   margin-top: 12px;
   width: 100%;

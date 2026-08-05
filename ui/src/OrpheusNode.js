@@ -5,6 +5,7 @@ import { NODE_WIDGETS } from './nodeWidgets';
 
 /** Custom React Flow node: ports come from the component manifest (resolved). */
 export default function OrpheusNode({ data, selected }) {
+  const [enlarged, setEnlarged] = React.useState(false);
   const ports = data.ports || [];
   const inputs = ports.filter((p) => p.direction === 'input');
   const outputs = ports.filter((p) => p.direction === 'output');
@@ -56,12 +57,39 @@ export default function OrpheusNode({ data, selected }) {
           {rateBadge}
         </div>
         <div className="node-subtitle">{shortName}</div>
+        {BodyWidget && (
+          <button
+            className="monitor-enlarge"
+            title="放大监控界面"
+            onClick={(e) => {
+              e.stopPropagation();
+              setEnlarged(true);
+            }}
+          >
+            ⤢
+          </button>
+        )}
       </div>
       <div className="node-body">
         <div className="node-ports inputs">{inputs.map((p) => renderRow(p, true))}</div>
         <div className="node-ports outputs">{outputs.map((p) => renderRow(p, false))}</div>
       </div>
       {BodyWidget && <BodyWidget data={data} />}
+      {enlarged && (
+        <div className="monitor-overlay" onClick={() => setEnlarged(false)}>
+          <div className="monitor-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="monitor-title">
+              <span>
+                {data.label} <span className="muted">({shortName})</span>
+              </span>
+              <button className="danger" onClick={() => setEnlarged(false)}>
+                × 关闭
+              </button>
+            </div>
+            <BodyWidget data={data} large />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
