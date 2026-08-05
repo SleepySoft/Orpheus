@@ -15,6 +15,11 @@
       "type": "array",
       "items": { "type": "string" }
     },
+    "deps": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["miniaudio"] },
+      "description": "Optional third-party dependencies copied into generated projects (e.g. miniaudio)"
+    },
     "headers": {
       "type": "array",
       "items": { "type": "string" }
@@ -63,6 +68,7 @@
           "range": { "type": "array", "minItems": 2, "maxItems": 2 },
           "unit": { "type": "string" },
           "widget": { "type": "string", "enum": ["number", "text", "slider", "select", "checkbox", "file"], "description": "UI control hint; default inferred from type" },
+          "file_ext": { "type": "string", "description": "Extension filter for the file widget, e.g. .mp3" },
           "options": { "type": "array", "description": "Static options for select widget: [{value,label}] or scalars" },
           "options_source": { "type": "string", "enum": ["devices"], "description": "Dynamic options provider" },
           "readonly": { "type": "boolean", "description": "Display-only parameter" },

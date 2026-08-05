@@ -56,6 +56,12 @@ class CodeGenerator:
                 shutil.copytree(info.root_dir / "src", comp_out / "src", dirs_exist_ok=True)
             if (info.root_dir / "include").exists():
                 shutil.copytree(info.root_dir / "include", comp_out / "include", dirs_exist_ok=True)
+            # Third-party deps declared in the manifest are copied into the
+            # component include dir so generated projects stay self-contained.
+            if "miniaudio" in info.manifest.get("deps", []):
+                ma_header = self.project_root / "third_party" / "miniaudio.h"
+                if ma_header.exists():
+                    shutil.copy2(ma_header, comp_out / "include" / "miniaudio.h")
 
         # Generate main.c
         self._generate_main_c(plan, component_ids, src_dir / "main.c")
@@ -265,6 +271,11 @@ class CodeGenerator:
         lines.append(f'        rc = orpheus_generated_process({plan.block_size});')
         lines.append('        if (rc != ORPHEUS_OK) return 1;')
         lines.append('    }')
+        lines.append('    // Teardown: destroy instances so sinks flush output')
+        lines.append('    // (e.g. wav_out writes the file in destroy).')
+        for node_id in reversed(plan.execution_order):
+            s = self._sanitized_node_id(node_id)
+            lines.append(f'    g_iface_{s}->destroy(g_state_{s});')
         lines.append('    return 0;')
         lines.append('}')
 
@@ -283,10 +294,15 @@ class CodeGenerator:
         lines.append("")
 
         for cid in component_ids:
+            info = self.registry.get(cid)
+            if info is None or info.package_type != "source":
+                continue
             comp_target = self._component_target_name(cid)
             short = cid.replace("orpheus.builtin.", "")
             lines.append(f'add_library({comp_target} STATIC)')
-            lines.append(f'target_sources({comp_target} PRIVATE components/{comp_target}/src/{short}.c)')
+            sources = info.manifest.get("sources") or [f"src/{short}.c"]
+            for src in sources:
+                lines.append(f'target_sources({comp_target} PRIVATE components/{comp_target}/{src})')
             lines.append(f'target_include_directories({comp_target} PUBLIC components/{comp_target}/include)')
             lines.append(
                 f'target_compile_definitions({comp_target} PRIVATE ORPHEUS_ENTRY_NAME={comp_target}_get_interface)'

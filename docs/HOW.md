@@ -778,3 +778,10 @@ orpheus_platform_memory_section_bind(...);
 - **probe_waveform 波形显示**：组件内置 1024 帧环形缓冲（取第 0 通道），`waveform` readback 参数在非实时线程编码为 JSON 数组；画布节点注册 `ScopeWidget`（canvas 示波器，消费 `data.probe.waveform`），离线与实时会话均显示。示例：`examples/probe_waveform_scope.yaml`。
 - **显示型 readback 参数**：参数面板隐藏 `readback && !affects_signature` 的参数（如 rms/peak/waveform），它们是探针输出而非可编辑输入。
 - **机制原则**：UI 定制 = manifest 软声明（可选）+ 前端注册表（`widgets.js` 参数控件 / `nodeWidgets.js` 节点本体），C ABI、plan、编译、Runtime、代码生成完全不感知；无注册时回退默认渲染。
+
+## 25. MP3 输入组件（已实现 v1）
+
+- **`orpheus.builtin.mp3_in`**：基于 vendored miniaudio 的 `ma_decoder`（内嵌 dr_mp3 0.7.3）解码 MP3；prepare 时整文件解码为 f32（按图采样率/通道数重采样，与 wav_in 的读取语义一致），`total_frames` readback 供离线宿主确定时长。manifest 声明 `deps: [miniaudio]`。
+- **文件控件扩展**：参数级 `file_ext`（如 `.mp3`）控制文件浏览/上传的扩展名过滤（`widgets.js` FileWidget），默认仍为 `.wav`。
+- **代码生成**：生成器改为按 manifest `sources` 列表编译组件（支持多源文件），并复制 `third_party/miniaudio.h` 到生成工程（自包含，可脱离仓库编译）；修复生成 main 不调用 `destroy` 导致 wav_out 不落盘的问题（此前一致性测试空洞通过——比较的是动态运行留下的同一文件）。
+- 示例：`examples/mp3_play.yaml`（MP3 → Gain → WAV），测试素材 `examples/test_input.mp3`（ffmpeg 生成的 2s 440Hz 正弦）。

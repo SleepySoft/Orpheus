@@ -5,8 +5,9 @@ import ParamField from './widgets';
 // separated from component-specific params.
 const UNIVERSAL_IDS = new Set(['channels', 'sample_rate']);
 const isUniversalParam = (p) => p.affects_signature || UNIVERSAL_IDS.has(p.id);
-// readback-only params are probe outputs (rms/peak/waveform), not editable inputs.
-const isDisplayOnly = (p) => Boolean(p.readback) && !p.affects_signature;
+// readback-only, non-persistent params are probe outputs (rms/peak/waveform),
+// not editable inputs. Persistent readbacks (e.g. file_path) stay editable.
+const isDisplayOnly = (p) => Boolean(p.readback) && !p.affects_signature && !p.persistent;
 
 /** Right-hand panel: edit the selected node's parameters per its manifest schema. */
 export default function ParamPanel({ node, onParamChange, onDeleteNode, ctx }) {

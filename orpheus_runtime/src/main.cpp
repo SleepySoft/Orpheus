@@ -9,13 +9,11 @@ void print_usage(const char* prog) {
     std::cerr << "Usage: " << prog << " <plan.json> <component_dir>" << std::endl;
 }
 
-static std::string find_input_wav(const orpheus::Plan& plan) {
+static std::string find_input_node(const orpheus::Plan& plan) {
     for (const auto& kv : plan.node_configs) {
-        if (kv.second.component == "orpheus.builtin.wav_in") {
-            auto it = kv.second.params.find("file_path");
-            if (it != kv.second.params.end()) {
-                return it->second;
-            }
+        if (kv.second.component == "orpheus.builtin.wav_in" ||
+            kv.second.component == "orpheus.builtin.mp3_in") {
+            return kv.first;
         }
     }
     return "";
@@ -40,16 +38,30 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        // Determine total frames from input WAV
-        std::string input_wav = find_input_wav(plan);
+        // Determine total frames from the file input node
+        std::string input_node = find_input_node(plan);
         uint32_t total_frames = 0;
-        if (!input_wav.empty()) {
-            std::vector<float> samples;
-            orpheus::WavInfo info;
-            if (orpheus::wav_read_f32(input_wav, samples, info)) {
-                total_frames = info.total_frames;
-                std::cout << "Input: " << input_wav << " " << info.total_frames
-                          << " frames @ " << info.sample_rate << " Hz" << std::endl;
+        if (!input_node.empty()) {
+            const auto& cfg = plan.node_configs.at(input_node);
+            auto it = cfg.params.find("file_path");
+            std::string input_file = it != cfg.params.end() ? it->second : "";
+            if (cfg.component == "orpheus.builtin.mp3_in") {
+                OrpheusValue v;
+                if (!input_file.empty() &&
+                    runtime.get_parameter(input_node, "total_frames", &v) == ORPHEUS_OK &&
+                    v.type == ORPHEUS_VALUE_INT) {
+                    total_frames = (uint32_t)v.value.i32;
+                    std::cout << "Input: " << input_file << " " << total_frames
+                              << " frames (mp3, resampled to graph rate)" << std::endl;
+                }
+            } else if (!input_file.empty()) {
+                std::vector<float> samples;
+                orpheus::WavInfo info;
+                if (orpheus::wav_read_f32(input_file, samples, info)) {
+                    total_frames = info.total_frames;
+                    std::cout << "Input: " << input_file << " " << info.total_frames
+                              << " frames @ " << info.sample_rate << " Hz" << std::endl;
+                }
             }
         }
 

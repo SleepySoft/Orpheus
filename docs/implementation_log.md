@@ -1,5 +1,19 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-05
+
+### probe_waveform 波形显示 + 组件自定义 UI v1（commit 4f73237）
+
+- 修复 `probe_waveform` 无显示：组件内置 1024 帧环形缓冲 + `waveform` readback（非实时线程编码 JSON 数组）；宿主对 STRING readback 输出 `PROBE_JSON <node> <param> <json>`（旧 `PROBE` 标量格式兼容）；后端 `rt.py`/`app.py` 解析结构化探针值；UI 注册 `ScopeWidget`（canvas 示波器），参数面板隐藏显示型 readback 参数。
+- 设计文档 `docs/design_component_ui.md`（可选、不耦合、注册表驱动的控件机制）。
+- MSVC 构建支持：顶层 CMake 加 `/utf-8 /EHsc`、Windows 统一 DLL `lib` 前缀。
+
+### MP3 输入组件（待提交）
+
+- 新增 `orpheus.builtin.mp3_in`：miniaudio `ma_decoder`（dr_mp3）解码，prepare 整文件转 f32（按图速率重采样），`total_frames` readback；manifest `deps: [miniaudio]` + 参数 `file_ext: .mp3`。
+- 代码生成：按 manifest `sources` 编译组件、复制 miniaudio.h 保证生成工程自包含；修复生成 main 缺 destroy 导致 wav_out 不落盘（一致性测试此前空洞通过）。
+- 示例 `examples/mp3_play.yaml` + 素材 `examples/test_input.mp3` + e2e 测试（上传 mp3 → 离线运行 → 输出 WAV）。
+
 ## 2026-08-04
 
 ### 已完成

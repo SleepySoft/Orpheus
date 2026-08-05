@@ -187,3 +187,66 @@ def test_probe_waveform_readback_offline(client):
         assert max(abs(x) for x in wave) > 0.1  # 440Hz sine captured
     finally:
         client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_mp3_in_offline_run(client):
+    """MP3 input decodes via miniaudio and drives an offline run to WAV."""
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        resp = client.post("/api/projects", json={"name": name})
+        assert resp.status_code == 201, resp.text
+
+        with open(ROOT / "examples" / "test_input.mp3", "rb") as f:
+            up = client.post(
+                f"/api/projects/{name}/uploads",
+                files={"file": ("test_input.mp3", f, "audio/mpeg")},
+            )
+        assert up.status_code == 201, up.text
+        mp3_path = up.json()["path"]
+
+        doc = {
+            "version": "0.1.0",
+            "metadata": {"name": name, "description": "mp3 e2e"},
+            "sample_rate": 48000,
+            "block_size": 128,
+            "tasks": [
+                {"id": "default", "name": "Default", "sample_rate": 48000, "block_size": 128, "priority": 0}
+            ],
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "mp3",
+                        "component": "orpheus.builtin.mp3_in",
+                        "task": "default",
+                        "params": {"file_path": mp3_path, "channels": 2},
+                        "position": {"x": 0, "y": 0},
+                    },
+                    {
+                        "id": "wav_out",
+                        "component": "orpheus.builtin.wav_out",
+                        "task": "default",
+                        "params": {"file_path": "outputs/test_output.wav", "channels": 2, "sample_rate": 48000},
+                        "position": {"x": 200, "y": 0},
+                    },
+                ],
+                "connections": [{"from": "mp3:out", "to": "wav_out:in"}],
+            },
+        }
+        resp = client.put(f"/api/projects/{name}", json=doc)
+        assert resp.status_code == 200, resp.text
+
+        resp = client.post(f"/api/projects/{name}/run")
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["mode"] == "offline"
+        assert result["status"] == "ok", result["stderr"]
+
+        out = ROOT / "workspace" / name / "outputs" / "test_output.wav"
+        assert out.exists() and out.stat().st_size > 44
+    finally:
+        client.delete(f"/api/projects/{name}")

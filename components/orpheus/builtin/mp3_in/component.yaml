@@ -1,0 +1,51 @@
+id: orpheus.builtin.mp3_in
+name: MP3 文件输入
+category: 文件
+version: 1.0.0
+abi_version: 1
+package_type: source
+clock_source: true
+clock_domain: file
+deps:
+  - miniaudio
+sources:
+  - src/mp3_in.c
+  - src/miniaudio.c
+headers:
+  - include/orpheus_mp3_in.h
+ports:
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: file_path
+    name: MP3 文件
+    type: string
+    default: ""
+    widget: file
+    file_ext: ".mp3"
+    update_policy: restart_required
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: total_frames
+    name: 总帧数
+    type: int
+    default: 0
+    readback: true
+    update_policy: immediate
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: false

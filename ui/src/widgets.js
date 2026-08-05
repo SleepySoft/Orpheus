@@ -102,6 +102,7 @@ function CheckboxWidget({ schema, value, onChange, disabled }) {
 
 function FileWidget({ schema, value, onChange, disabled, ctx }) {
   const [browsing, setBrowsing] = useState(false);
+  const ext = schema.file_ext || '.wav';
   return (
     <div className="file-widget">
       <input type="text" value={value ?? ''} readOnly placeholder="（未选择文件）" disabled={disabled} />
@@ -111,7 +112,7 @@ function FileWidget({ schema, value, onChange, disabled, ctx }) {
       {browsing && (
         <FileBrowseModal
           projectName={ctx.projectName}
-          ext=".wav"
+          ext={ext}
           onSelect={(path) => {
             onChange(schema.id, path);
             setBrowsing(false);
