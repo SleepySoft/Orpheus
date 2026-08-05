@@ -17,8 +17,10 @@ struct Instance {
     std::string node_id;
     const OrpheusComponentInterface* interface_;
     void* state;
-    std::vector<OrpheusBuffer*> inputs;
-    std::vector<OrpheusBuffer*> outputs;
+    std::vector<OrpheusBuffer*> inputs;   // indexed by input_ports order
+    std::vector<OrpheusBuffer*> outputs;  // indexed by output_ports order
+    std::map<std::string, size_t> input_index;   // port id -> slot
+    std::map<std::string, size_t> output_index;
 };
 
 class Runtime {

@@ -51,6 +51,43 @@ def _resolve_value(expr: Any, node: Node, task: Task) -> Any:
     return expr
 
 
+def _expand_port_manifests(
+    node: Node, comp: ComponentInfo, task: Task
+) -> list[dict[str, Any]]:
+    """Expand a component's port manifests for a node.
+
+    A port entry may declare ``count: <expr>`` (e.g. ``param:channels``) to be
+    replicated N times with concrete ids ``<id>0..<id>N-1`` (variable pins,
+    e.g. deinterleave outputs).
+    """
+    expanded: list[dict[str, Any]] = []
+    for pm in comp.manifest.get("ports", []):
+        count_expr = pm.get("count")
+        if count_expr is None:
+            expanded.append(pm)
+            continue
+        count = _resolve_value(count_expr, node, task)
+        if count is None and isinstance(count_expr, str) and count_expr.startswith("param:"):
+            param_id = count_expr[6:]
+            for p in comp.manifest.get("parameters", []):
+                if p["id"] == param_id:
+                    count = p.get("default")
+                    break
+        try:
+            count = int(count)
+        except (TypeError, ValueError) as exc:
+            raise CompileError(
+                f"cannot resolve port count for {node.id}:{pm['id']} ({count_expr!r})"
+            ) from exc
+        if count < 1:
+            raise CompileError(f"invalid port count {count} for {node.id}:{pm['id']}")
+        for i in range(count):
+            replica = {k: v for k, v in pm.items() if k != "count"}
+            replica["id"] = f"{pm['id']}{i}"
+            expanded.append(replica)
+    return expanded
+
+
 def _resolve_port_signature(
     node: Node,
     comp: ComponentInfo,
@@ -104,13 +141,16 @@ class GraphCompiler:
         graph = project.graph
         task = project.get_default_task()
 
-        # 1. Resolve nodes and port signatures
+        # 1. Resolve nodes and port signatures (expanding variable-count ports)
         resolved_ports: dict[str, ResolvedPort] = {}
+        expanded_ports: dict[str, list[dict[str, Any]]] = {}
         for node in graph.nodes.values():
             comp = self.registry.get(node.component)
             if comp is None:
                 raise CompileError(f"component not found: {node.component} (node {node.id})")
-            for port_manifest in comp.manifest.get("ports", []):
+            port_manifests = _expand_port_manifests(node, comp, task)
+            expanded_ports[node.id] = port_manifests
+            for port_manifest in port_manifests:
                 key = f"{node.id}:{port_manifest['id']}"
                 resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, task)
 
@@ -160,11 +200,15 @@ class GraphCompiler:
 
         for node in graph.nodes.values():
             comp = self.registry.get(node.component)
+            port_manifests = expanded_ports[node.id]
             plan.node_configs[node.id] = {
                 "component": node.component,
                 "version": comp.version if comp else "",
                 "params": dict(node.params),
                 "task": node.task,
+                # ordered port ids: runtime binds buffers by port id, not order
+                "input_ports": [p["id"] for p in port_manifests if p["direction"] == "input"],
+                "output_ports": [p["id"] for p in port_manifests if p["direction"] == "output"],
             }
 
         # 分配 buffer id：每个连接一个 buffer

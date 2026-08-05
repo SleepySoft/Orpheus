@@ -1,5 +1,5 @@
-#ifndef ORPHEUS_MERGE_H
-#define ORPHEUS_MERGE_H
+#ifndef ORPHEUS_DEINTERLEAVE_H
+#define ORPHEUS_DEINTERLEAVE_H
 
 #include "orpheus_abi.h"
 

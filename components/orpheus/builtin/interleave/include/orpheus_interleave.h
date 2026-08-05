@@ -1,5 +1,5 @@
-#ifndef ORPHEUS_SPLIT_H
-#define ORPHEUS_SPLIT_H
+#ifndef ORPHEUS_INTERLEAVE_H
+#define ORPHEUS_INTERLEAVE_H
 
 #include "orpheus_abi.h"
 

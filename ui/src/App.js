@@ -18,6 +18,7 @@ import {
   viewsToDoc,
   mergedCatalog,
   defaultParams,
+  resolvePorts,
   isSubRef,
   subIdOf,
   subViewKey,
@@ -242,6 +243,7 @@ function Editor() {
       }
       const short = isSubRef(componentId) ? subIdOf(componentId) : componentId.split('.').pop();
       const id = uniqueNodeId(view.nodes, short);
+      const params = defaultParams(comp);
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       updateView(activeView, (v) => ({
         ...v,
@@ -254,8 +256,8 @@ function Editor() {
             data: {
               label: id,
               component: componentId,
-              params: defaultParams(comp),
-              ports: comp.ports || [],
+              params,
+              ports: resolvePorts(comp, params),
               parameters: comp.parameters || [],
             },
           },
@@ -269,17 +271,28 @@ function Editor() {
 
   const onParamChange = useCallback(
     (paramId, value) => {
-      updateView(activeView, (v) => ({
-        ...v,
-        nodes: v.nodes.map((nd) =>
-          nd.id === selectedId
-            ? { ...nd, data: { ...nd.data, params: { ...nd.data.params, [paramId]: value } } }
-            : nd
-        ),
-      }));
+      updateView(activeView, (v) => {
+        const nodes = v.nodes.map((nd) => {
+          if (nd.id !== selectedId) return nd;
+          const params = { ...nd.data.params, [paramId]: value };
+          // recompute pins: signature-affecting params (e.g. channels) change port count
+          const comp = catalogById[nd.data.component];
+          const ports = comp ? resolvePorts(comp, params) : nd.data.ports;
+          return { ...nd, data: { ...nd.data, params, ports } };
+        });
+        // prune edges whose handle no longer exists on the edited node
+        const edited = nodes.find((n) => n.id === selectedId);
+        const valid = new Set((edited?.data.ports || []).map((p) => p.id));
+        const edges = v.edges.filter(
+          (e) =>
+            !(e.source === selectedId && !valid.has(e.sourceHandle)) &&
+            !(e.target === selectedId && !valid.has(e.targetHandle))
+        );
+        return { nodes, edges };
+      });
       setDirty(true);
     },
-    [activeView, selectedId, updateView]
+    [activeView, selectedId, updateView, catalogById]
   );
 
   const onDeleteNode = useCallback(

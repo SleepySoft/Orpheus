@@ -14,6 +14,8 @@ struct NodeConfig {
     std::string version;
     std::string task;
     std::map<std::string, std::string> params; // all params as strings
+    std::vector<std::string> input_ports;      // ordered port ids for buffer binding
+    std::vector<std::string> output_ports;
 };
 
 struct BufferConfig {

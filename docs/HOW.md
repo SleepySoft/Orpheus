@@ -229,7 +229,7 @@ binaries:
 ```
 Top System
 ├── Subsystem: Crossover
-│   ├── Split (2-way)
+│   ├── Deinterleave (2ch)
 │   ├── Biquad (LP)
 │   └── Biquad (HP)
 ├── Subsystem: EQ Bank
@@ -254,23 +254,23 @@ version: 1.0.0
 package_type: composite
 graph:
   nodes:
-    - id: split
-      component: orpheus.builtin.split
-      params: { channels: 2, ways: 2 }
+    - id: deint
+      component: orpheus.builtin.deinterleave
+      params: { channels: 2 }
     - id: lp
       component: orpheus.builtin.biquad
-      params: { type: lowpass, fc: 1000 }
+      params: { type: lowpass, fc: 1000, channels: 1 }
   connections:
     - from: @in
-      to: split:in
-    - from: split:out0
+      to: deint:in
+    - from: deint:out0
       to: lp:in
     - from: lp:out
       to: @out0
 public_ports:
   - id: in
     direction: input
-    binds_to: split:in
+    binds_to: deint:in
   - id: out0
     direction: output
     binds_to: lp:out
@@ -712,3 +712,13 @@ orpheus_platform_memory_section_bind(...);
 ## 17. 单命令启动（已实现）
 
 `orpheus-cli serve [--open]`：FastAPI 在 API 路由之外托管 `ui/build` 静态文件（存在时），`http://127.0.0.1:8000` 同域提供 UI 与 `/api`；前端 `api.js` 按端口自动选择 baseURL（:3000 开发模式走 CORS 直连 :8000，同域模式走相对 `/api`）。
+
+---
+
+## 18. 可变引脚与交错/反交错（已实现 v1）
+
+- **设计理念（借鉴 AWE）**：通道映射即连线。`deinterleave`（反交错器）把一路 N 通道交错信号拆成 N 路单声道输出；`interleave`（交错器）反之。通过连线即可选择/放弃/复制/交换通道，取代了固定的 split/merge 组件（已移除）。未连接的 interleave 输入引脚输出静音。
+- **可变引脚（Variable Pins）**：manifest 端口支持 `count: <expr>`（如 `param:channels`），编译时展开为 `<id>0..<id>N-1`；前端 `resolvePorts()` 做同样展开，**修改 channels 参数会即时刷新引脚数量**并清理悬挂连线。
+- **端口精确绑定**：plan 的 node_configs 携带 `input_ports`/`output_ports` 有序端口列表，Runtime 按端口 ID 建立索引映射绑定 Buffer（替代早期按连接顺序的绑定），未连接引脚为 nullptr，组件需判空。
+- **初始参数**：组件在 `prepare` 时从 `OrpheusConfig.param_ids/param_values` 读取初始参数；Runtime 按「纯数字→FLOAT，否则→STRING」转换参数值（修复了 gain_db 初始值不生效、字符串参数被 atof 吞掉的问题）。
+- 示例：`examples/wav_channel_map.yaml`（交换左右声道 + 单通道增益，数值验证通过）。

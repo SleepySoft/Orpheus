@@ -1,29 +1,26 @@
-id: orpheus.builtin.split
-name: 信号分离
+id: orpheus.builtin.deinterleave
+name: 反交错器
 category: 通道路由
+description: 将一路 N 通道交错信号拆分为 N 路单声道输出（out0..outN-1），输出引脚数量随通道数变化
 version: 1.0.0
 abi_version: 1
 package_type: source
 sources:
-  - src/split.c
+  - src/deinterleave.c
 headers:
-  - include/orpheus_split.h
+  - include/orpheus_deinterleave.h
 ports:
   - id: in
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out0
+  - id: out
     direction: output
     type: audio
     sample_format: f32
-    channels: param:channels
-  - id: out1
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
+    channels: 1
+    count: param:channels
 parameters:
   - id: channels
     name: 通道数

@@ -15,6 +15,37 @@ export function defaultParams(component) {
   return params;
 }
 
+/** Resolve a manifest expression like 'param:channels' against node params. */
+export function resolveExprValue(expr, params, component) {
+  if (typeof expr === 'string' && expr.startsWith('param:')) {
+    const pid = expr.slice(6);
+    if (params && params[pid] !== undefined) return params[pid];
+    const p = (component?.parameters || []).find((sp) => sp.id === pid);
+    return p?.default;
+  }
+  return expr;
+}
+
+/**
+ * Expand a component's ports for given node params: a port with `count`
+ * (e.g. param:channels) is replicated as <id>0..<id>N-1 (variable pins).
+ */
+export function resolvePorts(component, params) {
+  const ports = [];
+  for (const p of component?.ports || []) {
+    if (p.count !== undefined) {
+      const n = Math.max(1, parseInt(resolveExprValue(p.count, params, component), 10) || 1);
+      for (let i = 0; i < n; i++) {
+        const { count, ...rest } = p;
+        ports.push({ ...rest, id: `${p.id}${i}` });
+      }
+    } else {
+      ports.push(p);
+    }
+  }
+  return ports;
+}
+
 /** Present a subcomponent definition like a catalog component (ports, no params). */
 export function subCatalogEntry(sub) {
   return {
@@ -44,7 +75,7 @@ export function graphToFlow(graph, catalogById) {
         label: n.id,
         component: n.component,
         params: n.params || {},
-        ports: comp?.ports || [],
+        ports: resolvePorts(comp, n.params),
         parameters: comp?.parameters || [],
       },
     };

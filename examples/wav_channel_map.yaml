@@ -1,7 +1,7 @@
 version: "0.1.0"
 metadata:
-  name: wav_split_merge
-  description: WAV In -> Split -> Gain0/Gain1 -> Merge -> WAV Out
+  name: wav_channel_map
+  description: WAV In -> 反交错 -> 交换左右声道 + 单通道增益 -> 交错 -> WAV Out
 sample_rate: 48000
 block_size: 128
 tasks:
@@ -21,39 +21,30 @@ graph:
       position:
         x: 100
         y: 100
-    - id: split
-      component: orpheus.builtin.split
+    - id: deint
+      component: orpheus.builtin.deinterleave
       task: default
       params:
         channels: 2
       position:
-        x: 300
+        x: 320
         y: 100
-    - id: gain0
+    - id: gain_left
       component: orpheus.builtin.gain
       task: default
       params:
-        gain_db: -12.0
-        channels: 2
+        gain_db: -6.0
+        channels: 1
       position:
-        x: 500
-        y: 50
-    - id: gain1
-      component: orpheus.builtin.gain
-      task: default
-      params:
-        gain_db: -12.0
-        channels: 2
-      position:
-        x: 500
-        y: 150
-    - id: merge
-      component: orpheus.builtin.merge
+        x: 540
+        y: 60
+    - id: inter
+      component: orpheus.builtin.interleave
       task: default
       params:
         channels: 2
       position:
-        x: 700
+        x: 760
         y: 100
     - id: wav_out
       component: orpheus.builtin.wav_out
@@ -63,18 +54,17 @@ graph:
         channels: 2
         sample_rate: 48000
       position:
-        x: 900
+        x: 980
         y: 100
   connections:
     - from: wav_in:out
-      to: split:in
-    - from: split:out0
-      to: gain0:in
-    - from: split:out1
-      to: gain1:in
-    - from: gain0:out
-      to: merge:in0
-    - from: gain1:out
-      to: merge:in1
-    - from: merge:out
+      to: deint:in
+    # 通道映射即连线：左声道加增益后送到右侧输出，右声道直送左侧输出（交换 L/R）
+    - from: deint:out0
+      to: gain_left:in
+    - from: gain_left:out
+      to: inter:in1
+    - from: deint:out1
+      to: inter:in0
+    - from: inter:out
       to: wav_out:in

@@ -119,18 +119,22 @@ static int gain_destroy(void* state) {
 static int gain_prepare(void* state, const OrpheusConfig* config) {
     GainState* s = (GainState*)state;
     s->channels = config->channels > 0 ? config->channels : 2;
-    s->gain_linear = db_to_linear(0.0f);
-    s->target_linear = s->gain_linear;
 
-    /* 根据 smoothing_ms 计算一阶 IIR 系数 */
+    /* 初始参数：gain_db 与 smoothing_ms 都从 prepare 配置读取 */
+    float gain_db = 0.0f;
     float smoothing_ms = 5.0f;
     for (uint32_t i = 0; i < config->param_count; ++i) {
-        if (config->param_ids[i] != NULL &&
-            strcmp(config->param_ids[i], "smoothing_ms") == 0 &&
+        if (config->param_ids[i] == NULL) continue;
+        if (strcmp(config->param_ids[i], "gain_db") == 0 &&
             config->param_values[i].type == ORPHEUS_VALUE_FLOAT) {
+            gain_db = config->param_values[i].value.f32;
+        } else if (strcmp(config->param_ids[i], "smoothing_ms") == 0 &&
+                   config->param_values[i].type == ORPHEUS_VALUE_FLOAT) {
             smoothing_ms = config->param_values[i].value.f32;
         }
     }
+    s->gain_linear = db_to_linear(gain_db);
+    s->target_linear = s->gain_linear;
 
     if (smoothing_ms <= 0.0f || config->sample_rate == 0) {
         s->smoothing_coeff = 1.0f;

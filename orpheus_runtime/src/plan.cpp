@@ -41,6 +41,12 @@ Plan Plan::load_from_file(const std::string& path) {
                 cfg.params[pit.key()] = pit.value().dump();
             }
         }
+        for (const auto& pid : it.value().value("input_ports", json::array())) {
+            cfg.input_ports.push_back(pid.get<std::string>());
+        }
+        for (const auto& pid : it.value().value("output_ports", json::array())) {
+            cfg.output_ports.push_back(pid.get<std::string>());
+        }
         p.node_configs[it.key()] = cfg;
     }
 

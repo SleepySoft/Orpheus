@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 
-set(COMPONENT_NAME orpheus_builtin_merge)
+set(COMPONENT_NAME orpheus_builtin_deinterleave)
 
 add_library(${COMPONENT_NAME} SHARED)
 
 target_sources(${COMPONENT_NAME}
     PRIVATE
-        src/merge.c
+        src/deinterleave.c
 )
 
 target_include_directories(${COMPONENT_NAME}

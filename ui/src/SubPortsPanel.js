@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { isSubRef } from './graphUtils';
+import { isSubRef, resolvePorts } from './graphUtils';
 
 /**
  * Interface port editor shown in subcomponent views: list external ports and
@@ -10,11 +10,12 @@ export default function SubPortsPanel({ sub, viewNodes, catalogById, onAddPort, 
   const [mapsTo, setMapsTo] = useState('');
 
   // candidate internal endpoints: atomic nodes' ports matching the direction
+  // (resolved per node params so variable pins like out0..outN-1 appear)
   const options = [];
   for (const n of viewNodes) {
     if (isSubRef(n.data.component)) continue;
     const comp = catalogById[n.data.component];
-    for (const p of comp?.ports || []) {
+    for (const p of resolvePorts(comp, n.data.params)) {
       if (p.direction === direction) options.push(`${n.id}:${p.id}`);
     }
   }

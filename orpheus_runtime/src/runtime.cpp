@@ -153,7 +153,21 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         instances_[node_id] = std::move(inst);
     }
 
-    // Bind buffers to instance inputs/outputs based on connections
+    // Size port arrays and build port id -> slot index maps
+    for (auto& kv : instances_) {
+        Instance& inst = *kv.second;
+        const NodeConfig& cfg = plan_.node_configs[inst.node_id];
+        for (size_t i = 0; i < cfg.input_ports.size(); ++i) {
+            inst.input_index[cfg.input_ports[i]] = i;
+        }
+        for (size_t i = 0; i < cfg.output_ports.size(); ++i) {
+            inst.output_index[cfg.output_ports[i]] = i;
+        }
+        inst.inputs.resize(cfg.input_ports.size(), nullptr);
+        inst.outputs.resize(cfg.output_ports.size(), nullptr);
+    }
+
+    // Bind buffers to instance inputs/outputs by port id (unconnected pins stay nullptr)
     for (const auto& conn : plan_.connections) {
         PortRef from_ref(conn.from);
         PortRef to_ref(conn.to);
@@ -161,20 +175,30 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
 
         Instance* from_inst = instances_[from_ref.node_id].get();
         Instance* to_inst = instances_[to_ref.node_id].get();
-
-        // Simple binding: first output gets buf, first input gets buf
-        // In full version, map by port_id
-        if (from_ref.port_id == "out" || from_ref.port_id == "output") {
-            from_inst->outputs.push_back(buf);
-        } else {
-            // For single-output components, treat any output port as first
-            from_inst->outputs.push_back(buf);
+        if (!from_inst || !to_inst) {
+            std::cerr << "[Runtime] connection references unknown node: "
+                      << conn.from << " -> " << conn.to << std::endl;
+            return -1;
         }
 
-        if (to_ref.port_id == "in" || to_ref.port_id == "input") {
-            to_inst->inputs.push_back(buf);
+        auto oi = from_inst->output_index.find(from_ref.port_id);
+        if (oi != from_inst->output_index.end()) {
+            from_inst->outputs[oi->second] = buf;
+        } else if (from_inst->output_index.empty()) {
+            from_inst->outputs.push_back(buf);  // legacy plans without port lists
         } else {
-            to_inst->inputs.push_back(buf);
+            std::cerr << "[Runtime] unknown output port: " << conn.from << std::endl;
+            return -1;
+        }
+
+        auto ii = to_inst->input_index.find(to_ref.port_id);
+        if (ii != to_inst->input_index.end()) {
+            to_inst->inputs[ii->second] = buf;
+        } else if (to_inst->input_index.empty()) {
+            to_inst->inputs.push_back(buf);  // legacy plans without port lists
+        } else {
+            std::cerr << "[Runtime] unknown input port: " << conn.to << std::endl;
+            return -1;
         }
     }
 
@@ -196,12 +220,18 @@ int Runtime::prepare_instance(Instance& inst, const NodeConfig& cfg) {
             if (kv.first == "channels") {
                 channels = static_cast<uint32_t>(v.value.i32);
             }
-        } else if (kv.first == "file_path") {
-            v.type = ORPHEUS_VALUE_STRING;
-            v.value.str = kv.second.c_str();
         } else {
-            v.type = ORPHEUS_VALUE_FLOAT;
-            v.value.f32 = static_cast<float>(std::atof(kv.second.c_str()));
+            // numeric strings become FLOAT, anything else (e.g. "lowpass") stays STRING
+            const std::string& s = kv.second;
+            char* end = nullptr;
+            float f = std::strtof(s.c_str(), &end);
+            if (end != s.c_str() && end && *end == '\0') {
+                v.type = ORPHEUS_VALUE_FLOAT;
+                v.value.f32 = f;
+            } else {
+                v.type = ORPHEUS_VALUE_STRING;
+                v.value.str = s.c_str();
+            }
         }
         param_values.push_back(v);
     }
@@ -255,17 +285,21 @@ int Runtime::process_block(uint32_t frame_count) {
 }
 
 OrpheusBuffer* Runtime::get_input_buffer(const std::string& node_id, const std::string& port_id) {
-    (void)port_id;
     auto it = instances_.find(node_id);
-    if (it == instances_.end() || it->second->inputs.empty()) return nullptr;
-    return it->second->inputs[0];
+    if (it == instances_.end()) return nullptr;
+    Instance& inst = *it->second;
+    auto idx = inst.input_index.find(port_id);
+    if (idx != inst.input_index.end()) return inst.inputs[idx->second];
+    return inst.inputs.empty() ? nullptr : inst.inputs[0];
 }
 
 OrpheusBuffer* Runtime::get_output_buffer(const std::string& node_id, const std::string& port_id) {
-    (void)port_id;
     auto it = instances_.find(node_id);
-    if (it == instances_.end() || it->second->outputs.empty()) return nullptr;
-    return it->second->outputs[0];
+    if (it == instances_.end()) return nullptr;
+    Instance& inst = *it->second;
+    auto idx = inst.output_index.find(port_id);
+    if (idx != inst.output_index.end()) return inst.outputs[idx->second];
+    return inst.outputs.empty() ? nullptr : inst.outputs[0];
 }
 
 } // namespace orpheus
