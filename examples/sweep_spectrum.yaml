@@ -1,0 +1,61 @@
+version: "0.1.0"
+metadata:
+  name: sweep_spectrum
+  description: 扫频发生器 -> 频谱分析仪 -> WAV 输出（示波器/频谱实时查看，WAV 记录）
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: sweep
+      component: orpheus.builtin.sweep_gen
+      task: default
+      params:
+        start_freq: 20.0
+        end_freq: 20000.0
+        duration_s: 10.0
+        amplitude: 0.7
+        log_scale: true
+        channels: 1
+      position:
+        x: 100
+        y: 100
+    - id: spectrum
+      component: orpheus.builtin.probe_spectrum
+      task: default
+      params:
+        channels: 1
+        window_size: 1024
+      position:
+        x: 300
+        y: 100
+    - id: scope
+      component: orpheus.builtin.probe_waveform
+      task: default
+      params:
+        channels: 1
+      position:
+        x: 500
+        y: 100
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      task: default
+      params:
+        file_path: outputs/sweep.wav
+        channels: 1
+        sample_rate: 48000
+      position:
+        x: 700
+        y: 100
+  connections:
+    - from: sweep:out
+      to: spectrum:in
+    - from: spectrum:out
+      to: scope:in
+    - from: scope:out
+      to: wav_out:in

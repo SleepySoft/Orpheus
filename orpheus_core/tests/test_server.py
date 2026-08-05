@@ -474,3 +474,75 @@ def test_fir_matches_numpy_convolution(client):
         assert np.max(np.abs(got[:n] - sine)) > 0.05, "output identical to input; filter not applied"
     finally:
         client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_sweep_spectrum_peak_at_end_frequency(client):
+    """After a 100->5000Hz log sweep, the final FFT peak sits near 5000Hz."""
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        resp = client.post("/api/projects", json={"name": name})
+        assert resp.status_code == 201, resp.text
+        doc = {
+            "version": "0.1.0",
+            "metadata": {"name": name, "description": "sweep spectrum"},
+            "sample_rate": 48000,
+            "block_size": 128,
+            "tasks": [
+                {"id": "default", "name": "Default", "sample_rate": 48000, "block_size": 128, "priority": 0}
+            ],
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "sweep",
+                        "component": "orpheus.builtin.sweep_gen",
+                        "task": "default",
+                        "params": {
+                            "start_freq": 100.0,
+                            "end_freq": 5000.0,
+                            "duration_s": 10.0,
+                            "amplitude": 0.8,
+                            "log_scale": True,
+                            "channels": 1,
+                        },
+                        "position": {"x": 0, "y": 0},
+                    },
+                    {
+                        "id": "spec",
+                        "component": "orpheus.builtin.probe_spectrum",
+                        "task": "default",
+                        "params": {"channels": 1, "window_size": 1024},
+                        "position": {"x": 200, "y": 0},
+                    },
+                    {
+                        "id": "wav_out",
+                        "component": "orpheus.builtin.wav_out",
+                        "task": "default",
+                        "params": {"file_path": "outputs/sweep.wav", "channels": 1, "sample_rate": 48000},
+                        "position": {"x": 400, "y": 0},
+                    },
+                ],
+                "connections": [
+                    {"from": "sweep:out", "to": "spec:in"},
+                    {"from": "spec:out", "to": "wav_out:in"},
+                ],
+            },
+        }
+        client.put(f"/api/projects/{name}", json=doc)
+        resp = client.post(f"/api/projects/{name}/run")
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+
+        probes = {f"{p['node']}:{p['param']}": p["value"] for p in result["probes"]}
+        bins = probes.get("spec:spectrum")
+        assert isinstance(bins, list) and len(bins) == 512, f"bad spectrum: {type(bins)}"
+        peak_idx = max(range(len(bins)), key=lambda i: bins[i])
+        peak_freq = peak_idx * 48000 / 1024
+        assert bins[peak_idx] > 0.05, f"spectrum flat: peak {bins[peak_idx]}"
+        assert 4000 <= peak_freq <= 6000, f"peak at {peak_freq}Hz, expected ~5000Hz"
+    finally:
+        client.delete(f"/api/projects/{name}")
