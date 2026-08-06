@@ -1,0 +1,61 @@
+version: "0.1.0"
+metadata:
+  name: smoke_routing
+  description: Smoke test for output_router (2->6 upmix) and input_select (6->2)
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: sig
+      component: orpheus.builtin.signal_gen
+      task: default
+      params:
+        frequency: 440.0
+        amplitude: 0.5
+        channels: 2
+      position: { x: 100, y: 100 }
+    - id: upmix
+      component: orpheus.builtin.output_router
+      task: default
+      params:
+        channels_in: 2
+        channels_out: 6
+        matrix: "1,0,0,1,1,0,0,1,0.5,0.5,0.5,0.5"
+      position: { x: 250, y: 100 }
+    - id: sel
+      component: orpheus.builtin.input_select
+      task: default
+      params:
+        channels_in: 6
+        channels_out: 2
+        select: "1,2"
+      position: { x: 400, y: 100 }
+    - id: rms
+      component: orpheus.builtin.probe_rms
+      task: default
+      params:
+        channels: 2
+      position: { x: 550, y: 100 }
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      task: default
+      params:
+        file_path: C:\D\Code\git\Orpheus\examples\smoke_routing_out.wav
+        channels: 2
+        sample_rate: 48000
+      position: { x: 700, y: 100 }
+  connections:
+    - from: sig:out
+      to: upmix:in
+    - from: upmix:out
+      to: sel:in
+    - from: sel:out
+      to: rms:in
+    - from: rms:out
+      to: wav_out:in

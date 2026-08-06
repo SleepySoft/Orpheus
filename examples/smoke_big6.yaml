@@ -1,0 +1,90 @@
+version: "0.1.0"
+metadata:
+  name: smoke_big6
+  description: Smoke test for new BIG6 effect components
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: sig
+      component: orpheus.builtin.signal_gen
+      task: default
+      params:
+        frequency: 440.0
+        amplitude: 0.5
+        channels: 2
+      position: { x: 100, y: 100 }
+    - id: mute
+      component: orpheus.builtin.mute
+      task: default
+      params:
+        mute: 0.0
+        channels: 2
+      position: { x: 250, y: 100 }
+    - id: bass
+      component: orpheus.builtin.bass
+      task: default
+      params:
+        gain_db: 6.0
+        fc: 200.0
+        channels: 2
+      position: { x: 400, y: 100 }
+    - id: treble
+      component: orpheus.builtin.treble
+      task: default
+      params:
+        gain_db: 3.0
+        fc: 4000.0
+        channels: 2
+      position: { x: 550, y: 100 }
+    - id: midrange
+      component: orpheus.builtin.midrange
+      task: default
+      params:
+        gain_db: 0.0
+        fc: 1000.0
+        q: 1.0
+        channels: 2
+      position: { x: 700, y: 100 }
+    - id: balance
+      component: orpheus.builtin.balance
+      task: default
+      params:
+        balance: 0.0
+        channels: 2
+      position: { x: 850, y: 100 }
+    - id: rms
+      component: orpheus.builtin.probe_rms
+      task: default
+      params:
+        channels: 2
+      position: { x: 1000, y: 100 }
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      task: default
+      params:
+        file_path: C:\D\Code\git\Orpheus\examples\smoke_big6_out.wav
+        channels: 2
+        sample_rate: 48000
+      position: { x: 1150, y: 100 }
+  connections:
+    - from: sig:out
+      to: mute:in
+    - from: mute:out
+      to: bass:in
+    - from: bass:out
+      to: treble:in
+    - from: treble:out
+      to: midrange:in
+    - from: midrange:out
+      to: balance:in
+    - from: balance:out
+      to: rms:in
+    - from: rms:out
+      to: wav_out:in

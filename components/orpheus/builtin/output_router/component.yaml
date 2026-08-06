@@ -1,0 +1,52 @@
+id: orpheus.builtin.output_router
+name: 输出路由
+category: 通道路由
+description: 矩阵混音路由，按增益矩阵将输入混音到输出（matrix 为行优先逗号分隔增益，identity=对角直通）
+version: 1.0.0
+abi_version: 1
+package_type: source
+sources:
+  - src/output_router.c
+headers:
+  - include/orpheus_output_router.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels_in
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels_out
+parameters:
+  - id: channels_in
+    name: 输入通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: channels_out
+    name: 输出通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: matrix
+    name: 混音矩阵
+    type: string
+    default: "identity"
+    update_policy: restart_required
+    widget: text
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

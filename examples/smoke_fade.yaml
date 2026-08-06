@@ -1,0 +1,41 @@
+version: "0.1.0"
+metadata:
+  name: smoke_fade
+  description: Smoke test for fade (4ch front/back spectral fade)
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: sig
+      component: orpheus.builtin.signal_gen
+      task: default
+      params: { frequency: 440.0, amplitude: 0.5, channels: 4 }
+      position: { x: 100, y: 100 }
+    - id: fade
+      component: orpheus.builtin.fade
+      task: default
+      params: { fade: 0.5, crossover_hz: 400.0, channels: 4, front_channels: 2, ramp_ms: 50.0 }
+      position: { x: 250, y: 100 }
+    - id: rms
+      component: orpheus.builtin.probe_rms
+      task: default
+      params: { channels: 4 }
+      position: { x: 400, y: 100 }
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      task: default
+      params: { file_path: C:\D\Code\git\Orpheus\examples\smoke_fade_out.wav, channels: 4, sample_rate: 48000 }
+      position: { x: 550, y: 100 }
+  connections:
+    - from: sig:out
+      to: fade:in
+    - from: fade:out
+      to: rms:in
+    - from: rms:out
+      to: wav_out:in

@@ -1,0 +1,52 @@
+id: orpheus.builtin.input_select
+name: 输入选择
+category: 通道路由
+description: 通道选择/解复用，每路输出选取一路输入（select 为逗号分隔 1 起索引，0=静音）
+version: 1.0.0
+abi_version: 1
+package_type: source
+sources:
+  - src/input_select.c
+headers:
+  - include/orpheus_input_select.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels_in
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels_out
+parameters:
+  - id: channels_in
+    name: 输入通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: channels_out
+    name: 输出通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: select
+    name: 选择映射
+    type: string
+    default: "1,2"
+    update_policy: restart_required
+    widget: text
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

@@ -1,0 +1,61 @@
+id: orpheus.builtin.bass
+name: 低音
+category: 音效算法
+description: 一阶低频搁架音调控制（直通+增益*低通），增益斜坡平滑，gain_db=0 平直
+version: 1.0.0
+abi_version: 1
+package_type: source
+sources:
+  - src/bass.c
+headers:
+  - include/orpheus_bass.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: gain_db
+    name: 增益
+    type: float
+    default: 0.0
+    range: [-12.0, 12.0]
+    unit: dB
+    update_policy: smoothed
+    widget: slider
+  - id: fc
+    name: 截止频率
+    type: float
+    default: 200.0
+    range: [50.0, 1000.0]
+    unit: Hz
+    update_policy: restart_required
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: ramp_ms
+    name: 斜坡时间
+    type: float
+    default: 50.0
+    range: [0.0, 1000.0]
+    unit: ms
+    update_policy: restart_required
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

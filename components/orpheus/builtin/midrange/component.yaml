@@ -1,0 +1,67 @@
+id: orpheus.builtin.midrange
+name: 中音
+category: 音效算法
+description: 二阶带通搁架音调控制（Direct Form II Transposed + 增益斜坡），gain_db=0 平直
+version: 1.0.0
+abi_version: 1
+package_type: source
+sources:
+  - src/midrange.c
+headers:
+  - include/orpheus_midrange.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: gain_db
+    name: 增益
+    type: float
+    default: 0.0
+    range: [-12.0, 12.0]
+    unit: dB
+    update_policy: smoothed
+    widget: slider
+  - id: fc
+    name: 中心频率
+    type: float
+    default: 1000.0
+    range: [200.0, 8000.0]
+    unit: Hz
+    update_policy: restart_required
+  - id: q
+    name: Q 值
+    type: float
+    default: 1.0
+    range: [0.1, 10.0]
+    update_policy: restart_required
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: ramp_ms
+    name: 斜坡时间
+    type: float
+    default: 50.0
+    range: [0.0, 1000.0]
+    unit: ms
+    update_policy: restart_required
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

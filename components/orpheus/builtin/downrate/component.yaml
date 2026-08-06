@@ -1,0 +1,49 @@
+id: orpheus.builtin.downrate
+name: 分频器
+category: 速率变换
+description: 同时钟域分频（重缓冲）：下游每 N 个块执行一次，每次处理 N×块长 的超块；适用于控制速率算法
+version: 1.0.0
+abi_version: 1
+package_type: source
+scheduling:
+  divisor: param:factor
+sources:
+  - src/downrate.c
+headers:
+  - include/orpheus_downrate.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+    block_size: task:block_size*param:factor
+parameters:
+  - id: factor
+    name: 分频比
+    type: int
+    default: 4
+    range: [1, 64]
+    update_policy: restart_required
+    affects_signature: true
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true
