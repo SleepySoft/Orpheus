@@ -50,6 +50,27 @@
 
 配置参数（channels、type 等影响签名的）**不进注册表做寻址**，它们是编译期事实，走 manifest + plan + `OrpheusConfig`；加载时登记为只读槽供 UI/协议查询。
 
+### 3.1 两类组件形态
+
+| 形态 | 本质 | 现状 |
+|---|---|---|
+| 原生实现/库组件（Type A） | 固定的 C/C++ 代码单元，可互相引用（deps），最终是一份确定的代码 | 现有组件即此形态，完全支持 |
+| UI 组合子组件（Type B） | 工程文件描述引用图（`sub:`），可能含代码也可能纯描述 | 纯描述型已支持（`flatten_project` + UI 框选包装/双击编辑）；**含代码的封装型复合组件为必要但未实现的方向** |
+
+图级复合组件运行期 flatten 为叶子原子实例；"子组件数据注册"最终落在两类地方：叶子自身（若它需要外部数据入口则自己注册），或宿主聚合组件（代理注册嵌入的子块）。
+
+### 3.2 两类数据注册：注册是可选能力，职责上移
+
+- **基础算法（FIR/IIR/Biquad 等）**：注册是"能力"而非义务——它们是库代码，没有外部身份，不需要 `register_slots`。
+- **基于基础算法的完整功能组件**：宿主**代理注册**嵌入子算法的 buffer（系数/查表走 BULK 直写），子算法自身不注册。
+
+推论：
+
+1. **公开状态结构体 ≠ 注册能力**：基础算法不实现 `register_slots`，但为了可嵌入性仍需公开状态结构体（宿主内联它、算偏移的前提）。
+2. **代理注册用子块字段表**（编译期元数据）+ `ORPHEUS_REG_BLOCK_ARRAY`，避免宿主手写 `offsetof` 散落。
+3. **代理注册依赖 deps 复用模型**（Type A 互相引用：声明/悬空符号/递归闭包）。
+4. **BULK 槽需要双 bank 原子提交语义**（先写 shadow、边界统一切换）。
+
 ---
 
 ## 4. 内存模型：实例块 + 注册区/工作区
@@ -310,7 +331,7 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 
 ## 9. 代码生成一致性
 
-- 生成 `main.c` 声明静态状态块，`create` 直接绑定，调用与动态路径**完全相同的 `register_slots`** → 相同代码算相同偏移 → 相同 ID → 相同行为。一致性由构造保证。
+- 生成 `main.c` 声明静态拼接结构体（`g_arena`）并下发 `state_block`，`create` 直接绑定。槽注册目前是**运行期能力**（动态路径调用 `register_slots`；生成路径尚未调用，见"实证验证与修正"）。一致性由"两路同一份组件源码 + 同一布局规则"保证。
 - 顶层布局 = 类型拼接（生成路径）或按 `state_size` 切片（动态路径），不依赖任何大小元数据；槽级注册仍显式携带 offset/size 供边界检测。组件侧 `_Static_assert` 锁"实际偏移 == 注册偏移"，防跨编译器布局漂移。
 - 确定性 ID（type 按组件 id 排序、instance 按 plan 顺序、slot 按注册顺序）使动态/生成路径可复算同一套 ID，供测试断言。
 
@@ -339,12 +360,33 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - 动态数量槽（如 per-channel 探针）：布局随 prepare 变化，需要"prepare 时重建类型级映射 + 槽号稳定性策略"（先按固定最大数组实现）。
 - BULK 双 bank 的原子提交语义与注册表如何表达。
 - COMMAND 的确认（ack）语义与超时。
+- 含代码的封装型复合组件（Type B 带代码）如何建模（manifest `graph + code`?）。
+- 子块字段表放 header（C 侧，组件作者维护）还是 manifest（Python 侧可见、生成器可用）。
+- 生成路径的注册器：bulk 注入/控制通路需要时，生成 main 必须与动态路径一样调用 `register_slots`（当前生成 main 不调用，仅影响运行期数据注入，不影响 DSP 输出一致性）。
 - （已解决 2026-08-06）块大小权威：动态路径 = 描述符 `state_size`（组件自报）；生成路径 = 类型拼接，无需大小元数据。
 - 跨编译器（MSVC/MinGW）布局差异的静态断言覆盖范围。
 
 ---
 
-## 13. 决策记录
+## 13. 实证验证与修正（2026-08-06）
+
+用三个例子实际生成代码并双路径运行（动态 vs 生成，逐字节比对）：
+
+1. **原生 v2 组件链**：`wav_in → gain(-6dB) → probe_rms → wav_out`。`g_arena` 为 `GainState gain1; ProbeRmsState mon;`，非 v2 组件（wav_in/out）保持 `create` + calloc。字节一致，探针 `rms=0.1727`。
+2. **一层 UI 复合 `sub:fx`**：flatten 后节点 id 为 `fx__g`、`fx__mon`，`g_arena` 按 plan 执行序拼接叶子；探针 id 为 `fx__mon`。字节一致。
+3. **两层嵌套 `sub:fx → sub:chain`**：flatten 递归为 `fx__g2`、`fx__c__g1`、`fx__c__mon`、`fx__g3`；探针 `fx__c__mon` 正常。字节一致。
+
+### 修正（推论与实际的差异）
+
+1. **生成路径当前不调用 `register_slots`**：生成 main 只跑 create/prepare/process/destroy。此前"两路跑同一份注册代码"的表述不准确；因槽注册不改变 DSP 输出，一致性测试仍通过。bulk 注入/控制通路启用时，生成 main 必须同步注册（已挂开放问题）。
+2. **两种嵌套是两种代码形态**：图级复合（UI `sub:`）被完全摊平成"多个实例成员"（`g_arena` 里的独立成员）；组件内部子块保留在"单个状态结构体内部"。统一机制成立（类型拼接 + 注册），但不宜表述为"一棵内存树"。
+3. **`g_arena` 是实例粒度（plan 级）拼接**；运行期 SlotMap 是类型级偏移表。两者并存：生成期布局在实例，运行期寻址在类型。
+4. **节点 id 必须清洗为合法 C 标识符**：实测节点名含 `.`（`my.gain`）会生成非法代码；`_sanitized_node_id` 改为正则替换所有非标识符字符（`my.gain → my_gain`）。
+5. **float 参数必须按 manifest 类型下发**：生成路径曾把 `"-6.0"` 当 STRING 导致 0dB 运行（已修）；生成工程 MSVC 需 `/utf-8`（中文槽名/字符串，已修）。
+
+---
+
+## 14. 决策记录
 
 ### 2026-08-06
 
@@ -364,3 +406,16 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - 状态结构体必须公开（进 include 头文件），manifest 声明 `state_type`；状态大小必须编译期固定（数组固定上限）。
 - 不需要 per-field/child 元数据提取；`descriptor.state_size` 是动态路径唯一需要的大小。
 - 局部开发：C 编译器即布局算法，单测/局部组合/整图布局天然一致。
+
+### 2026-08-06（第三次讨论：两类组件与注册职责）
+
+- 组件形态两类：原生实现/库（Type A，可互相引用）与 UI 组合子组件（Type B，纯描述已支持，含代码封装型未实现但必要）。
+- 注册为可选能力：基础算法（FIR/IIR 等）不注册；基于基础算法的完整功能组件由宿主**代理注册**嵌入子算法的 buffer，便于 BULK 直写。
+- 公开状态结构体 ≠ 注册能力：可嵌入性要求公开结构体，可寻址性才要求注册。
+- 代理注册用子块字段表 + 块数组宏；依赖 deps 复用模型；BULK 双 bank 提交语义待定。
+
+### 2026-08-06（第四次讨论：实证验证与修正）
+
+- 原生链、一层/两层 UI 复合三个例子双路径逐字节一致；flatten 节点 id 规则为 `父节点__子节点` 递归。
+- 修正：生成路径当前不调用 register_slots（bulk/控制启用时补）；两种嵌套 = 图级摊平 vs 组件内子块两种代码形态；g_arena 为实例粒度拼接。
+- 修复：节点 id 清洗补非标识符字符；float 参数按 manifest 类型下发；生成工程 MSVC 补 /utf-8。

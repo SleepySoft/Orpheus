@@ -193,6 +193,17 @@ def test_resample_offline_run_and_generated_match():
             client.delete(f"/api/projects/{name}")
 
 
+def test_generator_sanitized_node_id():
+    """节点 id 必须清洗为合法 C 标识符（子组件展开/用户命名可能含 '.'、'-'、空格）。"""
+    from orpheus_core.generator import CodeGenerator
+    from orpheus_core.registry import Registry
+
+    gen = CodeGenerator(Registry(), ROOT)
+    assert gen._sanitized_node_id("fx__g") == "fx__g"
+    assert gen._sanitized_node_id("my.gain") == "my_gain"
+    assert gen._sanitized_node_id("a-b c") == "a_b_c"
+
+
 @pytest.mark.skipif(
     not (ROOT / "build" / "orpheus_runtime.exe").exists()
     or not (ROOT / "build" / "components" / "liborpheus_builtin_gain.dll").exists(),

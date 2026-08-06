@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,9 @@ class CodeGenerator:
         return component_id.replace(".", "_")
 
     def _sanitized_node_id(self, node_id: str) -> str:
-        return node_id.replace("-", "_").replace(" ", "_")
+        # 节点 id 可能来自用户/子组件展开（如 "fx__g"、"my.node"），
+        # 必须清洗成合法 C 标识符，否则生成代码编译失败。
+        return re.sub(r"[^A-Za-z0-9_]", "_", node_id)
 
     @staticmethod
     def _c_escape(value: str) -> str:
