@@ -157,3 +157,54 @@
 - 调试视图：示波器波形可视化、运行中节点当场操作（暂停/复位）
 - 生成模式与动态模式一致性自动化测试
 - 连线即时 channel 校验（前端预检）
+
+
+---
+
+## 2026-08-05：从 references/FAW_E202_DEMO 提取车载音频算法为组件
+
+### 背景
+`references/FAW_E202_DEMO` 是 Bose AudioWeaver 的 FAW（一汽）E202 车载音频示例工程（C/C++ + MATLAB 代码生成）。其娱乐（ENT）信号链 `Mute -> Gain -> Bass -> Treble -> MidRange -> Fade` 等模块在 `Inner/*_Process.c` 与 `Source/Mod*DemoModule.c` 中实现了真实 DSP 算法（增益斜坡、一阶/二阶 IIR 搁架、频谱分频淡入淡出、矩阵路由）。本迭代把这些算法“正确做成” Orpheus 组件。
+
+### 组件清单（8 个，均为 source 包）
+
+**基础 BIG6（音效算法类，新增分类 `音效算法`）**——ENT 链 6 个核心音效算法：
+| 组件 id | 名称 | 算法来源 | 要点 |
+|---|---|---|---|
+| `orpheus.builtin.mute` | 静音 | MuteDemo | 增益斜坡软静音（0=正常 1=静音），消除咔哒声（参考版是硬开关，此处改进为斜坡） |
+| `orpheus.builtin.bass` | 低音 | BassDemo / Tone1 | 一阶低频搁架：`out = in + boost*LPF(in)`，`boost=10^(gain_db/20)-1` 斜坡 |
+| `orpheus.builtin.treble` | 高音 | TrebleDemo / Tone1 | 一阶高频搁架：`out = in + boost*HPF(in)`，HPF=in-LPF |
+| `orpheus.builtin.midrange` | 中音 | MidRangeDemo | 二阶带通搁架（Direct Form II Transposed，b2=-b0）+ 增益斜坡 |
+| `orpheus.builtin.fade` | 前后衰减 | FadeDemo | 频谱分频淡入淡出：低频全通、高频按前/后增益斜坡衰减；`out=LPF+gain*(in-LPF)` |
+| `orpheus.builtin.balance` | 左右平衡 | BalanceDemo | 左右平衡增益斜坡（偶通道=左、奇通道=右） |
+
+**其它音频算法（通道路由类）**：
+| 组件 id | 名称 | 算法来源 | 要点 |
+|---|---|---|---|
+| `orpheus.builtin.input_select` | 输入选择 | InputSelectDemo | 每路输出选一路输入（`select` 逗号分隔 1 起索引，0=静音），输入/输出通道数独立 |
+| `orpheus.builtin.output_router` | 输出路由 | OutputRouterDemo | 矩阵混音（`matrix` 行优先逗号分隔增益，`identity`=对角直通），支持任意 in->out 通道映射 |
+
+> 说明：`gain` 已有组件（含平滑），故 BIG6 中不再重复建 gain。Bass/Treble 的实际算法在 `Source/ModBassDemoModule.c`/`ModTrebleDemoModule.c`（与 `InnerTone1_Process.c` 同构的并行搁架+斜坡）。
+
+### 分类与 UI
+- 新增 Palette 分类 **`音效算法`**（介于 `基础算法` 与 `通道路由` 之间）：`ui/src/Palette.js` 的 `CATEGORY_ORDER` 已加入。
+- `SKILL/references/write-component.md` 的 category 注释列表已同步加入 `音效算法`。
+- 路由两件归入既有 `通道路由`。
+
+### 实现要点（踩坑）
+- **编码红线**：组件 `.c` 一律英文注释、纯 ASCII；中文只在 `component.yaml`（name/category/description）。写文件必须用 `[System.IO.File]::WriteAllText(.., UTF8 no BOM)`——**禁止** PowerShell 管道 `here-string | python`（`$OutputEncoding` 默认 ASCII 会把中文毁成 `?`），也禁止 `Set-Content`（GBK）。
+- **参数类型与运行时传参**：rt_host `SET` 与 plan->prepare 对非 `channels`/`sample_rate` 的数值参数一律按 FLOAT 传；故所有可实时调参项用 `float`（含 mute 0/1、fade/balance -1..1），路由 `select`/`matrix` 用 `string`（restart_required，prepare 解析）。`set_parameter` 同时容忍 FLOAT/INT。
+- **非对称通道**：`input_select`/`output_router` 用 `channels_in`/`channels_out` 两个 affects_signature 参数，端口 `channels: param:channels_in`/`param:channels_out`；process 中直接用 `in->channels`/`out->channels`（运行时按端口签名分配，恒正确），prepare 从 param_values 读（容忍 FLOAT/INT）。
+- output_router 矩阵以固定 stride `MAX_CH(32)` 存储（`matrix[o*MAX_CH + i]`），prepare 与 process 一致。
+
+### 验证
+- `cli scan` 发现全部 8 个；`cli build` 编译通过（8 个 DLL）；`pytest test_server.py::test_components_have_chinese_name_and_category`、`test_variable_ports.py` 全绿。
+- 端到端离线运行（`examples/smoke_big6.yaml`：sig->mute->bass->treble->midrange->balance->rms->wav_out，48k×480k 帧，RMS 0.443，WAV 写出）；`smoke_fade.yaml`（4ch fade，RMS 0.313）；`smoke_routing.yaml`（output_router 2->6 上混 + input_select 6->2，RMS 0.345）均跑通。
+
+### 已知环境问题（非本迭代引入）
+- 若 `orpheus_rt_host.exe` 在运行，会锁定已加载组件 DLL，导致 `cli build` 对该 DLL 报 `Permission denied`（如 biquad）。停掉实时会话后即可全量 build。新组件 DLL 不受影响。
+
+### 下一步建议
+- 为 8 个组件补 Golden Vector / 单元测试（目前仅端到端冒烟）。
+- UI `nodeWidgets.js` 可为 bass/treble/midrange/fade/balance 加频响示意或电平条（可选）。
+- 考虑把 `input_select`/`output_router` 的 `select`/`matrix` 做成可视化矩阵编辑控件（当前是 text）。
