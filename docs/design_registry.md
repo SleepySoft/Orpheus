@@ -419,3 +419,36 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - 原生链、一层/两层 UI 复合三个例子双路径逐字节一致；flatten 节点 id 规则为 `父节点__子节点` 递归。
 - 修正：生成路径当前不调用 register_slots（bulk/控制启用时补）；两种嵌套 = 图级摊平 vs 组件内子块两种代码形态；g_arena 为实例粒度拼接。
 - 修复：节点 id 清洗补非标识符字符；float 参数按 manifest 类型下发；生成工程 MSVC 补 /utf-8。
+
+---
+
+## 15. 经验教训（踩坑记录）
+
+1. **构建依赖追踪不可靠**：ninja 可能不感知头文件变化（如 orpheus_abi.h 改动后旧 .obj 未重编）。对策：touch 改动源文件强制重编，或全量 clean（注意 clean-first 直接跑 cmake 会缺 vcvars 环境，须经 `cli build` 或先加载 vcvars）。
+2. **生成工程与主构建环境必须一致**：MSVC 下中文 UTF-8 注释只产生 C4819 警告，但**中文 STRING 字面量会编译错**（C2001/C2146）；生成 CMakeLists 必须加 `/utf-8`（主构建已有，生成器已补）。
+3. **参数类型必须按 manifest 下发**：plan 中参数可能是 YAML 原字符串（如 `"-6.0"`）；动态路径有 strtof 兜底，生成路径没有——按 manifest 参数类型生成 FLOAT/INT/BOOL，否则组件 prepare 读不到（gain_db 静默变 0dB，输出翻倍）。
+4. **节点 id 是自由文本**（用户命名 + 子组件 `__` 展开），生成 C 代码前必须清洗为合法标识符，含 `.`（`my.gain → my_gain`）。
+5. **槽路由的边界规则**：标量（count==1）SETTING/PROBE/STATE 直读直写；数组槽（如 waveform）回退回调保持 JSON 编码；类型不匹配（如 SET 发 FLOAT 给 INT 槽）回退回调——保持旧行为，避免行为突变。
+6. **ABI 追加字段方向**：接口表/配置结构体只能尾部追加；新版 Runtime 设置新字段，旧组件以 `abi_version` 规避访问新函数指针（读旧 DLL 结构体越界字段是 UB）。反向（旧 Runtime + 新 DLL）在 monorepo 中不支持。
+7. **统一 arena 期间的内存浪费是过渡态**：v1 组件仍 calloc，arena 为其预留切片闲置；全部迁移后消除。
+
+---
+
+## 16. 待办清单（Backlog）
+
+- [ ] 其余 25 个组件迁移 v2（公开状态结构体 + `state_type` + `register_slots` + create/destroy 改法）
+- [ ] 生成路径注册器：生成 main 调用 `register_slots`（bulk/控制通路的前提）
+- [ ] `deps` 复用模型：manifest deps 泛化（第三方/组件/共享库）+ 构建依赖闭包 + 生成递归复制
+- [ ] 共享 DSP 库 `orpheus.dsp.common`（消重 bass/midrange/treble 重复代码）
+- [ ] 聚合组件试点：内嵌子块 + 父代理注册子块 buffer（字段表 + `ORPHEUS_REG_BLOCK_ARRAY`）
+- [ ] BULK 双 bank 原子提交语义
+- [ ] 探针上报改走注册表（rt_host 遍历 PROBE 槽，替代 `component.find(".probe")`）
+- [ ] ID/协议层：64 位槽 ID、`slot_key ↔ 数字 ID` 双向映射、`SET <u64id>` 紧凑协议
+- [ ] 含代码的封装型复合组件（Type B 带代码）建模
+- [ ] 子块字段表放 header vs manifest 的决策
+- [ ] 跨编译器布局静态断言覆盖
+- [ ] 动态数量槽（per-channel 探针）策略
+
+### 2026-08-06（第五次讨论：经验与待办归档）
+
+- 经验教训与待办清单归档到本文档第 15/16 节；SKILL 同步更新（v2 组件写法、环境要求、生成路径注意事项）。

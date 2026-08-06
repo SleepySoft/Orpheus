@@ -23,9 +23,14 @@ description: Orpheus 音频图引擎的开发指南：编写/修改 C 组件（C
 ```powershell
 python serve.py                    # 启动后端+UI（http://127.0.0.1:8000），PyCharm 可直接 Debug
 python -m orpheus_core.cli build   # 构建全部组件 + runtime（cmake -G Ninja）
-python -m pytest orpheus_core/tests/   # 全部测试（当前 29 项）
+python -m pytest orpheus_core/tests/   # 全部测试（当前 44 项）
 cd ui; npm run build               # 前端改动后必须重新构建，serve 才托管新版本
 ```
+
+环境注意（2026-08-06）：
+
+- Python 必须 ≥3.10（`dev` conda 环境是 3.8，不可用；用 `py310` 或 `base`）。`orpheus_core` 需在目标环境 `pip install -e "orpheus_core[dev]"`。
+- CMake/Ninja 由 VS 2022 自带（`Common7\IDE\CommonExtensions\Microsoft\CMake\{CMake\bin,Ninja}`），已加入用户 PATH；`cli build` 检测到 MSVC 后自动加载 vcvars64，普通终端可直接构建。
 
 ## 红线（违反必出 bug，都是踩过的坑）
 
@@ -35,15 +40,29 @@ cd ui; npm run build               # 前端改动后必须重新构建，serve �
 4. **组件入口符号**：组件 .c 的入口必须是 `ORPHEUS_ENTRY_NAME` 宏包裹的函数（缺省 `orpheus_get_interface`），否则静态链接时多组件符号冲突崩溃。新组件照抄现有组件写法。
 5. **Buffer 绑定按端口 ID**：多端口组件的 `ctx->inputs[]/outputs[]` 槽位对应 manifest 端口声明顺序（可变端口展开后）；未连接引脚为 NULL，process 必须判空。
 6. **设备回调周期 ≠ 图块长**：回调里必须按 block_size 分块处理（参考 rt_host.cpp），周期请求下限 10ms。
+7. **ABI v2 状态结构体公开**：新组件（或迁移组件）状态结构体必须放进 `include/` 头文件并在 manifest 声明 `state_type`（生成器按类型拼接 `g_arena`）；`create` 使用 `config->state_block` 下发的内存块，`destroy` 不再 `free`。
+8. **可寻址槽用一行宏注册**：`ORPHEUS_REG_SLOT` / `ORPHEUS_REG_ARRAY` 注册 SETTING/PROBE/BULK 等槽（key 与 manifest 参数 id 对齐）；标量槽由 Runtime 直读直写，数组槽回退 `get_parameter` 回调。详见 `references/abi-v2-registration.md`。
+9. **生成路径三件事**：MSVC 生成工程必须 `/utf-8`（中文 STRING 字面量否则编译错）；float/int 参数按 manifest 类型下发（字符串会被 prepare 忽略）；节点 id 会清洗为合法 C 标识符（含 `.`），用户命名别用特殊字符。
+
+## ABI v2：资源槽注册（2026-08-06 落地）
+
+统一内存拼接分配：动态路径按 `descriptor.state_size` 切片下发，生成路径按 `state_type` 类型拼接 `g_arena`；组件在 `register_slots` 里用一行宏把"地址/类型/说明"注册给 Runtime，Runtime 建槽表并做边界校验。
+
+- 设计全文：`docs/design_registry.md`（槽模型、64 位 ID、边界检测、聚合布局、实证修正）。
+- 试点组件：`gain` / `probe_rms` / `probe_waveform`（其余组件仍是 v1 回调路径）。
+- 写新组件：见 `references/abi-v2-registration.md` 的检查清单。
 
 ## 任务索引（按需加载 references/）
 
 | 任务 | 读这个 |
 |---|---|
+| 写 v2 组件（公开状态/注册槽/拼接内存） | `references/abi-v2-registration.md` |
 | 写新组件 / 改组件 manifest / 可变引脚 / UI 控件定制 | `references/write-component.md` |
 | 理解架构：两种执行模式、ABI、plan、宿主分工、API 面 | `references/architecture.md` |
 | 运行/调试：实时会话协议、日志约定、故障排查目录 | `references/run-debug.md` |
 | 工程 YAML 格式、子组件（sub:）、workspace 布局 | `references/project-format.md` |
+
+> 注：`write-component` / `architecture` / `run-debug` / `project-format` 四个 reference 尚未落盘，当前以仓库实际代码与 `docs/` 为准。
 
 ## 最小工作流
 
