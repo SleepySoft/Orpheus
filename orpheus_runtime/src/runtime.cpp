@@ -30,6 +30,11 @@ static std::string to_absolute_path(const std::string& path) {
     return path;
 }
 
+static size_t align_up(size_t v, size_t a) {
+    if (a == 0) return v;
+    return (v + a - 1) & ~(a - 1);
+}
+
 struct PortRef {
     std::string node_id;
     std::string port_id;
@@ -117,6 +122,19 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
     }
 
     // Create instances
+    // v2 统一内存拼接：先按每个实例的 state_size 计算总大小，再连续切片下发。
+    size_t arena_total = 0;
+    for (const auto& node_id : plan_.execution_order) {
+        const auto& cfg = plan_.node_configs[node_id];
+        auto iface_it = interfaces_.find(cfg.component);
+        if (iface_it == interfaces_.end()) return -1;
+        const OrpheusComponentDescriptor* desc = iface_it->second->get_descriptor();
+        size_t align = desc->alignment > 0 ? (size_t)desc->alignment : 8;
+        arena_total += align_up((size_t)desc->state_size, align);
+    }
+    state_arena_.assign(arena_total, 0);
+    size_t arena_offset = 0;
+
     for (const auto& node_id : plan_.execution_order) {
         const auto& cfg = plan_.node_configs[node_id];
         auto iface_it = interfaces_.find(cfg.component);
@@ -124,11 +142,20 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             return -1;
         }
         const OrpheusComponentInterface* iface = iface_it->second;
+        const OrpheusComponentDescriptor* desc = iface->get_descriptor();
 
         auto inst = std::unique_ptr<Instance>(new Instance());
         inst->node_id = node_id;
         inst->interface_ = iface;
         inst->state = nullptr;
+        inst->state_size = desc->state_size;
+
+        size_t align = desc->alignment > 0 ? (size_t)desc->alignment : 8;
+        size_t slice_size = align_up((size_t)desc->state_size, align);
+        void* state_block = (arena_total > 0 && arena_offset < arena_total)
+                                ? static_cast<void*>(state_arena_.data() + arena_offset)
+                                : nullptr;
+        arena_offset += slice_size;
 
         // Prepare config
         OrpheusConfig config;
@@ -138,11 +165,53 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         config.param_count = 0;
         config.param_ids = nullptr;
         config.param_values = nullptr;
+        config.state_block = state_block;
 
         int result = iface->create(&inst->state, &config);
         if (result != ORPHEUS_OK) {
             std::cerr << "[Runtime] create failed for " << node_id << std::endl;
             return result;
+        }
+
+        // v2 主动注册：组件把槽（地址/类型/说明）注册进实例槽表。
+        // 旧 DLL（abi_version=1）或未实现 register_slots 的组件走 v1 回调路径。
+        if (desc->abi_version >= 2 && iface->register_slots) {
+            OrpheusRegistry reg;
+            reg.ctx = inst.get();
+            reg.add = [](void* ctx, const OrpheusSlotInfo* info) -> OrpheusSlotId {
+                Instance* inst = static_cast<Instance*>(ctx);
+                if (info == nullptr || info->key == nullptr || info->count == 0) {
+                    return ORPHEUS_SLOT_ID_INVALID;
+                }
+                /* 上下边界：整块越界与内部越界在此拒绝 */
+                size_t span = (size_t)info->count * info->size;
+                if (info->offset + span > inst->state_size) {
+                    return ORPHEUS_SLOT_ID_INVALID;
+                }
+                if (inst->slot_index.find(info->key) != inst->slot_index.end()) {
+                    return ORPHEUS_SLOT_ID_INVALID;  /* 键重复 */
+                }
+                SlotEntry e;
+                e.key = info->key;
+                e.kind = info->kind;
+                e.type = info->type;
+                e.offset = info->offset;
+                e.size = info->size;
+                e.count = info->count;
+                e.min_f32 = info->min_f32;
+                e.max_f32 = info->max_f32;
+                e.min_i32 = info->min_i32;
+                e.max_i32 = info->max_i32;
+                e.unit = info->unit ? info->unit : "";
+                e.update_policy = info->update_policy;
+                e.flags = info->flags;
+                size_t idx = inst->slots.size();
+                inst->slots.push_back(std::move(e));
+                inst->slot_index[info->key] = idx;
+                return static_cast<OrpheusSlotId>(idx);
+            };
+            reg.update = nullptr;
+            iface->register_slots(inst->state, &reg);
         }
 
         result = prepare_instance(*inst, cfg);
@@ -256,6 +325,7 @@ int Runtime::prepare_instance(Instance& inst, const NodeConfig& cfg) {
     config.sample_rate = plan_.sample_rate;
     config.block_size = plan_.block_size;
     config.channels = channels;
+    config.state_block = inst.state;
     config.param_ids = param_ids.empty() ? nullptr : param_ids.data();
     config.param_values = param_values.empty() ? nullptr : param_values.data();
     config.param_count = static_cast<uint32_t>(param_values.size());
@@ -267,6 +337,28 @@ int Runtime::set_parameter(const std::string& node_id, const std::string& param_
     auto it = instances_.find(node_id);
     if (it == instances_.end()) return -1;
     Instance& inst = *it->second;
+    // v2 槽直写：SETTING 标量且非 restart_required 时，按注册地址类型化写入。
+    auto si = inst.slot_index.find(param_id);
+    if (si != inst.slot_index.end()) {
+        const SlotEntry& e = inst.slots[si->second];
+        if (e.kind == ORPHEUS_SLOT_SETTING && e.count == 1 && inst.state != nullptr &&
+            e.update_policy != ORPHEUS_UPDATE_RESTART_REQUIRED &&
+            value.type == e.type && e.offset + e.size <= inst.state_size) {
+            char* p = static_cast<char*>(inst.state) + e.offset;
+            if (e.type == ORPHEUS_VALUE_FLOAT && e.size >= sizeof(float)) {
+                std::memcpy(p, &value.value.f32, sizeof(float));
+                return ORPHEUS_OK;
+            }
+            if (e.type == ORPHEUS_VALUE_INT && e.size >= sizeof(int32_t)) {
+                std::memcpy(p, &value.value.i32, sizeof(int32_t));
+                return ORPHEUS_OK;
+            }
+            if (e.type == ORPHEUS_VALUE_BOOL && e.size >= 1) {
+                *p = value.value.b ? 1 : 0;
+                return ORPHEUS_OK;
+            }
+        }
+    }
     if (!inst.interface_->set_parameter) return -1;
     return inst.interface_->set_parameter(inst.state, param_id.c_str(), &value);
 }
@@ -275,6 +367,32 @@ int Runtime::get_parameter(const std::string& node_id, const std::string& param_
     auto it = instances_.find(node_id);
     if (it == instances_.end()) return -1;
     Instance& inst = *it->second;
+    // v2 槽直读：标量 SETTING/PROBE/STATE 直接读注册内存；数组（如 waveform）走回调编码。
+    auto si = inst.slot_index.find(param_id);
+    if (si != inst.slot_index.end()) {
+        const SlotEntry& e = inst.slots[si->second];
+        if (e.count == 1 && inst.state != nullptr &&
+            (e.kind == ORPHEUS_SLOT_SETTING || e.kind == ORPHEUS_SLOT_PROBE ||
+             e.kind == ORPHEUS_SLOT_STATE) &&
+            e.offset + e.size <= inst.state_size) {
+            const char* p = static_cast<const char*>(inst.state) + e.offset;
+            if (e.type == ORPHEUS_VALUE_FLOAT && e.size >= sizeof(float)) {
+                value->type = ORPHEUS_VALUE_FLOAT;
+                std::memcpy(&value->value.f32, p, sizeof(float));
+                return ORPHEUS_OK;
+            }
+            if (e.type == ORPHEUS_VALUE_INT && e.size >= sizeof(int32_t)) {
+                value->type = ORPHEUS_VALUE_INT;
+                std::memcpy(&value->value.i32, p, sizeof(int32_t));
+                return ORPHEUS_OK;
+            }
+            if (e.type == ORPHEUS_VALUE_BOOL && e.size >= 1) {
+                value->type = ORPHEUS_VALUE_BOOL;
+                value->value.b = *p != 0;
+                return ORPHEUS_OK;
+            }
+        }
+    }
     if (!inst.interface_->get_parameter) return -1;
     return inst.interface_->get_parameter(inst.state, param_id.c_str(), value);
 }

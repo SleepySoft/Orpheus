@@ -9,8 +9,10 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
-/* ABI 版本 */
-#define ORPHEUS_ABI_VERSION 1
+/* ABI 版本
+   v2: 资源槽注册（register_slots）+ 实例内存块下发（OrpheusConfig.state_block）。
+   组件接口表尾部追加字段，旧 DLL（abi_version=1）由 Runtime 按版本号规避访问。 */
+#define ORPHEUS_ABI_VERSION 2
 
 /* 平台导出宏 */
 #ifndef ORPHEUS_API
@@ -100,6 +102,63 @@ typedef enum {
     ORPHEUS_UPDATE_RESTART_REQUIRED = 4
 } OrpheusUpdatePolicy;
 
+/* 资源槽类别（v2）：组件向 Runtime 注册的可寻址数据项 */
+typedef enum {
+    ORPHEUS_SLOT_SETTING = 0,  /* 调音参数，可读写 */
+    ORPHEUS_SLOT_COMMAND = 1,  /* 一次性命令，只写 + 确认 */
+    ORPHEUS_SLOT_BULK    = 2,  /* 大块数据（双 bank） */
+    ORPHEUS_SLOT_PROBE   = 3,  /* 探针：组件写 / Runtime 读 */
+    ORPHEUS_SLOT_STATE   = 4   /* 内部状态，调试只读 */
+} OrpheusSlotKind;
+
+/* 槽标志位 */
+#define ORPHEUS_SLOT_PERSISTENT        (1u << 0)
+#define ORPHEUS_SLOT_READBACK          (1u << 1)
+#define ORPHEUS_SLOT_AFFECTS_SIGNATURE (1u << 2)
+
+/* 槽 ID：64 位，version|core|kind|type|instance|slot（见 docs/design_registry.md） */
+typedef uint64_t OrpheusSlotId;
+#define ORPHEUS_SLOT_ID_INVALID ((OrpheusSlotId)UINT64_MAX)
+
+/* 槽描述：组件在 register_slots 中逐项提供 */
+typedef struct {
+    OrpheusSlotKind kind;
+    const char* key;             /* 稳定逻辑键，与 manifest 参数/探针 id 对齐 */
+    const char* name;            /* 显示名（中文优先） */
+    OrpheusValueType type;
+    size_t offset;               /* 相对实例状态块基址的偏移 */
+    size_t size;                 /* 元素字节数 */
+    uint32_t count;              /* 数组长度，1 = 标量 */
+    float min_f32;
+    float max_f32;
+    int32_t min_i32;
+    int32_t max_i32;
+    const char* unit;
+    OrpheusUpdatePolicy update_policy;
+    uint32_t flags;
+} OrpheusSlotInfo;
+
+/* 注册器：Runtime 提供给组件的注册接口 */
+typedef struct OrpheusRegistry {
+    void* ctx;  /* 注册上下文（Runtime 传入，指向实例槽表） */
+    OrpheusSlotId (*add)(void* ctx, const OrpheusSlotInfo* info);
+    int (*update)(void* ctx, OrpheusSlotId id, const OrpheusSlotInfo* info);
+} OrpheusRegistry;
+
+/* 一行注册宏：偏移由宏从基址自动计算 */
+#define ORPHEUS_REG_SLOT(reg, base, member, kind_, key_, name_, type_, ...) \
+    (reg)->add((reg)->ctx, &(OrpheusSlotInfo){ .kind=(kind_), .key=(key_), .name=(name_), \
+        .type=(type_), \
+        .offset=(size_t)((char*)&((base)->member) - (char*)(base)), \
+        .size=sizeof((base)->member), .count=1, __VA_ARGS__ })
+
+/* 数组槽注册宏：count 为元素个数，size 取单个元素大小 */
+#define ORPHEUS_REG_ARRAY(reg, base, member, n, kind_, key_, name_, type_, ...) \
+    (reg)->add((reg)->ctx, &(OrpheusSlotInfo){ .kind=(kind_), .key=(key_), .name=(name_), \
+        .type=(type_), \
+        .offset=(size_t)((char*)&((base)->member) - (char*)(base)), \
+        .size=sizeof(((base)->member)[0]), .count=(n), __VA_ARGS__ })
+
 /* 参数描述符 */
 typedef struct {
     const char* id;
@@ -166,6 +225,7 @@ typedef struct {
     const char** param_ids;       /* 参数 ID 数组，与 param_values 一一对应 */
     const OrpheusValue* param_values;
     uint32_t param_count;
+    void* state_block;       /* v2：统一内存拼接下本实例的连续内存块基址（组件自行布局） */
 } OrpheusConfig;
 
 /* 组件接口函数表 */
@@ -190,6 +250,10 @@ typedef struct {
 
     /* 调试：获取内部状态（可选） */
     int (*get_state_value)(void* state, const char* key, OrpheusValue* value);
+
+    /* v2：主动注册资源槽（地址/类型/说明）。实现后 Runtime 直接读写槽内存，
+       set/get_parameter 退化为兜底。旧 DLL 该字段为 NULL（且 abi_version=1）。 */
+    int (*register_slots)(void* state, const OrpheusRegistry* reg);
 } OrpheusComponentInterface;
 
 /* 组件唯一导出入口 */

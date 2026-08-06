@@ -102,6 +102,22 @@ class CodeGenerator:
             lines.append(f'static const OrpheusComponentInterface* g_iface_{s} = NULL;')
         lines.append("")
 
+        # v2 统一内存拼接：manifest 声明 state_type（状态结构体公开）的组件，
+        # 在生成工程中按类型静态拼接为 g_arena，零 malloc、布局由编译器决定。
+        arena_members: list[tuple[str, str]] = []
+        for node_id in plan.execution_order:
+            cfg = plan.node_configs[node_id]
+            info = self.registry.get(cfg["component"])
+            st = info.manifest.get("state_type") if info else None
+            if st:
+                arena_members.append((self._sanitized_node_id(node_id), st))
+        if arena_members:
+            lines.append('static struct {')
+            for s, st in arena_members:
+                lines.append(f'    {st} {s};')
+            lines.append('} g_arena;')
+            lines.append('')
+
         # Buffer declarations
         for buf_id, buf in plan.buffers.items():
             s_buf = buf_id.replace("-", "_").replace(".", "_")
@@ -140,11 +156,25 @@ class CodeGenerator:
             params = cfg.get("params", {})
             if not params:
                 continue
+            # 按 manifest 参数类型下发，避免字符串参数（如 gain_db "-6.0"）被当成 STRING
+            ptypes: dict[str, str] = {}
+            info = self.registry.get(cfg["component"])
+            if info:
+                for p in info.manifest.get("parameters", []):
+                    if isinstance(p, dict) and p.get("id"):
+                        ptypes[p["id"]] = p.get("type")
             ids = ", ".join(f'"{pid}"' for pid in params)
             lines.append(f'static const char* g_param_ids_{s}[] = {{{ids}}};')
             vals = []
             for pid, pval in params.items():
-                if isinstance(pval, bool):
+                ptype = ptypes.get(pid)
+                if ptype == "float":
+                    vals.append(f'{{ .type = ORPHEUS_VALUE_FLOAT, .value.f32 = {float(pval)}f }}')
+                elif ptype == "int":
+                    vals.append(f'{{ .type = ORPHEUS_VALUE_INT, .value.i32 = {int(pval)} }}')
+                elif ptype == "bool":
+                    vals.append(f'{{ .type = ORPHEUS_VALUE_BOOL, .value.b = {str(pval).lower()} }}')
+                elif isinstance(pval, bool):
                     vals.append(f'{{ .type = ORPHEUS_VALUE_BOOL, .value.b = {str(pval).lower()} }}')
                 elif isinstance(pval, int):
                     vals.append(f'{{ .type = ORPHEUS_VALUE_INT, .value.i32 = {pval} }}')
@@ -218,6 +248,12 @@ class CodeGenerator:
                 lines.append('    config.param_ids = NULL;')
                 lines.append('    config.param_values = NULL;')
                 lines.append('    config.param_count = 0;')
+            info = self.registry.get(cfg["component"])
+            st = info.manifest.get("state_type") if info else None
+            if st:
+                lines.append(f'    config.state_block = &g_arena.{s};')
+            else:
+                lines.append('    config.state_block = NULL;')
             lines.append(f'    rc = g_iface_{s}->create(&g_state_{s}, &config);')
             lines.append(f'    if (rc != ORPHEUS_OK) return rc;')
             lines.append(f'    rc = g_iface_{s}->prepare(g_state_{s}, &config);')
@@ -295,6 +331,11 @@ class CodeGenerator:
         lines.append("")
         lines.append('include_directories(${CMAKE_SOURCE_DIR}/include)')
         lines.append('add_definitions(-DORPHEUS_API=)')
+        lines.append("")
+        # MSVC 必须按 UTF-8 读取源码（中文注释/字符串），与主构建保持一致
+        lines.append('if(MSVC)')
+        lines.append('  add_compile_options(/utf-8)')
+        lines.append('endif()')
         lines.append("")
 
         for cid in component_ids:

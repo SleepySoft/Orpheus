@@ -191,3 +191,59 @@ def test_resample_offline_run_and_generated_match():
             assert out_wav.read_bytes() == dynamic_bytes
         finally:
             client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components" / "liborpheus_builtin_gain.dll").exists(),
+    reason="runtime and components not built",
+)
+def test_gain_float_param_dynamic_generated_match():
+    """wav_in -> gain(gain_db=-6.0 float) -> wav_out: dynamic vs generated identical.
+
+    回归：生成路径必须按 manifest 参数类型下发 float 参数（不能把 "-6.0" 当 STRING），
+    否则生成工程内 gain 以 0dB 运行，与动态路径输出不一致。
+    """
+    import shutil
+
+    from fastapi.testclient import TestClient
+
+    from orpheus_core.server.app import create_app
+
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    with TestClient(create_app(ROOT)) as client:
+        try:
+            assert client.post("/api/projects", json={"name": name}).status_code == 201
+            pdir = ROOT / "workspace" / name
+            shutil.copy2(ROOT / "examples" / "test_input.wav", pdir / "test_input.wav")
+            doc = client.get(f"/api/projects/{name}").json()
+            doc["graph"] = {
+                "nodes": [
+                    {"id": "wav_in", "component": "orpheus.builtin.wav_in",
+                     "params": {"file_path": "test_input.wav", "channels": 2},
+                     "position": {"x": 0, "y": 0}},
+                    {"id": "gain1", "component": "orpheus.builtin.gain",
+                     "params": {"gain_db": "-6.0", "channels": 2},
+                     "position": {"x": 200, "y": 0}},
+                    {"id": "wav_out", "component": "orpheus.builtin.wav_out",
+                     "params": {"file_path": "outputs/out.wav", "channels": 2,
+                                "sample_rate": 48000},
+                     "position": {"x": 400, "y": 0}},
+                ],
+                "connections": [
+                    {"from": "wav_in:out", "to": "gain1:in"},
+                    {"from": "gain1:out", "to": "wav_out:in"},
+                ],
+            }
+            assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+
+            resp = client.post(f"/api/projects/{name}/run")
+            assert resp.json()["status"] == "ok", resp.json()
+            dynamic_bytes = (pdir / "outputs" / "out.wav").read_bytes()
+
+            resp = client.post(f"/api/projects/{name}/run_generated")
+            result = resp.json()
+            assert result["status"] == "ok", result["stderr"]
+            assert (pdir / "outputs" / "out.wav").read_bytes() == dynamic_bytes
+        finally:
+            client.delete(f"/api/projects/{name}")

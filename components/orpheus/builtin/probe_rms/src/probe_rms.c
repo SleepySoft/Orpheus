@@ -4,11 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
-    float rms;
-    uint32_t channels;
-} ProbeRmsState;
-
 static const OrpheusParameter probe_rms_params[] = {
     {
         .id = "channels",
@@ -80,14 +75,17 @@ static const OrpheusComponentDescriptor* probe_rms_get_descriptor(void) {
 }
 
 static int probe_rms_create(void** state, const OrpheusConfig* config) {
-    (void)config;
+    if (config != NULL && config->state_block != NULL) {
+        *state = config->state_block;
+        return ORPHEUS_OK;
+    }
     *state = calloc(1, sizeof(ProbeRmsState));
     if (*state == NULL) return ORPHEUS_ERR_OUT_OF_MEMORY;
     return ORPHEUS_OK;
 }
 
 static int probe_rms_destroy(void* state) {
-    free(state);
+    (void)state; /* v2：状态内存由 Runtime 统一管理 */
     return ORPHEUS_OK;
 }
 
@@ -147,6 +145,18 @@ static int probe_rms_get_parameter(void* state, const char* param_id, OrpheusVal
     return ORPHEUS_ERR_NOT_FOUND;
 }
 
+static int probe_rms_register_slots(void* state, const OrpheusRegistry* reg) {
+    ProbeRmsState* s = (ProbeRmsState*)state;
+    ORPHEUS_REG_SLOT(reg, s, rms, ORPHEUS_SLOT_PROBE, "rms", "RMS",
+                     ORPHEUS_VALUE_FLOAT, .flags=ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    return ORPHEUS_OK;
+}
+
 static const OrpheusComponentInterface probe_rms_interface = {
     .get_descriptor = probe_rms_get_descriptor,
     .create = probe_rms_create,
@@ -156,7 +166,8 @@ static const OrpheusComponentInterface probe_rms_interface = {
     .process = probe_rms_process,
     .set_parameter = probe_rms_set_parameter,
     .get_parameter = probe_rms_get_parameter,
-    .get_state_value = NULL
+    .get_state_value = NULL,
+    .register_slots = probe_rms_register_slots
 };
 
 #ifndef ORPHEUS_ENTRY_NAME

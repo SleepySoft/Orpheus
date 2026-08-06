@@ -13,14 +13,31 @@
 
 namespace orpheus {
 
+struct SlotEntry {
+    std::string key;
+    OrpheusSlotKind kind;
+    OrpheusValueType type;
+    size_t offset;
+    size_t size;
+    uint32_t count;
+    float min_f32 = 0.0f, max_f32 = 0.0f;
+    int32_t min_i32 = 0, max_i32 = 0;
+    std::string unit;
+    OrpheusUpdatePolicy update_policy = ORPHEUS_UPDATE_IMMEDIATE;
+    uint32_t flags = 0;
+};
+
 struct Instance {
     std::string node_id;
     const OrpheusComponentInterface* interface_;
     void* state;
+    size_t state_size = 0;
     std::vector<OrpheusBuffer*> inputs;   // indexed by input_ports order
     std::vector<OrpheusBuffer*> outputs;  // indexed by output_ports order
     std::map<std::string, size_t> input_index;   // port id -> slot
     std::map<std::string, size_t> output_index;
+    std::vector<SlotEntry> slots;          // v2 注册的资源槽（SlotMap[instance]）
+    std::map<std::string, size_t> slot_index;  // slot key -> slots 下标
 };
 
 class Runtime {
@@ -57,6 +74,7 @@ private:
     std::map<std::string, std::unique_ptr<Instance>> instances_;
     std::map<std::string, std::unique_ptr<OrpheusBuffer>> buffers_;
     std::vector<float> buffer_memory_;
+    std::vector<uint8_t> state_arena_;   // v2：统一内存拼接（每实例一块连续切片）
     uint64_t block_counter_ = 0;  // for rate-divisor scheduling
 
     int prepare_instance(Instance& inst, const NodeConfig& cfg);
