@@ -926,6 +926,32 @@ function Editor() {
               {(rt.running || rt.logs.length > 0) && (
                 <div className="log">
                   <strong>实时日志</strong>
+                  {(() => {
+                    const rb = rt.probes && rt.probes["__host__"] && rt.probes["__host__"].rb;
+                    if (!rb) return null;
+                    if (!rb.bridge) {
+                      return <div className="rb-gauge"><span className="rb-text">设备时钟模式（单一设备，无环形缓冲水位）</span></div>;
+                    }
+                    const pct = rb.capacity > 0 ? Math.round((rb.level / rb.capacity) * 100) : 0;
+                    if (rb.primed === false) {
+                      return (
+                        <div className="rb-gauge" title="正在预充：播放暂输出静音，等待采集填满缓冲水位后再开始。持续不完成=采集未供数(loopback目标未播放/采集设备异常)。">
+                          <span className="rb-label">预充中</span>
+                          <div className="rb-bar"><div className="rb-fill" style={{ width: pct + "%", background: "#4dabf7" }} /></div>
+                          <span className="rb-text">正在预充缓冲… {rb.level}/{rb.capacity} 帧 ({pct}%) · 等待采集供数</span>
+                        </div>
+                      );
+                    }
+                    const color = pct < 10 || pct > 90 ? "#e03131" : pct < 25 || pct > 75 ? "#f59f00" : "#2f9e44";
+                    const warn = pct < 10 || pct > 90 ? "rb-alert" : "";
+                    return (
+                      <div className="rb-gauge" title="缓冲水位：持续偏低=采集供数不足(欠载)，持续偏高=采集过快(溢出)">
+                        <span className="rb-label">缓冲水位</span>
+                        <div className="rb-bar"><div className="rb-fill" style={{ width: pct + "%", background: color }} /></div>
+                        <span className={"rb-text " + warn}>{rb.level}/{rb.capacity} 帧 ({pct}%) · 欠载 {rb.underruns} · 溢出 {rb.overruns}</span>
+                      </div>
+                    );
+                  })()}
                   <pre>{rt.logs.slice(-100).join('\n') || '（等待日志…）'}</pre>
                 </div>
               )}

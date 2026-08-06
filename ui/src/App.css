@@ -781,3 +781,64 @@ pre {
   color: #868e96;
   margin-top: 4px;
 }
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #495057;
+  margin-bottom: 8px;
+}
+.buf-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.buf-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.buf-input {
+  width: 90px;
+  padding: 5px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+}
+.buf-input:disabled {
+  background: #f1f3f5;
+  color: #868e96;
+}
+.buf-arrow {
+  color: #adb5bd;
+  font-size: 14px;
+}
+
+/* ring-buffer water level gauge (realtime) */
+.rb-gauge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 6px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.rb-label { color: #495057; white-space: nowrap; }
+.rb-bar {
+  flex: 1;
+  min-width: 120px;
+  height: 10px;
+  background: #e9ecef;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.rb-fill {
+  height: 100%;
+  transition: width 0.25s ease, background 0.25s ease;
+}
+.rb-text { color: #495057; white-space: nowrap; }
+.rb-text.rb-alert { color: #e03131; font-weight: 600; }

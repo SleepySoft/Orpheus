@@ -21,8 +21,11 @@ struct HostContext {
     uint32_t buffer_size;   // async ring buffer capacity in frames (0 = auto: sample_rate/10)
     uint32_t block_size;  // graph buffers are sized for this; chunk larger device periods
     ma_pcm_rb* rb;        // async bridge: ring buffer from capture to playback device
+    uint32_t rb_capacity;   // ring buffer capacity in frames (0 if no async bridge)
     std::atomic<uint32_t> underruns{0};  // playback starved (rb empty)
     std::atomic<uint32_t> overruns{0};   // capture dropped (rb full, clock drift)
+    std::atomic<bool> primed{false};     // async bridge: capture pre-filled the cushion?
+    uint32_t prime_target{0};             // frames the buffer must reach before playback consumes
 };
 
 // ---------------------------------------------------------------- helpers
@@ -218,6 +221,17 @@ void rb_playback_callback(ma_device* pDevice, void* pOutput, const void* pInput,
     uint32_t in_ch = host->in_channels;
     uint32_t out_ch = host->out_channels;
     uint32_t bs = host->block_size > 0 ? host->block_size : frameCount;
+
+    // Priming: the ring buffer starts empty. Wait for capture to pre-fill a cushion
+    // (prime_target frames) before playback consumes, otherwise playback starves on a
+    // near-empty buffer and chronic underruns occur even when capture/playback rates match.
+    if (host->rb && host->prime_target > 0 && !host->primed.load(std::memory_order_relaxed)) {
+        if (ma_pcm_rb_available_read(host->rb) < host->prime_target) {
+            std::memset(out, 0, (size_t)frameCount * out_ch * sizeof(float));
+            return;
+        }
+        host->primed.store(true, std::memory_order_relaxed);
+    }
 
     for (ma_uint32 done = 0; done < frameCount; done += bs) {
         uint32_t n = (uint32_t)((frameCount - done) < bs ? (frameCount - done) : bs);
@@ -489,6 +503,8 @@ int main(int argc, char** argv) {
             }
             rb_inited = true;
             host.rb = &rb;
+            host.rb_capacity = rb_frames;
+            host.prime_target = rb_frames / 3;  // pre-fill cushion before playback consumes
 
             ma_device_config cap_cfg = ma_device_config_init(
                 loopback ? ma_device_type_loopback : ma_device_type_capture);
@@ -583,23 +599,48 @@ int main(int argc, char** argv) {
         std::thread probe_thread([&]() {
             uint32_t last_u = 0, last_o = 0;
             int ticks = 0;
+            bool priming_warned = false, primed_logged = false;
             while (running) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 if (!running) break;
                 report_probes(runtime, plan);
+                // ring-buffer water level + over/underrun counts -> UI gauge (PROBE_JSON __host__)
+                {
+                    uint32_t lvl = host.rb ? ma_pcm_rb_available_read(host.rb) : 0;
+                    uint32_t cap = host.rb_capacity;
+                    std::cout << "PROBE_JSON __host__ rb {\"level\":" << lvl
+                              << ",\"capacity\":" << cap
+                              << ",\"primed\":" << (host.primed.load() ? "true" : "false")
+                              << ",\"underruns\":" << host.underruns.load()
+                              << ",\"overruns\":" << host.overruns.load()
+                              << ",\"bridge\":" << (host.rb ? "true" : "false")
+                              << "}" << std::endl;
+                }
                 // once per second: report ring-buffer water level problems with advice
                 if (++ticks % 5 == 0) {
                     uint32_t u = host.underruns.load();
                     uint32_t o = host.overruns.load();
                     if (u != last_u) {
                         std::cout << "LOG WARN 播放欠载 x" << (u - last_u)
-                                  << "/s：播放设备取数不足（出现杂音/哒哒声）。建议：增大工程 block_size，"
-                                     "或检查播放设备性能" << std::endl;
+                                  << "/s：播放设备取数不足（出现杂音/哒哒声）。建议：增大 buffer_size，"
+                                     "或检查采集设备是否正常供数/改用同一设备时钟" << std::endl;
                     }
                     if (o != last_o) {
                         std::cout << "LOG WARN 采集溢出 x" << (o - last_o)
                                   << "/s：输入数据堆积被丢弃（采集与播放时钟漂移）。"
-                                     "建议：增大 block_size，或让输入输出共用同一设备/时钟" << std::endl;
+                                     "建议：增大 buffer_size，或让输入输出共用同一设备/时钟" << std::endl;
+                    }
+                    // priming status (async bridge only)
+                    if (host.rb) {
+                        if (!host.primed.load()) {
+                            if (!priming_warned && ticks >= 10) {
+                                priming_warned = true;
+                                std::cout << "LOG WARN 缓冲预充不足：采集 2 秒内未填满水位（loopback 目标可能未在播放，或采集设备异常）。播放暂输出静音，等待采集供数。" << std::endl;
+                            }
+                        } else if (!primed_logged) {
+                            primed_logged = true;
+                            std::cout << "LOG 缓冲预充完成，开始播放" << std::endl;
+                        }
                     }
                     last_u = u;
                     last_o = o;

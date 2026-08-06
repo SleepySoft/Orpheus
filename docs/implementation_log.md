@@ -250,3 +250,37 @@
 ### 已知/遗留
 - 离线宿主 3 个探针测试 pre-existing 失败（signal_gen->rms 读数 0.0），与本迭代无关，未修。
 - block_size 仍为工程全局（设计决定，见 C 取舍）。
+
+## 2026-08-06 实时缓冲水位计 + 缓冲预充(根治慢性欠载) + block_size 时间提示
+
+### 背景
+用户反馈：调大 buffer_size 至 500ms 仍有 `LOG WARN 播放欠载 x20/s` 杂音。疑问：是否 source/sink 不同步？能否增加水位实时显示与上下溢提示（不破坏架构）。
+
+### A. 实时水位计（PROBE_JSON __host__，已完成并补文档）
+- rt_host `probe_thread`（每 200ms）在 `report_probes` 后额外输出 `PROBE_JSON __host__ rb {level,capacity,primed,underruns,overruns,bridge}`：level=ma_pcm_rb_available_read，capacity=rb_capacity。
+- 后端 `rt.py` `parse_probe_line` 已通用解析 PROBE_JSON 进 probes["__host__"]["rb"]；UI 每 250ms 轮询 rt/status，实时日志面板渲染水位条（绿/黄/红按填充率）+ 文本 `level/capacity 帧 (pct%) · 欠载 N · 溢出 N`；非桥模式显示「设备时钟模式」。不新增后端接口，不改节点探针映射（__host__ 不匹配任何节点，被忽略）。
+
+### B. 缓冲预充（根治「调大缓冲仍欠载」的根因）
+- 根因：异步桥环形缓冲从空启动，播放回调立即拉取，缓冲始终在 0 附近游走；即使采集/播放速率匹配，任何瞬间采集未跟上即欠载 -> 慢性 20/s 欠载。增大 buffer_size 无济于事（缓冲根本没机会填起来）。
+- 修复：HostContext 增 `primed`(atomic bool) + `prime_target`(=容量/3)。`rb_playback_callback` 在未 primed 时，若水位 < prime_target 则输出静音并 return（不消费、不计欠载）；水位达标则置 primed=true 开始正常消费。
+- 效果：采集先填满 1/3 缓冲再让播放消费，建立吸收时钟漂移与调度抖动的垫层；正常速率匹配时不再慢性欠载。
+- 诊断分支：2s 未达水位 -> `LOG WARN 缓冲预充不足`（采集未供数：loopback 目标未播放/采集设备异常），播放持续静音，水位计 level=0；预充后 level 持续走低 -> 真实时钟漂移（改用同一设备 in/out）。预充完成 -> `LOG 缓冲预充完成，开始播放`。
+- UI 水位计：未 primed 时显示「预充中… level/capacity 帧 (pct%) · 等待采集供数」（蓝色），与正常/告警状态区分。
+
+### C. block_size 时间提示（用户「可以，增加提示」）
+- ProjectSettings 块长度字段旁加只读提示 `当前块 ≈ X.XXX ms（按工程采样率换算：ms = 块帧数/采样率×1000）`，3 位小数避免 2 的幂次帧数看起来是整数。采样率被设备源覆盖时以运行时为准。
+
+### 涉及文件
+- C++：`orpheus_runtime/src/rt_host.cpp`（HostContext primed/prime_target；rb_playback_callback 预充；probe_thread PROBE_JSON primed 字段 + 预充告警/完成日志）
+- UI：`ui/src/App.js`（水位计预充分支）、`ui/src/ProjectSettings.js`（block_size ms 提示）
+- 文档：`SKILL/references/run-debug.md`（PROBE_JSON __host__ 约定、水位警告修正 block_size->buffer_size、预充说明、故障排查两行）
+
+### 验证
+- `cmake --build build --target orpheus_rt_host` 通过。
+- `npm run build` 通过。
+- 3 个 test_server 离线探针测试仍 pre-existing 失败（与本迭代无关）。
+
+### 已知/遗留
+- 预充阈值固定为容量 1/3（未开放配置）；如需更小延迟可调小 buffer_size。
+- 预充仅在异步桥模式生效（duplex 单设备同时钟无需预充）。
+
