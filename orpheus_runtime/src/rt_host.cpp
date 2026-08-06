@@ -16,7 +16,9 @@ struct HostContext {
     orpheus::Runtime* runtime;
     OrpheusBuffer* device_in_buf;
     OrpheusBuffer* device_out_buf;
-    uint32_t channels;
+    uint32_t in_channels;   // capture side channels (device_in port)
+    uint32_t out_channels;  // playback side channels (device_out port)
+    uint32_t buffer_size;   // async ring buffer capacity in frames (0 = auto: sample_rate/10)
     uint32_t block_size;  // graph buffers are sized for this; chunk larger device periods
     ma_pcm_rb* rb;        // async bridge: ring buffer from capture to playback device
     std::atomic<uint32_t> underruns{0};  // playback starved (rb empty)
@@ -90,6 +92,78 @@ static bool find_device_id(ma_device_type type, const std::string& match, ma_dev
     return found;
 }
 
+// Query device native formats and report whether the requested channels and
+// sample rate are natively supported (0), require miniaudio conversion (1), or
+// could not be determined (2). msg receives a human-readable summary.
+static int check_device_caps(ma_device_type type, const ma_device_id* pId,
+                             uint32_t channels, uint32_t sample_rate,
+                             std::string& msg) {
+    msg.clear();
+    ma_context ctx;
+    if (ma_context_init(NULL, 0, NULL, &ctx) != MA_SUCCESS) {
+        msg = "cannot init audio context for capability query";
+        return 2;
+    }
+
+    ma_device_id default_id;
+    const ma_device_id* query_id = pId;
+    if (query_id == nullptr) {
+        ma_device_info* pPlay = nullptr;
+        ma_device_info* pCap = nullptr;
+        ma_uint32 nPlay = 0, nCap = 0;
+        if (ma_context_get_devices(&ctx, &pPlay, &nPlay, &pCap, &nCap) == MA_SUCCESS) {
+            ma_device_info* infos = (type == ma_device_type_playback) ? pPlay : pCap;
+            ma_uint32 count = (type == ma_device_type_playback) ? nPlay : nCap;
+            for (ma_uint32 i = 0; i < count; ++i) {
+                if (infos[i].isDefault) {
+                    default_id = infos[i].id;
+                    query_id = &default_id;
+                    break;
+                }
+            }
+        }
+    }
+
+    ma_device_info info;
+    ma_result r = ma_context_get_device_info(&ctx, type, query_id, &info);
+    ma_context_uninit(&ctx);
+    if (r != MA_SUCCESS) {
+        msg = "device capability info unavailable";
+        return 2;
+    }
+
+    std::string devname = info.name;
+    if (info.nativeDataFormatCount == 0) {
+        msg = devname + ": no native format info (conversion handled automatically)";
+        return 2;
+    }
+
+    bool native = false, ch_any = false, rate_any = false;
+    for (ma_uint32 i = 0; i < info.nativeDataFormatCount; ++i) {
+        const auto& f = info.nativeDataFormats[i];
+        bool e_ch = (f.channels == 0 || f.channels == channels);
+        bool e_rate = (f.sampleRate == 0 || f.sampleRate == sample_rate);
+        if (e_ch) ch_any = true;
+        if (e_rate) rate_any = true;
+        if (e_ch && e_rate) { native = true; break; }
+    }
+
+    if (native) {
+        msg = devname + ": native support";
+        return 0;
+    }
+    msg = devname + ": device will convert (";
+    if (!ch_any && !rate_any) {
+        msg += "channels " + std::to_string(channels) + ", rate " + std::to_string(sample_rate) + "Hz";
+    } else if (!ch_any) {
+        msg += "channels -> " + std::to_string(channels);
+    } else {
+        msg += "rate -> " + std::to_string(sample_rate) + "Hz";
+    }
+    msg += ")";
+    return 1;
+}
+
 // ---------------------------------------------------------------- callbacks
 
 // duplex (microphone) mode: capture+playback in one device.
@@ -100,20 +174,21 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 
     float* out = (float*)pOutput;
     const float* in = (const float*)pInput;
-    uint32_t ch = host->channels;
+    uint32_t in_ch = host->in_channels;
+    uint32_t out_ch = host->out_channels;
     uint32_t bs = host->block_size > 0 ? host->block_size : frameCount;
 
     for (ma_uint32 done = 0; done < frameCount; done += bs) {
         uint32_t n = (uint32_t)((frameCount - done) < bs ? (frameCount - done) : bs);
         if (host->device_in_buf && in) {
-            std::memcpy(host->device_in_buf->data, in + (size_t)done * ch, n * ch * sizeof(float));
+            std::memcpy(host->device_in_buf->data, in + (size_t)done * in_ch, n * in_ch * sizeof(float));
             host->device_in_buf->frame_count = n;
         }
         host->runtime->process_block(n);
         if (host->device_out_buf && out) {
-            std::memcpy(out + (size_t)done * ch, host->device_out_buf->data, n * ch * sizeof(float));
+            std::memcpy(out + (size_t)done * out_ch, host->device_out_buf->data, n * out_ch * sizeof(float));
         } else if (out) {
-            std::memset(out + (size_t)done * ch, 0, n * ch * sizeof(float));
+            std::memset(out + (size_t)done * out_ch, 0, n * out_ch * sizeof(float));
         }
     }
 }
@@ -126,7 +201,7 @@ void rb_capture_callback(ma_device* pDevice, void* pOutput, const void* pInput, 
     ma_uint32 writable = frameCount;
     void* w = nullptr;
     if (ma_pcm_rb_acquire_write(host->rb, &writable, &w) == MA_SUCCESS && writable > 0) {
-        std::memcpy(w, pInput, writable * host->channels * sizeof(float));
+        std::memcpy(w, pInput, writable * host->in_channels * sizeof(float));
         ma_pcm_rb_commit_write(host->rb, writable);
         if (writable < frameCount) host->overruns++;
     } else {
@@ -140,7 +215,8 @@ void rb_playback_callback(ma_device* pDevice, void* pOutput, const void* pInput,
     HostContext* host = (HostContext*)pDevice->pUserData;
     if (!host || !host->runtime) return;
     float* out = (float*)pOutput;
-    uint32_t ch = host->channels;
+    uint32_t in_ch = host->in_channels;
+    uint32_t out_ch = host->out_channels;
     uint32_t bs = host->block_size > 0 ? host->block_size : frameCount;
 
     for (ma_uint32 done = 0; done < frameCount; done += bs) {
@@ -151,21 +227,21 @@ void rb_playback_callback(ma_device* pDevice, void* pOutput, const void* pInput,
             void* r = nullptr;
             ma_uint32 got = 0;
             if (host->rb && ma_pcm_rb_acquire_read(host->rb, &readable, &r) == MA_SUCCESS && readable > 0) {
-                std::memcpy(buf, r, readable * ch * sizeof(float));
+                std::memcpy(buf, r, readable * in_ch * sizeof(float));
                 ma_pcm_rb_commit_read(host->rb, readable);
                 got = readable;
             }
             if (got < n) {
                 host->underruns++;
-                std::memset(buf + (size_t)got * ch, 0, (n - got) * ch * sizeof(float));
+                std::memset(buf + (size_t)got * in_ch, 0, (n - got) * in_ch * sizeof(float));
             }
             host->device_in_buf->frame_count = n;
         }
         host->runtime->process_block(n);
         if (host->device_out_buf && out) {
-            std::memcpy(out + (size_t)done * ch, host->device_out_buf->data, n * ch * sizeof(float));
+            std::memcpy(out + (size_t)done * out_ch, host->device_out_buf->data, n * out_ch * sizeof(float));
         } else if (out) {
-            std::memset(out + (size_t)done * ch, 0, n * ch * sizeof(float));
+            std::memset(out + (size_t)done * out_ch, 0, n * out_ch * sizeof(float));
         }
     }
 }
@@ -322,13 +398,20 @@ int main(int argc, char** argv) {
         host.runtime = &runtime;
         host.device_in_buf = has_in ? runtime.get_output_buffer(device_in_id, "out") : nullptr;
         host.device_out_buf = has_out ? runtime.get_input_buffer(device_out_id, "in") : nullptr;
-        host.channels = 2;
+        host.in_channels = 2;
+        host.out_channels = 2;
         host.block_size = block_size;
+        host.buffer_size = plan.buffer_size;
         host.rb = nullptr;
 
-        std::string chs = has_in ? get_param(plan, device_in_id, "channels")
-                                 : get_param(plan, device_out_id, "channels");
-        if (!chs.empty()) host.channels = (uint32_t)std::atoi(chs.c_str());
+        if (has_in) {
+            std::string chs = get_param(plan, device_in_id, "channels");
+            if (!chs.empty()) host.in_channels = (uint32_t)std::atoi(chs.c_str());
+        }
+        if (has_out) {
+            std::string chs = get_param(plan, device_out_id, "channels");
+            if (!chs.empty()) host.out_channels = (uint32_t)std::atoi(chs.c_str());
+        }
 
         std::string in_device = has_in ? get_param(plan, device_in_id, "device") : "";
         std::string out_device = has_out ? get_param(plan, device_out_id, "device") : "";
@@ -348,6 +431,25 @@ int main(int argc, char** argv) {
             return 1;
         }
 
+        // Validate device capabilities: warn when miniaudio will convert; a true
+        // unsupported configuration surfaces as an init failure below (error).
+        if (has_in) {
+            std::string caps;
+            int cs = check_device_caps(loopback ? ma_device_type_playback : ma_device_type_capture,
+                                       p_in_id, host.in_channels, sample_rate, caps);
+            if (cs == 1) std::cout << "LOG WARN input device will convert: " << caps << std::endl;
+            else if (cs == 0) std::cout << "LOG input device native: " << caps << std::endl;
+            else std::cout << "LOG input device caps unknown: " << caps << std::endl;
+        }
+        if (has_out) {
+            std::string caps;
+            int cs = check_device_caps(ma_device_type_playback, p_out_id,
+                                       host.out_channels, sample_rate, caps);
+            if (cs == 1) std::cout << "LOG WARN output device will convert: " << caps << std::endl;
+            else if (cs == 0) std::cout << "LOG output device native: " << caps << std::endl;
+            else std::cout << "LOG output device caps unknown: " << caps << std::endl;
+        }
+
         // Device topology by graph content (IO is the graph's business):
         //   in+out, both default devices: one duplex device (same clock domain, lowest latency)
         //   in+out, any explicit device or loopback: async bridge (capture -> ring buffer ->
@@ -360,10 +462,10 @@ int main(int argc, char** argv) {
             ma_device_config cfg = ma_device_config_init(ma_device_type_duplex);
             cfg.capture.pDeviceID = p_in_id;
             cfg.capture.format = ma_format_f32;
-            cfg.capture.channels = host.channels;
+            cfg.capture.channels = host.in_channels;
             cfg.playback.pDeviceID = p_out_id;
             cfg.playback.format = ma_format_f32;
-            cfg.playback.channels = host.channels;
+            cfg.playback.channels = host.out_channels;
             cfg.sampleRate = sample_rate;
             cfg.periodSizeInFrames = device_period_frames(sample_rate, block_size);
             cfg.dataCallback = data_callback;
@@ -380,7 +482,8 @@ int main(int argc, char** argv) {
             }
         } else if (has_in && has_out) {
             // async bridge (covers loopback and mismatched capture/playback devices)
-            if (ma_pcm_rb_init(ma_format_f32, host.channels, sample_rate / 10, NULL, NULL, &rb) != MA_SUCCESS) {
+            uint32_t rb_frames = host.buffer_size ? host.buffer_size : (sample_rate / 10);
+            if (ma_pcm_rb_init(ma_format_f32, host.in_channels, rb_frames, NULL, NULL, &rb) != MA_SUCCESS) {
                 std::cerr << "Failed to init ring buffer" << std::endl;
                 return 1;
             }
@@ -391,7 +494,7 @@ int main(int argc, char** argv) {
                 loopback ? ma_device_type_loopback : ma_device_type_capture);
             cap_cfg.capture.pDeviceID = p_in_id;  // loopback target = playback device to tap
             cap_cfg.capture.format = ma_format_f32;
-            cap_cfg.capture.channels = host.channels;
+            cap_cfg.capture.channels = host.in_channels;
             cap_cfg.sampleRate = sample_rate;
             cap_cfg.periodSizeInFrames = device_period_frames(sample_rate, block_size);
             cap_cfg.dataCallback = rb_capture_callback;
@@ -406,7 +509,7 @@ int main(int argc, char** argv) {
             ma_device_config play_cfg = ma_device_config_init(ma_device_type_playback);
             play_cfg.playback.pDeviceID = p_out_id;
             play_cfg.playback.format = ma_format_f32;
-            play_cfg.playback.channels = host.channels;
+            play_cfg.playback.channels = host.out_channels;
             play_cfg.sampleRate = sample_rate;
             play_cfg.periodSizeInFrames = device_period_frames(sample_rate, block_size);
             play_cfg.dataCallback = rb_playback_callback;
@@ -435,11 +538,11 @@ int main(int argc, char** argv) {
             if (has_out) {
                 cfg.playback.pDeviceID = p_out_id;
                 cfg.playback.format = ma_format_f32;
-                cfg.playback.channels = host.channels;
+                cfg.playback.channels = host.out_channels;
             } else {
                 cfg.capture.pDeviceID = p_in_id;
                 cfg.capture.format = ma_format_f32;
-                cfg.capture.channels = host.channels;
+                cfg.capture.channels = host.in_channels;
             }
             cfg.sampleRate = sample_rate;
             cfg.periodSizeInFrames = device_period_frames(sample_rate, block_size);
@@ -461,7 +564,9 @@ int main(int argc, char** argv) {
                   << (has_in ? (loopback ? "loopback" : "mic") : "none")
                   << ", out=" << (has_out ? "playback" : "none")
                   << ", mode=" << (async_bridge ? "async-bridge" : (cap_inited || play_inited) ? "device-clock" : "duplex")
-                  << ", channels=" << host.channels << ", sample_rate=" << sample_rate
+                  << ", in_channels=" << host.in_channels
+                  << ", out_channels=" << host.out_channels
+                  << ", sample_rate=" << sample_rate
                   << ", block_size=" << block_size << ")" << std::endl;
         if (play_inited) {
             std::cout << "LOG device period: playback="

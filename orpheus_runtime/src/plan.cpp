@@ -17,6 +17,7 @@ Plan Plan::load_from_file(const std::string& path) {
     p.abi_version = j.value("abi_version", 1u);
     p.sample_rate = j.value("sample_rate", 48000u);
     p.block_size = j.value("block_size", 128u);
+    p.buffer_size = j.value("buffer_size", 0u);
     p.task_id = j.value("task_id", "default");
 
     for (const auto& n : j.value("nodes", json::array())) {

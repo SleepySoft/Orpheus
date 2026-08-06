@@ -27,6 +27,7 @@ import OrpheusNode from './OrpheusNode';
 import ParamPanel from './ParamPanel';
 import Palette from './Palette';
 import SubPortsPanel from './SubPortsPanel';
+import ProjectSettings from './ProjectSettings';
 
 const nodeTypes = { orpheus: OrpheusNode };
 const AUTOSAVE_DELAY_MS = 1500;
@@ -55,6 +56,7 @@ function Editor() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [autoSave, setAutoSave] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
   const [status, setStatus] = useState('未连接后端');
   const [log, setLog] = useState(null);
   const [outputs, setOutputs] = useState([]);
@@ -799,6 +801,9 @@ function Editor() {
           <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
           自动保存
         </label>
+        <button onClick={() => setShowSettings(true)} disabled={!current || !doc} title="工程全局设置（采样率/块长度/缓冲）">
+          ⚙ 设置
+        </button>
         <button onClick={doCompile} disabled={!current}>
           编译
         </button>
@@ -889,6 +894,17 @@ function Editor() {
           />
         </div>
       </div>
+      {showSettings && doc && (
+        <ProjectSettings
+          doc={doc}
+          onClose={() => setShowSettings(false)}
+          onSave={(fields) => {
+            setDoc({ ...doc, ...fields });
+            setDirty(true);
+            setShowSettings(false);
+          }}
+        />
+      )}
       {(log || outputs.length > 0 || rt.logs.length > 0 || rt.running) && (
         <div className={`bottombar ${logCollapsed ? 'collapsed' : ''}`}>
           <div

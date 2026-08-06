@@ -139,6 +139,7 @@ class ProjectManager:
                     metadata={"name": name, "description": ""},
                     sample_rate=48000,
                     block_size=128,
+                    buffer_size=0,
                 )
                 project.tasks["default"] = Task(id="default", name="Default")
                 project.graph = Graph()

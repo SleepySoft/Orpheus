@@ -17,6 +17,7 @@
     },
     "sample_rate": { "type": "integer", "default": 48000 },
     "block_size": { "type": "integer", "default": 128 },
+    "buffer_size": { "type": "integer", "default": 0 },
     "tasks": {
       "type": "array",
       "items": {

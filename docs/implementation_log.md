@@ -208,3 +208,45 @@
 - 为 8 个组件补 Golden Vector / 单元测试（目前仅端到端冒烟）。
 - UI `nodeWidgets.js` 可为 bass/treble/midrange/fade/balance 加频响示意或电平条（可选）。
 - 考虑把 `input_select`/`output_router` 的 `select`/`matrix` 做成可视化矩阵编辑控件（当前是 text）。
+
+## 2026-08-06 设备通道解耦 + 能力校验 + 工程级全局配置(buffer_size) + 源驱动采样率
+
+### 背景（用户两问 + 指令）
+1. device_in 调整通道的影响？系统音频通道数不是固定的吗？
+   指令：device_in/device_out 通道数各取各值、互不相关；设备不支持->报错；设备会做转换->告警。
+2. block_size 等参数是全局还是按 source 配置？
+   指令：增加工程级全局参数配置机制并开放接口与配置界面（如 buffer 大小）；block_size/sample_rate 由 source 决定，source 支持配置则放入 source 配置并按实际校验范围。
+
+### A. 设备通道解耦 + 能力校验（rt_host）
+- `HostContext.channels` 拆为 `in_channels`（采集侧=device_in 端口通道）/ `out_channels`（播放侧=device_out 端口通道），二者独立。原代码用单一 `host.channels`，device_out 通道在 device_in 存在时被忽略——已修复。
+- 采集/播放设备分别按各自通道打开；duplex 单设备也支持 capture != playback 通道数。
+- 异步桥环形缓冲按 `in_channels`（承载原始采集 PCM）；rb_capture 用 in_channels；rb_playback 用 in_channels 读环形缓冲入 device_in_buf、用 out_channels 写 device_out_buf 出播放。
+- 能力校验 `check_device_caps()`：经 `ma_context_get_device_info` 取 `nativeDataFormats[]`（channels/sampleRate，0=任意）。存在同时匹配通道与采样率的条目->native（LOG）；否则->`LOG WARN ... will convert (channels X, rate YHz)`；取不到信息->unknown。真正不支持->`ma_device_init` 失败报错退出（ERROR）。注：miniaudio 几乎总以转换方式打开设备，故"不支持"=init 失败，"会做转换"=非原生(warn)。
+- 验证：默认播放设备(VB-Cable) 2ch/48k -> native；请求 8ch/88200Hz -> `WARN will convert`，`in_channels=2 out_channels=8`，运行正常。
+
+### B. 工程级全局配置 buffer_size + API + UI
+- `Project.buffer_size: int = 0`（0=自动=sample_rate/10，保持原硬编码行为）；project_to_dict/ProjectLoader/project.schema.json/manager.create 同步。
+- `ExecutionPlan.buffer_size`（compiler 从 project 写入）；C++ `Plan.buffer_size` + plan.cpp 解析；rt_host 读 plan.buffer_size（0 则 sample_rate/10）作为异步环形缓冲容量。plan.json 已携带该字段，app.py 无需改 CLI 调用。
+- UI：新增 `ui/src/ProjectSettings.js`（模态），工具栏"⚙ 设置"按钮；编辑 sample_rate/block_size/buffer_size，保存写回 doc 并置 dirty（viewsToDoc 以 baseDoc 展开保留这些字段）。App.css 加 .settings-field/.settings-hint。npm run build 通过。
+
+### C. 源驱动采样率(sample_rate) + 实际校验
+- device_in/device_out 新增 yaml 参数 `sample_rate`（int, default 0=继承工程全局, range [0,192000], restart_required, affects_signature；与 device/source 一样为 yaml-only，C 描述符不变）。
+- compiler `_resolve_source_rate()`：扫描 device 源节点的 sample_rate 参数，若声明则采用为图形编译期采样率（覆盖工程默认）；多源不一致->CompileError；未声明->沿用 task.sample_rate。block_size 保持工程全局（图形调度量子，非设备属性；设备周期已与之解耦）。
+- rt_host 以 plan.sample_rate（已源驱动）打开设备并按 nativeDataFormats 校验（见 A）。端到端：device_out sample_rate=88200 -> plan.sample_rate=88200 -> rt_host 按设备实际校验告警。
+- 设计取舍：单任务调度器决定整图单一采样率，故 sample_rate 源驱动="源声明、编译期采用、运行时按设备校验"，而非每源独立运行不同采样率（多采样率需 resample 组件 + divisor，已有机制）。
+
+### 涉及文件
+- C++：`orpheus_runtime/src/rt_host.cpp`、`include/orpheus_runtime/plan.h`、`src/plan.cpp`
+- Python：`orpheus_core/project.py`、`schemas/project.schema.json`、`server/manager.py`、`compiler.py`、`server/app.py`（plan.json 已带 buffer_size，rt_host 读，无需改调用）
+- 组件 yaml：`components/orpheus/builtin/device_in/component.yaml`、`device_out/component.yaml`
+- UI：`ui/src/ProjectSettings.js`(新)、`App.js`、`App.css`
+
+### 验证
+- `cmake --build build --target orpheus_rt_host` 通过。
+- pytest：clock_rate/variable_ports/subgraph 等通过；3 个 test_server 离线探针测试在 clean tree 也失败（pre-existing，非本迭代引入，疑似离线宿主静音问题）。
+- compiler 源驱动采样率 4 case（默认/单源/双源一致/双源冲突）正确。
+- rt_host 实时冒烟：native 与 convert(WARN) 两路径日志正确，通道解耦生效。
+
+### 已知/遗留
+- 离线宿主 3 个探针测试 pre-existing 失败（signal_gen->rms 读数 0.0），与本迭代无关，未修。
+- block_size 仍为工程全局（设计决定，见 C 取舍）。

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,7 @@ class ExecutionPlan:
     sample_rate: int
     block_size: int
     task_id: str
+    buffer_size: int = 0
     nodes: list[str] = field(default_factory=list)
     execution_order: list[str] = field(default_factory=list)
     node_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -163,9 +164,45 @@ class GraphCompiler:
     def __init__(self, registry: Registry):
         self.registry = registry
 
+    # Device source components that may declare an authoritative sample_rate.
+    _DEVICE_SOURCE_COMPONENTS = (
+        "orpheus.builtin.device_in",
+        "orpheus.builtin.device_out",
+    )
+
+    def _resolve_source_rate(self, project: Project, task: Task) -> Task:
+        """Adopt a device source's sample_rate as the graph rate when declared.
+
+        block_size stays project-global (it is a graph scheduling quantum, not a
+        device property). sample_rate, when a device source declares one, becomes
+        the graph's compile-time rate; all device sources must agree. Actual
+        device-native validation happens in the realtime host (rt_host).
+        """
+        rates: set[int] = set()
+        for node in project.graph.nodes.values():
+            if node.component not in self._DEVICE_SOURCE_COMPONENTS:
+                continue
+            raw = node.params.get("sample_rate")
+            if raw is None or raw == 0 or str(raw).strip() == "":
+                continue
+            try:
+                rates.add(int(raw))
+            except (TypeError, ValueError) as exc:
+                raise CompileError(
+                    f"invalid sample_rate {raw!r} on node {node.id}"
+                ) from exc
+        if len(rates) > 1:
+            raise CompileError(
+                f"device sources disagree on sample_rate: {sorted(rates)}"
+            )
+        if len(rates) == 1:
+            return replace(task, sample_rate=next(iter(rates)))
+        return task
+
     def compile(self, project: Project) -> ExecutionPlan:
         graph = project.graph
         task = project.get_default_task()
+        task = self._resolve_source_rate(project, task)
 
         # 1. Resolve nodes and port signatures (expanding variable-count ports)
         resolved_ports: dict[str, ResolvedPort] = {}
@@ -229,6 +266,7 @@ class GraphCompiler:
             abi_version=1,
             sample_rate=task.sample_rate,
             block_size=task.block_size,
+            buffer_size=project.buffer_size,
             task_id=task.id,
             nodes=list(graph.nodes.keys()),
             execution_order=execution_order,

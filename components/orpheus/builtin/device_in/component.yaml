@@ -40,6 +40,14 @@ parameters:
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
+  - id: sample_rate
+    name: 采样率
+    description: 设备请求采样率（Hz）；0 表示继承工程全局采样率。运行时按设备实际能力校验，不支持则报错，需转换则告警。
+    type: int
+    default: 0
+    range: [0, 192000]
+    update_policy: restart_required
+    affects_signature: true
 memory:
   state_size: 0
   scratch_size: 0

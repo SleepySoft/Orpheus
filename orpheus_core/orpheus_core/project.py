@@ -83,6 +83,7 @@ class Project:
     metadata: dict[str, Any] = field(default_factory=dict)
     sample_rate: int = 48000
     block_size: int = 128
+    buffer_size: int = 0
     tasks: dict[str, Task] = field(default_factory=dict)
     graph: Graph = field(default_factory=Graph)
     subcomponents: list[Subcomponent] = field(default_factory=list)
@@ -142,6 +143,7 @@ def project_to_dict(project: Project) -> dict[str, Any]:
         "metadata": project.metadata,
         "sample_rate": project.sample_rate,
         "block_size": project.block_size,
+        "buffer_size": project.buffer_size,
         "tasks": [
             {
                 "id": t.id,
@@ -184,6 +186,7 @@ class ProjectLoader:
         project.metadata = data.get("metadata", {})
         project.sample_rate = data.get("sample_rate", 48000)
         project.block_size = data.get("block_size", 128)
+        project.buffer_size = data.get("buffer_size", 0)
 
         for t in data.get("tasks", []):
             task = Task(

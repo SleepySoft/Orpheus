@@ -39,6 +39,7 @@ struct Plan {
     uint32_t abi_version = 1;
     uint32_t sample_rate = 48000;
     uint32_t block_size = 128;
+    uint32_t buffer_size = 0;  // async ring buffer capacity (0 = auto)
     std::string task_id;
     std::vector<std::string> nodes;
     std::vector<std::string> execution_order;

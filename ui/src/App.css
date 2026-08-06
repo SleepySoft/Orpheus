@@ -758,3 +758,26 @@ pre {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* ---------------------------------------------------------- project settings */
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+.settings-field label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.settings-field input {
+  padding: 6px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+}
+.settings-hint {
+  font-size: 11px;
+  color: #868e96;
+  margin-top: 4px;
+}
