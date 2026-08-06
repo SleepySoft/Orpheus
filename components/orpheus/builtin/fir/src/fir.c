@@ -4,16 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define FIR_MAX_TAPS 1024
-
-typedef struct {
-    uint32_t channels;
-    uint32_t taps;
-    float* coeffs; /* taps 个系数 */
-    float* delay;  /* taps * channels，环形延迟线 */
-    uint32_t* pos; /* 每通道写入位置 */
-} FirState;
-
 static const OrpheusParameter fir_params[] = {
     {
         .id = "coefficients",
@@ -94,7 +84,10 @@ static const OrpheusComponentDescriptor* fir_get_descriptor(void) {
 }
 
 static int fir_create(void** state, const OrpheusConfig* config) {
-    (void)config;
+    if (config != NULL && config->state_block != NULL) {
+        *state = config->state_block;
+        return ORPHEUS_OK;
+    }
     *state = calloc(1, sizeof(FirState));
     if (*state == NULL) return ORPHEUS_ERR_OUT_OF_MEMORY;
     return ORPHEUS_OK;
@@ -113,7 +106,7 @@ static void fir_free_state(FirState* s) {
 static int fir_destroy(void* state) {
     FirState* s = (FirState*)state;
     fir_free_state(s);
-    free(s);
+    /* v2：状态块本身由 Runtime 统一管理 */
     return ORPHEUS_OK;
 }
 
@@ -223,6 +216,18 @@ static int fir_get_parameter(void* state, const char* param_id, OrpheusValue* va
     return ORPHEUS_ERR_NOT_FOUND;
 }
 
+static int fir_register_slots(void* state, const OrpheusRegistry* reg) {
+    FirState* s = (FirState*)state;
+    ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, taps, ORPHEUS_SLOT_PROBE, "taps", "抽头数",
+                     ORPHEUS_VALUE_INT, .flags=ORPHEUS_SLOT_READBACK);
+    return ORPHEUS_OK;
+}
+
 static const OrpheusComponentInterface fir_interface = {
     .get_descriptor = fir_get_descriptor,
     .create = fir_create,
@@ -232,7 +237,8 @@ static const OrpheusComponentInterface fir_interface = {
     .process = fir_process,
     .set_parameter = fir_set_parameter,
     .get_parameter = fir_get_parameter,
-    .get_state_value = NULL
+    .get_state_value = NULL,
+    .register_slots = fir_register_slots
 };
 
 #ifndef ORPHEUS_ENTRY_NAME

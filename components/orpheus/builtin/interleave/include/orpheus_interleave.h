@@ -7,6 +7,8 @@
 extern "C" {
 #endif
 
+typedef struct { uint32_t channels; } InterleaveState;
+
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);
 
 #ifdef __cplusplus

@@ -4,6 +4,7 @@ category: 设备
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: DeviceInState
 clock_source: true
 clock_domain: device
 sources:

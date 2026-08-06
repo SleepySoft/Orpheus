@@ -1,14 +1,16 @@
-id: orpheus.builtin.biquad
-name: 双二阶滤波器
+id: orpheus.builtin.biquad_bank
+name: 双二阶滤波器组
 category: 基础算法
 version: 1.0.0
 abi_version: 1
 package_type: source
-state_type: BiquadState
+state_type: BiquadBankState
+deps:
+  - orpheus.builtin.biquad
 sources:
-  - src/biquad.c
+  - src/biquad_bank.c
 headers:
-  - include/orpheus_biquad.h
+  - include/orpheus_biquad_bank.h
 ports:
   - id: in
     direction: input
@@ -21,35 +23,41 @@ ports:
     sample_format: f32
     channels: param:channels
 parameters:
-  - id: type
-    name: 滤波器类型
-    type: string
-    default: lowpass
-    widget: select
-    options:
-      - {value: lowpass, label: 低通}
-      - {value: highpass, label: 高通}
-      - {value: bandpass, label: 带通}
-      - {value: notch, label: 陷波}
-      - {value: peaking, label: 峰值}
-      - {value: lowshelf, label: 低频搁架}
-      - {value: highshelf, label: 高频搁架}
-    update_policy: restart_required
-  - id: fc
-    name: 截止频率
+  - id: fc0
+    name: 第 1 段频率
     type: float
     default: 1000.0
     range: [20.0, 20000.0]
     unit: Hz
     update_policy: restart_required
-  - id: q
-    name: Q
+  - id: q0
+    name: 第 1 段 Q
     type: float
-    default: 0.707
+    default: 1.0
     range: [0.1, 10.0]
     update_policy: restart_required
-  - id: gain_db
-    name: 增益
+  - id: gain_db0
+    name: 第 1 段增益
+    type: float
+    default: 0.0
+    range: [-24.0, 24.0]
+    unit: dB
+    update_policy: restart_required
+  - id: fc1
+    name: 第 2 段频率
+    type: float
+    default: 3000.0
+    range: [20.0, 20000.0]
+    unit: Hz
+    update_policy: restart_required
+  - id: q1
+    name: 第 2 段 Q
+    type: float
+    default: 1.0
+    range: [0.1, 10.0]
+    update_policy: restart_required
+  - id: gain_db1
+    name: 第 2 段增益
     type: float
     default: 0.0
     range: [-24.0, 24.0]
@@ -69,5 +77,5 @@ memory:
 execution:
   sample_rate_independent: false
   latency_samples: 0
-  supports_inplace: true
+  supports_inplace: false
   realtime_safe: true

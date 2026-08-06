@@ -5,6 +5,7 @@ description: 二阶带通搁架音调控制（Direct Form II Transposed + 增益
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: MidRangeState
 sources:
   - src/midrange.c
 headers:

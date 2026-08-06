@@ -5,6 +5,7 @@ description: 将 N 路单声道输入（in0..inN-1）合并为一路 N 通道交
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: InterleaveState
 sources:
   - src/interleave.c
 headers:

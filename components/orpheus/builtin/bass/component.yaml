@@ -5,6 +5,7 @@ description: 一阶低频搁架音调控制（直通+增益*低通），增益�
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: BassState
 sources:
   - src/bass.c
 headers:

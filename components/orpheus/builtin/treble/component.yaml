@@ -5,6 +5,7 @@ description: 一阶高频搁架音调控制（直通+增益*高通），增益�
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: TrebleState
 sources:
   - src/treble.c
 headers:

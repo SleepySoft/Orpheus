@@ -4,19 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_CHANNELS 32
 #define PI_F 3.14159265358979f
-
-/* Treble: 1st-order high shelf (parallel: dry + boost*HPF) with gain ramp, adapted from Bose TrebleDemo.
-   out = in + boost * HPF(in); HPF = in - LPF(in); boost = 10^(gain_db/20)-1 ramped. */
-typedef struct {
-    float a1;
-    float z[MAX_CHANNELS];
-    float boost;
-    float target_boost;
-    float smoothing_coeff;
-    uint32_t channels;
-} TrebleState;
 
 static float read_float(const OrpheusConfig* config, const char* id, float fallback) {
     for (uint32_t i = 0; i < config->param_count; ++i) {
@@ -66,11 +54,14 @@ static const OrpheusComponentDescriptor treble_descriptor = {
 static const OrpheusComponentDescriptor* treble_get_descriptor(void) { return &treble_descriptor; }
 
 static int treble_create(void** state, const OrpheusConfig* config) {
-    (void)config;
+    if (config != NULL && config->state_block != NULL) {
+        *state = config->state_block;
+        return ORPHEUS_OK;
+    }
     *state = calloc(1, sizeof(TrebleState));
     return *state ? ORPHEUS_OK : ORPHEUS_ERR_OUT_OF_MEMORY;
 }
-static int treble_destroy(void* state) { free(state); return ORPHEUS_OK; }
+static int treble_destroy(void* state) { (void)state; return ORPHEUS_OK; } /* v2：内存由 Runtime 统一管理 */
 
 static int treble_prepare(void* state, const OrpheusConfig* config) {
     TrebleState* s = (TrebleState*)state;
@@ -92,6 +83,9 @@ static int treble_prepare(void* state, const OrpheusConfig* config) {
         s->smoothing_coeff = 1.0f - expf(-1.0f / ((ramp_ms / 1000.0f) * (float)config->sample_rate));
         if (s->smoothing_coeff > 1.0f) s->smoothing_coeff = 1.0f;
     }
+    s->gain_db = gain_db;
+    s->fc = fc;
+    s->ramp_ms = ramp_ms;
     return ORPHEUS_OK;
 }
 static int treble_reset(void* state) {
@@ -143,10 +137,32 @@ static int treble_get_parameter(void* state, const char* param_id, OrpheusValue*
     }
     return ORPHEUS_ERR_NOT_FOUND;
 }
+static int treble_register_slots(void* state, const OrpheusRegistry* reg) {
+    TrebleState* s = (TrebleState*)state;
+    ORPHEUS_REG_SLOT(reg, s, gain_db, ORPHEUS_SLOT_SETTING, "gain_db", "增益",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=-12.0f, .max_f32=12.0f, .unit="dB",
+                     .update_policy=ORPHEUS_UPDATE_SMOOTHED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, fc, ORPHEUS_SLOT_SETTING, "fc", "截止频率",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=1000.0f, .max_f32=12000.0f, .unit="Hz",
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, ramp_ms, ORPHEUS_SLOT_SETTING, "ramp_ms", "斜坡时间",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=0.0f, .max_f32=1000.0f, .unit="ms",
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    return ORPHEUS_OK;
+}
 static const OrpheusComponentInterface treble_interface = {
     .get_descriptor = treble_get_descriptor, .create = treble_create, .destroy = treble_destroy,
     .prepare = treble_prepare, .reset = treble_reset, .process = treble_process,
-    .set_parameter = treble_set_parameter, .get_parameter = treble_get_parameter, .get_state_value = NULL
+    .set_parameter = treble_set_parameter, .get_parameter = treble_get_parameter, .get_state_value = NULL,
+    .register_slots = treble_register_slots
 };
 #ifndef ORPHEUS_ENTRY_NAME
 #define ORPHEUS_ENTRY_NAME orpheus_get_interface

@@ -47,8 +47,25 @@ class CodeGenerator:
         # Collect unique components
         component_ids = sorted({plan.node_configs[n]["component"] for n in plan.nodes})
 
-        # Copy component sources
-        for cid in component_ids:
+        # 组件级 deps 闭包：biquad_bank 依赖 biquad 等——依赖组件的
+        # 源码/头文件随生成工程递归复制，include 路径对依赖方可见。
+        all_ids: list[str] = list(component_ids)
+        seen: set[str] = set(component_ids)
+        queue = list(component_ids)
+        while queue:
+            cid = queue.pop()
+            info = self.registry.get(cid)
+            if info is None:
+                continue
+            for d in info.manifest.get("deps", []):
+                if self.registry.get(d) is not None and d not in seen:
+                    seen.add(d)
+                    all_ids.append(d)
+                    queue.append(d)
+        all_ids = sorted(all_ids)
+
+        # Copy component sources (plan 组件 + 依赖闭包)
+        for cid in all_ids:
             info = self.registry.get(cid)
             if info is None or info.package_type != "source":
                 continue
@@ -70,7 +87,7 @@ class CodeGenerator:
         self._generate_main_c(plan, component_ids, src_dir / "main.c")
 
         # Generate CMakeLists.txt
-        self._generate_cmake(plan, component_ids, output_dir)
+        self._generate_cmake(plan, all_ids, output_dir)
 
     def _generate_main_c(self, plan: ExecutionPlan, component_ids: list[str], path: Path) -> None:
         lines: list[str] = []
@@ -120,6 +137,16 @@ class CodeGenerator:
                 lines.append(f'    {st} {s};')
             lines.append('} g_arena;')
             lines.append('')
+
+        # 生成路径注册器：与动态路径一样调用 register_slots（当前无消费方，
+        # 仅保证注册流程对等；bulk/控制通路启用后在此扩展）。
+        lines.append('static uint64_t g_slot_seq = 0;')
+        lines.append('static OrpheusSlotId generated_reg_add(void* ctx, const OrpheusSlotInfo* info) {')
+        lines.append('    (void)ctx; (void)info;')
+        lines.append('    return g_slot_seq++;')
+        lines.append('}')
+        lines.append('static OrpheusRegistry g_reg = { NULL, generated_reg_add, NULL };')
+        lines.append('')
 
         # Buffer declarations
         for buf_id, buf in plan.buffers.items():
@@ -259,6 +286,9 @@ class CodeGenerator:
                 lines.append('    config.state_block = NULL;')
             lines.append(f'    rc = g_iface_{s}->create(&g_state_{s}, &config);')
             lines.append(f'    if (rc != ORPHEUS_OK) return rc;')
+            lines.append(f'    if (g_iface_{s}->get_descriptor()->abi_version >= 2 && g_iface_{s}->register_slots) {{')
+            lines.append(f'        g_iface_{s}->register_slots(g_state_{s}, &g_reg);')
+            lines.append('    }')
             lines.append(f'    rc = g_iface_{s}->prepare(g_state_{s}, &config);')
             lines.append(f'    if (rc != ORPHEUS_OK) return rc;')
         lines.append('    return ORPHEUS_OK;')
@@ -333,6 +363,10 @@ class CodeGenerator:
         lines.append('set(CMAKE_C_STANDARD_REQUIRED ON)')
         lines.append("")
         lines.append('include_directories(${CMAKE_SOURCE_DIR}/include)')
+        # 依赖闭包组件的 include 目录全局可见（父组件头文件可 include 子组件头）
+        for cid in component_ids:
+            comp_target = self._component_target_name(cid)
+            lines.append(f'include_directories(${{CMAKE_SOURCE_DIR}}/components/{comp_target}/include)')
         lines.append('add_definitions(-DORPHEUS_API=)')
         lines.append("")
         # MSVC 必须按 UTF-8 读取源码（中文注释/字符串），与主构建保持一致

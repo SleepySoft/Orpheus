@@ -26,14 +26,6 @@ static wchar_t* utf8_to_wide(const char* utf8) {
 }
 #endif
 
-typedef struct {
-    char file_path[512];
-    float* samples;
-    uint32_t total_frames;
-    uint32_t position;
-    uint32_t channels;
-} Mp3InState;
-
 static const OrpheusParameter mp3_in_params[] = {
     {
         .id = "file_path",
@@ -104,7 +96,10 @@ static const OrpheusComponentDescriptor* mp3_in_get_descriptor(void) {
 }
 
 static int mp3_in_create(void** state, const OrpheusConfig* config) {
-    (void)config;
+    if (config != NULL && config->state_block != NULL) {
+        *state = config->state_block;
+        return ORPHEUS_OK;
+    }
     *state = calloc(1, sizeof(Mp3InState));
     if (*state == NULL) return ORPHEUS_ERR_OUT_OF_MEMORY;
     return ORPHEUS_OK;
@@ -113,7 +108,7 @@ static int mp3_in_create(void** state, const OrpheusConfig* config) {
 static int mp3_in_destroy(void* state) {
     Mp3InState* s = (Mp3InState*)state;
     if (s->samples) free(s->samples);
-    free(s);
+    /* v2：状态块本身由 Runtime 统一管理 */
     return ORPHEUS_OK;
 }
 
@@ -235,6 +230,21 @@ static int mp3_in_get_parameter(void* state, const char* param_id, OrpheusValue*
     return ORPHEUS_ERR_NOT_FOUND;
 }
 
+static int mp3_in_register_slots(void* state, const OrpheusRegistry* reg) {
+    Mp3InState* s = (Mp3InState*)state;
+    ORPHEUS_REG_SLOT(reg, s, file_path, ORPHEUS_SLOT_SETTING, "file_path", "MP3 文件",
+                     ORPHEUS_VALUE_STRING, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, total_frames, ORPHEUS_SLOT_PROBE, "total_frames", "总帧数",
+                     ORPHEUS_VALUE_INT, .flags=ORPHEUS_SLOT_READBACK);
+    return ORPHEUS_OK;
+}
+
 static const OrpheusComponentInterface mp3_in_interface = {
     .get_descriptor = mp3_in_get_descriptor,
     .create = mp3_in_create,
@@ -244,7 +254,8 @@ static const OrpheusComponentInterface mp3_in_interface = {
     .process = mp3_in_process,
     .set_parameter = mp3_in_set_parameter,
     .get_parameter = mp3_in_get_parameter,
-    .get_state_value = NULL
+    .get_state_value = NULL,
+    .register_slots = mp3_in_register_slots
 };
 
 #ifndef ORPHEUS_ENTRY_NAME

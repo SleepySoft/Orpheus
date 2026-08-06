@@ -4,6 +4,7 @@ category: 信号源
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: SweepGenState
 sources:
   - src/sweep_gen.c
 headers:

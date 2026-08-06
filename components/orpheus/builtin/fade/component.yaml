@@ -5,6 +5,7 @@ description: 频谱分频前后衰减（低频全通、高频按前/后增益斜
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: FadeState
 sources:
   - src/fade.c
 headers:

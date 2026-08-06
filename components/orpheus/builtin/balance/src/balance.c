@@ -4,18 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Balance: L/R balance with gain ramp (even=left, odd=right), adapted from Bose BalanceDemo.
-   balance: -1=full left, +1=full right, 0=center (both 1.0). */
-typedef struct {
-    float left_gain;
-    float right_gain;
-    float target_left;
-    float target_right;
-    float balance;
-    float smoothing_coeff;
-    uint32_t channels;
-} BalanceState;
-
 static float read_float(const OrpheusConfig* config, const char* id, float fallback) {
     for (uint32_t i = 0; i < config->param_count; ++i) {
         if (config->param_ids[i] && strcmp(config->param_ids[i], id) == 0) {
@@ -65,11 +53,14 @@ static const OrpheusComponentDescriptor bal_descriptor = {
 static const OrpheusComponentDescriptor* bal_get_descriptor(void) { return &bal_descriptor; }
 
 static int bal_create(void** state, const OrpheusConfig* config) {
-    (void)config;
+    if (config != NULL && config->state_block != NULL) {
+        *state = config->state_block;
+        return ORPHEUS_OK;
+    }
     *state = calloc(1, sizeof(BalanceState));
     return *state ? ORPHEUS_OK : ORPHEUS_ERR_OUT_OF_MEMORY;
 }
-static int bal_destroy(void* state) { free(state); return ORPHEUS_OK; }
+static int bal_destroy(void* state) { (void)state; return ORPHEUS_OK; } /* v2：内存由 Runtime 统一管理 */
 
 static int bal_prepare(void* state, const OrpheusConfig* config) {
     BalanceState* s = (BalanceState*)state;
@@ -85,6 +76,7 @@ static int bal_prepare(void* state, const OrpheusConfig* config) {
         s->smoothing_coeff = 1.0f - expf(-1.0f / ((ramp_ms / 1000.0f) * (float)config->sample_rate));
         if (s->smoothing_coeff > 1.0f) s->smoothing_coeff = 1.0f;
     }
+    s->ramp_ms = ramp_ms;
     return ORPHEUS_OK;
 }
 static int bal_reset(void* state) {
@@ -135,10 +127,28 @@ static int bal_get_parameter(void* state, const char* param_id, OrpheusValue* va
     }
     return ORPHEUS_ERR_NOT_FOUND;
 }
+static int bal_register_slots(void* state, const OrpheusRegistry* reg) {
+    BalanceState* s = (BalanceState*)state;
+    ORPHEUS_REG_SLOT(reg, s, balance, ORPHEUS_SLOT_SETTING, "balance", "平衡",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=-1.0f, .max_f32=1.0f,
+                     .update_policy=ORPHEUS_UPDATE_SMOOTHED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, ramp_ms, ORPHEUS_SLOT_SETTING, "ramp_ms", "斜坡时间",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=0.0f, .max_f32=1000.0f, .unit="ms",
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=2, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    return ORPHEUS_OK;
+}
 static const OrpheusComponentInterface bal_interface = {
     .get_descriptor = bal_get_descriptor, .create = bal_create, .destroy = bal_destroy,
     .prepare = bal_prepare, .reset = bal_reset, .process = bal_process,
-    .set_parameter = bal_set_parameter, .get_parameter = bal_get_parameter, .get_state_value = NULL
+    .set_parameter = bal_set_parameter, .get_parameter = bal_get_parameter, .get_state_value = NULL,
+    .register_slots = bal_register_slots
 };
 #ifndef ORPHEUS_ENTRY_NAME
 #define ORPHEUS_ENTRY_NAME orpheus_get_interface

@@ -5,6 +5,7 @@ description: 将一路 N 通道交错信号拆分为 N 路单声道输出（out0
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: DeinterleaveState
 sources:
   - src/deinterleave.c
 headers:

@@ -3,16 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_CH 32
-
-/* InputSelect: per-output input channel selection (demux), adapted from Bose InputSelectDemo.
-   select is a comma-separated list of 1-based input indices (0=mute); missing/out-of-range => identity. */
-typedef struct {
-    int32_t map[MAX_CH];   /* map[out] = 0-based input index, or -1 = mute */
-    uint32_t channels_in;
-    uint32_t channels_out;
-} InputSelectState;
-
 static uint32_t read_uint(const OrpheusConfig* config, const char* id, uint32_t fallback) {
     for (uint32_t i = 0; i < config->param_count; ++i) {
         if (config->param_ids[i] && strcmp(config->param_ids[i], id) == 0) {
@@ -66,11 +56,14 @@ static const OrpheusComponentDescriptor is_descriptor = {
 static const OrpheusComponentDescriptor* is_get_descriptor(void) { return &is_descriptor; }
 
 static int is_create(void** state, const OrpheusConfig* config) {
-    (void)config;
+    if (config != NULL && config->state_block != NULL) {
+        *state = config->state_block;
+        return ORPHEUS_OK;
+    }
     *state = calloc(1, sizeof(InputSelectState));
     return *state ? ORPHEUS_OK : ORPHEUS_ERR_OUT_OF_MEMORY;
 }
-static int is_destroy(void* state) { free(state); return ORPHEUS_OK; }
+static int is_destroy(void* state) { (void)state; return ORPHEUS_OK; } /* v2：内存由 Runtime 统一管理 */
 
 static int is_prepare(void* state, const OrpheusConfig* config) {
     InputSelectState* s = (InputSelectState*)state;
@@ -102,6 +95,9 @@ static int is_prepare(void* state, const OrpheusConfig* config) {
             p = end;
         }
     }
+    const char* sel = str != NULL ? str : "1,2";
+    strncpy(s->select, sel, sizeof(s->select) - 1);
+    s->select[sizeof(s->select) - 1] = '\0';
     return ORPHEUS_OK;
 }
 static int is_reset(void* state) { (void)state; return ORPHEUS_OK; }
@@ -143,10 +139,28 @@ static int is_get_parameter(void* state, const char* param_id, OrpheusValue* val
     }
     return ORPHEUS_ERR_NOT_FOUND;
 }
+static int is_register_slots(void* state, const OrpheusRegistry* reg) {
+    InputSelectState* s = (InputSelectState*)state;
+    ORPHEUS_REG_SLOT(reg, s, channels_in, ORPHEUS_SLOT_SETTING, "channels_in", "输入通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, channels_out, ORPHEUS_SLOT_SETTING, "channels_out", "输出通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, select, ORPHEUS_SLOT_SETTING, "select", "通道映射",
+                     ORPHEUS_VALUE_STRING, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    return ORPHEUS_OK;
+}
 static const OrpheusComponentInterface is_interface = {
     .get_descriptor = is_get_descriptor, .create = is_create, .destroy = is_destroy,
     .prepare = is_prepare, .reset = is_reset, .process = is_process,
-    .set_parameter = is_set_parameter, .get_parameter = is_get_parameter, .get_state_value = NULL
+    .set_parameter = is_set_parameter, .get_parameter = is_get_parameter, .get_state_value = NULL,
+    .register_slots = is_register_slots
 };
 #ifndef ORPHEUS_ENTRY_NAME
 #define ORPHEUS_ENTRY_NAME orpheus_get_interface

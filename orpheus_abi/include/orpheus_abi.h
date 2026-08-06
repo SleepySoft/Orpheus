@@ -115,6 +115,7 @@ typedef enum {
 #define ORPHEUS_SLOT_PERSISTENT        (1u << 0)
 #define ORPHEUS_SLOT_READBACK          (1u << 1)
 #define ORPHEUS_SLOT_AFFECTS_SIGNATURE (1u << 2)
+#define ORPHEUS_SLOT_DIRECT_WRITE      (1u << 3)  /* 存储值即语义值，允许 Runtime 直写（无副作用重算） */
 
 /* 槽 ID：64 位，version|core|kind|type|instance|slot（见 docs/design_registry.md） */
 typedef uint64_t OrpheusSlotId;

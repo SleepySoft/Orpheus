@@ -4,24 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_CHANNELS 32
 #define PI_F 3.14159265358979f
-
-/* Fade: spectral front/back fade (LPF always full, HPF scaled by front/back gain ramp), adapted from Bose FadeDemo.
-   out = LPF(in) + gain * (in - LPF(in)); front group uses front_gain, back group uses back_gain.
-   fade: -1=full back, +1=full front, 0=no attenuation. */
-typedef struct {
-    float a1;                 /* 1st-order LPF pole (crossover) */
-    float z[MAX_CHANNELS];    /* per-channel LPF state */
-    float front_gain;         /* current front gain (ramping) */
-    float back_gain;          /* current back gain (ramping) */
-    float target_front;
-    float target_back;
-    float fade;               /* param cache (readback) */
-    float smoothing_coeff;
-    uint32_t channels;
-    uint32_t front_channels;  /* 0..front_channels-1 are front */
-} FadeState;
 
 static float read_float(const OrpheusConfig* config, const char* id, float fallback) {
     for (uint32_t i = 0; i < config->param_count; ++i) {
@@ -80,11 +63,14 @@ static const OrpheusComponentDescriptor fade_descriptor = {
 static const OrpheusComponentDescriptor* fade_get_descriptor(void) { return &fade_descriptor; }
 
 static int fade_create(void** state, const OrpheusConfig* config) {
-    (void)config;
+    if (config != NULL && config->state_block != NULL) {
+        *state = config->state_block;
+        return ORPHEUS_OK;
+    }
     *state = calloc(1, sizeof(FadeState));
     return *state ? ORPHEUS_OK : ORPHEUS_ERR_OUT_OF_MEMORY;
 }
-static int fade_destroy(void* state) { free(state); return ORPHEUS_OK; }
+static int fade_destroy(void* state) { (void)state; return ORPHEUS_OK; } /* v2：内存由 Runtime 统一管理 */
 
 static int fade_prepare(void* state, const OrpheusConfig* config) {
     FadeState* s = (FadeState*)state;
@@ -111,6 +97,8 @@ static int fade_prepare(void* state, const OrpheusConfig* config) {
         s->smoothing_coeff = 1.0f - expf(-1.0f / ((ramp_ms / 1000.0f) * (float)config->sample_rate));
         if (s->smoothing_coeff > 1.0f) s->smoothing_coeff = 1.0f;
     }
+    s->crossover_hz = fc;
+    s->ramp_ms = ramp_ms;
     return ORPHEUS_OK;
 }
 static int fade_reset(void* state) {
@@ -167,10 +155,36 @@ static int fade_get_parameter(void* state, const char* param_id, OrpheusValue* v
     }
     return ORPHEUS_ERR_NOT_FOUND;
 }
+static int fade_register_slots(void* state, const OrpheusRegistry* reg) {
+    FadeState* s = (FadeState*)state;
+    ORPHEUS_REG_SLOT(reg, s, fade, ORPHEUS_SLOT_SETTING, "fade", "前后淡入淡出",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=-1.0f, .max_f32=1.0f,
+                     .update_policy=ORPHEUS_UPDATE_SMOOTHED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, crossover_hz, ORPHEUS_SLOT_SETTING, "crossover_hz", "分频点",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=100.0f, .max_f32=2000.0f, .unit="Hz",
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=2, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, front_channels, ORPHEUS_SLOT_SETTING, "front_channels", "前组通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=31,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, ramp_ms, ORPHEUS_SLOT_SETTING, "ramp_ms", "斜坡时间",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=0.0f, .max_f32=1000.0f, .unit="ms",
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    return ORPHEUS_OK;
+}
 static const OrpheusComponentInterface fade_interface = {
     .get_descriptor = fade_get_descriptor, .create = fade_create, .destroy = fade_destroy,
     .prepare = fade_prepare, .reset = fade_reset, .process = fade_process,
-    .set_parameter = fade_set_parameter, .get_parameter = fade_get_parameter, .get_state_value = NULL
+    .set_parameter = fade_set_parameter, .get_parameter = fade_get_parameter, .get_state_value = NULL,
+    .register_slots = fade_register_slots
 };
 #ifndef ORPHEUS_ENTRY_NAME
 #define ORPHEUS_ENTRY_NAME orpheus_get_interface

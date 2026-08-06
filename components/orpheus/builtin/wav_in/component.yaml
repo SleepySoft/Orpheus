@@ -4,6 +4,7 @@ category: 文件
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: WavInState
 clock_source: true
 clock_domain: file
 sources:

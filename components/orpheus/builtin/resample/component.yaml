@@ -5,6 +5,7 @@ description: 整数倍降采样（N:1，滑动平均抗混叠）：输入每 N �
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: ResampleState
 scheduling:
   divisor: param:factor
 sources:

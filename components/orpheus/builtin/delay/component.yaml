@@ -4,6 +4,7 @@ category: 基础算法
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: DelayState
 sources:
   - src/delay.c
 headers:

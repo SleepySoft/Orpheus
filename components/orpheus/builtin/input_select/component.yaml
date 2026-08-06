@@ -5,6 +5,7 @@ description: 通道选择/解复用，每路输出选取一路输入（select �
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: InputSelectState
 sources:
   - src/input_select.c
 headers:

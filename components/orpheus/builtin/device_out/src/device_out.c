@@ -3,10 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
-    uint32_t channels;
-} DeviceOutState;
-
 static const OrpheusParameter device_out_params[] = {
     {
         .id = "channels",
@@ -57,14 +53,17 @@ static const OrpheusComponentDescriptor* device_out_get_descriptor(void) {
 }
 
 static int device_out_create(void** state, const OrpheusConfig* config) {
-    (void)config;
+    if (config != NULL && config->state_block != NULL) {
+        *state = config->state_block;
+        return ORPHEUS_OK;
+    }
     *state = calloc(1, sizeof(DeviceOutState));
     if (*state == NULL) return ORPHEUS_ERR_OUT_OF_MEMORY;
     return ORPHEUS_OK;
 }
 
 static int device_out_destroy(void* state) {
-    free(state);
+    (void)state; /* v2：内存由 Runtime 统一管理 */
     return ORPHEUS_OK;
 }
 
@@ -103,6 +102,16 @@ static int device_out_get_parameter(void* state, const char* param_id, OrpheusVa
     return ORPHEUS_ERR_NOT_FOUND;
 }
 
+static int device_out_register_slots(void* state, const OrpheusRegistry* reg) {
+    DeviceOutState* s = (DeviceOutState*)state;
+    ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    return ORPHEUS_OK;
+}
+
 static const OrpheusComponentInterface device_out_interface = {
     .get_descriptor = device_out_get_descriptor,
     .create = device_out_create,
@@ -112,7 +121,8 @@ static const OrpheusComponentInterface device_out_interface = {
     .process = device_out_process,
     .set_parameter = device_out_set_parameter,
     .get_parameter = device_out_get_parameter,
-    .get_state_value = NULL
+    .get_state_value = NULL,
+    .register_slots = device_out_register_slots
 };
 
 #ifndef ORPHEUS_ENTRY_NAME

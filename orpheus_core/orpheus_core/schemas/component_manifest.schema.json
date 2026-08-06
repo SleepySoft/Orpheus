@@ -17,8 +17,8 @@
     },
     "deps": {
       "type": "array",
-      "items": { "type": "string", "enum": ["miniaudio"] },
-      "description": "Optional third-party dependencies copied into generated projects (e.g. miniaudio)"
+      "items": { "type": "string" },
+      "description": "依赖：第三方（miniaudio）或组件 id（如 orpheus.builtin.biquad），生成工程递归复制"
     },
     "headers": {
       "type": "array",

@@ -343,6 +343,7 @@ int Runtime::set_parameter(const std::string& node_id, const std::string& param_
         const SlotEntry& e = inst.slots[si->second];
         if (e.kind == ORPHEUS_SLOT_SETTING && e.count == 1 && inst.state != nullptr &&
             e.update_policy != ORPHEUS_UPDATE_RESTART_REQUIRED &&
+            (e.flags & ORPHEUS_SLOT_DIRECT_WRITE) != 0 &&
             value.type == e.type && e.offset + e.size <= inst.state_size) {
             char* p = static_cast<char*>(inst.state) + e.offset;
             if (e.type == ORPHEUS_VALUE_FLOAT && e.size >= sizeof(float)) {
@@ -367,13 +368,14 @@ int Runtime::get_parameter(const std::string& node_id, const std::string& param_
     auto it = instances_.find(node_id);
     if (it == instances_.end()) return -1;
     Instance& inst = *it->second;
-    // v2 槽直读：标量 SETTING/PROBE/STATE 直接读注册内存；数组（如 waveform）走回调编码。
+    // v2 槽直读：PROBE 槽始终直读；SETTING 槽仅 DIRECT_WRITE（存储值即语义值）时直读，
+    // 其余回退回调——保留派生读回语义（如 bass gain_db 读的是平滑后的当前值）。
     auto si = inst.slot_index.find(param_id);
     if (si != inst.slot_index.end()) {
         const SlotEntry& e = inst.slots[si->second];
         if (e.count == 1 && inst.state != nullptr &&
-            (e.kind == ORPHEUS_SLOT_SETTING || e.kind == ORPHEUS_SLOT_PROBE ||
-             e.kind == ORPHEUS_SLOT_STATE) &&
+            (e.kind == ORPHEUS_SLOT_PROBE ||
+             (e.kind == ORPHEUS_SLOT_SETTING && (e.flags & ORPHEUS_SLOT_DIRECT_WRITE) != 0)) &&
             e.offset + e.size <= inst.state_size) {
             const char* p = static_cast<const char*>(inst.state) + e.offset;
             if (e.type == ORPHEUS_VALUE_FLOAT && e.size >= sizeof(float)) {
@@ -395,6 +397,22 @@ int Runtime::get_parameter(const std::string& node_id, const std::string& param_
     }
     if (!inst.interface_->get_parameter) return -1;
     return inst.interface_->get_parameter(inst.state, param_id.c_str(), value);
+}
+
+int Runtime::write_bulk(const std::string& node_id, const std::string& key,
+                        const void* data, size_t count) {
+    auto it = instances_.find(node_id);
+    if (it == instances_.end()) return -1;
+    Instance& inst = *it->second;
+    auto si = inst.slot_index.find(key);
+    if (si == inst.slot_index.end()) return -1;
+    const SlotEntry& e = inst.slots[si->second];
+    if (e.kind != ORPHEUS_SLOT_BULK) return -1;
+    if (count > e.count) return -1;                  /* 内部边界：不超过槽容量 */
+    size_t span = count * e.size;
+    if (inst.state == nullptr || e.offset + span > inst.state_size) return -1; /* 上下边界 */
+    std::memcpy(static_cast<char*>(inst.state) + e.offset, data, span);
+    return ORPHEUS_OK;
 }
 
 const OrpheusComponentInterface* Runtime::get_interface(const std::string& node_id) {

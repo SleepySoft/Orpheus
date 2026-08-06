@@ -5,6 +5,7 @@ description: 矩阵混音路由，按增益矩阵将输入混音到输出（matr
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: OutputRouterState
 sources:
   - src/output_router.c
 headers:

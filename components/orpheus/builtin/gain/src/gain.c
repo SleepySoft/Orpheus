@@ -210,7 +210,8 @@ static int gain_register_slots(void* state, const OrpheusRegistry* reg) {
     ORPHEUS_REG_SLOT(reg, s, gain_db, ORPHEUS_SLOT_SETTING, "gain_db", "增益",
                      ORPHEUS_VALUE_FLOAT, .min_f32=-96.0f, .max_f32=24.0f, .unit="dB",
                      .update_policy=ORPHEUS_UPDATE_SMOOTHED,
-                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_DIRECT_WRITE);
     ORPHEUS_REG_SLOT(reg, s, smoothing_ms, ORPHEUS_SLOT_SETTING, "smoothing_ms", "平滑时间",
                      ORPHEUS_VALUE_FLOAT, .min_f32=0.0f, .max_f32=1000.0f, .unit="ms",
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,

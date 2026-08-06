@@ -54,6 +54,10 @@ public:
     // Get a parameter (e.g. probe readback values) from a node.
     int get_parameter(const std::string& node_id, const std::string& param_id, OrpheusValue* value);
 
+    // v2 BULK 直写：把大块数据（系数/查表）写入注册的 BULK 数组槽，带边界校验。
+    int write_bulk(const std::string& node_id, const std::string& key,
+                   const void* data, size_t count);
+
     // Access the component interface of a loaded node (metadata/introspection).
     const OrpheusComponentInterface* get_interface(const std::string& node_id);
 

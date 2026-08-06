@@ -5,6 +5,7 @@ description: 增益斜坡静音（0=正常 1=静音），平滑过渡消除咔�
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: MuteState
 sources:
   - src/mute.c
 headers:

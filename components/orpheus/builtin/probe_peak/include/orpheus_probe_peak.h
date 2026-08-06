@@ -7,6 +7,8 @@
 extern "C" {
 #endif
 
+typedef struct { float peak; uint32_t channels; } ProbePeakState;
+
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);
 
 #ifdef __cplusplus

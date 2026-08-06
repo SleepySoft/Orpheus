@@ -4,6 +4,7 @@ category: 基础算法
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: FirState
 sources:
   - src/fir.c
 headers:

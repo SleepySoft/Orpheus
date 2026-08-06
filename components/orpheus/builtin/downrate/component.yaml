@@ -5,6 +5,7 @@ description: 同时钟域分频（重缓冲）：下游每 N 个块执行一次�
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: DownrateState
 scheduling:
   divisor: param:factor
 sources:

@@ -5,6 +5,7 @@ description: 左右平衡增益斜坡（偶数通道=左 奇数通道=右），b
 version: 1.0.0
 abi_version: 1
 package_type: source
+state_type: BalanceState
 sources:
   - src/balance.c
 headers:

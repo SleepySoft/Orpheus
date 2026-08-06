@@ -71,3 +71,24 @@ static int gain_register_slots(void* state, const OrpheusRegistry* reg) {
 2. 写一个含该组件的示例工程，动态运行（`/api/projects/{name}/run`）与生成运行（`/run_generated`）输出**逐字节一致**。
 3. 探针/readback 回读正常（标量走槽，数组走回调）。
 4. 中文名/注释用 UTF-8；别用 PowerShell `Get-Content`/`Set-Content` 改写源码。
+
+## 四、聚合组件与 BULK（biquad_bank 示例）
+
+聚合组件通过 deps 复用基础组件的**公开状态结构体**：
+
+```yaml
+deps:
+  - orpheus.builtin.biquad
+state_type: BiquadBankState
+```
+
+```c
+typedef struct {
+    BiquadState bq[2];   /* 子块内联，物理连续 */
+    uint32_t channels;
+} BiquadBankState;
+```
+
+- 父组件 `register_slots` **代理注册**子块字段（层级键 `fc0`/`q0`/`gain_db0` → `&s->bq[0].fc` 等）。
+- 子块系数 buffer（`b0..a2` 连续 5 个 float）注册为 `ORPHEUS_SLOT_BULK`，用 `Runtime::write_bulk(node, key, data, count)` 直写（带容量/边界校验）。
+- 生成器按 deps 递归复制依赖组件源码/头文件并加 include 路径；`biquad_bank` 组件的 CMakeLists 需显式加依赖 include 目录。

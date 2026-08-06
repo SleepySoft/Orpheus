@@ -3,15 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Downrate (rebuffer): runs every block, copies each input block into the
- * output superblock; downstream fires once per `factor` blocks and processes
- * factor*block frames at once. Sample rate is unchanged. */
-typedef struct {
-    uint32_t factor;
-    uint32_t channels;
-    uint32_t offset_frames;
-} DownrateState;
-
 static const OrpheusParameter params[] = {
     { .id = "factor", .name = "Factor", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 4 },
@@ -35,9 +26,10 @@ static const OrpheusComponentDescriptor desc = {
 
 static const OrpheusComponentDescriptor* get_desc(void) { return &desc; }
 static int create(void** state, const OrpheusConfig* config) {
-    (void)config; *state = calloc(1, sizeof(DownrateState)); return *state ? ORPHEUS_OK : ORPHEUS_ERR_OUT_OF_MEMORY;
+    if (config != NULL && config->state_block != NULL) { *state = config->state_block; return ORPHEUS_OK; }
+    *state = calloc(1, sizeof(DownrateState)); return *state ? ORPHEUS_OK : ORPHEUS_ERR_OUT_OF_MEMORY;
 }
-static int destroy(void* state) { free(state); return ORPHEUS_OK; }
+static int destroy(void* state) { (void)state; return ORPHEUS_OK; } /* v2：内存由 Runtime 统一管理 */
 static int prepare(void* state, const OrpheusConfig* config) {
     DownrateState* s = (DownrateState*)state;
     s->channels = config->channels > 0 ? config->channels : 2;
@@ -80,8 +72,22 @@ static int get_param(void* state, const char* id, OrpheusValue* v) {
     if (strcmp(id, "channels") == 0) { v->type = ORPHEUS_VALUE_INT; v->value.i32 = (int32_t)s->channels; return ORPHEUS_OK; }
     return ORPHEUS_ERR_NOT_FOUND;
 }
+static int register_slots(void* state, const OrpheusRegistry* reg) {
+    DownrateState* s = (DownrateState*)state;
+    ORPHEUS_REG_SLOT(reg, s, factor, ORPHEUS_SLOT_SETTING, "factor", "降采样因子",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=64,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    return ORPHEUS_OK;
+}
 static const OrpheusComponentInterface iface = {
-    get_desc, create, destroy, prepare, reset, process, set_param, get_param, NULL
+    get_desc, create, destroy, prepare, reset, process, set_param, get_param, NULL, register_slots
 };
 #ifndef ORPHEUS_ENTRY_NAME
 #define ORPHEUS_ENTRY_NAME orpheus_get_interface

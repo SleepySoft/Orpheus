@@ -5,23 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SPECTRUM_MAX_WINDOW 4096
-#define SPECTRUM_JSON_CAP 16384
-
-typedef struct {
-    uint32_t channels;
-    uint32_t window_size;
-    uint32_t half;
-    float* window;  /* Hann 窗 */
-    float* ring;    /* 第 0 通道环形缓冲 */
-    uint32_t ring_pos;
-    uint32_t samples_seen;
-    float* re;      /* FFT 实部 */
-    float* im;      /* FFT 虚部 */
-    float* mags;    /* half 个幅度 */
-    char json[SPECTRUM_JSON_CAP];
-} SpectrumState;
-
 static const OrpheusParameter params[] = {
     {
         .id = "channels",
@@ -104,7 +87,10 @@ static const OrpheusComponentDescriptor* get_desc(void) {
 }
 
 static int create(void** state, const OrpheusConfig* config) {
-    (void)config;
+    if (config != NULL && config->state_block != NULL) {
+        *state = config->state_block;
+        return ORPHEUS_OK;
+    }
     *state = calloc(1, sizeof(SpectrumState));
     return *state ? ORPHEUS_OK : ORPHEUS_ERR_OUT_OF_MEMORY;
 }
@@ -121,7 +107,7 @@ static void free_state(SpectrumState* s) {
 static int destroy(void* state) {
     SpectrumState* s = (SpectrumState*)state;
     free_state(s);
-    free(s);
+    /* v2：状态块本身由 Runtime 统一管理 */
     return ORPHEUS_OK;
 }
 
@@ -279,6 +265,22 @@ static int get_param(void* state, const char* id, OrpheusValue* v) {
     return ORPHEUS_ERR_NOT_FOUND;
 }
 
+static int register_slots(void* state, const OrpheusRegistry* reg) {
+    SpectrumState* s = (SpectrumState*)state;
+    ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, window_size, ORPHEUS_SLOT_SETTING, "window_size", "FFT 窗口",
+                     ORPHEUS_VALUE_INT, .min_i32=64, .max_i32=4096,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT);
+    ORPHEUS_REG_SLOT(reg, s, json, ORPHEUS_SLOT_PROBE, "spectrum", "频谱",
+                     ORPHEUS_VALUE_STRING, .flags=ORPHEUS_SLOT_READBACK);
+    return ORPHEUS_OK;
+}
+
 static const OrpheusComponentInterface iface = {
     .get_descriptor = get_desc,
     .create = create,
@@ -288,7 +290,8 @@ static const OrpheusComponentInterface iface = {
     .process = process,
     .set_parameter = set_param,
     .get_parameter = get_param,
-    .get_state_value = NULL
+    .get_state_value = NULL,
+    .register_slots = register_slots
 };
 
 #ifndef ORPHEUS_ENTRY_NAME

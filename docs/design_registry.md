@@ -331,7 +331,7 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 
 ## 9. 代码生成一致性
 
-- 生成 `main.c` 声明静态拼接结构体（`g_arena`）并下发 `state_block`，`create` 直接绑定。槽注册目前是**运行期能力**（动态路径调用 `register_slots`；生成路径尚未调用，见"实证验证与修正"）。一致性由"两路同一份组件源码 + 同一布局规则"保证。
+- 生成 `main.c` 声明静态拼接结构体（`g_arena`）并下发 `state_block`，`create` 直接绑定；生成路径也调用 `register_slots`（占位注册器，流程与动态路径对等，bulk/控制通路启用后可扩展）。一致性由"两路同一份组件源码 + 同一布局规则"保证。
 - 顶层布局 = 类型拼接（生成路径）或按 `state_size` 切片（动态路径），不依赖任何大小元数据；槽级注册仍显式携带 offset/size 供边界检测。组件侧 `_Static_assert` 锁"实际偏移 == 注册偏移"，防跨编译器布局漂移。
 - 确定性 ID（type 按组件 id 排序、instance 按 plan 顺序、slot 按注册顺序）使动态/生成路径可复算同一套 ID，供测试断言。
 
@@ -362,7 +362,7 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - COMMAND 的确认（ack）语义与超时。
 - 含代码的封装型复合组件（Type B 带代码）如何建模（manifest `graph + code`?）。
 - 子块字段表放 header（C 侧，组件作者维护）还是 manifest（Python 侧可见、生成器可用）。
-- 生成路径的注册器：bulk 注入/控制通路需要时，生成 main 必须与动态路径一样调用 `register_slots`（当前生成 main 不调用，仅影响运行期数据注入，不影响 DSP 输出一致性）。
+- （已解决 2026-08-06）生成路径注册器：生成 main 已调用 `register_slots`（占位注册器）；bulk/控制通路启用时在此扩展。
 - （已解决 2026-08-06）块大小权威：动态路径 = 描述符 `state_size`（组件自报）；生成路径 = 类型拼接，无需大小元数据。
 - 跨编译器（MSVC/MinGW）布局差异的静态断言覆盖范围。
 
@@ -378,7 +378,7 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 
 ### 修正（推论与实际的差异）
 
-1. **生成路径当前不调用 `register_slots`**：生成 main 只跑 create/prepare/process/destroy。此前"两路跑同一份注册代码"的表述不准确；因槽注册不改变 DSP 输出，一致性测试仍通过。bulk 注入/控制通路启用时，生成 main 必须同步注册（已挂开放问题）。
+1. **生成路径当前不调用 `register_slots`**（已解决）：生成 main 曾只跑 create/prepare/process/destroy；现已在 create 后调用占位注册器（流程对等，DSP 输出不变）。
 2. **两种嵌套是两种代码形态**：图级复合（UI `sub:`）被完全摊平成"多个实例成员"（`g_arena` 里的独立成员）；组件内部子块保留在"单个状态结构体内部"。统一机制成立（类型拼接 + 注册），但不宜表述为"一棵内存树"。
 3. **`g_arena` 是实例粒度（plan 级）拼接**；运行期 SlotMap 是类型级偏移表。两者并存：生成期布局在实例，运行期寻址在类型。
 4. **节点 id 必须清洗为合法 C 标识符**：实测节点名含 `.`（`my.gain`）会生成非法代码；`_sanitized_node_id` 改为正则替换所有非标识符字符（`my.gain → my_gain`）。
@@ -431,17 +431,20 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 5. **槽路由的边界规则**：标量（count==1）SETTING/PROBE/STATE 直读直写；数组槽（如 waveform）回退回调保持 JSON 编码；类型不匹配（如 SET 发 FLOAT 给 INT 槽）回退回调——保持旧行为，避免行为突变。
 6. **ABI 追加字段方向**：接口表/配置结构体只能尾部追加；新版 Runtime 设置新字段，旧组件以 `abi_version` 规避访问新函数指针（读旧 DLL 结构体越界字段是 UB）。反向（旧 Runtime + 新 DLL）在 monorepo 中不支持。
 7. **统一 arena 期间的内存浪费是过渡态**：v1 组件仍 calloc，arena 为其预留切片闲置；全部迁移后消除。
+8. **manifest deps schema 曾限制 `enum: [miniaudio]`**：组件级 deps 必须放开 schema；生成器按"组件 id ∈ registry"识别组件依赖并递归复制。
+9. **组件 CMakeLists 需显式加依赖组件 include 路径**：构建侧暂无 manifest 驱动的自动链接（后续由 builder 生成依赖 cmake）；生成器侧已自动处理。
+10. **槽读回语义**：PROBE 槽直读注册内存；SETTING 槽只有 `ORPHEUS_SLOT_DIRECT_WRITE` 才直读/直写，否则回调——避免绕过派生重算（mute/balance/fade 的平滑目标、bass 的派生 dB 读回）。
 
 ---
 
 ## 16. 待办清单（Backlog）
 
-- [ ] 其余 25 个组件迁移 v2（公开状态结构体 + `state_type` + `register_slots` + create/destroy 改法）
-- [ ] 生成路径注册器：生成 main 调用 `register_slots`（bulk/控制通路的前提）
-- [ ] `deps` 复用模型：manifest deps 泛化（第三方/组件/共享库）+ 构建依赖闭包 + 生成递归复制
+- [x] 其余 25 个组件迁移 v2（2026-08-06 完成，28/28：公开状态结构体 + `state_type` + `register_slots` + create/destroy 改法）
+- [x] 生成路径注册器：生成 main 调用 `register_slots`（2026-08-06 完成，占位注册器）
+- [x] `deps` 复用模型：manifest deps 泛化 + 生成递归复制依赖闭包（2026-08-06 完成，组件级头文件依赖）；构建侧链接闭包与共享库形态仍待
 - [ ] 共享 DSP 库 `orpheus.dsp.common`（消重 bass/midrange/treble 重复代码）
-- [ ] 聚合组件试点：内嵌子块 + 父代理注册子块 buffer（字段表 + `ORPHEUS_REG_BLOCK_ARRAY`）
-- [ ] BULK 双 bank 原子提交语义
+- [x] 聚合组件试点：`biquad_bank`（内嵌 2 段 biquad 子块 + 父代理注册子块字段/系数 buffer + `Runtime::write_bulk` 直写闭环，2026-08-06 完成）
+- [ ] BULK 双 bank 原子提交语义（单槽直写已可用）
 - [ ] 探针上报改走注册表（rt_host 遍历 PROBE 槽，替代 `component.find(".probe")`）
 - [ ] ID/协议层：64 位槽 ID、`slot_key ↔ 数字 ID` 双向映射、`SET <u64id>` 紧凑协议
 - [ ] 含代码的封装型复合组件（Type B 带代码）建模
@@ -452,3 +455,10 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 ### 2026-08-06（第五次讨论：经验与待办归档）
 
 - 经验教训与待办清单归档到本文档第 15/16 节；SKILL 同步更新（v2 组件写法、环境要求、生成路径注意事项）。
+
+### 2026-08-06（第六次讨论：全量迁移 + deps + 聚合试点）
+
+- 25 个组件全部迁移 v2（28/28），构建与 44 项测试全过；新增 `biquad_bank` 聚合组件（deps 依赖 biquad、内嵌子块、父代理注册、BULK 直写闭环：默认 rms 0.3409 → 直写系数后 0.1704，越界写入拒绝）。
+- 生成路径注册器：生成 main 调用 `register_slots`（占位注册器，流程对等）。
+- deps 泛化：schema 放开（不再限 miniaudio）；生成器递归复制依赖闭包源码/头文件并加 include 路径；组件 CMakeLists 需显式加依赖 include（构建侧暂手工）。
+- 槽读回语义定案：PROBE 槽直读；SETTING 仅 `DIRECT_WRITE` 槽直读，其余回调（保留派生读回，如 bass gain_db 平滑值）。

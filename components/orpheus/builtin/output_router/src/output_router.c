@@ -3,17 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_CH 32
-
-/* OutputRouter: matrix mixer routing, adapted from Bose OutputRouterDemo.
-   matrix is a comma-separated gain list, row-major (out0: in0,in1,...; out1: ...), channels_out*channels_in total.
-   "identity" or default = diagonal passthrough. out[o] = sum_i matrix[o*cin+i] * in[i]. */
-typedef struct {
-    float matrix[MAX_CH * MAX_CH];  /* row-major: [out*MAX_CH + in] */
-    uint32_t channels_in;
-    uint32_t channels_out;
-} OutputRouterState;
-
 static uint32_t read_uint(const OrpheusConfig* config, const char* id, uint32_t fallback) {
     for (uint32_t i = 0; i < config->param_count; ++i) {
         if (config->param_ids[i] && strcmp(config->param_ids[i], id) == 0) {
@@ -67,11 +56,14 @@ static const OrpheusComponentDescriptor or_descriptor = {
 static const OrpheusComponentDescriptor* or_get_descriptor(void) { return &or_descriptor; }
 
 static int or_create(void** state, const OrpheusConfig* config) {
-    (void)config;
+    if (config != NULL && config->state_block != NULL) {
+        *state = config->state_block;
+        return ORPHEUS_OK;
+    }
     *state = calloc(1, sizeof(OutputRouterState));
     return *state ? ORPHEUS_OK : ORPHEUS_ERR_OUT_OF_MEMORY;
 }
-static int or_destroy(void* state) { free(state); return ORPHEUS_OK; }
+static int or_destroy(void* state) { (void)state; return ORPHEUS_OK; } /* v2：内存由 Runtime 统一管理 */
 
 static int or_prepare(void* state, const OrpheusConfig* config) {
     OutputRouterState* s = (OutputRouterState*)state;
@@ -104,6 +96,9 @@ static int or_prepare(void* state, const OrpheusConfig* config) {
             p = end;
         }
     }
+    const char* ms = str != NULL ? str : "identity";
+    strncpy(s->matrix_str, ms, sizeof(s->matrix_str) - 1);
+    s->matrix_str[sizeof(s->matrix_str) - 1] = '\0';
     return ORPHEUS_OK;
 }
 static int or_reset(void* state) { (void)state; return ORPHEUS_OK; }
@@ -147,10 +142,28 @@ static int or_get_parameter(void* state, const char* param_id, OrpheusValue* val
     }
     return ORPHEUS_ERR_NOT_FOUND;
 }
+static int or_register_slots(void* state, const OrpheusRegistry* reg) {
+    OutputRouterState* s = (OutputRouterState*)state;
+    ORPHEUS_REG_SLOT(reg, s, channels_in, ORPHEUS_SLOT_SETTING, "channels_in", "输入通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, channels_out, ORPHEUS_SLOT_SETTING, "channels_out", "输出通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, matrix_str, ORPHEUS_SLOT_SETTING, "matrix", "路由矩阵",
+                     ORPHEUS_VALUE_STRING, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    return ORPHEUS_OK;
+}
 static const OrpheusComponentInterface or_interface = {
     .get_descriptor = or_get_descriptor, .create = or_create, .destroy = or_destroy,
     .prepare = or_prepare, .reset = or_reset, .process = or_process,
-    .set_parameter = or_set_parameter, .get_parameter = or_get_parameter, .get_state_value = NULL
+    .set_parameter = or_set_parameter, .get_parameter = or_get_parameter, .get_state_value = NULL,
+    .register_slots = or_register_slots
 };
 #ifndef ORPHEUS_ENTRY_NAME
 #define ORPHEUS_ENTRY_NAME orpheus_get_interface

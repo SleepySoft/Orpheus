@@ -7,6 +7,17 @@
 extern "C" {
 #endif
 
+typedef struct {
+    uint32_t channels;
+    double start_freq;
+    double end_freq;
+    double duration_s;
+    double amplitude;
+    bool log_scale;
+    double t;     /* 已生成时长（秒） */
+    double phase; /* 累积相位（弧度） */
+} SweepGenState;
+
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);
 
 #ifdef __cplusplus

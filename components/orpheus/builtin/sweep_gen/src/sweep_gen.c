@@ -4,17 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
-    uint32_t channels;
-    double start_freq;
-    double end_freq;
-    double duration_s;
-    double amplitude;
-    bool log_scale;
-    double t;     /* 已生成时长（秒） */
-    double phase; /* 累积相位（弧度） */
-} SweepGenState;
-
 static const OrpheusParameter params[] = {
     {
         .id = "start_freq",
@@ -118,13 +107,16 @@ static const OrpheusComponentDescriptor* get_desc(void) {
 }
 
 static int create(void** state, const OrpheusConfig* config) {
-    (void)config;
+    if (config != NULL && config->state_block != NULL) {
+        *state = config->state_block;
+        return ORPHEUS_OK;
+    }
     *state = calloc(1, sizeof(SweepGenState));
     return *state ? ORPHEUS_OK : ORPHEUS_ERR_OUT_OF_MEMORY;
 }
 
 static int destroy(void* state) {
-    free(state);
+    (void)state; /* v2：内存由 Runtime 统一管理 */
     return ORPHEUS_OK;
 }
 
@@ -221,6 +213,35 @@ static int get_param(void* state, const char* id, OrpheusValue* v) {
     return ORPHEUS_ERR_NOT_FOUND;
 }
 
+static int register_slots(void* state, const OrpheusRegistry* reg) {
+    SweepGenState* s = (SweepGenState*)state;
+    ORPHEUS_REG_SLOT(reg, s, start_freq, ORPHEUS_SLOT_SETTING, "start_freq", "起始频率",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=1.0f, .max_f32=20000.0f,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT);
+    ORPHEUS_REG_SLOT(reg, s, end_freq, ORPHEUS_SLOT_SETTING, "end_freq", "结束频率",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=1.0f, .max_f32=20000.0f,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT);
+    ORPHEUS_REG_SLOT(reg, s, duration_s, ORPHEUS_SLOT_SETTING, "duration_s", "扫频时长",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=0.1f, .max_f32=300.0f,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT);
+    ORPHEUS_REG_SLOT(reg, s, amplitude, ORPHEUS_SLOT_SETTING, "amplitude", "幅度",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=0.0f, .max_f32=1.0f,
+                     .update_policy=ORPHEUS_UPDATE_SMOOTHED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT);
+    ORPHEUS_REG_SLOT(reg, s, log_scale, ORPHEUS_SLOT_SETTING, "log_scale", "对数扫频",
+                     ORPHEUS_VALUE_BOOL, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT);
+    ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    return ORPHEUS_OK;
+}
+
 static const OrpheusComponentInterface iface = {
     .get_descriptor = get_desc,
     .create = create,
@@ -230,7 +251,8 @@ static const OrpheusComponentInterface iface = {
     .process = process,
     .set_parameter = set_param,
     .get_parameter = get_param,
-    .get_state_value = NULL
+    .get_state_value = NULL,
+    .register_slots = register_slots
 };
 
 #ifndef ORPHEUS_ENTRY_NAME
