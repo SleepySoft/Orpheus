@@ -86,6 +86,15 @@ class CodeGenerator:
         # Generate main.c
         self._generate_main_c(plan, component_ids, src_dir / "main.c")
 
+        # 嵌入 I/O 适配模板：存在 embed_in/embed_out 节点时生成，用户按硬件填充
+        embed_nodes = [
+            nid for nid in plan.execution_order
+            if plan.node_configs[nid]["component"]
+            in ("orpheus.builtin.embed_in", "orpheus.builtin.embed_out")
+        ]
+        if embed_nodes:
+            self._generate_platform_io(plan, src_dir / "platform_io.c")
+
         # Generate CMakeLists.txt
         self._generate_cmake(plan, all_ids, output_dir)
 
@@ -113,6 +122,20 @@ class CodeGenerator:
         for cid in component_ids:
             comp_target = self._component_target_name(cid)
             lines.append(f'extern const OrpheusComponentInterface* {comp_target}_get_interface(void);')
+        embed_in_nodes = [
+            nid for nid in plan.execution_order
+            if plan.node_configs[nid]["component"] == "orpheus.builtin.embed_in"
+        ]
+        embed_out_nodes = [
+            nid for nid in plan.execution_order
+            if plan.node_configs[nid]["component"] == "orpheus.builtin.embed_out"
+        ]
+        if embed_in_nodes or embed_out_nodes:
+            lines.append('')
+            lines.append('/* 嵌入 I/O 适配（platform_io.c，用户按实际硬件填充） */')
+            lines.append('void orpheus_platform_io_init(void);')
+            lines.append('void orpheus_platform_io_pre_block(void);')
+            lines.append('void orpheus_platform_io_post_block(void);')
         lines.append("")
 
         # State declarations
@@ -136,6 +159,25 @@ class CodeGenerator:
             for s, st in arena_members:
                 lines.append(f'    {st} {s};')
             lines.append('} g_arena;')
+            lines.append('')
+
+        # 嵌入 I/O 缓冲（用户 DMA 可直达）与状态访问器（platform_io.c 引用）
+        for nid in embed_in_nodes + embed_out_nodes:
+            s = self._sanitized_node_id(nid)
+            cfg = plan.node_configs[nid]
+            frames = cfg.get("frames") or plan.block_size
+            channels = int(float(cfg.get("params", {}).get("channels", 2)))
+            kind = "in" if nid in embed_in_nodes else "out"
+            lines.append(f'float g_embed_{kind}_{s}[{frames * channels}];')
+        if embed_in_nodes or embed_out_nodes:
+            lines.append('')
+        for nid in embed_in_nodes:
+            s = self._sanitized_node_id(nid)
+            lines.append(f'EmbedInState* orpheus_embed_in_state_{s}(void) {{ return &g_arena.{s}; }}')
+        for nid in embed_out_nodes:
+            s = self._sanitized_node_id(nid)
+            lines.append(f'EmbedOutState* orpheus_embed_out_state_{s}(void) {{ return &g_arena.{s}; }}')
+        if embed_in_nodes or embed_out_nodes:
             lines.append('')
 
         # 生成路径注册器：与动态路径一样调用 register_slots（当前无消费方，
@@ -291,6 +333,20 @@ class CodeGenerator:
             lines.append('    }')
             lines.append(f'    rc = g_iface_{s}->prepare(g_state_{s}, &config);')
             lines.append(f'    if (rc != ORPHEUS_OK) return rc;')
+        for nid in embed_in_nodes:
+            s = self._sanitized_node_id(nid)
+            cfg = plan.node_configs[nid]
+            frames = cfg.get("frames") or plan.block_size
+            lines.append(f'    g_arena.{s}.src = g_embed_in_{s};')
+            lines.append(f'    g_arena.{s}.src_frames = 0;')
+        for nid in embed_out_nodes:
+            s = self._sanitized_node_id(nid)
+            cfg = plan.node_configs[nid]
+            frames = cfg.get("frames") or plan.block_size
+            lines.append(f'    g_arena.{s}.dst = g_embed_out_{s};')
+            lines.append(f'    g_arena.{s}.dst_capacity = {frames};')
+        if embed_in_nodes or embed_out_nodes:
+            lines.append('    orpheus_platform_io_init();')
         lines.append('    return ORPHEUS_OK;')
         lines.append('}')
         lines.append("")
@@ -305,6 +361,9 @@ class CodeGenerator:
         lines.append('    ctx.scratch_size = 0;')
         lines.append('    ctx.timestamp = 0.0;')
         lines.append("")
+        if embed_in_nodes or embed_out_nodes:
+            lines.append('    orpheus_platform_io_pre_block();')
+            lines.append('')
         for node_id in plan.execution_order:
             cfg = plan.node_configs[node_id]
             s = self._sanitized_node_id(node_id)
@@ -327,6 +386,9 @@ class CodeGenerator:
             lines.append(f'{indent}if (rc != ORPHEUS_OK) return rc;')
             if divisor > 1:
                 lines.append('    }')
+        if embed_in_nodes or embed_out_nodes:
+            lines.append('')
+            lines.append('    orpheus_platform_io_post_block();')
         lines.append('    g_block_counter++;')
         lines.append('    return ORPHEUS_OK;')
         lines.append('}')
@@ -352,6 +414,76 @@ class CodeGenerator:
         lines.append('    return 0;')
         lines.append('}')
 
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+
+    def _generate_platform_io(self, plan: ExecutionPlan, path: Path) -> None:
+        """生成嵌入 I/O 适配模板：三个 USER CODE 函数，用户按实际硬件填充。"""
+        in_nodes = [
+            nid for nid in plan.execution_order
+            if plan.node_configs[nid]["component"] == "orpheus.builtin.embed_in"
+        ]
+        out_nodes = [
+            nid for nid in plan.execution_order
+            if plan.node_configs[nid]["component"] == "orpheus.builtin.embed_out"
+        ]
+        lines = [
+            '/* platform_io.c —— 嵌入 I/O 适配模板（自动生成，可按实际硬件修改）。',
+            ' * 用户只需实现三个函数：',
+            ' *   orpheus_platform_io_init()      ：一次性初始化（配置 DMA/编解码器）；',
+            ' *   orpheus_platform_io_pre_block() ：每块处理前，把采集数据写入 g_embed_in_* 并设置 src_frames；',
+            ' *   orpheus_platform_io_post_block()：每块处理后，把 g_embed_out_* 交给 DAC。',
+            ' * 重新生成工程会覆盖本文件，请另存副本或生成后手工合并。',
+            ' */',
+            '#include <string.h>',
+            '#include "orpheus_abi.h"',
+        ]
+        if in_nodes:
+            lines.append('#include "orpheus_embed_in.h"')
+        if out_nodes:
+            lines.append('#include "orpheus_embed_out.h"')
+        lines.append('')
+        for nid in in_nodes:
+            s = self._sanitized_node_id(nid)
+            lines.append(f'extern float g_embed_in_{s}[];')
+            lines.append(f'extern EmbedInState* orpheus_embed_in_state_{s}(void);')
+        for nid in out_nodes:
+            s = self._sanitized_node_id(nid)
+            lines.append(f'extern float g_embed_out_{s}[];')
+            lines.append(f'extern EmbedOutState* orpheus_embed_out_state_{s}(void);')
+        lines.append('')
+        lines.append('void orpheus_platform_io_init(void) {')
+        lines.append('    /* USER CODE BEGIN */')
+        lines.append('    /* 例：配置 DMA/编解码器，挂中断。输入数据也可在中断里直接写 g_embed_in_* */')
+        lines.append('    /* USER CODE END */')
+        lines.append('}')
+        lines.append('')
+        lines.append('void orpheus_platform_io_pre_block(void) {')
+        for nid in in_nodes:
+            s = self._sanitized_node_id(nid)
+            cfg = plan.node_configs[nid]
+            frames = cfg.get("frames") or plan.block_size
+            lines.append(f'    EmbedInState* in = orpheus_embed_in_state_{s}();')
+            lines.append(
+                f'    /* 例：memcpy(g_embed_in_{s}, dma_rx, {frames} * in->channels * sizeof(float)); */'
+            )
+            lines.append(f'    /*      in->src_frames = {frames}; 不足一帧会补零并累计欠载 */')
+            lines.append('    (void)in;')
+        lines.append('    /* USER CODE BEGIN */')
+        lines.append('    /* USER CODE END */')
+        lines.append('}')
+        lines.append('')
+        lines.append('void orpheus_platform_io_post_block(void) {')
+        for nid in out_nodes:
+            s = self._sanitized_node_id(nid)
+            cfg = plan.node_configs[nid]
+            frames = cfg.get("frames") or plan.block_size
+            lines.append(f'    EmbedOutState* out = orpheus_embed_out_state_{s}();')
+            lines.append(f'    /* 例：dac_write(out->dst, {frames} * out->channels); */')
+            lines.append('    (void)out;')
+        lines.append('    /* USER CODE BEGIN */')
+        lines.append('    /* USER CODE END */')
+        lines.append('}')
         with open(path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
 
@@ -391,7 +523,10 @@ class CodeGenerator:
             )
             lines.append("")
 
-        lines.append('add_executable(orpheus_generated_app src/main.c)')
+        app_sources = "src/main.c"
+        if (output_dir / "src" / "platform_io.c").exists():
+            app_sources += " src/platform_io.c"
+        lines.append(f'add_executable(orpheus_generated_app {app_sources})')
         libs = " ".join(self._component_target_name(cid) for cid in component_ids)
         lines.append(f'target_link_libraries(orpheus_generated_app {libs})')
 

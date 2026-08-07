@@ -52,6 +52,7 @@
 | 并联求和 | `orpheus.builtin.mixer` | `gain0/gain1`（dB） |
 | 整数降采样/重缓冲 | `orpheus.builtin.downrate` / `orpheus.builtin.resample` | `factor`/`divisor` |
 | 电平/波形观测 | `probe_rms` / `probe_waveform` | readback 探针 |
+| 硬件 I/O 占位（嵌入部署，source/sink 手动填充） | `orpheus.builtin.embed_in` / `orpheus.builtin.embed_out` | `channels`/`sample_rate`；`embed_in.underruns` 探针；生成工程 `platform_io.c` 的 USER CODE 段填充 |
 
 ## 4. 工程 YAML 骨架
 

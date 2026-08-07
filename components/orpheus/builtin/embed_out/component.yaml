@@ -1,0 +1,44 @@
+id: orpheus.builtin.embed_out
+name: 嵌入输出
+category: 设备
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: EmbedOutState
+sources:
+  - src/embed_out.c
+headers:
+  - include/orpheus_embed_out.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+    sample_rate: param:sample_rate
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: sample_rate
+    name: 采样率
+    description: 嵌入 I/O 的采样率（Hz），连接校验要求与时钟源一致。
+    type: int
+    default: 48000
+    range: [1000, 192000]
+    unit: Hz
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

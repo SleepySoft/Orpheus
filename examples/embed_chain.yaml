@@ -1,0 +1,35 @@
+version: "0.1.0"
+metadata:
+  name: embed_chain
+  description: 嵌入 I/O 占位链路：embed_in → 增益 → 双二阶 → embed_out。PC 上运行输出静音（未填充并计欠载）；生成代码后按实际硬件填充 platform_io.c 的 USER CODE 段即可。
+  author: Orpheus
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: embed_in_0
+      component: orpheus.builtin.embed_in
+      params: {channels: 2, sample_rate: 48000}
+      position: {x: 80, y: 220}
+    - id: g
+      component: orpheus.builtin.gain
+      params: {gain_db: -3.0, channels: 2}
+      position: {x: 300, y: 220}
+    - id: bq
+      component: orpheus.builtin.biquad
+      params: {type: lowpass, fc: 3000.0, q: 0.707, gain_db: 0.0, channels: 2}
+      position: {x: 520, y: 220}
+    - id: embed_out_0
+      component: orpheus.builtin.embed_out
+      params: {channels: 2, sample_rate: 48000}
+      position: {x: 760, y: 220}
+  connections:
+    - {from: "embed_in_0:out", to: "g:in"}
+    - {from: "g:out", to: "bq:in"}
+    - {from: "bq:out", to: "embed_out_0:in"}

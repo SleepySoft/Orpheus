@@ -1,0 +1,52 @@
+id: orpheus.builtin.embed_in
+name: 嵌入输入
+category: 设备
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: EmbedInState
+clock_source: true
+clock_domain: embed
+sources:
+  - src/embed_in.c
+headers:
+  - include/orpheus_embed_in.h
+ports:
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+    sample_rate: param:sample_rate
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: sample_rate
+    name: 采样率
+    description: 嵌入 I/O 的采样率（Hz），同时成为图的时钟源采样率。
+    type: int
+    default: 48000
+    range: [1000, 192000]
+    unit: Hz
+    update_policy: restart_required
+    affects_signature: true
+  - id: underruns
+    name: 欠载次数
+    type: int
+    default: 0
+    readback: true
+    update_policy: immediate
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

@@ -1,5 +1,41 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-07（第二十一次讨论：嵌入 I/O 占位组件 embed_in/embed_out + 生成代码适配模板）
+
+### 目标
+
+生成代码嵌入真实 DSP/MCU 时，source/sink 由用户按实际硬件填充。落地「易于填充」的占位组件：
+组件侧只做内存拷贝（零 IO/零阻塞），生成工程输出带 USER CODE 段的 `platform_io.c` 适配模板，用户只需填三个函数。
+
+### A. 组件
+
+- `orpheus.builtin.embed_in`（时钟源，`clock_domain: embed`）：`process` 从 `state->src/src_frames` 拷贝输入，不足补零并累计 `underruns`（PROBE 探针）；参数 `channels`/`sample_rate`（restart_required + affects_signature，采样率接管图）。
+- `orpheus.builtin.embed_out`（汇）：`process` 把输入拷贝到 `state->dst/dst_capacity`，不阻塞。
+- 两个组件均 v2：公开状态结构体（`state_type`）、`register_slots`、`ORPHEUS_ENTRY_NAME`、CMake 组件库。
+- 示例 `examples/embed_chain.yaml`：embed_in → gain → biquad → embed_out。
+
+### B. 生成代码
+
+- 存在 embed 节点时，`main.c` 生成非静态输入/输出缓冲 `g_embed_in_<node>`/`g_embed_out_<node>`、状态访问器 `orpheus_embed_in_state_<node>()` 等，init 绑定 src/dst，process 前后调用平台钩子。
+- 生成 `src/platform_io.c`（含 `/* USER CODE BEGIN/END */` 段）：
+  - `orpheus_platform_io_init()`：一次性初始化（DMA/编解码器）；
+  - `orpheus_platform_io_pre_block()`：每块前填输入并设置 `src_frames`；
+  - `orpheus_platform_io_post_block()`：每块后把输出交给 DAC。
+- CMake 自动把 platform_io.c 加入构建；默认（不填充）静音运行，PC 一致性不破坏。
+- 新增 `POST /api/projects/{name}/generate`（只生成不构建运行）与 UI「⤓ 生成代码」按钮，嵌入部署直接导出。
+
+### C. 测试（`tests/test_embed_components.py`，5 项）
+
+- embed 图编译（embed 时钟域）、动态离线静音运行（wav 全零 + underruns 上报）；
+- 生成工程含 platform_io.c 模板、默认构建运行退出码 0；
+- 「易于填充」数值验证：只改 pre_block USER CODE 段填 ramp，生成工程输出 ramp×gain 的 16-bit WAV（逐样本断言）。
+- embed 组件进入参数面板分类（channels/sample_rate=setting，underruns=probe）。
+
+### 验证
+
+- `cli build` 新增 embed_in/embed_out DLL；`pytest` 全量通过；`npm run build` 通过。
+- 调试插曲：wav_out 落盘为 16-bit PCM，测试一度按 float32 解包读成垃圾值——组件链路本身正确，修正测试解包。
+
 ## 2026-08-07（第二十次讨论：复杂嵌套参考模型 + 数据 layout 测试 + 模型蒸馏 SKILL + 一键导入）
 
 ### 目标

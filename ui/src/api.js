@@ -25,6 +25,7 @@ export const compileProject = (name) => unwrap(api.post(`/projects/${name}/compi
 export const runProject = (name, pace) =>
   unwrap(api.post(`/projects/${name}/run`, null, { params: { pace: pace ? 1 : 0 } }));
 export const runGenerated = (name) => unwrap(api.post(`/projects/${name}/run_generated`));
+export const generateProject = (name) => unwrap(api.post(`/projects/${name}/generate`));
 export const listDevices = () => unwrap(api.get('/devices'));
 export const rtStart = (name) => unwrap(api.post(`/projects/${name}/rt/start`));
 export const rtStop = (name) => unwrap(api.post(`/projects/${name}/rt/stop`));

@@ -858,6 +858,27 @@ const { screenToFlowPosition } = useReactFlow();
     }
   }, [current, ensureSaved]);
 
+  const doGenerate = useCallback(async () => {
+    if (!current) return;
+    await ensureSaved();
+    setStatus('生成独立 C 工程中…');
+    try {
+      const r = await api.generateProject(current);
+      setStatus(`已生成独立 C 工程：${r.generated_dir}`);
+      setLog({
+        title: '生成结果',
+        lines: [
+          `生成目录: ${r.generated_dir}`,
+          '嵌入部署：改 src/platform_io.c 的 USER CODE 段接入实际 DMA/编解码器后，按目标工具链交叉编译。',
+          `PC 冒烟运行默认块数: ${r.blocks_default}`,
+        ],
+      });
+    } catch (e) {
+      setStatus(`生成失败: ${api.errorDetail(e)}`);
+      setLog({ title: '生成错误', lines: [api.errorDetail(e)] });
+    }
+  }, [current, ensureSaved]);
+
   const doRtStop = useCallback(async () => {
     if (!current) return;
     try {
@@ -1006,6 +1027,13 @@ const { screenToFlowPosition } = useReactFlow();
         </label>
         <button onClick={doRunGenerated} disabled={!current || rt.running}>
           ⚙ 编译后运行
+        </button>
+        <button
+          onClick={doGenerate}
+          disabled={!current}
+          title="只生成独立 C 工程（不构建/运行），嵌入 DSP 部署用；含 platform_io.c 适配模板"
+        >
+          ⤓ 生成代码
         </button>
         {rt.running && (
           <button className="danger-tool" onClick={doRtStop}>

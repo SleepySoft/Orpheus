@@ -12,10 +12,30 @@ from fastapi.testclient import TestClient
 from orpheus_core.server.app import create_app
 
 ROOT = Path(__file__).resolve().parents[2]
+_CREATED: list[str] = []
+
+
+def _new_name() -> str:
+    name = f"distill_{uuid.uuid4().hex[:8]}"
+    _CREATED.append(name)
+    return name
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_projects():
+    yield
+    if _CREATED:
+        with TestClient(create_app(ROOT)) as client:
+            for name in _CREATED:
+                try:
+                    client.delete(f"/api/projects/{name}")
+                except Exception:
+                    pass
+    _CREATED.clear()
 
 
 def test_distill_import_roundtrip_and_extra_fields() -> None:
-    name = f"distill_{uuid.uuid4().hex[:8]}"
+    name = _new_name()
     text = (ROOT / "examples" / "dsp_model_reference.yaml").read_text(encoding="utf-8")
     with TestClient(create_app(ROOT)) as client:
         resp = client.post(f"/api/projects/{name}/distill", json={"yaml": text})
@@ -38,7 +58,7 @@ def test_distill_import_roundtrip_and_extra_fields() -> None:
 
 
 def test_distill_import_rejects_invalid_yaml() -> None:
-    name = f"distill_{uuid.uuid4().hex[:8]}"
+    name = _new_name()
     with TestClient(create_app(ROOT)) as client:
         resp = client.post(f"/api/projects/{name}/distill", json={"yaml": "{{{{not yaml"})
         assert resp.status_code == 400
@@ -54,7 +74,7 @@ def test_distill_import_rejects_invalid_yaml() -> None:
 )
 def test_distilled_model_runs_end_to_end() -> None:
     """蒸馏导入的复杂嵌套模型离线运行：输出 WAV，且嵌套层探针以 flatId 上报。"""
-    name = f"distill_{uuid.uuid4().hex[:8]}"
+    name = _new_name()
     text = (ROOT / "examples" / "dsp_model_reference.yaml").read_text(encoding="utf-8")
     with TestClient(create_app(ROOT)) as client:
         assert client.post(f"/api/projects/{name}/distill", json={"yaml": text}).status_code == 200

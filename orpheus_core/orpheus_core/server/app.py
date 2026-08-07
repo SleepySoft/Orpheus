@@ -146,6 +146,19 @@ def create_app(project_root: Path) -> FastAPI:
         except CompileError as exc:
             raise HTTPException(status_code=400, detail=f"compile error: {exc}") from exc
 
+    def generate_record(rec: ProjectRecord) -> tuple[ExecutionPlan, Path]:
+        """生成独立 C 工程（不构建/运行）。嵌入 I/O 占位组件（embed_in/embed_out）允许。"""
+        flat = flattened_project(rec)
+        if any(n.component in DEVICE_COMPONENTS for n in flat.graph.nodes.values()):
+            raise HTTPException(
+                status_code=400,
+                detail="生成模式暂不支持设备组件（生成宿主为文件时钟）",
+            )
+        plan, _ = compile_record(rec)
+        gen_dir = rec.directory / "generated"
+        CodeGenerator(registry, root).generate(plan, gen_dir)
+        return plan, gen_dir
+
     def ensure_cmake_configured() -> None:
         if state["cmake_configured"]:
             return
@@ -414,16 +427,7 @@ def create_app(project_root: Path) -> FastAPI:
             rec = manager.get(name)
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-        flat = flattened_project(rec)
-        if any(n.component in DEVICE_COMPONENTS for n in flat.graph.nodes.values()):
-            raise HTTPException(
-                status_code=400,
-                detail="生成模式暂不支持设备组件（生成宿主为文件时钟）",
-            )
-        plan, _ = compile_record(rec)
-
-        gen_dir = rec.directory / "generated"
-        CodeGenerator(registry, root).generate(plan, gen_dir)
+        plan, gen_dir = generate_record(rec)
 
         # reuse the toolchain of the main build (PATH may resolve a broken gcc)
         build_dir = gen_dir / "build"
@@ -454,10 +458,10 @@ def create_app(project_root: Path) -> FastAPI:
         # match the offline host's duration: blocks = ceil(wav_in frames / block_size)
         blocks = 1000
         has_wav_in = False
-        for node in flat.graph.nodes.values():
-            if node.component == "orpheus.builtin.wav_in":
+        for cfg in plan.node_configs.values():
+            if cfg["component"] == "orpheus.builtin.wav_in":
                 has_wav_in = True
-                fp = node.params.get("file_path")
+                fp = cfg["params"].get("file_path")
                 if fp:
                     frames = _wav_total_frames(rec.directory / str(fp))
                     if frames > 0:
@@ -493,6 +497,22 @@ def create_app(project_root: Path) -> FastAPI:
             "stderr": result.stderr,
             "blocks": blocks,
             "outputs": outputs,
+        }
+
+    @app.post("/api/projects/{name}/generate")
+    def generate_project(name: str) -> dict[str, Any]:
+        """只生成独立 C 工程（不构建/运行）：嵌入部署导出代码（含 platform_io.c 适配模板）。"""
+        try:
+            rec = manager.get(name)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        plan, gen_dir = generate_record(rec)
+        return {
+            "status": "ok",
+            "generated_dir": str(gen_dir),
+            "blocks_default": plan.duration_frames > 0
+            and (plan.duration_frames + plan.block_size - 1) // plan.block_size
+            or 1000,
         }
 
     @app.get("/api/projects/{name}/files")
