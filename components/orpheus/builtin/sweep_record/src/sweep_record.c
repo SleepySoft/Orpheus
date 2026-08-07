@@ -102,8 +102,13 @@ static int prepare(void* state, const OrpheusConfig* config) {
     if (s->bins > SWEEP_RECORD_MAX_BINS) s->bins = SWEEP_RECORD_MAX_BINS;
     s->t = 0.0;
     s->total_frames = 0;
-    s->duration_frames = (uint64_t)((double)s->duration_s * (double)config->sample_rate);
+    /* duration_s=0 表示自动：不按时间截断，靠输入静音完结（时长由编译器注入跟随发生器） */
+    s->duration_frames = s->duration_s > 0.0f
+        ? (uint64_t)((double)s->duration_s * (double)config->sample_rate)
+        : UINT64_MAX;
     if (s->duration_frames < 1) s->duration_frames = 1;
+    s->peak_rms = 0.0f;
+    s->quiet_frames = 0;
     s->done = false;
     s->progress = 0.0f;
     memset(s->acc, 0, sizeof(s->acc));
@@ -123,6 +128,8 @@ static int reset(void* state) {
     SweepRecordState* s = (SweepRecordState*)state;
     s->t = 0.0;
     s->total_frames = 0;
+    s->peak_rms = 0.0f;
+    s->quiet_frames = 0;
     s->done = false;
     s->progress = 0.0f;
     memset(s->acc, 0, sizeof(s->acc));
@@ -152,7 +159,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     for (uint32_t i = 0; i < frames * ch; ++i) out_data[i] = in_data[i];  /* 直通 */
     out->frame_count = frames;
 
-    if (s->done || s->duration_s <= 0.0f) return ORPHEUS_OK;
+    if (s->done) return ORPHEUS_OK;
 
     /* 当前块起始时刻对应的扫频频率 → 分箱 */
     double tt = s->t;
@@ -177,12 +184,27 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     s->count[bin] += frames;
     /* 实时更新当前箱幅度：曲线边扫边长（扫频报告风格），最终由 finalize 补齐 */
     s->mag[bin] = sqrtf(s->acc[bin] / (float)s->count[bin]);
+    /* 静音检测：输入结束（发生器扫完输出 0）后 0.25s 静音 → 完结 */
+    float block_rms = frames > 0 ? sqrtf((float)(sum / (double)frames)) : 0.0f;
+    if (block_rms > s->peak_rms) s->peak_rms = block_rms;
+    if (s->peak_rms > 0.0f && block_rms < s->peak_rms * 0.02f) {
+        s->quiet_frames += frames;
+    } else {
+        s->quiet_frames = 0;
+    }
     s->t += (double)frames / (double)ctx->sample_rate;
     s->total_frames += frames;
-    if (s->total_frames >= s->duration_frames) {
+    uint32_t quiet_target = ctx->sample_rate / 4;
+    bool quiet_done = s->quiet_frames >= quiet_target;
+    if (s->total_frames >= s->duration_frames || quiet_done) {
         sweep_finalize(s);
     } else {
-        s->progress = (float)((double)s->total_frames / (double)s->duration_frames);
+        /* 进度 = 频率覆盖度（已采集箱数 / 总箱数） */
+        uint32_t measured = 0;
+        for (uint32_t i = 0; i < s->bins; ++i) {
+            if (s->count[i] > 0) measured++;
+        }
+        s->progress = (float)measured / (float)s->bins;
     }
     return ORPHEUS_OK;
 }

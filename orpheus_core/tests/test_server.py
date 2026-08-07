@@ -613,7 +613,7 @@ def test_sweep_record_probe_curve(client):
                  "position": {"x": 0, "y": 0}},
                 {"id": "rec", "component": "orpheus.builtin.sweep_record",
                  "params": {"start_freq": "100.0", "end_freq": "5000.0",
-                            "duration_s": "10.0", "log_scale": "true",
+                            "duration_s": "0.0", "log_scale": "true",
                             "bins": 32, "channels": 1},
                  "position": {"x": 200, "y": 0}},
                 {"id": "wav_out", "component": "orpheus.builtin.wav_out",
@@ -644,6 +644,56 @@ def test_sweep_record_probe_curve(client):
         # 0.8 幅度正弦 → RMS ≈ 0.566；允许首尾分箱不完整
         assert 0.3 < max(mag) < 0.9, f"幅度异常: max={max(mag)}"
         assert min(mag) > 0.05, f"存在空箱: min={min(mag)}"
+    finally:
+        client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_sweep_record_follows_generator_duration(client):
+    """回归：发生器 30s、记录 duration_s=0（自动）→ 记录跟随发生器时长，曲线完整而非只有低频峰。"""
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        assert client.post("/api/projects", json={"name": name}).status_code == 201
+        doc = client.get(f"/api/projects/{name}").json()
+        doc["graph"] = {
+            "nodes": [
+                {"id": "sweep", "component": "orpheus.builtin.sweep_gen",
+                 "params": {"start_freq": "100.0", "end_freq": "5000.0",
+                            "duration_s": "30.0", "amplitude": "0.8",
+                            "log_scale": "true", "channels": 1},
+                 "position": {"x": 0, "y": 0}},
+                {"id": "rec", "component": "orpheus.builtin.sweep_record",
+                 "params": {"start_freq": "100.0", "end_freq": "5000.0",
+                            "duration_s": "0.0", "log_scale": "true",
+                            "bins": 32, "channels": 1},
+                 "position": {"x": 200, "y": 0}},
+                {"id": "wav_out", "component": "orpheus.builtin.wav_out",
+                 "params": {"file_path": "outputs/out.wav", "channels": 1,
+                            "sample_rate": 48000},
+                 "position": {"x": 400, "y": 0}},
+            ],
+            "connections": [
+                {"from": "sweep:out", "to": "rec:in"},
+                {"from": "rec:out", "to": "wav_out:in"},
+            ],
+        }
+        assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+        resp = client.post(f"/api/projects/{name}/run")
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+        by = {(p["node"], p["param"]): p["value"] for p in result["probes"]}
+        curve = by.get(("rec", "sweep"))
+        assert isinstance(curve, dict), f"expected dict, got {type(curve)}"
+        mag = curve.get("mag", [])
+        assert len(mag) == 32
+        assert curve.get("done") is True, f"记录未完结: progress={curve.get('progress')}"
+        # 完整频率响应：所有箱都应采到幅度（约 0.566），不允许只有低频一个峰
+        assert min(mag) > 0.3, f"曲线不完整: min={min(mag)}, max={max(mag)}"
     finally:
         client.delete(f"/api/projects/{name}")
 

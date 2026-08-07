@@ -38,10 +38,11 @@ parameters:
   - id: duration_s
     name: 扫频时长
     type: float
-    default: 5.0
-    range: [0.1, 300.0]
+    default: 0.0
+    range: [0.0, 300.0]
     unit: s
     update_policy: restart_required
+    description: 0=自动跟随扫频发生器；手动设置可提前截断
   - id: log_scale
     name: 对数扫频
     type: bool

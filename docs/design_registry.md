@@ -441,6 +441,7 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 15. **离线宿主时长必须按计划推导**：曾固定 10s（无文件输入）或跟文件长度（test_input.wav 恰好 1s），60s 扫频被截断成 1~10s。计划新增 `duration_frames`：编译器按 sweep_gen/sweep_record 的 `duration_s` 推导，C++ 宿主与生成路径共用，文件输入仍优先。
 16. **构建失败 LNK1104 = exe 被残留进程锁定**：命令超时杀管道不杀子进程，挂死的 orpheus_runtime.exe 会锁住输出文件导致无法重链；先清进程再构建。
 17. **"10 秒默认"不能写死 48k 帧**：宿主无文件输入时默认时长曾为 `48000*10` 帧，图采样率改为 8kHz 后变成 60 秒。已改为 `plan.sample_rate * 10`（按图采样率算 10 秒）。
+18. **sweep_record 必须跟随发生器时长**：记录组件若用自己的 `duration_s`（默认曾为 5s）而发生器是 60s，记录在 5s 完结、只采到 20~35Hz 几个低频箱——曲线"只有一个峰"且进度很快到 100%。修法：`duration_s` 默认 0=自动，编译器把扫频发生器时长注入记录；另加"输入静音 0.25s 即完结"兜底。
 
 ---
 
@@ -500,3 +501,9 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 
 - wav_out 采样率自动跟随输入端口：编译器在端口解析前先解析输出端口，把源端口采样率注入 wav_out 的 sample_rate 参数（其输入端口声明 `param:sample_rate`），连接校验与文件头一致；免手填。测试：wav_in(48k)→resample(2)→wav_out(不填采样率) 输出 24k wav。
 - UI：`/api/components` 暴露 `clock_source`；画布上时钟源（信号/扫频/设备/wav 输入）显示 ⏱ 采样率徽标（编译后显示图采样率，未编译显示"时钟源"）。
+
+### 2026-08-07（第十三次讨论：扫频记录跟随发生器时长）
+
+- 根因：sweep_record 用自己的 duration_s（默认 5s）vs 发生器 60s → 记录提前完结，只采到低频段（"一个峰"）。编译器现在把扫频发生器时长注入记录（与 wav_out 自动跟随同模式），`duration_s` 默认 0=自动。
+- 兜底：输入静音 0.25s（发生器扫完输出 0）即完结；进度改为"频率覆盖度"（已采箱/总箱）。
+- 回归测试：发生器 30s、记录 0（自动）→ 32 箱全部采到幅度（min>0.3），done=true；全量 53 passed。

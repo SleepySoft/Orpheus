@@ -225,6 +225,21 @@ class GraphCompiler:
                 # 仅在编译内存中注入（compile 不持久化工程），运行时/生成路径经 plan 参数消费
                 to_node.params = {**to_node.params, "sample_rate": str(int(fp.sample_rate))}
 
+        # sweep_record：采集窗口自动跟随扫频发生器时长（免手填；
+        # 时长不一致会提前完结，只采到低频段、曲线只有一个峰）
+        sweep_dur = 0.0
+        for node in graph.nodes.values():
+            if node.component != "orpheus.builtin.sweep_gen":
+                continue
+            try:
+                sweep_dur = max(sweep_dur, float(node.params.get("duration_s", 0.0) or 0.0))
+            except (TypeError, ValueError):
+                pass
+        if sweep_dur > 0.0:
+            for node in graph.nodes.values():
+                if node.component == "orpheus.builtin.sweep_record":
+                    node.params = {**node.params, "duration_s": str(sweep_dur)}
+
         # 1. Resolve remaining ports (inputs; variable-count expansion already done)
         for node in graph.nodes.values():
             comp = self.registry.get(node.component)

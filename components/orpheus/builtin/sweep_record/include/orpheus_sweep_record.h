@@ -27,6 +27,8 @@ typedef struct {
     uint32_t count[SWEEP_RECORD_MAX_BINS];
     float mag[SWEEP_RECORD_MAX_BINS];    /* 最终幅度（RMS） */
     float progress;                   /* 探针：0..1 */
+    float peak_rms;                   /* 输入峰值 RMS（静音检测基准） */
+    uint32_t quiet_frames;            /* 连续静音帧数（输入结束 → 完结兜底） */
     bool done;
     char json[SWEEP_RECORD_JSON_CAP]; /* get_param 非实时线程编码用 */
 } SweepRecordState;
