@@ -42,6 +42,15 @@ graph:
       position:
         x: 500
         y: 100
+    - id: rec
+      component: orpheus.builtin.sweep_record
+      task: default
+      params:
+        bins: 64
+        channels: 1
+      position:
+        x: 650
+        y: 100
     - id: wav_out
       component: orpheus.builtin.wav_out
       task: default
@@ -50,7 +59,7 @@ graph:
         channels: 1
         sample_rate: 48000
       position:
-        x: 700
+        x: 850
         y: 100
   connections:
     - from: sweep:out
@@ -58,4 +67,6 @@ graph:
     - from: spectrum:out
       to: scope:in
     - from: scope:out
+      to: rec:in
+    - from: rec:out
       to: wav_out:in

@@ -381,7 +381,12 @@ function SweepPlotWidget({ data, large }) {
 
   return (
     <div ref={wrapRef} className="monitor-widget">
-      <canvas ref={ref} width={w} height={h} className="sweep-plot" />
+      <canvas
+        ref={ref}
+        width={w}
+        height={h}
+        style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }}
+      />
     </div>
   );
 }
