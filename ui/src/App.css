@@ -536,6 +536,33 @@
   background: linear-gradient(90deg, #51cf66, #ffd166, #e03131);
 }
 
+.sweep-progress {
+  height: 10px;
+  background: #e9ecef;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.sweep-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4cc9f0, #3b82f6);
+  transition: width 0.2s ease;
+}
+
+.sweep-gen-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #495057;
+}
+
+.sweep-gen-meta .sweep-done {
+  color: #2f9e44;
+  font-weight: 600;
+}
+
 .level-value {
   min-width: 52px;
   text-align: right;

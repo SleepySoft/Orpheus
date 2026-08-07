@@ -111,6 +111,7 @@ static int prepare(void* state, const OrpheusConfig* config) {
     s->quiet_frames = 0;
     s->done = false;
     s->progress = 0.0f;
+    s->current_freq = 0.0f;
     memset(s->acc, 0, sizeof(s->acc));
     memset(s->count, 0, sizeof(s->count));
     memset(s->mag, 0, sizeof(s->mag));
@@ -132,6 +133,7 @@ static int reset(void* state) {
     s->quiet_frames = 0;
     s->done = false;
     s->progress = 0.0f;
+    s->current_freq = 0.0f;
     memset(s->acc, 0, sizeof(s->acc));
     memset(s->count, 0, sizeof(s->count));
     memset(s->mag, 0, sizeof(s->mag));
@@ -182,6 +184,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     }
     s->acc[bin] += (float)sum;
     s->count[bin] += frames;
+    s->current_freq = (float)f;
     /* 实时更新当前箱幅度：曲线边扫边长（扫频报告风格），最终由 finalize 补齐 */
     s->mag[bin] = sqrtf(s->acc[bin] / (float)s->count[bin]);
     /* 静音检测：输入结束（发生器扫完输出 0）后 0.25s 静音 → 完结 */
@@ -283,6 +286,8 @@ static int register_slots(void* state, const OrpheusRegistry* reg) {
     ORPHEUS_REG_SLOT(reg, s, json, ORPHEUS_SLOT_PROBE, "sweep", "扫频曲线",
                      ORPHEUS_VALUE_STRING, .flags=ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, progress, ORPHEUS_SLOT_PROBE, "progress", "扫频进度",
+                     ORPHEUS_VALUE_FLOAT, .flags=ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, current_freq, ORPHEUS_SLOT_PROBE, "current_freq", "当前频率",
                      ORPHEUS_VALUE_FLOAT, .flags=ORPHEUS_SLOT_READBACK);
     return ORPHEUS_OK;
 }

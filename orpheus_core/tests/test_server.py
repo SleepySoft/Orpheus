@@ -694,6 +694,11 @@ def test_sweep_record_follows_generator_duration(client):
         assert curve.get("done") is True, f"记录未完结: progress={curve.get('progress')}"
         # 完整频率响应：所有箱都应采到幅度（约 0.566），不允许只有低频一个峰
         assert min(mag) > 0.3, f"曲线不完整: min={min(mag)}, max={max(mag)}"
+        # 发生器探针：进度 100%、当前频率接近结束频率（离线恰好跑满时长，未进入静音段）
+        assert ("sweep", "progress") in by
+        assert ("sweep", "current_freq") in by
+        assert abs(float(by[("sweep", "progress")]) - 1.0) < 1e-3
+        assert float(by[("sweep", "current_freq")]) > 4900.0
     finally:
         client.delete(f"/api/projects/{name}")
 

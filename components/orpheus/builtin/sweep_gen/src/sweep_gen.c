@@ -170,10 +170,10 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     double f0 = s->start_freq;
     double f1 = s->end_freq;
     double ratio = (f1 > 0.0 && f0 > 0.0) ? f1 / f0 : 1.0;
+    double freq = 0.0;
 
     for (uint32_t f = 0; f < frames; ++f) {
         double tt = s->t;
-        double freq;
         if (tt >= dur) {
             freq = 0.0; /* 扫频结束后静音 */
         } else if (s->log_scale) {
@@ -189,6 +189,9 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         if (s->phase > 6.28318530717958647692 * 64.0) s->phase -= 6.28318530717958647692 * 64.0;
         s->t += dt;
     }
+    s->current_freq = (float)freq;  /* 本块最后一个样本的频率（扫完为 0） */
+    s->progress = dur > 0.0 ? (float)(s->t / dur) : 0.0f;
+    if (s->progress > 1.0f) s->progress = 1.0f;
     out->frame_count = frames;
     out->interleaved = true;
     return ORPHEUS_OK;
@@ -216,6 +219,10 @@ static int get_param(void* state, const char* id, OrpheusValue* v) {
 
 static int register_slots(void* state, const OrpheusRegistry* reg) {
     SweepGenState* s = (SweepGenState*)state;
+    ORPHEUS_REG_SLOT(reg, s, progress, ORPHEUS_SLOT_PROBE, "progress", "扫频进度",
+                     ORPHEUS_VALUE_FLOAT, .flags=ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, current_freq, ORPHEUS_SLOT_PROBE, "current_freq", "当前频率",
+                     ORPHEUS_VALUE_FLOAT, .flags=ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, sample_rate, ORPHEUS_SLOT_SETTING, "sample_rate", "采样率",
                      ORPHEUS_VALUE_INT, .min_i32=8000, .max_i32=192000, .unit="Hz",
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,

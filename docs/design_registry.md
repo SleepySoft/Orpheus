@@ -507,3 +507,8 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - 根因：sweep_record 用自己的 duration_s（默认 5s）vs 发生器 60s → 记录提前完结，只采到低频段（"一个峰"）。编译器现在把扫频发生器时长注入记录（与 wav_out 自动跟随同模式），`duration_s` 默认 0=自动。
 - 兜底：输入静音 0.25s（发生器扫完输出 0）即完结；进度改为"频率覆盖度"（已采箱/总箱）。
 - 回归测试：发生器 30s、记录 0（自动）→ 32 箱全部采到幅度（min>0.3），done=true；全量 53 passed。
+
+### 2026-08-07（第十四次讨论：扫频发生器可视化探针）
+
+- sweep_gen 新增 `progress`/`current_freq` 探针（实时更新：进度=t/duration，当前频率=本块最后样本频率，扫完静音为 0）；sweep_record 也新增 `current_freq`（当前分箱频率），便于对照"谁没在工作"。
+- 扫频发生器节点本体控件：进度条 + 当前频率文本（"1.23 kHz"/"已结束"/"进度 xx%"），运行中实时刷新。

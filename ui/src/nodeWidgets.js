@@ -67,6 +67,33 @@ function ProbePeakWidget({ data, large }) {
   );
 }
 
+/** 扫频发生器本体：进度条 + 当前输出频率（判断到底谁在工作） */
+function SweepGenWidget({ data, large }) {
+  const progress = data.probe?.progress;
+  const freq = data.probe?.current_freq;
+  const done = progress !== undefined && progress >= 0.999;
+  const pct = Math.max(0, Math.min(100, (progress ?? 0) * 100));
+  let freqText = '—';
+  if (freq !== undefined) {
+    if (freq <= 0) freqText = '已结束';
+    else if (freq >= 1000) freqText = `${(freq / 1000).toFixed(2)} kHz`;
+    else freqText = `${freq.toFixed(1)} Hz`;
+  }
+  return (
+    <div className="probe-body">
+      <div className="sweep-progress" title="扫频进度">
+        <div className="sweep-progress-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="sweep-gen-meta">
+        <span>当前 {freqText}</span>
+        <span className={done ? 'sweep-done' : ''}>
+          {progress === undefined ? '运行后显示' : done ? '完成' : `进度 ${Math.round(pct)}%`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Oscilloscope-style body widget: renders data.probe.waveform (float array,
  * produced by the probe_waveform component via PROBE_JSON readback).
@@ -357,4 +384,5 @@ export const NODE_WIDGETS = {
   'orpheus.builtin.probe_waveform': ScopeWidget,
   'orpheus.builtin.probe_spectrum': SpectrumWidget,
   'orpheus.builtin.sweep_record': SweepPlotWidget,
+  'orpheus.builtin.sweep_gen': SweepGenWidget,
 };

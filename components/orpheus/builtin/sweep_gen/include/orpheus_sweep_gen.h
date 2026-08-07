@@ -17,6 +17,8 @@ typedef struct {
     bool log_scale;
     double t;     /* 已生成时长（秒） */
     double phase; /* 累积相位（弧度） */
+    float progress;     /* 探针：0..1 */
+    float current_freq; /* 探针：当前输出频率（扫完为 0） */
 } SweepGenState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);
