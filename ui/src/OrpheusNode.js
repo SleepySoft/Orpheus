@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Handle, Position } from 'reactflow';
+import { Handle, Position, NodeResizer } from 'reactflow';
 import { resolveExprValue } from './graphUtils';
 import { NODE_WIDGETS } from './nodeWidgets';
 
@@ -51,7 +51,16 @@ export default function OrpheusNode({ data, selected }) {
   );
 
   return (
-    <div className={`orpheus-node ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''}`}>
+    <>
+      {selected && (
+        <NodeResizer
+          isVisible={selected}
+          minWidth={160}
+          minHeight={80}
+          color="#4cc9f0"
+        />
+      )}
+      <div className={`orpheus-node ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''}`}>
       <div className="node-header">
         <div className="node-title">
           {data.label}
@@ -76,23 +85,24 @@ export default function OrpheusNode({ data, selected }) {
         <div className="node-ports outputs">{outputs.map((p) => renderRow(p, false))}</div>
       </div>
       {BodyWidget && <BodyWidget data={data} />}
-      {enlarged &&
-        createPortal(
-        <div className="monitor-overlay" onClick={() => setEnlarged(false)}>
-          <div className="monitor-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="monitor-title">
-              <span>
-                {data.label} <span className="muted">({shortName})</span>
-              </span>
-              <button className="danger" onClick={() => setEnlarged(false)}>
-                × 关闭
-              </button>
-            </div>
-            <BodyWidget data={data} large />
-          </div>
-        </div>,
-        document.body
-        )}
-    </div>
+        {enlarged &&
+          createPortal(
+            <div className="monitor-overlay" onClick={() => setEnlarged(false)}>
+              <div className="monitor-panel" onClick={(e) => e.stopPropagation()}>
+                <div className="monitor-title">
+                  <span>
+                    {data.label} <span className="muted">({shortName})</span>
+                  </span>
+                  <button className="danger" onClick={() => setEnlarged(false)}>
+                    × 关闭
+                  </button>
+                </div>
+                <BodyWidget data={data} large />
+              </div>
+            </div>,
+            document.body
+          )}
+      </div>
+    </>
   );
 }

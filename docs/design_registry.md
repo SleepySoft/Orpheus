@@ -476,3 +476,8 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 
 - 修复监控放大弹层（portal 挂 body，脱离 ReactFlow transform 容器）；修复画布框选（`selectionOnDrag` + `panOnDrag={[2]}`，左键框选/右键平移）。
 - 新增 `orpheus.builtin.sweep_record` 扫频记录组件（按当前频率分箱累计输入能量，结束后输出 频率→幅度 曲线探针）+ 前端 SweepPlotWidget 绘图（对数频率轴、dB 幅度、完成/进度提示）+ 示例 `sweep_record_plot.yaml` + e2e。
+
+### 2026-08-07（第九次讨论：监控节点可拖拽缩放）
+
+- 画布交互定案：左键拖拽=平移；Ctrl+拖拽=圈选；Ctrl+点击=多选（`selectionKeyCode`/`multiSelectionKeyCode="Control"`）。
+- 监控节点支持**拖拽拉大**：OrpheusNode 挂 `NodeResizer`（选中显示角柄）；三个 canvas 控件（示波器/频谱/扫频图）用 ResizeObserver 跟随容器尺寸重绘，节点拉大即画布变大；放大弹层同样自适应。

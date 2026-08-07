@@ -1,5 +1,24 @@
 import React from 'react';
 
+/** 让 canvas 跟随容器尺寸（节点拖大 / 放大弹层都生效） */
+function useCanvasSize(large, fw, fh) {
+  const wrapRef = React.useRef(null);
+  const [dim, setDim] = React.useState({ w: fw, h: fh });
+  React.useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0].contentRect;
+      const w = Math.max(60, Math.round(r.width));
+      const h = Math.max(40, Math.round(r.height));
+      setDim((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [large]);
+  return { wrapRef, w: dim.w, h: dim.h };
+}
+
 /**
  * Node body widget registry: customize what a node shows on the canvas,
  * keyed by component id. Receives node data (incl. data.probe readback
@@ -59,8 +78,7 @@ function ScopeWidget({ data, large }) {
   const ref = React.useRef(null);
   const histRef = React.useRef([]);
   const HISTORY_CAP = 8192; // ~85ms @48kHz; larger = smoother scroll, smaller = faster response
-  const W = large ? 640 : 180;
-  const H = large ? 240 : 64;
+  const { wrapRef, w, h } = useCanvasSize(large, large ? 640 : 180, large ? 240 : 64);
 
   React.useEffect(() => {
     const canvas = ref.current;
@@ -136,16 +154,18 @@ function ScopeWidget({ data, large }) {
     ctx.strokeStyle = '#4fc3f7';
     ctx.lineWidth = large ? 1.8 : 1.2;
     ctx.stroke();
-  }, [samples, large]);
+  }, [samples, large, w, h]);
 
   return (
     <div className="probe-body">
-      <canvas
-        ref={ref}
-        width={W}
-        height={H}
-        style={{ width: '100%', height: H, display: 'block', borderRadius: 4 }}
-      />
+      <div ref={wrapRef} className="monitor-widget">
+        <canvas
+          ref={ref}
+          width={w}
+          height={h}
+          style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }}
+        />
+      </div>
     </div>
   );
 }
@@ -158,8 +178,7 @@ function ScopeWidget({ data, large }) {
 function SpectrumWidget({ data, large }) {
   const bins = data.probe?.spectrum;
   const ref = React.useRef(null);
-  const W = large ? 640 : 180;
-  const H = large ? 200 : 64;
+  const { wrapRef, w, h } = useCanvasSize(large, large ? 640 : 180, large ? 200 : 64);
   const windowSize = data.params?.window_size ?? 1024;
   const sampleRate = data.rate?.sample_rate ?? 48000;
 
@@ -230,24 +249,25 @@ function SpectrumWidget({ data, large }) {
       ctx.fillText(fmt(nyquist / 2), cw / 2, ch - 2);
       ctx.fillText(fmt(nyquist), cw - 2, ch - 2);
     }
-  }, [bins, large, windowSize, sampleRate]);
+  }, [bins, large, windowSize, sampleRate, w, h]);
 
   return (
     <div className="probe-body">
-      <canvas
-        ref={ref}
-        width={W}
-        height={H}
-        style={{ width: '100%', height: H, display: 'block', borderRadius: 4 }}
-      />
+      <div ref={wrapRef} className="monitor-widget">
+        <canvas
+          ref={ref}
+          width={w}
+          height={h}
+          style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }}
+        />
+      </div>
     </div>
   );
 }
 
 function SweepPlotWidget({ data, large }) {
   const sweep = data.probe?.sweep;
-  const W = large ? 640 : 220;
-  const H = large ? 260 : 90;
+  const { wrapRef, w, h } = useCanvasSize(large, large ? 640 : 220, large ? 260 : 90);
   const ref = React.useRef(null);
 
   React.useEffect(() => {
@@ -317,9 +337,13 @@ function SweepPlotWidget({ data, large }) {
     ctx.textAlign = 'left';
     const prog = sweep.done ? '完成' : `扫频 ${Math.round((sweep.progress || 0) * 100)}%`;
     ctx.fillText(prog, plotL, ch - 4);
-  }, [sweep, large, W, H]);
+  }, [sweep, large, w, h]);
 
-  return <canvas ref={ref} width={W} height={H} className="sweep-plot" />;
+  return (
+    <div ref={wrapRef} className="monitor-widget">
+      <canvas ref={ref} width={w} height={h} className="sweep-plot" />
+    </div>
+  );
 }
 
 export const NODE_WIDGETS = {
