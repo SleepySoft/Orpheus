@@ -244,9 +244,88 @@ function SpectrumWidget({ data, large }) {
   );
 }
 
+function SweepPlotWidget({ data, large }) {
+  const sweep = data.probe?.sweep;
+  const W = large ? 640 : 220;
+  const H = large ? 260 : 90;
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const cw = canvas.width, ch = canvas.height;
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, cw, ch);
+
+    const freq = sweep?.freq, mag = sweep?.mag;
+    if (!Array.isArray(freq) || freq.length < 2 || !Array.isArray(mag) || mag.length < 2) {
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('等待扫频数据…', cw / 2, ch / 2);
+      return;
+    }
+
+    const db = mag.map((m) => (m > 0 ? 20 * Math.log10(m) : -120));
+    let minF = Math.log10(freq[0]), maxF = Math.log10(freq[freq.length - 1]);
+    if (!isFinite(minF) || !isFinite(maxF) || maxF <= minF) { minF = 1; maxF = 4; }
+    let minD = Math.min(...db), maxD = Math.max(...db);
+    if (!isFinite(minD) || !isFinite(maxD) || maxD - minD < 1) { minD = -60; maxD = 0; }
+
+    const plotL = large ? 48 : 4, plotR = cw - (large ? 10 : 3);
+    const plotT = large ? 10 : 3, plotB = ch - (large ? 20 : 3);
+    const px = (f) => plotL + ((Math.log10(f) - minF) / (maxF - minF)) * (plotR - plotL);
+    const py = (d) => plotT + (1 - (d - minD) / (maxD - minD)) * (plotB - plotT);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = plotT + ((plotB - plotT) * i) / 4;
+      ctx.beginPath(); ctx.moveTo(plotL, y); ctx.lineTo(plotR, y); ctx.stroke();
+      const x = plotL + ((plotR - plotL) * i) / 4;
+      ctx.beginPath(); ctx.moveTo(x, plotT); ctx.lineTo(x, plotB); ctx.stroke();
+    }
+    if (large) {
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'left';
+      for (let i = 0; i <= 4; i++) {
+        const d = maxD - ((maxD - minD) * i) / 4;
+        ctx.fillText(d.toFixed(0) + 'dB', 2, plotT + ((plotB - plotT) * i) / 4 - 2);
+      }
+      for (let i = 0; i <= 4; i++) {
+        const decade = minF + ((maxF - minF) * i) / 4;
+        const f = Math.pow(10, decade);
+        const label = f >= 1000 ? (f / 1000).toFixed(0) + 'k' : f.toFixed(0);
+        ctx.fillText(label, plotL + ((plotR - plotL) * i) / 4 - 6, ch - 6);
+      }
+    }
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#4cc9f0';
+    ctx.lineWidth = large ? 2 : 1.2;
+    for (let i = 0; i < db.length; i++) {
+      const x = px(freq[i]), y = py(db[i]);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left';
+    const prog = sweep.done ? '完成' : `扫频 ${Math.round((sweep.progress || 0) * 100)}%`;
+    ctx.fillText(prog, plotL, ch - 4);
+  }, [sweep, large, W, H]);
+
+  return <canvas ref={ref} width={W} height={H} className="sweep-plot" />;
+}
+
 export const NODE_WIDGETS = {
   'orpheus.builtin.probe_rms': ProbeRmsWidget,
   'orpheus.builtin.probe_peak': ProbePeakWidget,
   'orpheus.builtin.probe_waveform': ScopeWidget,
   'orpheus.builtin.probe_spectrum': SpectrumWidget,
+  'orpheus.builtin.sweep_record': SweepPlotWidget,
 };

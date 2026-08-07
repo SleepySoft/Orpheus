@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Handle, Position } from 'reactflow';
 import { resolveExprValue } from './graphUtils';
 import { NODE_WIDGETS } from './nodeWidgets';
@@ -75,7 +76,8 @@ export default function OrpheusNode({ data, selected }) {
         <div className="node-ports outputs">{outputs.map((p) => renderRow(p, false))}</div>
       </div>
       {BodyWidget && <BodyWidget data={data} />}
-      {enlarged && (
+      {enlarged &&
+        createPortal(
         <div className="monitor-overlay" onClick={() => setEnlarged(false)}>
           <div className="monitor-panel" onClick={(e) => e.stopPropagation()}>
             <div className="monitor-title">
@@ -88,8 +90,9 @@ export default function OrpheusNode({ data, selected }) {
             </div>
             <BodyWidget data={data} large />
           </div>
-        </div>
-      )}
+        </div>,
+        document.body
+        )}
     </div>
   );
 }

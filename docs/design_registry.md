@@ -435,6 +435,9 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 9. **组件 CMakeLists 需显式加依赖组件 include 路径**：构建侧暂无 manifest 驱动的自动链接（后续由 builder 生成依赖 cmake）；生成器侧已自动处理。
 10. **槽读回语义**：PROBE 槽直读注册内存；SETTING 槽只有 `ORPHEUS_SLOT_DIRECT_WRITE` 才直读/直写，否则回调——避免绕过派生重算（mute/balance/fade 的平滑目标、bass 的派生 dB 读回）。
 11. **runtime 必须与组件同代重建**：`cli build` 曾只构建组件，runtime 停留在旧 ABI——迁移后的组件读旧 runtime 的 `OrpheusConfig`（无 `state_block` 字段）属越界读，可致组件行为异常（balance 时好时坏，且为 UB）。已让 `cli build` 全量时顺带构建 `orpheus_runtime`/`orpheus_rt_host`。
+12. **React Flow v11 框选前提**：`selectionOnDrag` 只在 `panOnDrag !== true` 时生效（源码 `isSelecting = selectionKeyPressed || (selectionOnDrag && panOnDrag !== true)`）——默认左键平移会静默禁用框选。已改为 `selectionOnDrag` + `panOnDrag={[2]}`（左键框选、右键平移）。
+13. **`position: fixed` 弹层不能放在 ReactFlow 节点内**：节点渲染在带 `transform` 的容器里，fixed 退化为相对该容器定位，弹层错位/不可见。放大监控界面已改用 `createPortal` 挂到 `document.body`。
+14. **浮点边界判定陷阱**：`t >= dur` 在 128/48000 步进累加下可能停在 `dur - ε`，完成标志永不触发（进度却显示 100%）。扫频记录改用整数帧计数 `total_frames >= duration_frames` 判定完成。
 
 ---
 
@@ -468,3 +471,8 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 
 - 探针发现统一走注册表：Runtime 暴露 `probe_slots()`，rt_host/offline 宿主遍历 PROBE 槽上报，删除 `component.find(".probe")` 猜测；新增 fir.taps 上报回归测试。
 - balance"变坏"根因不是机制迁移的 DSP 改动：离线实测 balance=1.0 → L=0/R=0.3535 正确；真正原因是 `cli build` 只建组件、runtime 停留在迁移前 ABI，新组件读旧 `OrpheusConfig.state_block` 越界（UB，时好时坏）。修复 `cli build` 全量构建时顺带重建 runtime/rt_host。
+
+### 2026-08-07（第八次讨论：UI 修复 + 扫频记录/绘图）
+
+- 修复监控放大弹层（portal 挂 body，脱离 ReactFlow transform 容器）；修复画布框选（`selectionOnDrag` + `panOnDrag={[2]}`，左键框选/右键平移）。
+- 新增 `orpheus.builtin.sweep_record` 扫频记录组件（按当前频率分箱累计输入能量，结束后输出 频率→幅度 曲线探针）+ 前端 SweepPlotWidget 绘图（对数频率轴、dB 幅度、完成/进度提示）+ 示例 `sweep_record_plot.yaml` + e2e。

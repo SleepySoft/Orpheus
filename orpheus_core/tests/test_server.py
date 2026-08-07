@@ -591,3 +591,58 @@ def test_sweep_spectrum_peak_at_end_frequency(client):
         assert 4000 <= peak_freq <= 6000, f"peak at {peak_freq}Hz, expected ~5000Hz"
     finally:
         client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_sweep_record_probe_curve(client):
+    """扫频记录组件采集 频率→幅度 曲线，以 JSON 探针上报（供绘图控件消费）。"""
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        assert client.post("/api/projects", json={"name": name}).status_code == 201
+        doc = client.get(f"/api/projects/{name}").json()
+        doc["graph"] = {
+            "nodes": [
+                {"id": "sweep", "component": "orpheus.builtin.sweep_gen",
+                 "params": {"start_freq": "100.0", "end_freq": "5000.0",
+                            "duration_s": "10.0", "amplitude": "0.8",
+                            "log_scale": "true", "channels": 1},
+                 "position": {"x": 0, "y": 0}},
+                {"id": "rec", "component": "orpheus.builtin.sweep_record",
+                 "params": {"start_freq": "100.0", "end_freq": "5000.0",
+                            "duration_s": "10.0", "log_scale": "true",
+                            "bins": 32, "channels": 1},
+                 "position": {"x": 200, "y": 0}},
+                {"id": "wav_out", "component": "orpheus.builtin.wav_out",
+                 "params": {"file_path": "outputs/out.wav", "channels": 1,
+                            "sample_rate": 48000},
+                 "position": {"x": 400, "y": 0}},
+            ],
+            "connections": [
+                {"from": "sweep:out", "to": "rec:in"},
+                {"from": "rec:out", "to": "wav_out:in"},
+            ],
+        }
+        assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+        resp = client.post(f"/api/projects/{name}/run")
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+        by = {(p["node"], p["param"]): p["value"] for p in result["probes"]}
+        curve = by.get(("rec", "sweep"))
+        assert isinstance(curve, dict), f"expected sweep curve dict, got {type(curve)}"
+        freq = curve.get("freq")
+        mag = curve.get("mag")
+        assert isinstance(freq, list) and len(freq) == 32, f"freq len {len(freq) if isinstance(freq, list) else freq}"
+        assert isinstance(mag, list) and len(mag) == 32, f"mag len {len(mag) if isinstance(mag, list) else mag}"
+        assert all(freq[i] < freq[i + 1] for i in range(len(freq) - 1)), "freq 应单调递增"
+        assert curve.get("done") is True
+        assert abs(float(curve.get("progress", 0)) - 1.0) < 1e-3
+        # 0.8 幅度正弦 → RMS ≈ 0.566；允许首尾分箱不完整
+        assert 0.3 < max(mag) < 0.9, f"幅度异常: max={max(mag)}"
+        assert min(mag) > 0.05, f"存在空箱: min={min(mag)}"
+    finally:
+        client.delete(f"/api/projects/{name}")

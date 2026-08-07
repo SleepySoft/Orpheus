@@ -785,7 +785,7 @@ function Editor() {
           ))}
         </select>
         <span className="toolbar-sep" />
-        <span title="在画布空白处拖拽框选，或按住 Shift 点击多个节点">
+        <span title="在画布空白处左键拖拽框选，右键拖拽平移，或按住 Shift 点击多个节点">
           <button onClick={wrapSelection} disabled={!current || selectedIds.length === 0}>
             包装为子组件
           </button>
@@ -868,6 +868,7 @@ function Editor() {
             nodeTypes={nodeTypes}
             deleteKeyCode={['Delete', 'Backspace']}
             selectionOnDrag
+            panOnDrag={[2]}
             multiSelectionKeyCode="Shift"
             fitView
           >

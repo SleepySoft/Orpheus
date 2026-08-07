@@ -1,0 +1,71 @@
+id: orpheus.builtin.sweep_record
+name: 扫频记录
+category: 监控工具
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: SweepRecordState
+sources:
+  - src/sweep_record.c
+headers:
+  - include/orpheus_sweep_record.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: start_freq
+    name: 起始频率
+    type: float
+    default: 20.0
+    range: [1.0, 20000.0]
+    unit: Hz
+    update_policy: restart_required
+  - id: end_freq
+    name: 结束频率
+    type: float
+    default: 20000.0
+    range: [1.0, 20000.0]
+    unit: Hz
+    update_policy: restart_required
+  - id: duration_s
+    name: 扫频时长
+    type: float
+    default: 5.0
+    range: [0.1, 300.0]
+    unit: s
+    update_policy: restart_required
+  - id: log_scale
+    name: 对数扫频
+    type: bool
+    default: true
+    update_policy: restart_required
+  - id: bins
+    name: 记录点数
+    type: int
+    default: 64
+    range: [8, 256]
+    update_policy: restart_required
+  - id: channels
+    name: 通道数
+    type: int
+    default: 1
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

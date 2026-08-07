@@ -1,0 +1,55 @@
+version: "0.1.0"
+metadata:
+  name: sweep_record_plot
+  description: 扫频发生器 -> 扫频记录 -> WAV 输出（记录组件采集 频率→幅度 曲线，节点上直接绘图）
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: sweep
+      component: orpheus.builtin.sweep_gen
+      task: default
+      params:
+        start_freq: 20.0
+        end_freq: 20000.0
+        duration_s: 5.0
+        amplitude: 0.7
+        log_scale: true
+        channels: 1
+      position:
+        x: 100
+        y: 100
+    - id: rec
+      component: orpheus.builtin.sweep_record
+      task: default
+      params:
+        start_freq: 20.0
+        end_freq: 20000.0
+        duration_s: 5.0
+        log_scale: true
+        bins: 64
+        channels: 1
+      position:
+        x: 320
+        y: 100
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      task: default
+      params:
+        file_path: outputs/sweep_record.wav
+        channels: 1
+        sample_rate: 48000
+      position:
+        x: 540
+        y: 100
+  connections:
+    - from: sweep:out
+      to: rec:in
+    - from: rec:out
+      to: wav_out:in
