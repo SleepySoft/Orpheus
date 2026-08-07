@@ -203,7 +203,7 @@ const { screenToFlowPosition } = useReactFlow();
           );
           // 离线实时播放结束后刷新产物列表（wav_out 在宿主退出时落盘）
           api
-            .listFiles(current)
+            .listProjectFiles(current)
             .then((files) => {
               const outs = (files || []).filter((f) => (f.path || '').startsWith('outputs/'));
               if (outs.length) setOutputs(outs.map((f) => f.path));
