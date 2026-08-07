@@ -512,3 +512,10 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 
 - sweep_gen 新增 `progress`/`current_freq` 探针（实时更新：进度=t/duration，当前频率=本块最后样本频率，扫完静音为 0）；sweep_record 也新增 `current_freq`（当前分箱频率），便于对照"谁没在工作"。
 - 扫频发生器节点本体控件：进度条 + 当前频率文本（"1.23 kHz"/"已结束"/"进度 xx%"），运行中实时刷新。
+
+### 2026-08-07（第十五次讨论：离线按真实时长播放）
+
+- 澄清：发生器没问题——离线计算 60s 音频仅需 ~1s 墙钟，进度条"一秒到头"是处理速度快所致（已实测 60s 扫频输出正好 60.0s wav）。
+- 新增"按真实时长播放"：orpheus_runtime 支持 `--pace`（处理时长≈墙钟）+ `--probe-interval`（探针流式上报）；后端 `/run?pace=1` 以会话方式启动，UI 复选框开启后复用实时轮询实时看进度/曲线。
+- 顺带修复：wav_out 落盘前自动创建输出目录（`outputs/` 不存在时 fopen 静默失败——一次性运行会预建，会话/直接运行不会）；生成路径同类问题一并修复。
+- 会话测试：2s 扫频加速播放，探针流式上报、结束后 wav 落盘；全量 54 passed。

@@ -2,8 +2,12 @@
 #include "orpheus_runtime/runtime.h"
 #include "orpheus_runtime/wav_io.h"
 
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <string>
+#include <thread>
 
 void print_usage(const char* prog) {
     std::cerr << "Usage: " << prog << " <plan.json> <component_dir>" << std::endl;
@@ -19,6 +23,24 @@ static std::string find_input_node(const orpheus::Plan& plan) {
     return "";
 }
 
+/* 上报全部 PROBE 槽（离线一次性 / 按真实时长播放时周期调用） */
+static void dump_probes(orpheus::Runtime& runtime, const orpheus::Plan& plan) {
+    for (const auto& node_id : plan.execution_order) {
+        auto slots = runtime.probe_slots(node_id);
+        for (const orpheus::SlotEntry* e : slots) {
+            OrpheusValue v;
+            if (runtime.get_parameter(node_id, e->key, &v) != ORPHEUS_OK) continue;
+            if (v.type == ORPHEUS_VALUE_FLOAT) {
+                std::cout << "PROBE " << node_id << " " << e->key << " " << v.value.f32 << std::endl;
+            } else if (v.type == ORPHEUS_VALUE_INT) {
+                std::cout << "PROBE " << node_id << " " << e->key << " " << v.value.i32 << std::endl;
+            } else if (v.type == ORPHEUS_VALUE_STRING) {
+                std::cout << "PROBE_JSON " << node_id << " " << e->key << " " << v.value.str << std::endl;
+            }
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) {
         print_usage(argv[0]);
@@ -27,6 +49,15 @@ int main(int argc, char** argv) {
 
     std::string plan_path = argv[1];
     std::string component_dir = argv[2];
+    bool pace = false;
+    uint32_t probe_interval_ms = 0;
+    for (int i = 3; i < argc; ++i) {
+        if (std::string(argv[i]) == "--pace") {
+            pace = true;
+        } else if (std::string(argv[i]) == "--probe-interval" && i + 1 < argc) {
+            probe_interval_ms = (uint32_t)std::atoi(argv[++i]);
+        }
+    }
 
     try {
         orpheus::Plan plan = orpheus::Plan::load_from_file(plan_path);
@@ -73,6 +104,18 @@ int main(int argc, char** argv) {
 
         uint32_t block_size = plan.block_size;
         uint32_t processed = 0;
+        std::atomic<bool> probes_running{true};
+        std::thread probe_thread;
+        if (probe_interval_ms > 0) {
+            probe_thread = std::thread([&]() {
+                while (probes_running) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(probe_interval_ms));
+                    if (!probes_running) break;
+                    dump_probes(runtime, plan);
+                }
+            });
+        }
+        auto t_start = std::chrono::steady_clock::now();
         while (processed < total_frames) {
             uint32_t this_block = block_size;
             if (processed + this_block > total_frames) {
@@ -84,27 +127,22 @@ int main(int argc, char** argv) {
                 return 1;
             }
             processed += this_block;
-        }
-
-        std::cout << "Processed " << processed << " frames" << std::endl;
-
-        // Dump probe readback values: PROBE <node> <param> <value>
-        for (const auto& node_id : plan.execution_order) {
-            // v2：探针发现统一走注册表（PROBE 槽）
-            auto slots = runtime.probe_slots(node_id);
-            for (const orpheus::SlotEntry* e : slots) {
-                OrpheusValue v;
-                if (runtime.get_parameter(node_id, e->key, &v) != ORPHEUS_OK) continue;
-                if (v.type == ORPHEUS_VALUE_FLOAT) {
-                    std::cout << "PROBE " << node_id << " " << e->key << " " << v.value.f32 << std::endl;
-                } else if (v.type == ORPHEUS_VALUE_INT) {
-                    std::cout << "PROBE " << node_id << " " << e->key << " " << v.value.i32 << std::endl;
-                } else if (v.type == ORPHEUS_VALUE_STRING) {
-                    // 复合/结构化探针（波形/频谱 JSON）：整行
-                    std::cout << "PROBE_JSON " << node_id << " " << e->key << " " << v.value.str << std::endl;
+            if (pace) {
+                /* 按真实时长播放：处理完的音频时长 ≈ 墙钟流逝时间 */
+                double target_ms = (double)processed / (double)plan.sample_rate * 1000.0;
+                double elapsed = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - t_start).count();
+                double slp = target_ms - elapsed;
+                if (slp > 1.0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds((long)slp));
                 }
             }
         }
+        probes_running = false;
+        if (probe_thread.joinable()) probe_thread.join();
+
+        std::cout << "Processed " << processed << " frames" << std::endl;
+        dump_probes(runtime, plan);
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;

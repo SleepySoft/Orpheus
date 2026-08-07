@@ -824,3 +824,53 @@ def test_wav_out_sample_rate_auto_follows_input(client):
             assert w.getframerate() == 24000, f"rate={w.getframerate()}"
     finally:
         client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_offline_paced_session(client):
+    """按真实时长播放：离线宿主以会话方式运行，探针流式上报，结束后产物落盘。"""
+    import time
+    import wave
+
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        assert client.post("/api/projects", json={"name": name}).status_code == 201
+        doc = client.get(f"/api/projects/{name}").json()
+        doc["graph"] = {
+            "nodes": [
+                {"id": "sweep", "component": "orpheus.builtin.sweep_gen",
+                 "params": {"start_freq": "100.0", "end_freq": "5000.0",
+                            "duration_s": "2.0", "amplitude": "0.7",
+                            "log_scale": "true", "channels": 1},
+                 "position": {"x": 0, "y": 0}},
+                {"id": "wav_out", "component": "orpheus.builtin.wav_out",
+                 "params": {"file_path": "outputs/out.wav", "channels": 1,
+                            "sample_rate": 48000},
+                 "position": {"x": 200, "y": 0}},
+            ],
+            "connections": [{"from": "sweep:out", "to": "wav_out:in"}],
+        }
+        assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+        r = client.post(f"/api/projects/{name}/run?pace=1")
+        assert r.status_code == 200, r.text
+        j = r.json()
+        assert j["mode"] == "offline_live", j
+        s = None
+        for _ in range(60):
+            time.sleep(0.25)
+            s = client.get(f"/api/projects/{name}/rt/status").json()
+            if not s["running"]:
+                break
+        assert s is not None and not s["running"], "离线实时播放会话未结束"
+        # 探针已流式上报（最终快照含发生器进度/频率）
+        probes = s.get("probes", {})
+        assert probes.get("sweep", {}).get("progress") is not None, probes
+        pdir = ROOT / "workspace" / name
+        with wave.open(str(pdir / "outputs" / "out.wav"), "rb") as w:
+            assert abs(w.getnframes() - 96000) <= 128, f"frames={w.getnframes()}"
+    finally:
+        client.delete(f"/api/projects/{name}")

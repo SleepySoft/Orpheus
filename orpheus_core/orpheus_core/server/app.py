@@ -295,9 +295,10 @@ def create_app(project_root: Path) -> FastAPI:
         }
 
     @app.post("/api/projects/{name}/run")
-    def run_project(name: str) -> dict[str, Any]:
+    def run_project(name: str, pace: bool = False) -> dict[str, Any]:
         """Base-host run: dispatch by graph IO. Graphs with device components run
-        as a realtime session; pure file graphs run the offline host."""
+        as a realtime session; pure file graphs run the offline host.
+        pace=true：离线图按真实时长播放（会话方式运行，探针流式上报）。"""
         try:
             rec = manager.get(name)
         except ProjectError as exc:
@@ -321,6 +322,19 @@ def create_app(project_root: Path) -> FastAPI:
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             return {"mode": "realtime", "status": "started", "pid": session.proc.pid,
+                    "built_components": built}
+
+        if pace:
+            # 离线实时播放：宿主按真实时长处理，探针每 200ms 流式上报（会话方式，UI 轮询）
+            rt_exe = ensure_runtime_built()
+            (rec.directory / "outputs").mkdir(exist_ok=True)
+            session = rt_sessions.start(
+                name,
+                [str(rt_exe), str(plan_path), str(root / "build" / "components"),
+                 "--pace", "--probe-interval", "200"],
+                cwd=rec.directory,
+            )
+            return {"mode": "offline_live", "status": "started", "pid": session.proc.pid,
                     "built_components": built}
 
         exe = ensure_runtime_built()

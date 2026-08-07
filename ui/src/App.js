@@ -53,6 +53,7 @@ function Editor() {
   const [activeView, setActiveView] = useState('main');
   const [selectedId, setSelectedId] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [paceRun, setPaceRun] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [autoSave, setAutoSave] = useState(true);
@@ -200,6 +201,14 @@ const { screenToFlowPosition } = useReactFlow();
           setStatus(
             s.exit_code === 0 ? '实时会话已结束' : `实时进程异常退出 (code ${s.exit_code})，原因见日志`
           );
+          // 离线实时播放结束后刷新产物列表（wav_out 在宿主退出时落盘）
+          api
+            .listFiles(current)
+            .then((files) => {
+              const outs = (files || []).filter((f) => (f.path || '').startsWith('outputs/'));
+              if (outs.length) setOutputs(outs.map((f) => f.path));
+            })
+            .catch(() => {});
         }
         setRt({ running: s.running, logs: s.logs || [], probes: s.probes || {} });
         if (Object.keys(s.probes || {}).length > 0) {
@@ -656,11 +665,15 @@ const { screenToFlowPosition } = useReactFlow();
     await ensureSaved();
     setStatus('运行中…');
     try {
-      const r = await api.runProject(current);
-      if (r.mode === 'realtime') {
+      const r = await api.runProject(current, paceRun);
+      if (r.mode === 'realtime' || r.mode === 'offline_live') {
         // device graph: base host started a realtime session
         setRt({ running: true, logs: [], probes: {} });
-        setStatus('实时运行中（含设备组件，调参数即时生效）');
+        setStatus(
+          r.mode === 'offline_live'
+            ? '离线实时播放中（按真实时长，可观察进度/曲线）'
+            : '实时运行中（含设备组件，调参数即时生效）'
+        );
         return;
       }
       setStatus(r.status === 'ok' ? '运行成功' : `运行失败 (exit ${r.returncode})`);
@@ -696,7 +709,7 @@ const { screenToFlowPosition } = useReactFlow();
       setStatus('运行失败');
       setLog({ title: '运行错误', lines: [api.errorDetail(e)] });
     }
-  }, [current, ensureSaved]);
+  }, [current, ensureSaved, paceRun]);
 
   const doRunGenerated = useCallback(async () => {
     if (!current) return;
@@ -811,6 +824,15 @@ const { screenToFlowPosition } = useReactFlow();
         <button className="primary" onClick={doRun} disabled={!current || rt.running}>
           ▶ 运行
         </button>
+        <label className="pace-label" title="离线运行时按真实时长播放（进度条/曲线实时走动）">
+          <input
+            type="checkbox"
+            checked={paceRun}
+            onChange={(e) => setPaceRun(e.target.checked)}
+            disabled={!current || rt.running}
+          />
+          按真实时长播放
+        </label>
         <button onClick={doRunGenerated} disabled={!current || rt.running}>
           ⚙ 编译后运行
         </button>

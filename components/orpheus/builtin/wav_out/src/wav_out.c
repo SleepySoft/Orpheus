@@ -4,6 +4,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <direct.h>
+#define ORPHEUS_MKDIR(p) _mkdir(p)
+#else
+#include <sys/stat.h>
+#define ORPHEUS_MKDIR(p) mkdir(p, 0755)
+#endif
+
 #define WAV_OUT_MAX_SAMPLES (1024 * 1024 * 16)
 
 static const OrpheusParameter wav_out_params[] = {
@@ -84,6 +92,19 @@ static void write_u32(uint8_t* p, uint32_t v) {
 }
 
 static int wav_out_write_file(WavOutState* s) {
+    /* 确保输出目录存在（离线会话/直接运行不会预建 outputs/，fopen 静默失败） */
+    const char* slash = strrchr(s->file_path, '/');
+    const char* bslash = strrchr(s->file_path, '\\');
+    const char* sep = bslash && (!slash || bslash > slash) ? bslash : slash;
+    if (sep != NULL && sep != s->file_path) {
+        char dirbuf[512];
+        size_t len = (size_t)(sep - s->file_path);
+        if (len < sizeof(dirbuf)) {
+            memcpy(dirbuf, s->file_path, len);
+            dirbuf[len] = '\0';
+            ORPHEUS_MKDIR(dirbuf);  /* 已存在则忽略 EEXIST */
+        }
+    }
     FILE* f = fopen(s->file_path, "wb");
     if (!f) return ORPHEUS_ERR_NOT_FOUND;
 
