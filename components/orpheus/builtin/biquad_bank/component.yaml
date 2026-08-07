@@ -70,6 +70,15 @@ parameters:
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
+bulk_slots:
+  - id: bq0.coefs
+    name: 第 1 段系数
+    type: float
+    count: 5
+  - id: bq1.coefs
+    name: 第 2 段系数
+    type: float
+    count: 5
 memory:
   state_size: 0
   scratch_size: 0

@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 struct HostContext {
     orpheus::Runtime* runtime;
@@ -285,6 +286,7 @@ static void report_probes(orpheus::Runtime& runtime, const orpheus::Plan& plan) 
 // stdin control protocol (one command per line):
 //   SET <node> <param> <value>   -> runtime.set_parameter (numeric -> float, else string)
 //   GET <node> <param>           -> prints VALUE <node> <param> <value>
+//   BULK <node> <key> <n> <v0>...-> runtime.write_bulk (BULK 槽直写，如 biquad_bank 系数)
 //   STOP (or empty line / EOF)   -> shut down
 static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) {
     std::string line;
@@ -328,6 +330,23 @@ static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) 
             } else {
                 std::cout << "ERR GET " << node << " " << param << std::endl;
             }
+        } else if (cmd == "BULK") {
+            std::string node, key;
+            size_t n = 0;
+            iss >> node >> key >> n;
+            std::vector<float> vals;
+            vals.reserve(n);
+            for (size_t i = 0; i < n; ++i) {
+                float v = 0.0f;
+                if (!(iss >> v)) break;
+                vals.push_back(v);
+            }
+            if (vals.size() != n) {
+                std::cout << "ERR BULK " << node << " " << key << std::endl;
+                continue;
+            }
+            int r = runtime.write_bulk(node, key, vals.data(), vals.size());
+            std::cout << (r == ORPHEUS_OK ? "OK BULK " : "ERR BULK ") << node << " " << key << std::endl;
         }
     }
     running = false;

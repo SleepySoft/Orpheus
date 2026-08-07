@@ -498,6 +498,23 @@ const { screenToFlowPosition } = useReactFlow();
     []
   );
 
+  /** 参数面板：把数值数组写入实时会话的 BULK 槽（如 biquad_bank 系数）。 */
+  const onWriteBulk = useCallback(
+    async (flatId, key, values) => {
+      if (!current || !rtRef.current.running) {
+        setStatus('实时会话未运行，无法写入 Bulk 槽');
+        return;
+      }
+      try {
+        await api.rtWriteBulk(current, flatId, key, values);
+        setStatus(`Bulk ${key} 已写入 ${flatId}（${values.length} 个值）`);
+      } catch (e) {
+        setStatus(`Bulk 写入失败: ${api.errorDetail(e)}`);
+      }
+    },
+    [current]
+  );
+
   const onDeleteNode = useCallback(
     (nodeId) => {
       updateView(activeView, (v) => ({
@@ -1033,6 +1050,7 @@ const { screenToFlowPosition } = useReactFlow();
           ctx={paramCtx}
           onNodeParamChange={onNodeParamChange}
           onImportApply={onImportApply}
+          onWriteBulk={onWriteBulk}
           onLocate={onLocateParam}
           onClose={() => setShowParams(false)}
         />

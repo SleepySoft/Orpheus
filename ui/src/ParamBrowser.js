@@ -119,6 +119,76 @@ function BulkRow({ schema, value, onChange }) {
   );
 }
 
+/** 运行期 BULK 槽行（组件 register_slots 注册、仅实时会话可写）：文本 + 文件导入 + 写入会话。 */
+function RuntimeBulkRow({ schema, running, onWrite }) {
+  const [text, setText] = useState('');
+  const fileRef = useRef(null);
+  const vals = parseFloatList(text);
+  const countOk = schema.count ? vals.length === schema.count : vals.length > 0;
+
+  const onFile = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const t = await f.text();
+    let arr = null;
+    try {
+      const j = JSON.parse(t);
+      if (Array.isArray(j)) arr = j.map(Number).filter(Number.isFinite);
+    } catch {
+      /* 非 JSON，按文本数值解析 */
+    }
+    if (!arr) arr = parseFloatList(t);
+    if (!arr.length) {
+      window.alert('文件中没有可解析的数值（支持 JSON 数组或逗号/空格分隔的文本）');
+      return;
+    }
+    if (schema.count && arr.length !== schema.count) {
+      window.alert(`需要 ${schema.count} 个值，文件里有 ${arr.length} 个`);
+      return;
+    }
+    setText(arr.join(', '));
+  };
+
+  const write = () => {
+    if (!countOk) {
+      window.alert(`需要 ${schema.count} 个值，当前 ${vals.length} 个`);
+      return;
+    }
+    onWrite(vals);
+  };
+
+  return (
+    <div className="pb-bulk">
+      <input
+        type="text"
+        placeholder={`${schema.count} 个数值，逗号/空格分隔`}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <span className="pb-bulk-count">
+        {vals.length}/{schema.count}
+      </span>
+      <button onClick={() => fileRef.current && fileRef.current.click()}>从文件导入</button>
+      <button
+        className="pb-write"
+        disabled={!running || !countOk}
+        onClick={write}
+        title={running ? '写入实时会话（BULK 协议直写槽内存）' : '仅实时会话可写'}
+      >
+        写入实时会话
+      </button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".json,.txt,.csv"
+        style={{ display: 'none' }}
+        onChange={onFile}
+      />
+    </div>
+  );
+}
+
 export default function ParamBrowser({
   projectName,
   views,
@@ -127,6 +197,7 @@ export default function ParamBrowser({
   ctx,
   onNodeParamChange,
   onImportApply,
+  onWriteBulk,
   onLocate,
   onClose,
 }) {
@@ -151,6 +222,9 @@ export default function ParamBrowser({
         const byKind = { setting: [], bulk: [], probe: [], command: [], state: [] };
         for (const p of params) {
           (byKind[kindOf(p)] || byKind.setting).push(p);
+        }
+        for (const bs of (comp && comp.bulk_slots) || []) {
+          byKind.bulk.push({ ...bs, runtime: true });
         }
         const nodePath = [...path, { id: nd.id, label: nd.data.label || nd.id }];
         entries.push({
@@ -221,7 +295,9 @@ export default function ParamBrowser({
         const bulk = {};
         const probes = {};
         for (const p of e.byKind.setting || []) values[p.id] = params[p.id] ?? p.default;
-        for (const p of e.byKind.bulk || []) bulk[p.id] = parseFloatList(params[p.id]);
+        for (const p of e.byKind.bulk || []) {
+          if (!p.runtime) bulk[p.id] = parseFloatList(params[p.id]);
+        }
         for (const p of e.byKind.probe || []) {
           const live = rt.probes?.[e.flatId]?.[p.id] ?? nodeProbe(e)[p.id];
           if (live !== undefined) probes[p.id] = live;
@@ -349,6 +425,21 @@ export default function ParamBrowser({
                             );
                           }
                           if (kind === 'bulk') {
+                            if (p.runtime) {
+                              return (
+                                <div key={p.id} className="pb-row">
+                                  <span className="pb-name">
+                                    {p.name || p.id}
+                                    <span className="pb-meta"> 运行期槽</span>
+                                  </span>
+                                  <RuntimeBulkRow
+                                    schema={p}
+                                    running={rt.running}
+                                    onWrite={(vals) => onWriteBulk(e.flatId, p.id, vals)}
+                                  />
+                                </div>
+                              );
+                            }
                             return (
                               <div key={p.id} className="pb-row">
                                 <span className="pb-name">{p.name || p.id}</span>

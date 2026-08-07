@@ -111,6 +111,21 @@
     },
     "graph": { "type": "object" },
     "public_ports": { "type": "array" },
-    "public_parameters": { "type": "array" }
+    "public_parameters": { "type": "array" },
+    "bulk_slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "count"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["float", "int", "bool", "string"] },
+          "count": { "type": "integer", "minimum": 1 },
+          "unit": { "type": "string" }
+        }
+      },
+      "description": "运行期 BULK 槽声明：组件 register_slots 注册的数组槽（如 biquad_bank 系数），供参数面板展示并在实时会话中写入（BULK 协议），不随工程保存。"
+    }
   }
 }

@@ -1098,6 +1098,16 @@ pre {
   cursor: default;
 }
 
+.pb-bulk button.pb-write {
+  border-color: #1971c2;
+  color: #1971c2;
+  font-weight: 600;
+}
+
+.pb-bulk button.pb-write:not(:disabled):hover {
+  background: #e7f5ff;
+}
+
 .pb-bulk-count {
   color: #868e96;
   font-size: 12px;

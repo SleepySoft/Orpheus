@@ -29,6 +29,8 @@ export const rtStop = (name) => unwrap(api.post(`/projects/${name}/rt/stop`));
 export const rtStatus = (name) => unwrap(api.get(`/projects/${name}/rt/status`));
 export const rtSetParam = (name, node, param, value) =>
   unwrap(api.post(`/projects/${name}/rt/param`, { node, param, value }));
+export const rtWriteBulk = (name, node, key, values) =>
+  unwrap(api.post(`/projects/${name}/rt/bulk`, { node, key, values }));
 export const listProjectFiles = (name, ext = null) =>
   unwrap(api.get(`/projects/${name}/files`, { params: ext ? { ext } : {} }));
 export const uploadProjectFile = (name, file) => {

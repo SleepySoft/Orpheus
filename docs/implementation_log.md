@@ -1,5 +1,34 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-07（第十八次讨论：运行期 Bulk 槽接入参数面板）
+
+### 目标
+
+上一步参数面板的 Bulk 只覆盖 manifest 参数（FIR 系数，随工程保存）；组件 `register_slots` 注册的运行期 BULK 槽（biquad_bank `bq*.coefs` 系数）此前只能由代码直写、UI 不可见。本次把运行期 Bulk 槽通过控制协议暴露进参数面板：声明可见 + 实时会话直写 + 文件导入。
+
+### A. 协议与后端
+
+- `rt_host.cpp` stdin 协议新增 `BULK <node> <key> <n> <v0> <v1> ...`：解析 n 个 float 调 `runtime.write_bulk`（已有边界校验），回显 `OK/ERR BULK`。
+- `RtSession.write_bulk`（`server/rt.py`）构造协议行；`POST /api/projects/{name}/rt/bulk`（`server/app.py`）接收 `{node, key, values: [float]}`。
+- manifest schema 新增 `bulk_slots` 声明（id/name/type/count/unit）；`biquad_bank` 声明 `bq0.coefs`/`bq1.coefs`（各 5 个 float）。`/api/components` 暴露 `bulk_slots`。
+- 新增 `tests/test_rt_protocol.py`：BULK 行格式单测（2 项）。
+
+### B. 前端
+
+- 参数面板 Bulk 分类下区分两类：工程参数（FIR 系数，编辑/整体导入导出）与**运行期槽**（显示 `N/5` 计数 + 「从文件导入」（JSON 数组或文本数值，数量校验）+「写入实时会话」按钮，非运行态禁用）。
+- 运行期槽不随工程导出/导入（会话内可写、不持久化，界面有标注）。
+- `App.js` 新增 `onWriteBulk`：调 `rtWriteBulk` 并反馈状态。
+
+### 验证
+
+- `cli build` 全量重建通过；`npm run build` 通过；`pytest` 57 passed（含 2 项新协议单测）。
+- 运行期 BULK 直写的效果即 design_registry 已验证的闭环：默认 rms 0.3409 → 直写系数后 0.1704，越界写入被 runtime 拒绝。
+
+### 已知/后续
+
+- 运行期 Bulk 只写不读：读回需 `get_bulk`（设计文档 ID/协议项，未做）。
+- 参数快照/预设（整工程保存-对比-恢复）仍是下一个候选方向。
+
 ## 2026-08-07（第十七次讨论：全局参数面板 + 导入导出（含 Bulk））
 
 ### 目标

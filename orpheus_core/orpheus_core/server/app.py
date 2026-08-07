@@ -75,6 +75,12 @@ class RtParamRequest(BaseModel):
     value: float | int | str
 
 
+class RtBulkRequest(BaseModel):
+    node: str
+    key: str
+    values: list[float]
+
+
 def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
     m = info.manifest
     return {
@@ -88,6 +94,7 @@ def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
         "clock_source": m.get("clock_source", False),
         "ports": m.get("ports", []),
         "parameters": m.get("parameters", []),
+        "bulk_slots": m.get("bulk_slots", []),
     }
 
 
@@ -538,6 +545,18 @@ def create_app(project_root: Path) -> FastAPI:
             raise HTTPException(status_code=400, detail="realtime session not running")
         try:
             session.set_parameter(req.node, req.param, req.value)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": "sent"}
+
+    @app.post("/api/projects/{name}/rt/bulk")
+    def rt_write_bulk(name: str, req: RtBulkRequest) -> dict[str, Any]:
+        """实时会话 BULK 直写：把数值数组写入组件注册的 BULK 槽（如 biquad_bank 系数）。"""
+        session = rt_sessions.get(name)
+        if session is None or not session.running:
+            raise HTTPException(status_code=400, detail="realtime session not running")
+        try:
+            session.write_bulk(req.node, req.key, req.values)
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": "sent"}

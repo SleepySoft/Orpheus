@@ -87,6 +87,11 @@ class RtSession:
     def set_parameter(self, node: str, param: str, value: Any) -> None:
         self.send(f"SET {node} {param} {value}")
 
+    def write_bulk(self, node: str, key: str, values: list[float]) -> None:
+        """BULK <node> <key> <n> <v0> <v1> ...：直写组件注册的 BULK 槽。"""
+        nums = " ".join(str(v) for v in values)
+        self.send(f"BULK {node} {key} {len(values)} {nums}")
+
     def stop(self, timeout: float = 3.0) -> None:
         if not self.running:
             return
