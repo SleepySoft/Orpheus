@@ -517,7 +517,7 @@
 
 .monitor-widget {
   flex: 1;
-  min-height: 40px;
+  min-height: 90px;
   position: relative;
 }
 

@@ -324,8 +324,8 @@ function SweepPlotWidget({ data, large }) {
     let maxD = measured.length ? Math.max(...measured) : 0;
     if (!isFinite(minD) || !isFinite(maxD) || maxD - minD < 1) { minD = -60; maxD = 0; }
 
-    const plotL = large ? 48 : 4, plotR = cw - (large ? 10 : 3);
-    const plotT = large ? 10 : 3, plotB = ch - (large ? 20 : 3);
+    // 坐标区留边：左=dB 刻度，下=频率刻度，两种尺寸都显示
+    const plotL = 42, plotR = cw - 8, plotT = 10, plotB = ch - 18;
     const px = (f) => plotL + ((Math.log10(f) - minF) / (maxF - minF)) * (plotR - plotL);
     const py = (d) => plotT + (1 - (d - minD) / (maxD - minD)) * (plotB - plotT);
 
@@ -334,24 +334,32 @@ function SweepPlotWidget({ data, large }) {
     for (let i = 0; i <= 4; i++) {
       const y = plotT + ((plotB - plotT) * i) / 4;
       ctx.beginPath(); ctx.moveTo(plotL, y); ctx.lineTo(plotR, y); ctx.stroke();
-      const x = plotL + ((plotR - plotL) * i) / 4;
+    }
+
+    // 幅度轴（dB）刻度：5 格
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+      const d = maxD - ((maxD - minD) * i) / 4;
+      ctx.fillText(d.toFixed(0) + 'dB', plotL - 4, plotT + ((plotB - plotT) * i) / 4 + 3);
+    }
+
+    // 频率轴（对数）刻度：按数量级（10^n）落格，Hz/kHz 自适应
+    const fmtHz = (f) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 0 : 1)}k` : `${Math.round(f)}`);
+    ctx.textAlign = 'center';
+    const k0 = Math.floor(minF), k1 = Math.ceil(maxF);
+    for (let k = k0; k <= k1; k++) {
+      const f = Math.pow(10, k);
+      if (f < freq[0] || f > freq[freq.length - 1]) continue;
+      const x = px(f);
       ctx.beginPath(); ctx.moveTo(x, plotT); ctx.lineTo(x, plotB); ctx.stroke();
+      ctx.fillText(fmtHz(f), x, ch - 5);
     }
-    if (large) {
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'left';
-      for (let i = 0; i <= 4; i++) {
-        const d = maxD - ((maxD - minD) * i) / 4;
-        ctx.fillText(d.toFixed(0) + 'dB', 2, plotT + ((plotB - plotT) * i) / 4 - 2);
-      }
-      for (let i = 0; i <= 4; i++) {
-        const decade = minF + ((maxF - minF) * i) / 4;
-        const f = Math.pow(10, decade);
-        const label = f >= 1000 ? (f / 1000).toFixed(0) + 'k' : f.toFixed(0);
-        ctx.fillText(label, plotL + ((plotR - plotL) * i) / 4 - 6, ch - 6);
-      }
-    }
+    // 坐标轴主线
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath(); ctx.moveTo(plotL, plotB); ctx.lineTo(plotR, plotB); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(plotL, plotT); ctx.lineTo(plotL, plotB); ctx.stroke();
 
     ctx.beginPath();
     ctx.strokeStyle = '#4cc9f0';
@@ -368,7 +376,7 @@ function SweepPlotWidget({ data, large }) {
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'left';
     const prog = sweep.done ? '完成' : `扫频 ${Math.round((sweep.progress || 0) * 100)}%`;
-    ctx.fillText(prog, plotL, ch - 4);
+    ctx.fillText(prog, plotL + 2, plotT + 10);
   }, [sweep, large, w, h]);
 
   return (
