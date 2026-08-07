@@ -686,3 +686,42 @@ def test_sweep_gen_offline_duration_respected(client):
             assert abs(w.getnframes() - 144000) <= 128, f"frames={w.getnframes()}"
     finally:
         client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_generator_sample_rate_offline(client):
+    """发生器声明 8kHz 时钟：图采样率=8000，离线输出 wav 也是 8000Hz、10 秒。"""
+    import wave
+
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        assert client.post("/api/projects", json={"name": name}).status_code == 201
+        doc = client.get(f"/api/projects/{name}").json()
+        doc["graph"] = {
+            "nodes": [
+                {"id": "sig", "component": "orpheus.builtin.signal_gen",
+                 "params": {"sample_rate": 8000, "frequency": "440.0",
+                            "amplitude": "0.5", "channels": 1},
+                 "position": {"x": 0, "y": 0}},
+                {"id": "wav_out", "component": "orpheus.builtin.wav_out",
+                 "params": {"file_path": "outputs/out.wav", "channels": 1,
+                            "sample_rate": 8000},
+                 "position": {"x": 200, "y": 0}},
+            ],
+            "connections": [{"from": "sig:out", "to": "wav_out:in"}],
+        }
+        assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+        resp = client.post(f"/api/projects/{name}/run")
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+        pdir = ROOT / "workspace" / name
+        with wave.open(str(pdir / "outputs" / "out.wav"), "rb") as w:
+            assert w.getframerate() == 8000, f"rate={w.getframerate()}"
+            assert abs(w.getnframes() - 80000) <= 128, f"frames={w.getnframes()}"
+    finally:
+        client.delete(f"/api/projects/{name}")

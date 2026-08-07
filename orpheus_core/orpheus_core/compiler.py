@@ -165,23 +165,18 @@ class GraphCompiler:
     def __init__(self, registry: Registry):
         self.registry = registry
 
-    # Device source components that may declare an authoritative sample_rate.
-    _DEVICE_SOURCE_COMPONENTS = (
-        "orpheus.builtin.device_in",
-        "orpheus.builtin.device_out",
-    )
-
     def _resolve_source_rate(self, project: Project, task: Task) -> Task:
-        """Adopt a device source's sample_rate as the graph rate when declared.
+        """Adopt a clock source's sample_rate as the graph rate when declared.
 
         block_size stays project-global (it is a graph scheduling quantum, not a
-        device property). sample_rate, when a device source declares one, becomes
-        the graph's compile-time rate; all device sources must agree. Actual
-        device-native validation happens in the realtime host (rt_host).
+        clock property). 任何声明 clock_source 的组件（设备输入、信号发生器、
+        扫频发生器）带有 sample_rate 参数时，该值成为图的编译期采样率；
+        多个时钟源必须一致。设备原生的采样率校验在实时宿主（rt_host）完成。
         """
         rates: set[int] = set()
         for node in project.graph.nodes.values():
-            if node.component not in self._DEVICE_SOURCE_COMPONENTS:
+            info = self.registry.get(node.component)
+            if info is None or not info.manifest.get("clock_source"):
                 continue
             raw = node.params.get("sample_rate")
             if raw is None or raw == 0 or str(raw).strip() == "":
@@ -194,7 +189,7 @@ class GraphCompiler:
                 ) from exc
         if len(rates) > 1:
             raise CompileError(
-                f"device sources disagree on sample_rate: {sorted(rates)}"
+                f"clock sources disagree on sample_rate: {sorted(rates)}"
             )
         if len(rates) == 1:
             return replace(task, sample_rate=next(iter(rates)))

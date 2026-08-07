@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
         if (total_frames == 0) {
             total_frames = plan.duration_frames > 0
                 ? plan.duration_frames
-                : 48000 * 10;  // 10 seconds default
+                : plan.sample_rate * 10;  // 10 seconds default（按图采样率）
         }
 
         uint32_t block_size = plan.block_size;

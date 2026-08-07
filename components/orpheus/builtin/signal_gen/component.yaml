@@ -5,6 +5,8 @@ version: 1.0.0
 abi_version: 1
 package_type: source
 state_type: SignalGenState
+clock_source: true
+clock_domain: synthetic
 sources:
   - src/signal_gen.c
 headers:
@@ -15,7 +17,15 @@ ports:
     type: audio
     sample_format: f32
     channels: param:channels
+    sample_rate: param:sample_rate
 parameters:
+  - id: sample_rate
+    name: 采样率
+    type: int
+    default: 48000
+    range: [8000, 192000]
+    unit: Hz
+    update_policy: restart_required
   - id: frequency
     name: 频率
     type: float

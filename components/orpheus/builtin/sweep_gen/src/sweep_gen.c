@@ -123,6 +123,7 @@ static int destroy(void* state) {
 static int prepare(void* state, const OrpheusConfig* config) {
     SweepGenState* s = (SweepGenState*)state;
     s->channels = config->channels > 0 ? config->channels : 2;
+    s->sample_rate = config->sample_rate > 0 ? config->sample_rate : 48000;
     s->start_freq = 20.0;
     s->end_freq = 20000.0;
     s->duration_s = 5.0;
@@ -215,6 +216,11 @@ static int get_param(void* state, const char* id, OrpheusValue* v) {
 
 static int register_slots(void* state, const OrpheusRegistry* reg) {
     SweepGenState* s = (SweepGenState*)state;
+    ORPHEUS_REG_SLOT(reg, s, sample_rate, ORPHEUS_SLOT_SETTING, "sample_rate", "采样率",
+                     ORPHEUS_VALUE_INT, .min_i32=8000, .max_i32=192000, .unit="Hz",
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
     ORPHEUS_REG_SLOT(reg, s, start_freq, ORPHEUS_SLOT_SETTING, "start_freq", "起始频率",
                      ORPHEUS_VALUE_FLOAT, .min_f32=1.0f, .max_f32=20000.0f,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,

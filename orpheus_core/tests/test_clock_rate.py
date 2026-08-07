@@ -47,10 +47,11 @@ def test_undriven_flow_rejected(compiler):
         [
             Node(id="din", component="orpheus.builtin.device_in", params={"channels": 2}),
             Node(id="dout", component="orpheus.builtin.device_out", params={"channels": 2}),
-            sig("sig"),  # floating, no clock
+            Node(id="flt", component="orpheus.builtin.gain",
+                 params={"gain_db": 0.0, "channels": 1}),  # 悬浮流，无时钟源
             Node(id="m", component="orpheus.builtin.probe_rms", params={"channels": 1}),
         ],
-        [conn("din:out", "dout:in"), conn("sig:out", "m:in")],
+        [conn("din:out", "dout:in"), conn("flt:out", "m:in")],
     )
     with pytest.raises(CompileError, match="not driven by any clock"):
         compiler.compile(project)
@@ -202,6 +203,42 @@ def test_generator_sanitized_node_id():
     assert gen._sanitized_node_id("fx__g") == "fx__g"
     assert gen._sanitized_node_id("my.gain") == "my_gain"
     assert gen._sanitized_node_id("a-b c") == "a_b_c"
+
+
+def test_generator_sample_rate_adopts_graph_rate(compiler):
+    """发生器的 sample_rate 参数成为图采样率（时钟以它为准）。"""
+    from orpheus_core.project import Graph, Node, Project
+
+    project = Project(metadata={"name": "t"})
+    project.graph = Graph(
+        nodes={
+            "sig": Node(id="sig", component="orpheus.builtin.signal_gen",
+                        params={"sample_rate": 8000, "frequency": 440.0,
+                                "amplitude": 0.5, "channels": 1}),
+        },
+        connections=[],
+    )
+    plan = compiler.compile(project)
+    assert plan.sample_rate == 8000
+
+
+def test_generators_sample_rate_conflict(compiler):
+    """多个时钟源的 sample_rate 不一致必须报错。"""
+    from orpheus_core.compiler import CompileError
+    from orpheus_core.project import Graph, Node, Project
+
+    project = Project(metadata={"name": "t"})
+    project.graph = Graph(
+        nodes={
+            "sig1": Node(id="sig1", component="orpheus.builtin.signal_gen",
+                         params={"sample_rate": 8000, "channels": 1}),
+            "sig2": Node(id="sig2", component="orpheus.builtin.signal_gen",
+                         params={"sample_rate": 16000, "channels": 1}),
+        },
+        connections=[],
+    )
+    with pytest.raises(CompileError, match="disagree"):
+        compiler.compile(project)
 
 
 @pytest.mark.skipif(

@@ -37,6 +37,7 @@ static int destroy(void* state) { (void)state; return ORPHEUS_OK; } /* v2：内�
 static int prepare(void* state, const OrpheusConfig* config) {
     SignalGenState* s = (SignalGenState*)state;
     s->channels = config->channels > 0 ? config->channels : 2;
+    s->sample_rate = config->sample_rate > 0 ? config->sample_rate : 48000;
     s->frequency = 440.0f; s->amplitude = 0.5f;
     for (uint32_t i = 0; i < config->param_count; ++i) {
         if (!config->param_ids[i]) continue;
@@ -80,6 +81,11 @@ static int get_param(void* state, const char* id, OrpheusValue* v) {
 }
 static int register_slots(void* state, const OrpheusRegistry* reg) {
     SignalGenState* s = (SignalGenState*)state;
+    ORPHEUS_REG_SLOT(reg, s, sample_rate, ORPHEUS_SLOT_SETTING, "sample_rate", "采样率",
+                     ORPHEUS_VALUE_INT, .min_i32=8000, .max_i32=192000, .unit="Hz",
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
     ORPHEUS_REG_SLOT(reg, s, frequency, ORPHEUS_SLOT_SETTING, "frequency", "频率",
                      ORPHEUS_VALUE_FLOAT, .min_f32=1.0f, .max_f32=20000.0f, .unit="Hz",
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,

@@ -9,6 +9,7 @@ extern "C" {
 
 typedef struct {
     uint32_t channels;
+    uint32_t sample_rate;  /* 参数：时钟源声明，成为图采样率 */
     double start_freq;
     double end_freq;
     double duration_s;
