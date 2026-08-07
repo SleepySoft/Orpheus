@@ -8,6 +8,7 @@ import ReactFlow, {
   applyEdgeChanges,
   ReactFlowProvider,
   useReactFlow,
+  useKeyPress,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -64,7 +65,9 @@ function Editor() {
   const [rt, setRt] = useState({ running: false, logs: [], probes: {} });
   const [logCollapsed, setLogCollapsed] = useState(false);
   const [logHeight, setLogHeight] = useState(180);
-  const { screenToFlowPosition } = useReactFlow();
+const { screenToFlowPosition } = useReactFlow();
+  // 按住空格 = 临时切到平移模式（Figma 式）：左键拖拽从"框选"变"平移"
+  const spacePressed = useKeyPress('Space');
 
   // drag the log panel header vertically to resize it
   const onLogDragStart = useCallback(
@@ -785,7 +788,7 @@ function Editor() {
           ))}
         </select>
         <span className="toolbar-sep" />
-        <span title="在画布空白处左键拖拽框选，右键拖拽平移，或按住 Shift 点击多个节点">
+        <span title="左键拖拽框选；按住空格+左键或右键/中键拖拽平移；Shift 点击多选">
           <button onClick={wrapSelection} disabled={!current || selectedIds.length === 0}>
             包装为子组件
           </button>
@@ -867,8 +870,8 @@ function Editor() {
             onSelectionChange={({ nodes: sn }) => setSelectedIds((sn || []).map((n) => n.id))}
             nodeTypes={nodeTypes}
             deleteKeyCode={['Delete', 'Backspace']}
-            selectionOnDrag
-            panOnDrag={[2]}
+            selectionOnDrag={!spacePressed}
+            panOnDrag={spacePressed ? [1, 2] : [2]}
             multiSelectionKeyCode="Shift"
             fitView
           >

@@ -435,7 +435,7 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 9. **组件 CMakeLists 需显式加依赖组件 include 路径**：构建侧暂无 manifest 驱动的自动链接（后续由 builder 生成依赖 cmake）；生成器侧已自动处理。
 10. **槽读回语义**：PROBE 槽直读注册内存；SETTING 槽只有 `ORPHEUS_SLOT_DIRECT_WRITE` 才直读/直写，否则回调——避免绕过派生重算（mute/balance/fade 的平滑目标、bass 的派生 dB 读回）。
 11. **runtime 必须与组件同代重建**：`cli build` 曾只构建组件，runtime 停留在旧 ABI——迁移后的组件读旧 runtime 的 `OrpheusConfig`（无 `state_block` 字段）属越界读，可致组件行为异常（balance 时好时坏，且为 UB）。已让 `cli build` 全量时顺带构建 `orpheus_runtime`/`orpheus_rt_host`。
-12. **React Flow v11 框选前提**：`selectionOnDrag` 只在 `panOnDrag !== true` 时生效（源码 `isSelecting = selectionKeyPressed || (selectionOnDrag && panOnDrag !== true)`）——默认左键平移会静默禁用框选。已改为 `selectionOnDrag` + `panOnDrag={[2]}`（左键框选、右键平移）。
+12. **React Flow v11 框选前提**：`selectionOnDrag` 只在 `panOnDrag !== true` 时生效（源码 `isSelecting = selectionKeyPressed || (selectionOnDrag && panOnDrag !== true)`）——默认左键平移会静默禁用框选。交互方案：左键拖拽=框选；按住空格+左键 或 右键/中键拖拽=平移（`selectionOnDrag={!spacePressed}` + `panOnDrag={spacePressed ? [1,2] : [2]}`）；Shift 点击=多选。
 13. **`position: fixed` 弹层不能放在 ReactFlow 节点内**：节点渲染在带 `transform` 的容器里，fixed 退化为相对该容器定位，弹层错位/不可见。放大监控界面已改用 `createPortal` 挂到 `document.body`。
 14. **浮点边界判定陷阱**：`t >= dur` 在 128/48000 步进累加下可能停在 `dur - ε`，完成标志永不触发（进度却显示 100%）。扫频记录改用整数帧计数 `total_frames >= duration_frames` 判定完成。
 
