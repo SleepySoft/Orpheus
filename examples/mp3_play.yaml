@@ -16,7 +16,7 @@ graph:
       component: orpheus.builtin.mp3_in
       task: default
       params:
-        file_path: C:\D\code\Orpheus\examples\test_input.mp3
+        file_path: test_input.mp3
         channels: 2
       position:
         x: 100
@@ -34,7 +34,7 @@ graph:
       component: orpheus.builtin.wav_out
       task: default
       params:
-        file_path: C:\D\code\Orpheus\examples\test_output.wav
+        file_path: outputs/test_output.wav
         channels: 2
         sample_rate: 48000
       position:

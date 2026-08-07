@@ -165,16 +165,17 @@ class ProjectManager:
             if not isinstance(file_path, str) or not file_path:
                 continue
             p = Path(file_path)
-            if not p.is_absolute():
-                continue
             is_sink = node.id in incoming and node.id not in outgoing
-            if p.exists() and not is_sink:
-                dest = pdir / p.name
-                if dest.resolve() != p.resolve():
-                    shutil.copy2(p, dest)
-                node.params["file_path"] = p.name
-            else:
+            # 源文件解析：绝对路径直接用；相对路径相对示例目录解析（示例可移植）。
+            src = p if p.is_absolute() else src.parent / p
+            if is_sink or not src.is_file():
+                # 输出文件或源文件不存在 → 落到 outputs/（保持历史行为）
                 node.params["file_path"] = f"outputs/{p.name}"
+                continue
+            dest = pdir / p.name
+            if dest.resolve() != src.resolve():
+                shutil.copy2(src, dest)
+            node.params["file_path"] = p.name
         return project
 
     def get(self, name: str) -> ProjectRecord:

@@ -46,7 +46,7 @@ graph:
       component: orpheus.builtin.wav_out
       task: default
       params:
-        file_path: C:\D\Code\git\Orpheus\examples\smoke_routing_out.wav
+        file_path: outputs/smoke_routing_out.wav
         channels: 2
         sample_rate: 48000
       position: { x: 700, y: 100 }

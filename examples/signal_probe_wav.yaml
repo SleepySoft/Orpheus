@@ -34,7 +34,7 @@ graph:
       component: orpheus.builtin.wav_out
       task: default
       params:
-        file_path: C:\D\Code\git\Orpheus\examples\test_output.wav
+        file_path: outputs/test_output.wav
         channels: 2
         sample_rate: 48000
       position:

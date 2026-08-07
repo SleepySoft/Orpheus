@@ -30,7 +30,7 @@ graph:
     - id: wav_out
       component: orpheus.builtin.wav_out
       task: default
-      params: { file_path: C:\D\Code\git\Orpheus\examples\smoke_fade_out.wav, channels: 4, sample_rate: 48000 }
+      params: { file_path: outputs/smoke_fade_out.wav, channels: 4, sample_rate: 48000 }
       position: { x: 550, y: 100 }
   connections:
     - from: sig:out
