@@ -16,6 +16,8 @@ export const listProjects = () => unwrap(api.get('/projects'));
 export const listExamples = () => unwrap(api.get('/examples'));
 export const createProject = (name, fromExample = null) =>
   unwrap(api.post('/projects', { name, from_example: fromExample }));
+export const importDistilled = (name, yamlText) =>
+  unwrap(api.post(`/projects/${name}/distill`, { yaml: yamlText }));
 export const getProject = (name) => unwrap(api.get(`/projects/${name}`));
 export const saveProject = (name, doc) => unwrap(api.put(`/projects/${name}`, doc));
 export const deleteProject = (name) => unwrap(api.delete(`/projects/${name}`));

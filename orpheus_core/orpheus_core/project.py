@@ -87,6 +87,13 @@ class Project:
     tasks: dict[str, Task] = field(default_factory=dict)
     graph: Graph = field(default_factory=Graph)
     subcomponents: list[Subcomponent] = field(default_factory=list)
+    # 顶层未知字段（如 presets、model_tree 蒸馏注释）：schema 放行但 loader 不认识，
+    # 统一收进这里，保证 保存→重载→导出 往返不丢数据。
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def presets(self) -> list[dict[str, Any]]:
+        return self.extra.get("presets", [])
 
     def get_default_task(self) -> Task:
         if not self.tasks:
@@ -170,6 +177,8 @@ def project_to_dict(project: Project) -> dict[str, Any]:
             }
             for s in project.subcomponents
         ]
+    if project.extra:
+        doc.update(project.extra)
     return doc
 
 
@@ -218,6 +227,14 @@ class ProjectLoader:
                 graph=_parse_graph(s.get("graph", {"nodes": [], "connections": []})),
             )
             project.subcomponents.append(sub)
+        # 保留未知顶层字段（presets / model_tree 等），往返不丢
+        known = {
+            "version", "metadata", "sample_rate", "block_size", "buffer_size",
+            "tasks", "graph", "subcomponents",
+        }
+        for key, value in data.items():
+            if key not in known:
+                project.extra[key] = value
         return project
 
     def save(self, project: Project, path: Path) -> None:

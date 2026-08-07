@@ -53,6 +53,15 @@ cd ui; npm run build               # 前端改动后必须重新构建，serve �
 - 试点组件：`gain` / `probe_rms` / `probe_waveform`（其余组件仍是 v1 回调路径）。
 - 写新组件：见 `references/abi-v2-registration.md` 的检查清单。
 
+## 模型蒸馏：分析 C 代码 → 还原滤波器树 → 一键导入
+
+当任务涉及「分析公司/目标模型的 C/C++ 代码，反向还原其滤波器构造与参数，输出树形说明并在 Orpheus 一键导入」时，先读 `references/distill-model.md`：
+
+- 产物 1：可读树形说明（顶层 `model_tree`，标注滤波器类型与每个参数）+ Markdown 分析说明。
+- 产物 2：可直接导入的工程 YAML（`graph` + 嵌套 `subcomponents`，三层嵌套示例见 `examples/dsp_model_reference.yaml`）。
+- 一键导入：UI 工具栏「⤵ 导入模型」，或 `POST /api/projects/{name}/distill`（body `{"yaml": "..."}`）。
+- 验证：`python scripts/parameter_layout.py <project.yaml>` 打印数据 layout 并回写校验；`cli compile` 通过；可跑的图再跑一次 e2e。
+
 ## 任务索引（按需加载 references/）
 
 | 任务 | 读这个 |
@@ -62,6 +71,7 @@ cd ui; npm run build               # 前端改动后必须重新构建，serve �
 | 理解架构：两种执行模式、ABI、plan、宿主分工、API 面 | `references/architecture.md` |
 | 运行/调试：实时会话协议、日志约定、故障排查目录 | `references/run-debug.md` |
 | 工程 YAML 格式、子组件（sub:）、workspace 布局 | `references/project-format.md` |
+| 模型蒸馏：分析 C 代码 → 还原滤波器树与参数 → 生成可导入工程 | `references/distill-model.md` |
 
 > 注：`write-component` / `architecture` / `run-debug` / `project-format` 四个 reference 尚未落盘，当前以仓库实际代码与 `docs/` 为准。
 

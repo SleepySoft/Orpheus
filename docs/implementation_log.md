@@ -1,5 +1,43 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-07（第二十次讨论：复杂嵌套参考模型 + 数据 layout 测试 + 模型蒸馏 SKILL + 一键导入）
+
+### 目标
+
+用户要为「蒸馏公司模型 C 代码 → 还原滤波器树 → 一键导入 Orpheus」的工作流打基础：
+1. 造一个复杂嵌套模型并测试数据 layout（导出必须可读）；
+2. SKILL 增加模型蒸馏说明；
+3. 蒸馏文件（树形、标注滤波器类型与参数）可一键导入。
+
+### A. 复杂嵌套参考模型 `examples/dsp_model_reference.yaml`
+
+- 三层嵌套：主图 → `front`（前置处理）→ `eq_bank`；主图 → `crossover`（二分频）→ `low_band`/`high_band`；`post`（后处理）。
+- 覆盖组件面：wav_in/out、gain、mute、biquad_bank（运行期 BULK 槽）、biquad（lowpass/highpass/highshelf）、fir（`kind: bulk` 系数）、delay、deinterleave/interleave、probe_rms、probe_waveform。
+- 顶层 `model_tree` 可读树注释：标注滤波器类型与每个参数（蒸馏输出的示范格式）。
+- 展开为 17 个原子节点、17 buffers，`cli compile` 通过；离线端到端运行输出 WAV，嵌套层探针以 flatId 上报（`front__mon.rms`、`post__fir.taps`、`out_mon.rms`）。
+
+### B. 数据 layout 工具与测试
+
+- 新增 `orpheus_core/parameter_catalog.py`：与前端 ParamBrowser 同构的编目逻辑（递归展开子组件、flatId=路径 `__` 连接、kind 分类），支持 `export_payload`（可读 JSON）/`apply_payload`（按 flatId 回写）/`render_tree`（文本树）。
+- 新增 `scripts/parameter_layout.py`：打印数据 layout 树 + 导出 JSON 预览 + 回写往返校验。
+- 新增 `tests/test_parameter_layout.py`（4 项）：flatten 层级、编译、编目分类（bulk/运行期槽/探针）、导出可读性与往返。
+- **修复 `Project` 顶层未知字段往返丢失**：`presets`、`model_tree` 等 schema 放行字段此前 loader 重载即丢，现收进 `Project.extra`，保存→重载→导出不丢。
+
+### C. SKILL 模型蒸馏
+
+- `SKILL/SKILL.md` 新增「模型蒸馏」节 + 任务索引行。
+- 新增 `SKILL/references/distill-model.md`：分析步骤（拓扑/原语映射/参数提取/分组）、滤波器→组件映射表、工程 YAML 骨架、`model_tree` 格式、校验清单、一键导入方式、红线与坑。
+
+### D. 一键导入
+
+- 后端 `POST /api/projects/{name}/distill`（body `{"yaml": "..."}`）：YAML 解析 + 形状校验 + 创建工程；顶层未知字段（model_tree/presets）保留。
+- UI 工具栏「⤵ 导入模型」：选择 YAML → 提示工程名 → 创建并打开；导入示例同样可用。
+- 测试 `tests/test_distill_import.py`（3 项）：导入往返（presets/model_tree 保留）、非法 YAML 拒绝、端到端运行（嵌套探针上报）。
+
+### 验证
+
+- `pytest` 64 passed（新增 7 项）；`npm run build` 通过；`python scripts/parameter_layout.py examples/dsp_model_reference.yaml` 布局树/导出/回写全部通过。
+
 ## 2026-08-07（第十九次讨论：参数预设/快照——保存-应用-删除）
 
 ### 目标

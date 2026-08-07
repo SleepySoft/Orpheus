@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import time
+import yaml
 
 from fastapi import Body, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -79,6 +80,10 @@ class RtBulkRequest(BaseModel):
     node: str
     key: str
     values: list[float]
+
+
+class DistillImportRequest(BaseModel):
+    yaml: str
 
 
 def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
@@ -252,6 +257,32 @@ def create_app(project_root: Path) -> FastAPI:
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return {"name": rec.name, "document": manager.get_document(rec.name)}
+
+    @app.post("/api/projects/{name}/distill")
+    def import_distilled_model(name: str, req: DistillImportRequest) -> dict[str, Any]:
+        """一键导入蒸馏模型：接受 Orpheus 工程 YAML（含嵌套子组件与 model_tree 注释），
+        校验后创建为新工程；顶层未知字段（presets/model_tree 等）原样保留。"""
+        try:
+            data = yaml.safe_load(req.yaml)
+        except yaml.YAMLError as exc:
+            raise HTTPException(status_code=400, detail=f"YAML 解析失败: {exc}") from exc
+        if not isinstance(data, dict) or "graph" not in data:
+            raise HTTPException(
+                status_code=400,
+                detail="蒸馏模型文件缺少 graph（应为 Orpheus 工程 YAML：version + graph[+ subcomponents]）",
+            )
+        data.setdefault("version", "0.1.0")
+        data.setdefault("metadata", {})
+        data["metadata"]["name"] = name
+        try:
+            manager.create(name)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        try:
+            manager.put(name, data)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        return {"name": name, "document": manager.get_document(name)}
 
     @app.get("/api/projects/{name}")
     def get_project(name: str) -> dict[str, Any]:

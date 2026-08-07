@@ -1,0 +1,232 @@
+version: "0.1.0"
+metadata:
+  name: dsp_model_reference
+  description: 复杂嵌套参考 DSP 模型（音箱链路）：WAV → 前置均衡 → 二分频 → 后处理 → 输出，三层子组件嵌套，含 Bulk（FIR 系数）与多级探针。
+  author: Orpheus
+  distilled_from: 参考工程（手工构造，模拟「公司模型 C 代码蒸馏」的可读输出格式）
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: wav_in
+      component: orpheus.builtin.wav_in
+      params:
+        file_path: test_input.wav
+        channels: 2
+      position: {x: 60, y: 260}
+    - id: front
+      component: sub:front
+      position: {x: 300, y: 260}
+    - id: crossover
+      component: sub:crossover
+      position: {x: 560, y: 260}
+    - id: post
+      component: sub:post
+      position: {x: 820, y: 260}
+    - id: out_mon
+      component: orpheus.builtin.probe_rms
+      params: {channels: 2}
+      position: {x: 1060, y: 260}
+    - id: scope
+      component: orpheus.builtin.probe_waveform
+      params: {channels: 2}
+      position: {x: 1220, y: 260}
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      params:
+        file_path: outputs/model_out.wav
+        channels: 2
+      position: {x: 1420, y: 260}
+  connections:
+    - {from: "wav_in:out", to: "front:in"}
+    - {from: "front:out", to: "crossover:in"}
+    - {from: "crossover:out", to: "post:in"}
+    - {from: "post:out", to: "out_mon:in"}
+    - {from: "out_mon:out", to: "scope:in"}
+    - {from: "scope:out", to: "wav_out:in"}
+
+subcomponents:
+  # ---- 第 2 层：前置处理（含第 3 层子组件 eq_bank）
+  - id: front
+    name: 前置处理
+    description: 输入微调 → 双二阶均衡组 → 静音 → 电平监测
+    ports:
+      - {id: in, direction: input, maps_to: "trim:in"}
+      - {id: out, direction: output, maps_to: "mon:out"}
+    graph:
+      nodes:
+        - id: trim
+          component: orpheus.builtin.gain
+          params: {gain_db: 0.0, channels: 2}
+          position: {x: 80, y: 120}
+        - id: eq_bank
+          component: sub:eq_bank
+          position: {x: 280, y: 120}
+        - id: mute
+          component: orpheus.builtin.mute
+          params: {mute: 0.0, channels: 2}
+          position: {x: 480, y: 120}
+        - id: mon
+          component: orpheus.builtin.probe_rms
+          params: {channels: 2}
+          position: {x: 680, y: 120}
+      connections:
+        - {from: "trim:out", to: "eq_bank:in"}
+        - {from: "eq_bank:out", to: "mute:in"}
+        - {from: "mute:out", to: "mon:in"}
+
+  # ---- 第 3 层：双二阶均衡组（biquad_bank，父组件代理注册子块 BULK 槽）
+  - id: eq_bank
+    name: 双二阶均衡组
+    description: 两段 peaking：60Hz 压 -2.5dB、1.8kHz 提 +1.5dB
+    ports:
+      - {id: in, direction: input, maps_to: "bq:in"}
+      - {id: out, direction: output, maps_to: "bq:out"}
+    graph:
+      nodes:
+        - id: bq
+          component: orpheus.builtin.biquad_bank
+          params: {fc0: 60.0, q0: 1.4, gain_db0: -2.5, fc1: 1800.0, q1: 1.0, gain_db1: 1.5, channels: 2}
+          position: {x: 200, y: 120}
+      connections: []
+
+  # ---- 第 2 层：二分频（含第 3 层子组件 low_band / high_band）
+  - id: crossover
+    name: 二分频
+    description: 反交错 → 低频链 / 高频链（2.5kHz 分频）→ 交错
+    ports:
+      - {id: in, direction: input, maps_to: "deint:in"}
+      - {id: out, direction: output, maps_to: "inter:out"}
+    graph:
+      nodes:
+        - id: deint
+          component: orpheus.builtin.deinterleave
+          params: {channels: 2}
+          position: {x: 100, y: 160}
+        - id: low_band
+          component: sub:low_band
+          position: {x: 320, y: 60}
+        - id: high_band
+          component: sub:high_band
+          position: {x: 320, y: 260}
+        - id: inter
+          component: orpheus.builtin.interleave
+          params: {channels: 2}
+          position: {x: 600, y: 160}
+      connections:
+        - {from: "deint:out0", to: "low_band:in"}
+        - {from: "deint:out1", to: "high_band:in"}
+        - {from: "low_band:out", to: "inter:in0"}
+        - {from: "high_band:out", to: "inter:in1"}
+
+  # ---- 第 3 层：低频链
+  - id: low_band
+    name: 低频链
+    description: 低通 2.5kHz
+    ports:
+      - {id: in, direction: input, maps_to: "biquad:in"}
+      - {id: out, direction: output, maps_to: "gain:out"}
+    graph:
+      nodes:
+        - id: biquad
+          component: orpheus.builtin.biquad
+          params: {type: lowpass, fc: 2500.0, q: 0.707, gain_db: 0.0, channels: 1}
+          position: {x: 140, y: 120}
+        - id: gain
+          component: orpheus.builtin.gain
+          params: {gain_db: 0.0, channels: 1}
+          position: {x: 360, y: 120}
+      connections:
+        - {from: "biquad:out", to: "gain:in"}
+
+  # ---- 第 3 层：高频链
+  - id: high_band
+    name: 高频链
+    description: 高通 2.5kHz，-1.5dB
+    ports:
+      - {id: in, direction: input, maps_to: "biquad:in"}
+      - {id: out, direction: output, maps_to: "gain:out"}
+    graph:
+      nodes:
+        - id: biquad
+          component: orpheus.builtin.biquad
+          params: {type: highpass, fc: 2500.0, q: 0.707, gain_db: 0.0, channels: 1}
+          position: {x: 140, y: 120}
+        - id: gain
+          component: orpheus.builtin.gain
+          params: {gain_db: -1.5, channels: 1}
+          position: {x: 360, y: 120}
+      connections:
+        - {from: "biquad:out", to: "gain:in"}
+
+  # ---- 第 2 层：后处理
+  - id: post
+    name: 后处理
+    description: FIR 房间校正（Bulk 系数）→ 高频架 → 短延迟
+    ports:
+      - {id: in, direction: input, maps_to: "fir:in"}
+      - {id: out, direction: output, maps_to: "delay:out"}
+    graph:
+      nodes:
+        - id: fir
+          component: orpheus.builtin.fir
+          params: {coefficients: "0.5, 0.25, -0.1, 0.05, 0.02", channels: 2}
+          position: {x: 120, y: 120}
+        - id: highshelf
+          component: orpheus.builtin.biquad
+          params: {type: highshelf, fc: 8000.0, q: 0.707, gain_db: 1.0, channels: 2}
+          position: {x: 340, y: 120}
+        - id: delay
+          component: orpheus.builtin.delay
+          params: {delay_ms: 12.0, mix: 0.25, channels: 2}
+          position: {x: 560, y: 120}
+      connections:
+        - {from: "fir:out", to: "highshelf:in"}
+        - {from: "highshelf:out", to: "delay:in"}
+
+# ---- 蒸馏模型可读树（human-readable 注释，供 agent 输出与人工审阅；导入/编译不依赖它）
+model_tree:
+  name: 参考 DSP 模型（音箱链路）
+  source: 手工构造（模拟公司模型 C 代码蒸馏结果）
+  children:
+    - {id: wav_in, filter: wav_in, params: {file_path: test_input.wav, channels: 2}}
+    - id: front
+      label: 前置处理
+      children:
+        - {id: trim, filter: gain, params: {gain_db: 0.0}}
+        - id: eq_bank
+          label: 双二阶均衡组
+          children:
+            - {id: bq, filter: biquad_bank, params: {stage0: {type: peaking, fc_hz: 60, q: 1.4, gain_db: -2.5}, stage1: {type: peaking, fc_hz: 1800, q: 1.0, gain_db: 1.5}}}
+        - {id: mute, filter: mute, params: {mute: 0.0}}
+        - {id: mon, filter: probe_rms}
+    - id: crossover
+      label: 二分频（2.5kHz）
+      children:
+        - {id: deint, filter: deinterleave, params: {channels: 2}}
+        - id: low_band
+          label: 低频链
+          children:
+            - {id: biquad, filter: biquad, params: {type: lowpass, fc_hz: 2500, q: 0.707, gain_db: 0.0}}
+            - {id: gain, filter: gain, params: {gain_db: 0.0}}
+        - id: high_band
+          label: 高频链
+          children:
+            - {id: biquad, filter: biquad, params: {type: highpass, fc_hz: 2500, q: 0.707, gain_db: 0.0}}
+            - {id: gain, filter: gain, params: {gain_db: -1.5}}
+        - {id: inter, filter: interleave, params: {channels: 2}}
+    - id: post
+      label: 后处理
+      children:
+        - {id: fir, filter: fir, params: {coefficients: [0.5, 0.25, -0.1, 0.05, 0.02]}}
+        - {id: highshelf, filter: biquad, params: {type: highshelf, fc_hz: 8000, q: 0.707, gain_db: 1.0}}
+        - {id: delay, filter: delay, params: {delay_ms: 12.0, mix: 0.25}}
+    - {id: out_mon, filter: probe_rms}
+    - {id: scope, filter: probe_waveform}
+    - {id: wav_out, filter: wav_out, params: {file_path: outputs/model_out.wav, channels: 2}}

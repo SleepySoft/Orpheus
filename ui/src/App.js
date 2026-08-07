@@ -60,6 +60,7 @@ function Editor() {
   const [autoSave, setAutoSave] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showParams, setShowParams] = useState(false);
+  const distillFileRef = useRef(null);
   const [status, setStatus] = useState('未连接后端');
   const [log, setLog] = useState(null);
   const [outputs, setOutputs] = useState([]);
@@ -897,6 +898,30 @@ const { screenToFlowPosition } = useReactFlow();
     [refreshProjects, openProject]
   );
 
+  const onDistillFile = useCallback(
+    async (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      const text = await f.text();
+      const suggested = f.name
+        .replace(/\.[^.]+$/, '')
+        .replace(/[^A-Za-z0-9_-]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      const name = window.prompt('导入为新工程名称:', suggested || 'distilled_model');
+      if (!name) return;
+      try {
+        const r = await api.importDistilled(name, text);
+        await refreshProjects();
+        openProject(name, r.document);
+        setStatus(`已导入蒸馏模型 ${name}`);
+      } catch (err) {
+        setStatus(`导入失败: ${api.errorDetail(err)}`);
+      }
+    },
+    [refreshProjects, openProject]
+  );
+
   // ---------------------------------------------------------- render
 
   const selectedNode = view.nodes.find((nd) => nd.id === selectedId) || null;
@@ -924,6 +949,19 @@ const { screenToFlowPosition } = useReactFlow();
             </option>
           ))}
         </select>
+        <button
+          onClick={() => distillFileRef.current && distillFileRef.current.click()}
+          title="导入蒸馏模型 YAML（公司 C 代码反向还原的工程，含嵌套子组件与 model_tree 注释）"
+        >
+          ⤵ 导入模型
+        </button>
+        <input
+          ref={distillFileRef}
+          type="file"
+          accept=".yaml,.yml,.json"
+          style={{ display: 'none' }}
+          onChange={onDistillFile}
+        />
         <span className="toolbar-sep" />
         <span title="左键拖拽平移画布；Ctrl+拖拽圈选；Ctrl+点击多选">
           <button onClick={wrapSelection} disabled={!current || selectedIds.length === 0}>
