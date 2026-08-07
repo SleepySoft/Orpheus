@@ -225,8 +225,9 @@ class GraphCompiler:
                 # 仅在编译内存中注入（compile 不持久化工程），运行时/生成路径经 plan 参数消费
                 to_node.params = {**to_node.params, "sample_rate": str(int(fp.sample_rate))}
 
-        # sweep_record：采集窗口自动跟随扫频发生器时长（免手填；
-        # 时长不一致会提前完结，只采到低频段、曲线只有一个峰）
+        # sweep_record：采集参数自动跟随扫频发生器（时长/起始/结束频率/对数）
+        # 免手填，且频率轴与发生器一致（参数不一致会提前完结或频率映射错乱）
+        sweep_params: dict[str, Any] = {}
         sweep_dur = 0.0
         for node in graph.nodes.values():
             if node.component != "orpheus.builtin.sweep_gen":
@@ -235,10 +236,13 @@ class GraphCompiler:
                 sweep_dur = max(sweep_dur, float(node.params.get("duration_s", 0.0) or 0.0))
             except (TypeError, ValueError):
                 pass
-        if sweep_dur > 0.0:
+            for k in ("start_freq", "end_freq", "duration_s", "log_scale"):
+                if node.params.get(k) is not None:
+                    sweep_params[k] = node.params[k]
+        if sweep_params:
             for node in graph.nodes.values():
                 if node.component == "orpheus.builtin.sweep_record":
-                    node.params = {**node.params, "duration_s": str(sweep_dur)}
+                    node.params = {**node.params, **sweep_params}
 
         # 1. Resolve remaining ports (inputs; variable-count expansion already done)
         for node in graph.nodes.values():

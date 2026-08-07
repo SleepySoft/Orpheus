@@ -847,12 +847,18 @@ def test_offline_paced_session(client):
                             "duration_s": "2.0", "amplitude": "0.7",
                             "log_scale": "true", "channels": 1},
                  "position": {"x": 0, "y": 0}},
+                {"id": "rec", "component": "orpheus.builtin.sweep_record",
+                 "params": {"bins": 32, "channels": 1},
+                 "position": {"x": 100, "y": 0}},
                 {"id": "wav_out", "component": "orpheus.builtin.wav_out",
                  "params": {"file_path": "outputs/out.wav", "channels": 1,
                             "sample_rate": 48000},
                  "position": {"x": 200, "y": 0}},
             ],
-            "connections": [{"from": "sweep:out", "to": "wav_out:in"}],
+            "connections": [
+                {"from": "sweep:out", "to": "rec:in"},
+                {"from": "rec:out", "to": "wav_out:in"},
+            ],
         }
         assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
         r = client.post(f"/api/projects/{name}/run?pace=1")
@@ -869,6 +875,11 @@ def test_offline_paced_session(client):
         # 探针已流式上报（最终快照含发生器进度/频率）
         probes = s.get("probes", {})
         assert probes.get("sweep", {}).get("progress") is not None, probes
+        # 记录跟随发生器参数：曲线完整（32 箱全采到幅度），不是"一个小尖尖"
+        curve = probes.get("rec", {}).get("sweep")
+        assert isinstance(curve, dict), f"记录曲线缺失: {list(probes.get('rec', {}).keys())}"
+        mag = curve.get("mag", [])
+        assert len(mag) == 32 and min(mag) > 0.3, f"曲线不完整: min={min(mag) if mag else None}"
         pdir = ROOT / "workspace" / name
         with wave.open(str(pdir / "outputs" / "out.wav"), "rb") as w:
             assert abs(w.getnframes() - 96000) <= 128, f"frames={w.getnframes()}"
