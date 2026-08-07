@@ -1,5 +1,46 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-07（第十七次讨论：全局参数面板 + 导入导出（含 Bulk））
+
+### 目标
+
+组件/数据点增多后，用户不应逐层点进节点改参数，又要能知道每个数据点在哪个子系统。本次落地"按数据类型分类的树形全局参数面板"，支持整体/单个导出导入，Bulk 数据（如 FIR 系数）单独建模与文件导入。
+
+### A. manifest 数据点类别 `kind`
+
+- `component_manifest.schema.json` 参数新增可选 `kind: setting|command|bulk|probe|state`（缺省按 readback+persistent 推断：探针，否则 setting），与 design_registry 的槽模型对齐。
+- `fir.coefficients` 标记 `kind: bulk`（首个 Bulk 数据点；C 侧/编译/生成不受影响，纯 UI 语义）。
+
+### B. 参数面板（`ui/src/ParamBrowser.js`，工具栏「☰ 参数面板」）
+
+- 树形组织：数据类型（调音参数 / 大块数据 (Bulk) / 探针 / 命令 / 状态）→ 子组件层级 → 节点 → 数据点。
+- 遍历主图与子组件视图递归展开；flatId = 实例路径按 `__` 连接（与 `flatten_project` 同规则），运行时可对任意嵌套叶子直接 `SET`。
+- 调音参数：复用 `widgets.js` 控件编辑；实时会话中非 `restart_required` 参数即时推送（flatId 直达，顺带修复子组件内部节点此前无法实时调参的盲区），需重启参数给提示。
+- Bulk 行：值计数 + 文本编辑 + 单参数从文件导入（JSON 数组或逗号/空格文本）与导出。
+- 探针：只读，优先显示实时值（`rt.probes[flatId]`）。
+- 搜索过滤（参数名/节点/组件）、面包屑路径、每节点「定位」按钮（跳转对应标签页并选中节点）。
+- 导出：全工程 JSON（`node`=flatId、`path` 面包屑、`values` 调音值、`bulk` 数值数组、`probes` 实时快照）；导入：按 flatId 匹配写回视图参数（Bulk 数组回写为逗号串），并即时推送非重启参数。
+
+### C. 顺带修复：示例工程路径与导入
+
+- 回归测试暴露 8 个示例的 `file_path` 指向旧仓库绝对路径 `C:\D\Code\git\Orpheus\...`（本机不存在），导入后 wav_in 被错误改写为 `outputs/test_input.wav` 导致 e2e 连锁失败；`build/` 目录陈旧（缺 sweep_record/resample 目标、runtime 未更新）导致另 5 个失败。
+- 修复：示例改为工程相对路径（输入 `test_input.wav`、输出 `outputs/*.wav`）；`manager._import_example` 支持相对路径相对示例目录解析并拷贝（示例可移植），输出/不存在文件仍落 `outputs/`（保持历史行为）。
+- `python -m orpheus_core.cli build` 全量重建后 `pytest` 55 项全过（此前 11 失败均为上述环境/示例问题，与面板改动无关）。
+
+### 涉及文件
+
+- 前端：`ui/src/ParamBrowser.js`（新）、`App.js`（工具栏入口 + `onNodeParamChange`/`onImportApply`/`onLocateParam`）、`App.css`
+- 后端：`orpheus_core/schemas/component_manifest.schema.json`（kind）、`orpheus_core/server/manager.py`（示例相对路径导入）、`components/.../fir/component.yaml`（kind: bulk）、`examples/*.yaml`（8 个路径修正）
+
+### 验证
+
+- `npm run build` 通过；`python -m pytest orpheus_core/tests/` 55 passed。
+
+### 已知/后续
+
+- 运行时 BULK 槽（如 biquad_bank `bq*.coefs`）目前只在会话内可写、不可持久化；面板 Bulk 基于 manifest `kind: bulk` 参数（FIR 系数）。后续可按 design_registry 的 ID/协议项加 `BULK` 命令与槽枚举，把运行时槽也纳入面板与导入导出。
+- 子组件参数提升（mask）仍为 v1 未实现；面板以 flatId 平铺绕过了"必须逐层点进"的痛点。
+
 ## 2026-08-05（晚）
 
 ### 六项批量任务（各自独立提交）

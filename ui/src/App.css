@@ -904,3 +904,202 @@ pre {
 }
 .rb-text { color: #495057; white-space: nowrap; }
 .rb-text.rb-alert { color: #e03131; font-weight: 600; }
+
+/* ---------------------------------------------------------- parameter browser */
+
+.param-browser {
+  width: 780px;
+  max-width: 94vw;
+  max-height: 84vh;
+}
+
+.pb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.pb-search {
+  flex: 1;
+  min-width: 200px;
+  padding: 6px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.pb-live {
+  font-size: 12px;
+  color: #2f9e44;
+  font-weight: 600;
+}
+
+.pb-body {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  padding: 4px 0;
+}
+
+.pb-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  background: #f1f3f5;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.pb-section-head:hover {
+  background: #e9ecef;
+}
+
+.pb-caret {
+  width: 14px;
+  font-size: 11px;
+  color: #495057;
+}
+
+.pb-count {
+  margin-left: auto;
+  background: #e7f5ff;
+  color: #1971c2;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.pb-entry {
+  border-bottom: 1px solid #f1f3f5;
+}
+
+.pb-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #f8f9fa;
+  font-size: 12px;
+}
+
+.pb-breadcrumb {
+  font-weight: 600;
+  color: #343a40;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+
+.pb-comp {
+  color: #868e96;
+}
+
+.pb-locate {
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid #1971c2;
+  border-radius: 4px;
+  background: white;
+  color: #1971c2;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pb-locate:hover {
+  background: #e7f5ff;
+}
+
+.pb-rows {
+  padding: 4px 12px 8px 24px;
+}
+
+.pb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.pb-name {
+  min-width: 110px;
+  font-weight: 600;
+  color: #495057;
+}
+
+.pb-row .param-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  flex: 1;
+}
+
+.pb-row .param-field label {
+  min-width: 110px;
+  margin: 0;
+}
+
+.pb-row .param-field input[type='number'],
+.pb-row .param-field input[type='text'],
+.pb-row .param-field select {
+  max-width: 260px;
+}
+
+.pb-meta {
+  color: #adb5bd;
+  font-size: 12px;
+}
+
+.pb-probe-value {
+  font-family: Consolas, monospace;
+  font-size: 13px;
+  color: #1971c2;
+}
+
+.pb-bulk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.pb-bulk input[type='text'] {
+  flex: 1;
+  min-width: 200px;
+  padding: 4px 6px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+
+.pb-bulk button {
+  padding: 3px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: white;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pb-bulk button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pb-bulk-count {
+  color: #868e96;
+  font-size: 12px;
+  white-space: nowrap;
+}

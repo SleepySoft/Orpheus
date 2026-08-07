@@ -25,6 +25,7 @@ import {
 } from './graphUtils';
 import OrpheusNode from './OrpheusNode';
 import ParamPanel from './ParamPanel';
+import ParamBrowser from './ParamBrowser';
 import Palette from './Palette';
 import SubPortsPanel from './SubPortsPanel';
 import ProjectSettings from './ProjectSettings';
@@ -58,6 +59,7 @@ function Editor() {
   const [saving, setSaving] = useState(false);
   const [autoSave, setAutoSave] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showParams, setShowParams] = useState(false);
   const [status, setStatus] = useState('未连接后端');
   const [log, setLog] = useState(null);
   const [outputs, setOutputs] = useState([]);
@@ -407,6 +409,93 @@ const { screenToFlowPosition } = useReactFlow();
       setDirty(true);
     },
     [activeView, selectedId, updateView, catalogById]
+  );
+
+  /** 参数面板专用：更新任意视图（主图/子组件标签）里某节点的参数，并在实时会话中即时推送。 */
+  const onNodeParamChange = useCallback(
+    (viewKey, nodeId, paramId, value, flatId) => {
+      const nd = (views[viewKey] && views[viewKey].nodes.find((n) => n.id === nodeId)) || null;
+      const schema = (nd && nd.data.parameters || []).find((p) => p.id === paramId);
+      if (rtRef.current.running && current && schema) {
+        if (schema.update_policy !== 'restart_required') {
+          api.rtSetParam(current, flatId || nodeId, paramId, value).catch(() => {});
+        } else {
+          setStatus(`参数 ${paramId} 需重新编译，实时会话中不生效`);
+        }
+      }
+      updateView(viewKey, (v) => {
+        const nodes = v.nodes.map((n) => {
+          if (n.id !== nodeId) return n;
+          const params = { ...n.data.params, [paramId]: value };
+          const comp = catalogById[n.data.component];
+          const ports = comp ? resolvePorts(comp, params) : n.data.ports;
+          return { ...n, data: { ...n.data, params, ports } };
+        });
+        const edited = nodes.find((n) => n.id === nodeId);
+        const valid = new Set((edited && edited.data.ports || []).map((p) => p.id));
+        const edges = v.edges.filter(
+          (e) =>
+            !(e.source === nodeId && !valid.has(e.sourceHandle)) &&
+            !(e.target === nodeId && !valid.has(e.targetHandle))
+        );
+        return { nodes, edges };
+      });
+      setDirty(true);
+    },
+    [views, current, updateView, catalogById]
+  );
+
+  /** 参数面板导入：把值写回各视图节点参数（含 Bulk 数组回写字符串），并在实时会话中推送非重启参数。 */
+  const onImportApply = useCallback(
+    (items) => {
+      if (!items.length) return;
+      setViews((prev) => {
+        const next = {};
+        for (const [key, v] of Object.entries(prev)) {
+          next[key] = {
+            ...v,
+            nodes: v.nodes.map((nd) => {
+              const item = items.find((it) => it.viewKey === key && it.nodeId === nd.id);
+              if (!item) return nd;
+              const params = { ...nd.data.params };
+              for (const [k, val] of Object.entries(item.values || {})) params[k] = val;
+              for (const [k, arr] of Object.entries(item.bulk || {})) {
+                params[k] = Array.isArray(arr) ? arr.join(', ') : String(arr);
+              }
+              const comp = catalogById[nd.data.component];
+              return {
+                ...nd,
+                data: { ...nd.data, params, ports: comp ? resolvePorts(comp, params) : nd.data.ports },
+              };
+            }),
+          };
+        }
+        return next;
+      });
+      setDirty(true);
+      if (rtRef.current.running && current) {
+        for (const item of items) {
+          for (const [k, val] of Object.entries(item.values || {})) {
+            const nd = (views[item.viewKey] && views[item.viewKey].nodes.find((n) => n.id === item.nodeId)) || null;
+            const schema = (nd && nd.data.parameters || []).find((p) => p.id === k);
+            if (schema && schema.update_policy !== 'restart_required') {
+              api.rtSetParam(current, item.flatId, k, val).catch(() => {});
+            }
+          }
+        }
+      }
+      setStatus(`已导入 ${items.length} 个节点的参数（含 Bulk 数据）`);
+    },
+    [views, current, catalogById]
+  );
+
+  const onLocateParam = useCallback(
+    (viewKey, nodeId) => {
+      setActiveView(viewKey);
+      setSelectedId(nodeId);
+      setShowParams(false);
+    },
+    []
   );
 
   const onDeleteNode = useCallback(
@@ -818,6 +907,13 @@ const { screenToFlowPosition } = useReactFlow();
         <button onClick={() => setShowSettings(true)} disabled={!current || !doc} title="工程全局设置（采样率/块长度/缓冲）">
           ⚙ 设置
         </button>
+        <button
+          onClick={() => setShowParams(true)}
+          disabled={!current || !doc}
+          title="按树形浏览全部参数与探针（按数据类型分类），支持导入导出（含 Bulk 数据）"
+        >
+          ☰ 参数面板
+        </button>
         <button onClick={doCompile} disabled={!current}>
           编译
         </button>
@@ -926,6 +1022,19 @@ const { screenToFlowPosition } = useReactFlow();
             setDirty(true);
             setShowSettings(false);
           }}
+        />
+      )}
+      {showParams && doc && (
+        <ParamBrowser
+          projectName={current}
+          views={views}
+          catalogById={catalogById}
+          rt={rt}
+          ctx={paramCtx}
+          onNodeParamChange={onNodeParamChange}
+          onImportApply={onImportApply}
+          onLocate={onLocateParam}
+          onClose={() => setShowParams(false)}
         />
       )}
       {(log || outputs.length > 0 || rt.logs.length > 0 || rt.running) && (

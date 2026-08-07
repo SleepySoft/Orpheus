@@ -26,6 +26,7 @@ parameters:
     type: string
     default: "1.0"
     widget: text
+    kind: bulk
     update_policy: restart_required
   - id: channels
     name: 通道数

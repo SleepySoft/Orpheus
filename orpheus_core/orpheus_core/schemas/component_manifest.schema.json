@@ -75,7 +75,12 @@
           "update_policy": { "type": "string", "enum": ["immediate", "block_boundary", "smoothed", "transactional", "restart_required"] },
           "readback": { "type": "boolean" },
           "persistent": { "type": "boolean" },
-          "affects_signature": { "type": "boolean" }
+          "affects_signature": { "type": "boolean" },
+          "kind": {
+            "type": "string",
+            "enum": ["setting", "command", "bulk", "probe", "state"],
+            "description": "数据点类别：调音参数 / 一次性命令 / 大块数据(Bulk) / 探针 / 内部状态。缺省按 readback+persistent 推断（探针），否则为 setting。UI 参数面板据此分类组织。"
+          }
         }
       }
     },
