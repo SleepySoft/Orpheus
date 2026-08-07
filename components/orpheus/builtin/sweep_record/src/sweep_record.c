@@ -175,6 +175,8 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     }
     s->acc[bin] += (float)sum;
     s->count[bin] += frames;
+    /* 实时更新当前箱幅度：曲线边扫边长（扫频报告风格），最终由 finalize 补齐 */
+    s->mag[bin] = sqrtf(s->acc[bin] / (float)s->count[bin]);
     s->t += (double)frames / (double)ctx->sample_rate;
     s->total_frames += frames;
     if (s->total_frames >= s->duration_frames) {

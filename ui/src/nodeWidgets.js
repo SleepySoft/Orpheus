@@ -288,10 +288,13 @@ function SweepPlotWidget({ data, large }) {
       return;
     }
 
-    const db = mag.map((m) => (m > 0 ? 20 * Math.log10(m) : -120));
+    // 只统计已采集的箱（mag>0），未扫到的箱不参与 y 轴范围，避免曲线被压扁
+    const db = mag.map((m) => (m > 0 ? 20 * Math.log10(m) : null));
+    const measured = db.filter((d) => d !== null);
     let minF = Math.log10(freq[0]), maxF = Math.log10(freq[freq.length - 1]);
     if (!isFinite(minF) || !isFinite(maxF) || maxF <= minF) { minF = 1; maxF = 4; }
-    let minD = Math.min(...db), maxD = Math.max(...db);
+    let minD = measured.length ? Math.min(...measured) : -60;
+    let maxD = measured.length ? Math.max(...measured) : 0;
     if (!isFinite(minD) || !isFinite(maxD) || maxD - minD < 1) { minD = -60; maxD = 0; }
 
     const plotL = large ? 48 : 4, plotR = cw - (large ? 10 : 3);
@@ -326,9 +329,11 @@ function SweepPlotWidget({ data, large }) {
     ctx.beginPath();
     ctx.strokeStyle = '#4cc9f0';
     ctx.lineWidth = large ? 2 : 1.2;
+    let drawing = false;
     for (let i = 0; i < db.length; i++) {
+      if (db[i] === null) { drawing = false; continue; }
       const x = px(freq[i]), y = py(db[i]);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      if (!drawing) { ctx.moveTo(x, y); drawing = true; } else { ctx.lineTo(x, y); }
     }
     ctx.stroke();
 
