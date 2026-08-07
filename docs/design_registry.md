@@ -495,3 +495,8 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - signal_gen / sweep_gen 声明为时钟源（`clock_source: true` + `clock_domain: synthetic`），新增 `sample_rate` 参数（默认 48000，可配 8k~192k）；输出端口 `sample_rate: param:sample_rate`。
 - `_resolve_source_rate` 从"设备专用"泛化为"任意声明 sample_rate 的时钟源"（manifest 驱动）：发生器的采样率成为图采样率，多时钟源不一致报错。运行时相位步进用 `ctx->sample_rate`（即图采样率），数学一致。
 - 宿主无文件输入默认时长改为按图采样率算 10 秒；新增单元测试（采样率接管图、冲突报错）与 e2e（8kHz 输出 wav）。
+
+### 2026-08-07（第十二次讨论：wav_out 自动跟随 + 时钟源徽标）
+
+- wav_out 采样率自动跟随输入端口：编译器在端口解析前先解析输出端口，把源端口采样率注入 wav_out 的 sample_rate 参数（其输入端口声明 `param:sample_rate`），连接校验与文件头一致；免手填。测试：wav_in(48k)→resample(2)→wav_out(不填采样率) 输出 24k wav。
+- UI：`/api/components` 暴露 `clock_source`；画布上时钟源（信号/扫频/设备/wav 输入）显示 ⏱ 采样率徽标（编译后显示图采样率，未编译显示"时钟源"）。

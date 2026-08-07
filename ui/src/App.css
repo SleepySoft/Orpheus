@@ -657,6 +657,16 @@ button.danger {
   white-space: nowrap;
 }
 
+.clock-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #9a6700;
+  background: #fff3bf;
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
 .node-subtitle {
   font-size: 11px;
   color: #868e96;

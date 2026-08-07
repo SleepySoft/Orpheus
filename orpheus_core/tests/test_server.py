@@ -725,3 +725,47 @@ def test_generator_sample_rate_offline(client):
             assert abs(w.getnframes() - 80000) <= 128, f"frames={w.getnframes()}"
     finally:
         client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_wav_out_sample_rate_auto_follows_input(client):
+    """wav_out 采样率自动跟随输入端口：wav_in(48k)->resample(2) 后 wav 输出应为 24k，无需手填。"""
+    import shutil
+    import wave
+
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        assert client.post("/api/projects", json={"name": name}).status_code == 201
+        pdir = ROOT / "workspace" / name
+        shutil.copy2(ROOT / "examples" / "test_input.wav", pdir / "test_input.wav")
+        doc = client.get(f"/api/projects/{name}").json()
+        doc["graph"] = {
+            "nodes": [
+                {"id": "wav_in", "component": "orpheus.builtin.wav_in",
+                 "params": {"file_path": "test_input.wav", "channels": 2},
+                 "position": {"x": 0, "y": 0}},
+                {"id": "rs", "component": "orpheus.builtin.resample",
+                 "params": {"factor": 2, "channels": 2},
+                 "position": {"x": 200, "y": 0}},
+                {"id": "wav_out", "component": "orpheus.builtin.wav_out",
+                 "params": {"file_path": "outputs/out.wav", "channels": 2},
+                 "position": {"x": 400, "y": 0}},
+            ],
+            "connections": [
+                {"from": "wav_in:out", "to": "rs:in"},
+                {"from": "rs:out", "to": "wav_out:in"},
+            ],
+        }
+        assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+        resp = client.post(f"/api/projects/{name}/run")
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+        with wave.open(str(pdir / "outputs" / "out.wav"), "rb") as w:
+            assert w.getframerate() == 24000, f"rate={w.getframerate()}"
+    finally:
+        client.delete(f"/api/projects/{name}")

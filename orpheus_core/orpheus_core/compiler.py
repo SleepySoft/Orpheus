@@ -200,7 +200,9 @@ class GraphCompiler:
         task = project.get_default_task()
         task = self._resolve_source_rate(project, task)
 
-        # 1. Resolve nodes and port signatures (expanding variable-count ports)
+        # 0.5 wav_out 输入采样率自动跟随源端口（免手填）：
+        #     先解析所有输出端口，把源端口采样率注入 wav_out 的 sample_rate 参数，
+        #     其输入端口声明为 param:sample_rate，随后按注入值解析，连接校验自然一致。
         resolved_ports: dict[str, ResolvedPort] = {}
         expanded_ports: dict[str, list[dict[str, Any]]] = {}
         for node in graph.nodes.values():
@@ -210,7 +212,26 @@ class GraphCompiler:
             port_manifests = _expand_port_manifests(node, comp, task)
             expanded_ports[node.id] = port_manifests
             for port_manifest in port_manifests:
+                if port_manifest["direction"] != "output":
+                    continue
                 key = f"{node.id}:{port_manifest['id']}"
+                resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, task)
+        for conn in graph.connections:
+            to_node = graph.nodes.get(conn.to_ref.node_id)
+            if to_node is None or to_node.component != "orpheus.builtin.wav_out":
+                continue
+            fp = resolved_ports.get(str(conn.from_ref))
+            if fp is not None:
+                # 仅在编译内存中注入（compile 不持久化工程），运行时/生成路径经 plan 参数消费
+                to_node.params = {**to_node.params, "sample_rate": str(int(fp.sample_rate))}
+
+        # 1. Resolve remaining ports (inputs; variable-count expansion already done)
+        for node in graph.nodes.values():
+            comp = self.registry.get(node.component)
+            for port_manifest in expanded_ports[node.id]:
+                key = f"{node.id}:{port_manifest['id']}"
+                if key in resolved_ports:
+                    continue
                 resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, task)
 
         # 2. Validate connections
@@ -317,6 +338,7 @@ class GraphCompiler:
                     max_dur = d
         if max_dur > 0.0:
             plan.duration_frames = int(max_dur * task.sample_rate + 0.5)
+
 
         # 分配 buffer id：每个连接一个 buffer
         buffer_id = 0

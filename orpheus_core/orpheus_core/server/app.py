@@ -85,6 +85,7 @@ def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
         "name": m.get("name", info.id),
         "category": m.get("category", "未分类"),
         "description": m.get("description", ""),
+        "clock_source": m.get("clock_source", False),
         "ports": m.get("ports", []),
         "parameters": m.get("parameters", []),
     }

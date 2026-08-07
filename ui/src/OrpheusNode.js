@@ -26,13 +26,27 @@ export default function OrpheusNode({ data, selected }) {
   const BodyWidget = NODE_WIDGETS[data.component];
 
   // compiled rate badge, e.g. "48kHz" or "24kHz ÷2" (visible time tree)
+  // 时钟源（信号/扫频/设备/wav 输入）显示 ⏱ 徽标：图采样率以它为准
+  const clockSource = !!data.clockSource;
   const rateBadge = (() => {
     const r = data.rate;
-    if (!r || !r.sample_rate) return null;
+    if (!r || !r.sample_rate) {
+      return clockSource ? (
+        <span className="clock-badge" title="时钟源（图采样率以它为准）">⏱ 时钟源</span>
+      ) : null;
+    }
     const khz = r.sample_rate % 1000 === 0 ? `${r.sample_rate / 1000}k` : `${(r.sample_rate / 1000).toFixed(1)}k`;
+    const txt = `${khz}Hz${r.divisor > 1 ? ` ÷${r.divisor}` : ''}`;
+    if (clockSource) {
+      return (
+        <span className="clock-badge" title={`时钟源：图采样率 ${r.sample_rate} Hz（以它为准），分频比 ${r.divisor}`}>
+          ⏱ {txt}
+        </span>
+      );
+    }
     return (
       <span className="rate-badge" title={`采样率 ${r.sample_rate} Hz，块量子 ${r.frames} 帧，分频比 ${r.divisor}`}>
-        {khz}Hz{r.divisor > 1 ? ` ÷${r.divisor}` : ''}
+        {txt}
       </span>
     );
   })();

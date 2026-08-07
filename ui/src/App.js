@@ -351,6 +351,7 @@ const { screenToFlowPosition } = useReactFlow();
               label: id,
               component: componentId,
               params,
+              clockSource: !!comp.clock_source,
               ports: resolvePorts(comp, params),
               parameters: comp.parameters || [],
             },
