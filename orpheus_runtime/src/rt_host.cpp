@@ -265,25 +265,18 @@ void rb_playback_callback(ma_device* pDevice, void* pOutput, const void* pInput,
 // Print readback values of all probe nodes: PROBE <node> <param> <value>
 static void report_probes(orpheus::Runtime& runtime, const orpheus::Plan& plan) {
     for (const auto& node_id : plan.execution_order) {
-        auto it = plan.node_configs.find(node_id);
-        if (it == plan.node_configs.end()) continue;
-        if (it->second.component.find(".probe") == std::string::npos) continue;
-        const OrpheusComponentInterface* iface = runtime.get_interface(node_id);
-        if (!iface || !iface->get_descriptor) continue;
-        const OrpheusComponentDescriptor* desc = iface->get_descriptor();
-        for (uint32_t i = 0; i < desc->param_count; ++i) {
-            const OrpheusParameter& p = desc->params[i];
-            if (!p.readback || p.affects_signature) continue;
+        // v2：探针发现统一走注册表（PROBE 槽），不再按组件名 ".probe" 猜测
+        auto slots = runtime.probe_slots(node_id);
+        for (const orpheus::SlotEntry* e : slots) {
             OrpheusValue v;
-            if (runtime.get_parameter(node_id, p.id, &v) == ORPHEUS_OK) {
-                if (v.type == ORPHEUS_VALUE_FLOAT) {
-                    std::cout << "PROBE " << node_id << " " << p.id << " " << v.value.f32 << std::endl;
-                } else if (v.type == ORPHEUS_VALUE_INT) {
-                    std::cout << "PROBE " << node_id << " " << p.id << " " << v.value.i32 << std::endl;
-                } else if (v.type == ORPHEUS_VALUE_STRING) {
-                    // 复合/结构化 readback（如波形数组）：整行 JSON
-                    std::cout << "PROBE_JSON " << node_id << " " << p.id << " " << v.value.str << std::endl;
-                }
+            if (runtime.get_parameter(node_id, e->key, &v) != ORPHEUS_OK) continue;
+            if (v.type == ORPHEUS_VALUE_FLOAT) {
+                std::cout << "PROBE " << node_id << " " << e->key << " " << v.value.f32 << std::endl;
+            } else if (v.type == ORPHEUS_VALUE_INT) {
+                std::cout << "PROBE " << node_id << " " << e->key << " " << v.value.i32 << std::endl;
+            } else if (v.type == ORPHEUS_VALUE_STRING) {
+                // 复合/结构化探针（波形/频谱 JSON）：整行
+                std::cout << "PROBE_JSON " << node_id << " " << e->key << " " << v.value.str << std::endl;
             }
         }
     }

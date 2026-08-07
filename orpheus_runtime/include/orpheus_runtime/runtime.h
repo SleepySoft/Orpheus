@@ -58,6 +58,9 @@ public:
     int write_bulk(const std::string& node_id, const std::string& key,
                    const void* data, size_t count);
 
+    // v2 探针发现：返回某节点的 PROBE 槽列表（替代宿主按组件名/描述符猜测）。
+    std::vector<const SlotEntry*> probe_slots(const std::string& node_id) const;
+
     // Access the component interface of a loaded node (metadata/introspection).
     const OrpheusComponentInterface* get_interface(const std::string& node_id);
 

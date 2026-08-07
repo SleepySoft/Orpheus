@@ -31,6 +31,7 @@ cd ui; npm run build               # 前端改动后必须重新构建，serve �
 
 - Python 必须 ≥3.10（`dev` conda 环境是 3.8，不可用；用 `py310` 或 `base`）。`orpheus_core` 需在目标环境 `pip install -e "orpheus_core[dev]"`。
 - CMake/Ninja 由 VS 2022 自带（`Common7\IDE\CommonExtensions\Microsoft\CMake\{CMake\bin,Ninja}`），已加入用户 PATH；`cli build` 检测到 MSVC 后自动加载 vcvars64，普通终端可直接构建。
+- `cli build`（无参数）会顺带重建 `orpheus_runtime`/`orpheus_rt_host`；组件与 runtime 必须同代重建，否则 ABI 不匹配（新组件读旧 runtime 的 `OrpheusConfig.state_block` 属越界读，会导致 balance 等组件行为异常）。
 
 ## 红线（违反必出 bug，都是踩过的坑）
 

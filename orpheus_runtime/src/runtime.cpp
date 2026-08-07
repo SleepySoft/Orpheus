@@ -415,6 +415,16 @@ int Runtime::write_bulk(const std::string& node_id, const std::string& key,
     return ORPHEUS_OK;
 }
 
+std::vector<const SlotEntry*> Runtime::probe_slots(const std::string& node_id) const {
+    std::vector<const SlotEntry*> out;
+    auto it = instances_.find(node_id);
+    if (it == instances_.end()) return out;
+    for (const auto& e : it->second->slots) {
+        if (e.kind == ORPHEUS_SLOT_PROBE) out.push_back(&e);
+    }
+    return out;
+}
+
 const OrpheusComponentInterface* Runtime::get_interface(const std::string& node_id) {
     auto it = instances_.find(node_id);
     if (it == instances_.end()) return nullptr;

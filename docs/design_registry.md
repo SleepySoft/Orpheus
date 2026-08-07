@@ -434,6 +434,7 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 8. **manifest deps schema 曾限制 `enum: [miniaudio]`**：组件级 deps 必须放开 schema；生成器按"组件 id ∈ registry"识别组件依赖并递归复制。
 9. **组件 CMakeLists 需显式加依赖组件 include 路径**：构建侧暂无 manifest 驱动的自动链接（后续由 builder 生成依赖 cmake）；生成器侧已自动处理。
 10. **槽读回语义**：PROBE 槽直读注册内存；SETTING 槽只有 `ORPHEUS_SLOT_DIRECT_WRITE` 才直读/直写，否则回调——避免绕过派生重算（mute/balance/fade 的平滑目标、bass 的派生 dB 读回）。
+11. **runtime 必须与组件同代重建**：`cli build` 曾只构建组件，runtime 停留在旧 ABI——迁移后的组件读旧 runtime 的 `OrpheusConfig`（无 `state_block` 字段）属越界读，可致组件行为异常（balance 时好时坏，且为 UB）。已让 `cli build` 全量时顺带构建 `orpheus_runtime`/`orpheus_rt_host`。
 
 ---
 
@@ -445,7 +446,7 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - [ ] 共享 DSP 库 `orpheus.dsp.common`（消重 bass/midrange/treble 重复代码）
 - [x] 聚合组件试点：`biquad_bank`（内嵌 2 段 biquad 子块 + 父代理注册子块字段/系数 buffer + `Runtime::write_bulk` 直写闭环，2026-08-06 完成）
 - [ ] BULK 双 bank 原子提交语义（单槽直写已可用）
-- [ ] 探针上报改走注册表（rt_host 遍历 PROBE 槽，替代 `component.find(".probe")`）
+- [x] 探针上报改走注册表（rt_host/offline 宿主遍历 PROBE 槽，替代 `component.find(".probe")`，2026-08-07 完成；顺带修复非 .probe 组件探针漏报：fir.taps、mp3 total_frames）
 - [ ] ID/协议层：64 位槽 ID、`slot_key ↔ 数字 ID` 双向映射、`SET <u64id>` 紧凑协议
 - [ ] 含代码的封装型复合组件（Type B 带代码）建模
 - [ ] 子块字段表放 header vs manifest 的决策
@@ -462,3 +463,8 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - 生成路径注册器：生成 main 调用 `register_slots`（占位注册器，流程对等）。
 - deps 泛化：schema 放开（不再限 miniaudio）；生成器递归复制依赖闭包源码/头文件并加 include 路径；组件 CMakeLists 需显式加依赖 include（构建侧暂手工）。
 - 槽读回语义定案：PROBE 槽直读；SETTING 仅 `DIRECT_WRITE` 槽直读，其余回调（保留派生读回，如 bass gain_db 平滑值）。
+
+### 2026-08-07（第七次讨论：探针发现走注册表 + balance 回归根因）
+
+- 探针发现统一走注册表：Runtime 暴露 `probe_slots()`，rt_host/offline 宿主遍历 PROBE 槽上报，删除 `component.find(".probe")` 猜测；新增 fir.taps 上报回归测试。
+- balance"变坏"根因不是机制迁移的 DSP 改动：离线实测 balance=1.0 → L=0/R=0.3535 正确；真正原因是 `cli build` 只建组件、runtime 停留在迁移前 ABI，新组件读旧 `OrpheusConfig.state_block` 越界（UB，时好时坏）。修复 `cli build` 全量构建时顺带重建 runtime/rt_host。

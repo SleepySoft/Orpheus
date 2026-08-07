@@ -194,6 +194,51 @@ def test_probe_waveform_readback_offline(client):
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
+def test_fir_taps_probe_reported(client):
+    """非 .probe 命名组件的 PROBE 槽（fir.taps）也应被上报（探针发现走注册表）。"""
+    import shutil
+
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        assert client.post("/api/projects", json={"name": name}).status_code == 201
+        pdir = ROOT / "workspace" / name
+        shutil.copy2(ROOT / "examples" / "test_input.wav", pdir / "test_input.wav")
+        doc = client.get(f"/api/projects/{name}").json()
+        doc["graph"] = {
+            "nodes": [
+                {"id": "wav_in", "component": "orpheus.builtin.wav_in",
+                 "params": {"file_path": "test_input.wav", "channels": 2},
+                 "position": {"x": 0, "y": 0}},
+                {"id": "fir1", "component": "orpheus.builtin.fir",
+                 "params": {"coefficients": "0.5,0.5", "channels": 2},
+                 "position": {"x": 200, "y": 0}},
+                {"id": "wav_out", "component": "orpheus.builtin.wav_out",
+                 "params": {"file_path": "outputs/out.wav", "channels": 2,
+                            "sample_rate": 48000},
+                 "position": {"x": 400, "y": 0}},
+            ],
+            "connections": [
+                {"from": "wav_in:out", "to": "fir1:in"},
+                {"from": "fir1:out", "to": "wav_out:in"},
+            ],
+        }
+        assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+        resp = client.post(f"/api/projects/{name}/run")
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+        by = {(p["node"], p["param"]): p["value"] for p in result["probes"]}
+        assert ("fir1", "taps") in by, f"fir.taps 探针未上报: {sorted(by)}"
+        assert float(by[("fir1", "taps")]) == 2.0
+    finally:
+        client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
 def test_mp3_in_offline_run(client):
     """MP3 input decodes via miniaudio and drives an offline run to WAV."""
     name = f"test_{uuid.uuid4().hex[:8]}"
