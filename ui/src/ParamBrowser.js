@@ -198,6 +198,9 @@ export default function ParamBrowser({
   onNodeParamChange,
   onImportApply,
   onWriteBulk,
+  presets,
+  onSavePreset,
+  onDeletePreset,
   onLocate,
   onClose,
 }) {
@@ -283,37 +286,77 @@ export default function ParamBrowser({
     return (nd && nd.data.probe) || {};
   };
 
+  /** 构建调音快照（调音值 + 工程 Bulk；不含探针实时值与运行期槽）。 */
+  const buildSnapshot = () => ({
+    format: 'orpheus.parameters',
+    version: 1,
+    created_at: new Date().toISOString(),
+    nodes: tree.map((e) => {
+      const params = nodeParams(e);
+      const values = {};
+      const bulk = {};
+      for (const p of e.byKind.setting || []) values[p.id] = params[p.id] ?? p.default;
+      for (const p of e.byKind.bulk || []) {
+        if (!p.runtime) bulk[p.id] = parseFloatList(params[p.id]);
+      }
+      return {
+        node: e.flatId,
+        path: e.path.map((x) => x.label),
+        component: e.component,
+        component_name: e.componentName,
+        values,
+        bulk,
+      };
+    }),
+  });
+
   const exportAll = () => {
+    const snap = buildSnapshot();
     const payload = {
-      format: 'orpheus.parameters',
-      version: 1,
+      ...snap,
       project: projectName,
       exported_at: new Date().toISOString(),
       nodes: tree.map((e) => {
-        const params = nodeParams(e);
-        const values = {};
-        const bulk = {};
+        const n = snap.nodes.find((x) => x.node === e.flatId);
         const probes = {};
-        for (const p of e.byKind.setting || []) values[p.id] = params[p.id] ?? p.default;
-        for (const p of e.byKind.bulk || []) {
-          if (!p.runtime) bulk[p.id] = parseFloatList(params[p.id]);
-        }
         for (const p of e.byKind.probe || []) {
           const live = rt.probes?.[e.flatId]?.[p.id] ?? nodeProbe(e)[p.id];
           if (live !== undefined) probes[p.id] = live;
         }
-        return {
-          node: e.flatId,
-          path: e.path.map((x) => x.label),
-          component: e.component,
-          component_name: e.componentName,
-          values,
-          bulk,
-          probes,
-        };
+        return { ...n, probes };
       }),
     };
     downloadFile(`${projectName || 'project'}-parameters.json`, JSON.stringify(payload, null, 2));
+  };
+
+  const savePreset = () => {
+    const name = window.prompt('预设名称（保存当前全部调音参数与 Bulk 数据）:');
+    if (!name || !name.trim()) return;
+    onSavePreset(name.trim(), buildSnapshot());
+  };
+
+  const applyPreset = (preset) => {
+    const byFlat = Object.fromEntries(tree.map((t) => [t.flatId, t]));
+    const items = [];
+    const missing = [];
+    for (const n of preset.nodes || []) {
+      const t = byFlat[n.node];
+      if (!t) {
+        missing.push(n.node);
+        continue;
+      }
+      items.push({
+        viewKey: t.viewKey,
+        nodeId: t.nodeId,
+        flatId: n.node,
+        values: n.values || {},
+        bulk: n.bulk || {},
+      });
+    }
+    if (missing.length) {
+      window.alert(`以下节点未找到，已跳过：${missing.join(', ')}`);
+    }
+    onImportApply(items);
   };
 
   const onImportFile = async (e) => {
@@ -380,6 +423,21 @@ export default function ParamBrowser({
             onChange={onImportFile}
           />
           {rt.running && <span className="pb-live">⏺ 实时会话中：非重启参数修改即时生效</span>}
+        </div>
+        <div className="pb-presets">
+          <strong>预设</strong>
+          <button onClick={savePreset}>保存当前为预设</button>
+          {!presets.length && <span className="pb-meta">暂无（预设随工程保存）</span>}
+          {presets.map((p) => (
+            <div key={p.name} className="pb-preset-row">
+              <span className="pb-preset-name">{p.name}</span>
+              <span className="pb-meta">{p.created_at ? new Date(p.created_at).toLocaleString() : ''}</span>
+              <button onClick={() => applyPreset(p)}>应用</button>
+              <button className="pb-preset-del" onClick={() => onDeletePreset(p.name)}>
+                删除
+              </button>
+            </div>
+          ))}
         </div>
         <div className="pb-body">
           {KIND_ORDER.map((kind) => {

@@ -936,6 +936,47 @@ pre {
   font-weight: 600;
 }
 
+.pb-presets {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  background: #fff9db;
+  border: 1px solid #f0d98c;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.pb-preset-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.pb-preset-name {
+  font-weight: 600;
+}
+
+.pb-preset-row button {
+  padding: 1px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: white;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pb-preset-row button.pb-preset-del {
+  color: #e03131;
+  border-color: #ffc9c9;
+}
+
 .pb-body {
   flex: 1;
   overflow-y: auto;

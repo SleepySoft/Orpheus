@@ -515,6 +515,26 @@ const { screenToFlowPosition } = useReactFlow();
     [current]
   );
 
+  /** 预设保存在工程文档顶层 `presets` 字段，随正常保存流程持久化。 */
+  const onSavePreset = useCallback((name, snapshot) => {
+    setDoc((d) => {
+      const base = d || {};
+      const list = [...(base.presets || []).filter((x) => x.name !== name)];
+      return { ...base, presets: [...list, { ...snapshot, name }] };
+    });
+    setDirty(true);
+    setStatus(`已保存预设 ${name}`);
+  }, []);
+
+  const onDeletePreset = useCallback((name) => {
+    setDoc((d) => {
+      const base = d || {};
+      return { ...base, presets: (base.presets || []).filter((x) => x.name !== name) };
+    });
+    setDirty(true);
+    setStatus(`已删除预设 ${name}`);
+  }, []);
+
   const onDeleteNode = useCallback(
     (nodeId) => {
       updateView(activeView, (v) => ({
@@ -1051,6 +1071,9 @@ const { screenToFlowPosition } = useReactFlow();
           onNodeParamChange={onNodeParamChange}
           onImportApply={onImportApply}
           onWriteBulk={onWriteBulk}
+          presets={doc.presets || []}
+          onSavePreset={onSavePreset}
+          onDeletePreset={onDeletePreset}
           onLocate={onLocateParam}
           onClose={() => setShowParams(false)}
         />
