@@ -40,6 +40,7 @@ struct Plan {
     uint32_t sample_rate = 48000;
     uint32_t block_size = 128;
     uint32_t buffer_size = 0;  // async ring buffer capacity (0 = auto)
+    uint32_t duration_frames = 0;  // 离线宿主运行时长提示（0=默认 10s）
     std::string task_id;
     std::vector<std::string> nodes;
     std::vector<std::string> execution_order;

@@ -39,6 +39,7 @@ class ExecutionPlan:
     node_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
     buffers: dict[str, dict[str, Any]] = field(default_factory=dict)
     connections: list[dict[str, str]] = field(default_factory=list)
+    duration_frames: int = 0   # 离线宿主运行时长提示（纯时钟图按扫频 duration_s 推导；0=宿主默认）
 
 
 def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
@@ -307,6 +308,20 @@ class GraphCompiler:
                 "input_ports": [p["id"] for p in port_manifests if p["direction"] == "input"],
                 "output_ports": [p["id"] for p in port_manifests if p["direction"] == "output"],
             }
+
+        # 离线运行时长：无文件输入时，宿主按纯时钟源（扫频发生器/记录）的时长跑，
+        # 否则固定 10s 会截断长扫频（60s 只跑 10s，或跟着 1s 的 wav 只跑 1s）。
+        max_dur = 0.0
+        for cfg in plan.node_configs.values():
+            if cfg["component"] in ("orpheus.builtin.sweep_gen", "orpheus.builtin.sweep_record"):
+                try:
+                    d = float(cfg["params"].get("duration_s", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    d = 0.0
+                if d > max_dur:
+                    max_dur = d
+        if max_dur > 0.0:
+            plan.duration_frames = int(max_dur * task.sample_rate + 0.5)
 
         # 分配 buffer id：每个连接一个 buffer
         buffer_id = 0

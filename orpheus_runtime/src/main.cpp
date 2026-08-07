@@ -66,7 +66,9 @@ int main(int argc, char** argv) {
         }
 
         if (total_frames == 0) {
-            total_frames = 48000 * 10; // 10 seconds default
+            total_frames = plan.duration_frames > 0
+                ? plan.duration_frames
+                : 48000 * 10;  // 10 seconds default
         }
 
         uint32_t block_size = plan.block_size;

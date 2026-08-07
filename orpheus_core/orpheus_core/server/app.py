@@ -400,14 +400,19 @@ def create_app(project_root: Path) -> FastAPI:
 
         # match the offline host's duration: blocks = ceil(wav_in frames / block_size)
         blocks = 1000
+        has_wav_in = False
         for node in flat.graph.nodes.values():
             if node.component == "orpheus.builtin.wav_in":
+                has_wav_in = True
                 fp = node.params.get("file_path")
                 if fp:
                     frames = _wav_total_frames(rec.directory / str(fp))
                     if frames > 0:
                         blocks = (frames + plan.block_size - 1) // plan.block_size
                 break
+        if not has_wav_in and plan.duration_frames > 0:
+            # 纯时钟图（扫频等）：按计划时长跑，避免 60s 扫频只跑默认 1000 块
+            blocks = max(blocks, (plan.duration_frames + plan.block_size - 1) // plan.block_size)
 
         project_dir = rec.directory
         (project_dir / "outputs").mkdir(exist_ok=True)

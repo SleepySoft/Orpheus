@@ -646,3 +646,43 @@ def test_sweep_record_probe_curve(client):
         assert min(mag) > 0.05, f"存在空箱: min={min(mag)}"
     finally:
         client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_sweep_gen_offline_duration_respected(client):
+    """纯时钟图（无 wav_in）：离线宿主按扫频 duration_s 运行，不截断成固定 10s/1s。"""
+    import wave
+
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        assert client.post("/api/projects", json={"name": name}).status_code == 201
+        doc = client.get(f"/api/projects/{name}").json()
+        doc["graph"] = {
+            "nodes": [
+                {"id": "sweep", "component": "orpheus.builtin.sweep_gen",
+                 "params": {"start_freq": "100.0", "end_freq": "5000.0",
+                            "duration_s": "3.0", "amplitude": "0.7",
+                            "log_scale": "true", "channels": 1},
+                 "position": {"x": 0, "y": 0}},
+                {"id": "wav_out", "component": "orpheus.builtin.wav_out",
+                 "params": {"file_path": "outputs/out.wav", "channels": 1,
+                            "sample_rate": 48000},
+                 "position": {"x": 200, "y": 0}},
+            ],
+            "connections": [{"from": "sweep:out", "to": "wav_out:in"}],
+        }
+        assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+        resp = client.post(f"/api/projects/{name}/run")
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["status"] == "ok", result["stderr"]
+        pdir = ROOT / "workspace" / name
+        with wave.open(str(pdir / "outputs" / "out.wav"), "rb") as w:
+            # 3s @48k = 144000 帧；块处理允许尾部丢一个块
+            assert abs(w.getnframes() - 144000) <= 128, f"frames={w.getnframes()}"
+    finally:
+        client.delete(f"/api/projects/{name}")

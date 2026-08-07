@@ -438,6 +438,8 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 12. **React Flow v11 交互键位**：默认左键平移；`selectionKeyCode="Control"`（Ctrl+拖拽=圈选）、`multiSelectionKeyCode="Control"`（Ctrl+点击=多选）。注意 `selectionOnDrag` 只在 `panOnDrag !== true` 时生效，方案取舍：左键拖拽=平移（编辑器通用） vs 左键拖拽=框选（Figma 式），本次按用户要求选前者。
 13. **`position: fixed` 弹层不能放在 ReactFlow 节点内**：节点渲染在带 `transform` 的容器里，fixed 退化为相对该容器定位，弹层错位/不可见。放大监控界面已改用 `createPortal` 挂到 `document.body`。
 14. **浮点边界判定陷阱**：`t >= dur` 在 128/48000 步进累加下可能停在 `dur - ε`，完成标志永不触发（进度却显示 100%）。扫频记录改用整数帧计数 `total_frames >= duration_frames` 判定完成。
+15. **离线宿主时长必须按计划推导**：曾固定 10s（无文件输入）或跟文件长度（test_input.wav 恰好 1s），60s 扫频被截断成 1~10s。计划新增 `duration_frames`：编译器按 sweep_gen/sweep_record 的 `duration_s` 推导，C++ 宿主与生成路径共用，文件输入仍优先。
+16. **构建失败 LNK1104 = exe 被残留进程锁定**：命令超时杀管道不杀子进程，挂死的 orpheus_runtime.exe 会锁住输出文件导致无法重链；先清进程再构建。
 
 ---
 
@@ -481,3 +483,8 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 
 - 画布交互定案：左键拖拽=平移；Ctrl+拖拽=圈选；Ctrl+点击=多选（`selectionKeyCode`/`multiSelectionKeyCode="Control"`）。
 - 监控节点支持**拖拽拉大**：OrpheusNode 挂 `NodeResizer`（选中显示角柄）；三个 canvas 控件（示波器/频谱/扫频图）用 ResizeObserver 跟随容器尺寸重绘，节点拉大即画布变大；放大弹层同样自适应。
+
+### 2026-08-07（第十次讨论：扫频时长截断修复）
+
+- 排查"60s 扫频只跑 1s"：根因是离线宿主时长固定 10s/跟 wav 文件长度，与扫频参数无关。计划新增 `duration_frames`（编译器按 `duration_s` 推导），main.cpp 与 run_generated 共用；纯时钟图现在按扫频时长完整运行。新增回归测试（3s 扫频离线输出 144000 帧）。
+- 排查过程中发现旧 orpheus_runtime.exe 损坏（挂死 100% CPU、空计划死循环），经杀残留进程 + 重建解决；此类问题先用干净进程验证，避免在坏二进制上误判代码。
