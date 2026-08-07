@@ -871,7 +871,7 @@ const { screenToFlowPosition } = useReactFlow();
             nodeTypes={nodeTypes}
             deleteKeyCode={['Delete', 'Backspace']}
             selectionOnDrag={!spacePressed}
-            panOnDrag={spacePressed ? [1, 2] : [2]}
+            panOnDrag={spacePressed ? [0, 1, 2] : [1, 2]}
             multiSelectionKeyCode="Shift"
             fitView
           >
