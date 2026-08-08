@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import uuid
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -38,3 +39,39 @@ def test_component_delete_and_promote() -> None:
     finally:
         if d2.exists():
             shutil.rmtree(d2)
+
+
+def test_delete_blocked_while_referenced() -> None:
+    """仍被工程引用的自定义组件禁止删除；移除引用后可删除。"""
+    d = scaffold_custom_component(ROOT, SCRATCH)
+    try:
+        with TestClient(create_app(ROOT)) as client:
+            name = f"ref_{uuid.uuid4().hex[:8]}"
+            try:
+                assert client.post("/api/projects", json={"name": name}).status_code == 201
+                doc = client.get(f"/api/projects/{name}").json()
+                doc["graph"] = {
+                    "nodes": [
+                        {
+                            "id": "fx",
+                            "component": f"orpheus.builtin.{SCRATCH}",
+                            "params": {"channels": 2},
+                            "position": {"x": 0, "y": 0},
+                        }
+                    ],
+                    "connections": [],
+                }
+                assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+                r = client.delete(f"/api/components/orpheus.builtin.{SCRATCH}")
+                assert r.status_code == 400 and "仍被工程" in r.json()["detail"]
+                assert d.exists()
+                # 移除引用后可删除
+                doc["graph"]["nodes"] = []
+                assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+                assert client.delete(f"/api/components/orpheus.builtin.{SCRATCH}").status_code == 200
+                assert not d.exists()
+            finally:
+                client.delete(f"/api/projects/{name}")
+    finally:
+        if d.exists():
+            shutil.rmtree(d)

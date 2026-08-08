@@ -74,6 +74,7 @@ export function graphToFlow(graph, catalogById) {
       data: {
         label: n.label || n.id,
         component: n.component,
+        missing: !comp,
         params: n.params || {},
         clockSource: !!comp?.clock_source,
         ports: resolvePorts(comp, n.params),

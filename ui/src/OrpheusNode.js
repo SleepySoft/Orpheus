@@ -74,10 +74,15 @@ export default function OrpheusNode({ data, selected }) {
           color="#4cc9f0"
         />
       )}
-      <div className={`orpheus-node ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''}`}>
+      <div className={`orpheus-node ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${data.missing ? 'missing' : ''}`}>
       <div className="node-header">
         <div className="node-title">
           {data.label}
+          {data.missing && (
+            <span className="missing-badge" title="该组件已被删除：请删除此节点或重新创建组件">
+              组件缺失
+            </span>
+          )}
           {rateBadge}
         </div>
         <div className="node-subtitle">{shortName}</div>

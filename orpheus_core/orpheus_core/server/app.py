@@ -262,6 +262,27 @@ def create_app(project_root: Path) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"组件不存在: {component_id}")
         if not info.manifest.get("user_owned", False):
             raise HTTPException(status_code=400, detail="公共库组件不可删除")
+        # 防护：仍被工程（含子组件图）引用的组件禁止删除
+        refs: list[str] = []
+        for pdir in sorted((root / "workspace").glob("*/project.yaml")):
+            try:
+                data = yaml.safe_load(pdir.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            graphs = [(data or {}).get("graph") or {}]
+            for sub in ((data or {}).get("subcomponents") or []):
+                graphs.append(sub.get("graph") or {})
+            if any(
+                n.get("component") == component_id
+                for g in graphs
+                for n in (g.get("nodes") or [])
+            ):
+                refs.append(pdir.parent.name)
+        if refs:
+            raise HTTPException(
+                status_code=400,
+                detail=f"组件仍被工程 {', '.join(sorted(refs))} 引用，请先移除这些工程中的节点再删除",
+            )
         shutil.rmtree(info.root_dir)
         registry.scan()
         return {"deleted": component_id}

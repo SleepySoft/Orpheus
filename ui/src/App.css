@@ -629,6 +629,21 @@
   color: #adb5bd;
 }
 
+.orpheus-node.missing {
+  border-color: #e03131 !important;
+}
+
+.missing-badge {
+  font-size: 10px;
+  color: #e03131;
+  background: #fff5f5;
+  border: 1px solid #ffc9c9;
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
 /* ---------------------------------------------------------- modal */
 
 .modal-backdrop {
