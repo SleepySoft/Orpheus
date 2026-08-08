@@ -12,6 +12,8 @@ import struct
 import subprocess
 import uuid
 import wave
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -211,3 +213,18 @@ def test_embed_fill_numerics(client) -> None:
     assert abs(vals[1] + expected) <= 1  # 第 0 帧右声道
     assert abs(vals[-2] - expected) <= 1
     assert abs(vals[-1] + expected) <= 1
+
+
+def test_generated_archive_download(client) -> None:
+    """生成代码下载端点：zip 含 main.c 与 platform_io.c；未生成时 404。"""
+    name = _create_embed_project(client, with_wav_out=False)
+    assert client.post(f"/api/projects/{name}/generate").status_code == 200
+    resp = client.get(f"/api/projects/{name}/generated/archive")
+    assert resp.status_code == 200, resp.text
+    zf = zipfile.ZipFile(BytesIO(resp.content))
+    names = zf.namelist()
+    assert any(n.endswith("src/main.c") for n in names)
+    assert any(n.endswith("src/platform_io.c") for n in names)
+
+    name2 = _create_embed_project(client, with_wav_out=False)
+    assert client.get(f"/api/projects/{name2}/generated/archive").status_code == 404

@@ -45,6 +45,8 @@ export const uploadProjectFile = (name, file) => {
 export const projectFileUrl = (name, relpath) =>
   `${api.defaults.baseURL}/projects/${name}/files/${relpath}`;
 export const downloadUrl = (name) => `${api.defaults.baseURL}/projects/${name}/download`;
+export const downloadGeneratedUrl = (name) =>
+  `${api.defaults.baseURL}/projects/${name}/generated/archive`;
 
 /** Extract a readable message from an axios error. */
 export const errorDetail = (e) =>

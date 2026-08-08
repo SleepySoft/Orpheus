@@ -64,6 +64,7 @@ function Editor() {
   const [status, setStatus] = useState('未连接后端');
   const [log, setLog] = useState(null);
   const [outputs, setOutputs] = useState([]);
+  const [generatedInfo, setGeneratedInfo] = useState(null); // {path, url} 生成工程位置与下载链接
   const [deviceOptions, setDeviceOptions] = useState([{ value: '', label: '默认设备' }]);
   const [rt, setRt] = useState({ running: false, logs: [], probes: {} });
   const [logCollapsed, setLogCollapsed] = useState(false);
@@ -134,6 +135,7 @@ const { screenToFlowPosition } = useReactFlow();
     setSelectedIds([]);
     setDirty(false);
     setOutputs([]);
+    setGeneratedInfo(null);
     setLog(null);
     setRt({ running: false, logs: [], probes: {} });
   }, []);
@@ -848,6 +850,12 @@ const { screenToFlowPosition } = useReactFlow();
         r.status === 'ok' ? `编译后运行成功（${r.blocks} 块）` : `编译后运行失败 (exit ${r.returncode})`
       );
       setOutputs(r.outputs || []);
+      if (r.generated_path) {
+        setGeneratedInfo({
+          path: r.generated_path,
+          url: api.downloadGeneratedUrl(current),
+        });
+      }
       setLog({
         title: '编译后运行输出',
         lines: [r.stdout, r.stderr ? `stderr:\n${r.stderr}` : null].filter(Boolean),
@@ -865,10 +873,14 @@ const { screenToFlowPosition } = useReactFlow();
     try {
       const r = await api.generateProject(current);
       setStatus(`已生成独立 C 工程：${r.generated_dir}`);
+      setGeneratedInfo({
+        path: r.generated_path,
+        url: api.downloadGeneratedUrl(current),
+      });
       setLog({
         title: '生成结果',
         lines: [
-          `生成目录: ${r.generated_dir}`,
+          `生成目录（工程目录下）: ${r.generated_path}`,
           '嵌入部署：改 src/platform_io.c 的 USER CODE 段接入实际 DMA/编解码器后，按目标工具链交叉编译。',
           `PC 冒烟运行默认块数: ${r.blocks_default}`,
         ],
@@ -1144,7 +1156,7 @@ const { screenToFlowPosition } = useReactFlow();
           onClose={() => setShowParams(false)}
         />
       )}
-      {(log || outputs.length > 0 || rt.logs.length > 0 || rt.running) && (
+      {(log || outputs.length > 0 || generatedInfo || rt.logs.length > 0 || rt.running) && (
         <div className={`bottombar ${logCollapsed ? 'collapsed' : ''}`}>
           <div
             className="bottombar-header"
@@ -1213,6 +1225,17 @@ const { screenToFlowPosition } = useReactFlow();
                       {o.endsWith('.wav') && <audio controls src={api.projectFileUrl(current, o)} />}
                     </div>
                   ))}
+                </div>
+              )}
+              {generatedInfo && (
+                <div className="outputs">
+                  <strong>生成工程</strong>
+                  <div className="output-item">
+                    <span className="muted">{generatedInfo.path}（工程目录下）</span>
+                    <a href={generatedInfo.url} download>
+                      下载生成代码 (zip)
+                    </a>
+                  </div>
                 </div>
               )}
             </div>

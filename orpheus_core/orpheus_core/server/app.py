@@ -497,6 +497,8 @@ def create_app(project_root: Path) -> FastAPI:
             "stderr": result.stderr,
             "blocks": blocks,
             "outputs": outputs,
+            "generated_path": str(gen_dir.relative_to(rec.directory)),
+            "download_url": f"/api/projects/{name}/generated/archive",
         }
 
     @app.post("/api/projects/{name}/generate")
@@ -510,10 +512,32 @@ def create_app(project_root: Path) -> FastAPI:
         return {
             "status": "ok",
             "generated_dir": str(gen_dir),
+            "generated_path": str(gen_dir.relative_to(rec.directory)),
+            "download_url": f"/api/projects/{name}/generated/archive",
             "blocks_default": plan.duration_frames > 0
             and (plan.duration_frames + plan.block_size - 1) // plan.block_size
             or 1000,
         }
+
+    @app.get("/api/projects/{name}/generated/archive")
+    def download_generated_code(name: str) -> FileResponse:
+        """下载生成工程目录（workspace/<name>/generated）为 zip，供嵌入部署取用。"""
+        try:
+            rec = manager.get(name)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        gen_dir = rec.directory / "generated"
+        if not gen_dir.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="尚未生成代码：先点「⤓ 生成代码」或「⚙ 编译后运行」",
+            )
+        archive = shutil.make_archive(
+            str(Path(tempfile.gettempdir()) / f"orpheus_{name}_generated"),
+            "zip",
+            root_dir=gen_dir,
+        )
+        return FileResponse(archive, filename=f"{name}_generated.zip")
 
     @app.get("/api/projects/{name}/files")
     def list_project_files(name: str, ext: str | None = None) -> list[dict[str, Any]]:
