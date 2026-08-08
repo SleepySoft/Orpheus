@@ -40,6 +40,7 @@ class ExecutionPlan:
     buffers: dict[str, dict[str, Any]] = field(default_factory=dict)
     connections: list[dict[str, str]] = field(default_factory=list)
     duration_frames: int = 0   # 离线宿主运行时长提示（纯时钟图按扫频 duration_s 推导；0=宿主默认）
+    modules: list[dict[str, Any]] = field(default_factory=list)  # 模块内存布局（ID 寻址：模块 id + 槽）
 
 
 def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
@@ -380,7 +381,62 @@ class GraphCompiler:
                 }
             )
 
+        # 模块布局：按节点 id 的 `__` 路径前缀组织模块树，DFS 分配稳定模块 id。
+        # flatten 只决定执行拓扑；内存布局按模块连续（生成路径=嵌套结构体/动态路径=按模块切片）。
+        plan.modules = self._build_module_layout(execution_order)
+
         return plan
+
+    def _build_module_layout(self, execution_order: list[str]) -> list[dict[str, Any]]:
+        """按 flatId 路径前缀分组：模块=子组件实例路径（根="" 存顶层叶子）。
+
+        - 模块 id：模块树 DFS 前序（根=0，子模块按路径字典序），同一份工程内稳定；
+        - 模块内叶子槽：按执行序编号（叶子=该模块的直接子节点）。
+        数据点级槽（参数/探针/bulk）由生成器按 manifest 顺序继续展开。
+        """
+        module_limit = 256  # 8 bit module id
+        paths = {""}
+        for nid in execution_order:
+            parts = nid.split("__")
+            for i in range(1, len(parts)):
+                paths.add("__".join(parts[:i]))
+
+        def children(path: str) -> list[str]:
+            prefix = path + "__" if path else ""
+            return sorted(
+                q for q in paths
+                if q != path and q.startswith(prefix) and "__" not in q[len(prefix):]
+            )
+
+        ordered: list[str] = []
+
+        def dfs(path: str) -> None:
+            ordered.append(path)
+            for child in children(path):
+                dfs(child)
+
+        dfs("")
+        if len(ordered) > module_limit:
+            raise CompileError(
+                f"module count {len(ordered)} exceeds {module_limit} (8-bit module id)"
+            )
+        ids = {path: i for i, path in enumerate(ordered)}
+
+        modules: list[dict[str, Any]] = []
+        for path in ordered:
+            prefix = path + "__" if path else ""
+            leaves = []
+            slot = 0
+            for nid in execution_order:
+                if path == "":
+                    direct = "__" not in nid
+                else:
+                    direct = nid.startswith(prefix) and "__" not in nid[len(prefix):]
+                if direct:
+                    leaves.append({"node": nid, "slot": slot})
+                    slot += 1
+            modules.append({"path": path, "id": ids[path], "leaves": leaves})
+        return modules
 
     def _validate_clock_domains(self, graph: Graph) -> None:
         """Every connected flow must be driven by exactly one clock domain.

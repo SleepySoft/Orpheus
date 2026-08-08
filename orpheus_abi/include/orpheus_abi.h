@@ -121,6 +121,34 @@ typedef enum {
 typedef uint64_t OrpheusSlotId;
 #define ORPHEUS_SLOT_ID_INVALID ((OrpheusSlotId)UINT64_MAX)
 
+/* 数据 ID：32 位，单 ID 寻址（不拆读写，方向只在接口）。
+   bits31..28 kind，bits23..16 module id，bits15..0 模块内槽序号。
+   访问：orpheus_data_read(id,...) / orpheus_data_write(id,...)；PROBE/STATE 拒写、CMD 拒读。 */
+typedef enum {
+    ORPHEUS_ID_TUNE = 0x0,        /* 调音参数（可读写） */
+    ORPHEUS_ID_CMD = 0x1,         /* 一次性命令（只写） */
+    ORPHEUS_ID_PROBE = 0x2,       /* 探针（只读） */
+    ORPHEUS_ID_BULK = 0x3,        /* 大块数据（读写，双 bank 提交） */
+    ORPHEUS_ID_STATE = 0x4,       /* 内部状态（只读调试） */
+    ORPHEUS_ID_MODULE = 0x5,      /* 模块包：指向子模块整块连续内存 */
+    ORPHEUS_ID_CUSTOM = 0x6,      /* 用户自定义类：可自行分配该类 ID 空间 */
+    ORPHEUS_ID_RESERVED_7 = 0x7,
+    ORPHEUS_ID_RESERVED_8 = 0x8,
+    ORPHEUS_ID_RESERVED_9 = 0x9,
+    ORPHEUS_ID_RESERVED_A = 0xA,
+    ORPHEUS_ID_RESERVED_B = 0xB,
+    ORPHEUS_ID_RESERVED_C = 0xC,
+    ORPHEUS_ID_RESERVED_D = 0xD,
+    ORPHEUS_ID_RESERVED_E = 0xE,
+    ORPHEUS_ID_RESERVED_F = 0xF
+} OrpheusIdKind;
+
+#define ORPHEUS_ID_MAKE(kind_, module_id_, slot_) \
+    ((((uint32_t)(kind_)) << 28) | (((uint32_t)(module_id_)) << 16) | ((uint32_t)(slot_)))
+#define ORPHEUS_ID_KIND(id_) ((((uint32_t)(id_)) >> 28) & 0xFu)
+#define ORPHEUS_ID_MODULE(id_) ((((uint32_t)(id_)) >> 16) & 0xFFu)
+#define ORPHEUS_ID_SLOT(id_) (((uint32_t)(id_)) & 0xFFFFu)
+
 /* 槽描述：组件在 register_slots 中逐项提供 */
 typedef struct {
     OrpheusSlotKind kind;

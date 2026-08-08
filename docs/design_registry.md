@@ -460,6 +460,51 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - [ ] 跨编译器布局静态断言覆盖
 - [ ] 动态数量槽（per-channel 探针）策略
 
+## 17. 数据 ID 与内存透明（2026-08-08 定案，取代 §6 的 64 位草案）
+
+> 依据：公司模型 ID 习惯（RTC 控制 / TOP 调音 / TSP 探针，均为「类 + 模块族 + 模块内序号」），
+> 以及两条改进意见：① ID 不拆读写（接口已分方向，拆位只会制造「拿读 ID 写」的错误面）；
+> ② 内存透明（ID 对应的地址/大小必须可查询，供调试验证）。
+
+### 17.1 单 ID：一个数据点一个 uint32_t 宏，方向只在接口
+
+```c
+/* 布局：bits31..28 kind，bits23..16 module id，bits15..0 模块内槽序号 */
+#define ORPHEUS_TUNE_FrontEqBankFc0       (0x0c000002U)
+#define ORPHEUS_CMD_FrontReset            (0x1c200000U)
+#define ORPHEUS_PROBE_FrontMonRms         (0x2cb00003U)  /* CHAR_COUNT = sizeof(float) */
+#define ORPHEUS_BULK_FrontEqBankBq0Coefs  (0x3cb00008U)  /* CHAR_COUNT = 5*sizeof(float) */
+#define ORPHEUS_MODULE_Front              (0x5c000000U)  /* 模块整块连续内存，CHAR_COUNT=sizeof(FrontModule) */
+```
+
+- kind：`0x0 TUNE` / `0x1 CMD` / `0x2 PROBE` / `0x3 BULK` / `0x4 STATE` / `0x5 MODULE` /
+  `0x6 CUSTOM`（显式开放给用户自定义资源，可自行分配该类 ID 空间）/ `0x7..0xF Reserved`。
+- module id：生成期按工程分配（模块 = 子组件实例或顶层节点，**含实例维度**），同一份生成工程内稳定；
+  命名 = `ORPHEUS_<KIND>_<模块路径驼峰><参数名>`，由生成器产出 `orpheus_ids.h`。
+- 方向只存在于接口：`orpheus_data_read(id,...)` / `orpheus_data_write(id,...)` / bulk 提交接口。
+- 防误用（拿读 ID 写、拿命令 ID 读）：注册表按 kind 强制方向——PROBE/STATE 拒写、CMD 拒读、
+  TUNE/BULK 可读写；访问期校验不通过即报错，**不靠 ID 拆位**。配套测试断言写 PROBE ID 失败。
+
+### 17.2 内存透明：注册表既是寻址表也是地图
+
+- `resolve(id)` 返回完整描述：kind、name、base_ptr、offset、span、type、count、unit、flags、节点路径。
+- 协议支持 `RESOLVE <id>`（单条）与 `MAP`（dump 全表）；生成路径输出 `memory_map` 报告
+  （ID / 名称 / 基址 / 偏移 / 字节数），调试器可直接按 `arena 基址 + 偏移` 定位验证。
+- **生成代码时同时产出 ID map**：`orpheus_ids.h`（宏 + `ORPHEUS_CHAR_COUNT_*` = 类型×个数）、
+  `src/orpheus_id_map.c`（静态表：ID/名称/kind/type/count/byte_size/模块偏移/叶子 arena 偏移，
+  用编译期 `offsetof/sizeof` 精确计算）与可读的 `memory_map.md`——对照 map 即可完全得知内存布局。
+- 目标：ID → 内存可查询、可 dump、可校验（canary/ASan 覆盖），回应「有 map 文件也难找地址」的痛点。
+
+### 17.3 flatten（执行拓扑）与连续内存（布局）正交
+
+- flatten 只决定节点连接与调度顺序；内存布局独立按模块递归分配：
+  - 生成路径：按子组件实例生成**嵌套结构体**（`FrontModule { GainState trim; BiquadBankState bq; ... }`），
+    arena = 模块结构体拼接，每个模块一块连续内存，布局由 C 编译器决定；
+  - 动态路径：plan 增加 `modules` 段（每模块实例 = 叶子（节点、state_type、顺序）列表），
+    Runtime 按模块切片分配，实例 `state_block = 模块基址 + 叶子偏移`，与生成路径同一规则。
+- 模块级 ID（MODULE kind）指向整块连续内存，对应公司「一个子模块下所有滤波器参数 = 一份 bulk」。
+- 执行时仍用 flatten 后的节点指针（指向各自切片内偏移），两路逐字节一致。
+
 ### 2026-08-06（第五次讨论：经验与待办归档）
 
 - 经验教训与待办清单归档到本文档第 15/16 节；SKILL 同步更新（v2 组件写法、环境要求、生成路径注意事项）。

@@ -1,5 +1,36 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-08（第二十二次讨论：32 位数据 ID + 模块连续内存 + 生成 ID map）
+
+### 定案（并入 docs/design_registry.md §17）
+
+- 单 ID（uint32_t 宏）：不拆读写，方向只在接口；注册表按 kind 强制方向（PROBE/STATE 拒写、CMD 拒读），
+  防「拿读 ID 写」靠接口+校验而非拆位。
+- kind：TUNE/CMD/PROBE/BULK/STATE/MODULE/CUSTOM，其余 Reserved；CUSTOM 显式开放给用户自定义资源。
+- 内存透明：`resolve(id)` 返回类型/长度/偏移；生成代码时产出 ID map 与内存布局，对照即知全部布局。
+- flatten（执行拓扑）与连续内存（布局）正交：模块按子组件实例递归分配连续内存。
+
+### 实现
+
+- `orpheus_abi.h`：`OrpheusIdKind`（0x0..0xF，含 CUSTOM/Reserved）+ `ORPHEUS_ID_MAKE/KIND/MODULE/SLOT`。
+- 编译器：plan 新增 `modules`（模块树 DFS 稳定 id、模块内叶子槽按执行序、嵌套归属正确）。
+- 生成器：
+  - arena 改为**模块嵌套结构体**（`include/orpheus_arena.h`：`OrpheusMod_*` + `OrpheusArena`），
+    每个子组件实例一块连续内存，叶子 `state_block = &g_arena.<模块链>.<叶子>`；
+  - 产出 `include/orpheus_ids.h`（`ORPHEUS_<KIND>_<模块><参数>` 宏 + `ORPHEUS_CHAR_COUNT_*`；
+    单叶子模块=公司风格 模块+参数，多叶子模块带叶子名防冲突）；
+  - 产出 `include/orpheus_id_map.h` + `src/orpheus_id_map.c`（静态 ID map，offsetof/sizeof 精确偏移，
+    含 MODULE 整块条目与 CHAR_COUNT）；
+  - 产出 `memory_map.md` 可读布局；CMake 自动纳入 id_map.c。
+- 测试 `tests/test_ids_and_memory_map.py`（4 项）：模块布局稳定/连续/确定性、宏唯一与命名、
+  ID map/memory_map 内容、嵌套子模块生成工程编译运行（dsp_model_reference）。
+
+### 验证
+
+- `cli build` 通过；`pytest` 74 passed；嵌套参考模型 run_generated 编译运行输出 WAV。
+- 修坑：模块类型须后序定义（子类型先于父类型）；叶子成员名用末段而非完整节点 id；
+  `(&g_arena.x)->src` 需括号（`&g_arena.x->src` 优先级错误）。
+
 ## 2026-08-07（第二十一次讨论：嵌入 I/O 占位组件 embed_in/embed_out + 生成代码适配模板）
 
 ### 目标

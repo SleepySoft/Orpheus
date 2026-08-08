@@ -30,6 +30,90 @@ class CodeGenerator:
     def _c_escape(value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')
 
+    # ------------------------------------------------------------ ID / 模块布局辅助
+
+    def _state_type(self, node_id: str, plan: ExecutionPlan) -> str | None:
+        info = self.registry.get(plan.node_configs[node_id]["component"])
+        return info.manifest.get("state_type") if info else None
+
+    def _arena_member_chain(self, node_id: str) -> str:
+        """叶子在嵌套 arena 中的成员链（模块段.叶子段），如 front.eq_bank.bq。"""
+        return ".".join(self._sanitized_node_id(seg) for seg in node_id.split("__"))
+
+    def _state_ref(self, node_id: str, plan: ExecutionPlan) -> str | None:
+        """叶子状态表达式：&g_arena.<成员链>；无公开状态结构体时返回 None。"""
+        if self._state_type(node_id, plan) is None:
+            return None
+        return "&g_arena." + self._arena_member_chain(node_id)
+
+    def _camel(self, s: str) -> str:
+        """任意分隔名 → CamelCase 标识符（模块/参数宏名用）。"""
+        return "".join(p[:1].upper() + p[1:] for p in re.split(r"[^A-Za-z0-9]+", s) if p)
+
+    def _module_children(self, modules: dict[str, dict], path: str) -> list[str]:
+        prefix = path + "__" if path else ""
+        return sorted(
+            q for q in modules
+            if q != path and q.startswith(prefix) and "__" not in q[len(prefix):]
+        )
+
+    def _module_type_name(self, path: str) -> str:
+        return "OrpheusArena" if not path else "OrpheusMod_" + self._camel(path)
+
+    def _module_member(self, path: str) -> str:
+        return self._sanitized_node_id(path.split("__")[-1])
+
+    _KIND_BITS = {"TUNE": 0x0, "CMD": 0x1, "PROBE": 0x2, "BULK": 0x3,
+                  "STATE": 0x4, "MODULE": 0x5, "CUSTOM": 0x6}
+
+    def _point_kind(self, p: dict) -> str:
+        k = p.get("kind")
+        if k:
+            return {"setting": "TUNE", "command": "CMD", "probe": "PROBE",
+                    "bulk": "BULK", "state": "STATE"}.get(k, "TUNE")
+        if p.get("readback") and not p.get("persistent") and not p.get("affects_signature"):
+            return "PROBE"
+        return "TUNE"
+
+    def _ctype_of(self, ptype: str) -> str:
+        return {"float": "float", "int": "int32_t", "bool": "bool",
+                "string": "const char*"}.get(ptype, "float")
+
+    def _value_type_of(self, ptype: str) -> str:
+        return {"float": "ORPHEUS_VALUE_FLOAT", "int": "ORPHEUS_VALUE_INT",
+                "bool": "ORPHEUS_VALUE_BOOL",
+                "string": "ORPHEUS_VALUE_STRING"}.get(ptype, "ORPHEUS_VALUE_FLOAT")
+
+    def _bytes_of(self, ctype: str) -> int:
+        return {"float": 4, "int32_t": 4, "bool": 1, "const char*": 8}.get(ctype, 4)
+
+    def _id_value(self, kind: str, module_id: int, slot: int) -> int:
+        return (self._KIND_BITS[kind] << 28) | ((module_id & 0xFF) << 16) | (slot & 0xFFFF)
+
+    def _module_data_points(self, plan: ExecutionPlan, module: dict) -> list[dict]:
+        """模块内数据点：叶子按执行序 × manifest 参数序 + bulk_slots 序（槽序号同此顺序）。"""
+        points: list[dict] = []
+        for leaf in module.get("leaves", []):
+            nid = leaf["node"]
+            cfg = plan.node_configs[nid]
+            info = self.registry.get(cfg["component"])
+            for p in (info.manifest.get("parameters", []) if info else []):
+                points.append({**p, "node": nid})
+            for bs in (info.manifest.get("bulk_slots", []) if info else []):
+                points.append({**bs, "node": nid, "runtime": True})
+        return points
+
+    def _point_macro_name(self, module: dict, p: dict) -> str:
+        """数据点宏名：模块Camel + (叶子Camel，仅模块多叶子时) + 参数Camel。
+        单叶子模块（如 front__eq_bank）得到公司风格的 模块+参数 命名。"""
+        mod_camel = self._camel(module["path"])
+        param_camel = self._camel(p["id"])
+        include_node = len(module.get("leaves", [])) > 1
+        if include_node:
+            node_camel = self._camel(p["node"].split("__")[-1])
+            return f"{mod_camel}{node_camel}{param_camel}"
+        return f"{mod_camel}{param_camel}"
+
     def generate(self, plan: ExecutionPlan, output_dir: Path) -> None:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -95,6 +179,9 @@ class CodeGenerator:
         if embed_nodes:
             self._generate_platform_io(plan, src_dir / "platform_io.c")
 
+        # 数据 ID（32 位宏）+ ID map + 内存布局（模块嵌套 arena 定义在 include/orpheus_arena.h）
+        self._generate_ids(plan, include_dir, src_dir, output_dir)
+
         # Generate CMakeLists.txt
         self._generate_cmake(plan, all_ids, output_dir)
 
@@ -114,6 +201,8 @@ class CodeGenerator:
             short = cid.replace("orpheus.builtin.", "")
             header_name = f"orpheus_{short}.h"
             lines.append(f'#include "{header_name}"')
+        if any(self._state_type(nid, plan) for nid in plan.execution_order):
+            lines.append('#include "orpheus_arena.h"')
         lines.append("")
 
         # Per-component entry points: each component lib is compiled with
@@ -145,20 +234,10 @@ class CodeGenerator:
             lines.append(f'static const OrpheusComponentInterface* g_iface_{s} = NULL;')
         lines.append("")
 
-        # v2 统一内存拼接：manifest 声明 state_type（状态结构体公开）的组件，
-        # 在生成工程中按类型静态拼接为 g_arena，零 malloc、布局由编译器决定。
-        arena_members: list[tuple[str, str]] = []
-        for node_id in plan.execution_order:
-            cfg = plan.node_configs[node_id]
-            info = self.registry.get(cfg["component"])
-            st = info.manifest.get("state_type") if info else None
-            if st:
-                arena_members.append((self._sanitized_node_id(node_id), st))
-        if arena_members:
-            lines.append('static struct {')
-            for s, st in arena_members:
-                lines.append(f'    {st} {s};')
-            lines.append('} g_arena;')
+        # v2 统一内存拼接：按模块嵌套结构体（每个子模块实例一块连续内存），
+        # 类型定义在 include/orpheus_arena.h，布局由 C 编译器决定。
+        if any(self._state_type(nid, plan) for nid in plan.execution_order):
+            lines.append('static OrpheusArena g_arena;')
             lines.append('')
 
         # 嵌入 I/O 缓冲（用户 DMA 可直达）与状态访问器（platform_io.c 引用）
@@ -173,10 +252,16 @@ class CodeGenerator:
             lines.append('')
         for nid in embed_in_nodes:
             s = self._sanitized_node_id(nid)
-            lines.append(f'EmbedInState* orpheus_embed_in_state_{s}(void) {{ return &g_arena.{s}; }}')
+            lines.append(
+                f'EmbedInState* orpheus_embed_in_state_{s}(void) '
+                f'{{ return {self._state_ref(nid, plan)}; }}'
+            )
         for nid in embed_out_nodes:
             s = self._sanitized_node_id(nid)
-            lines.append(f'EmbedOutState* orpheus_embed_out_state_{s}(void) {{ return &g_arena.{s}; }}')
+            lines.append(
+                f'EmbedOutState* orpheus_embed_out_state_{s}(void) '
+                f'{{ return {self._state_ref(nid, plan)}; }}'
+            )
         if embed_in_nodes or embed_out_nodes:
             lines.append('')
 
@@ -320,10 +405,9 @@ class CodeGenerator:
                 lines.append('    config.param_ids = NULL;')
                 lines.append('    config.param_values = NULL;')
                 lines.append('    config.param_count = 0;')
-            info = self.registry.get(cfg["component"])
-            st = info.manifest.get("state_type") if info else None
+            st = self._state_type(node_id, plan)
             if st:
-                lines.append(f'    config.state_block = &g_arena.{s};')
+                lines.append(f'    config.state_block = {self._state_ref(node_id, plan)};')
             else:
                 lines.append('    config.state_block = NULL;')
             lines.append(f'    rc = g_iface_{s}->create(&g_state_{s}, &config);')
@@ -337,14 +421,16 @@ class CodeGenerator:
             s = self._sanitized_node_id(nid)
             cfg = plan.node_configs[nid]
             frames = cfg.get("frames") or plan.block_size
-            lines.append(f'    g_arena.{s}.src = g_embed_in_{s};')
-            lines.append(f'    g_arena.{s}.src_frames = 0;')
+            ref = self._state_ref(nid, plan)
+            lines.append(f'    ({ref})->src = g_embed_in_{s};')
+            lines.append(f'    ({ref})->src_frames = 0;')
         for nid in embed_out_nodes:
             s = self._sanitized_node_id(nid)
             cfg = plan.node_configs[nid]
             frames = cfg.get("frames") or plan.block_size
-            lines.append(f'    g_arena.{s}.dst = g_embed_out_{s};')
-            lines.append(f'    g_arena.{s}.dst_capacity = {frames};')
+            ref = self._state_ref(nid, plan)
+            lines.append(f'    ({ref})->dst = g_embed_out_{s};')
+            lines.append(f'    ({ref})->dst_capacity = {frames};')
         if embed_in_nodes or embed_out_nodes:
             lines.append('    orpheus_platform_io_init();')
         lines.append('    return ORPHEUS_OK;')
@@ -487,6 +573,238 @@ class CodeGenerator:
         with open(path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
 
+    def _generate_ids(
+        self,
+        plan: ExecutionPlan,
+        include_dir: Path,
+        src_dir: Path,
+        output_dir: Path,
+    ) -> None:
+        """生成 32 位数据 ID 宏、ID map（类型/长度/偏移）与可读内存布局。
+
+        产物：
+        - include/orpheus_arena.h  模块嵌套结构体（子模块实例=一块连续内存）+ OrpheusArena；
+        - include/orpheus_ids.h    ORPHEUS_<KIND>_<模块><参数> 宏 + CHAR_COUNT；
+        - include/orpheus_id_map.h / src/orpheus_id_map.c  静态 ID map（offsetof/sizeof 精确偏移）；
+        - memory_map.md            可读布局（对照 id_map.c 即可完全得知内存布局）。
+        """
+        modules = {m["path"]: m for m in plan.modules}
+        ordered_paths = [m["path"] for m in plan.modules]
+        state_nodes = {nid for nid in plan.execution_order if self._state_type(nid, plan)}
+
+        # ---------------- include/orpheus_arena.h ----------------
+        arena_lines = [
+            '#ifndef ORPHEUS_ARENA_H',
+            '#define ORPHEUS_ARENA_H',
+            '#include "orpheus_abi.h"',
+            '/* 模块内存布局：每个子模块实例 = 一块连续内存（嵌套结构体，布局由 C 编译器决定）。',
+            ' * flatten 只决定执行拓扑；此处按模块递归嵌套，叶子状态按执行序排列。 */',
+        ]
+        for cid in sorted({plan.node_configs[n]["component"] for n in plan.execution_order}):
+            arena_lines.append(f'#include "orpheus_{cid.replace("orpheus.builtin.", "")}.h"')
+        arena_lines.append('')
+        for path in reversed(ordered_paths):
+            if not path:
+                continue
+            mod = modules[path]
+            arena_lines.append(f'typedef struct {{')
+            for leaf in mod.get("leaves", []):
+                st = self._state_type(leaf["node"], plan)
+                if st:
+                    arena_lines.append(
+                        f'    {st} {self._sanitized_node_id(leaf["node"].split("__")[-1])};'
+                    )
+            for child in self._module_children(modules, path):
+                arena_lines.append(
+                    f'    {self._module_type_name(child)} {self._module_member(child)};'
+                )
+            arena_lines.append(f'}} {self._module_type_name(path)};')
+            arena_lines.append('')
+        root = modules.get("", {})
+        arena_lines.append('typedef struct {')
+        for leaf in root.get("leaves", []):
+            st = self._state_type(leaf["node"], plan)
+            if st:
+                arena_lines.append(
+                    f'    {st} {self._sanitized_node_id(leaf["node"].split("__")[-1])};'
+                )
+        for child in self._module_children(modules, ""):
+            arena_lines.append(
+                f'    {self._module_type_name(child)} {self._module_member(child)};'
+            )
+        arena_lines.append('} OrpheusArena;')
+        arena_lines.append('')
+        arena_lines.append('#endif /* ORPHEUS_ARENA_H */')
+        (include_dir / "orpheus_arena.h").write_text(
+            "\n".join(arena_lines) + "\n", encoding="utf-8"
+        )
+
+        # ---------------- include/orpheus_ids.h ----------------
+        ids_lines = [
+            '#ifndef ORPHEUS_IDS_H',
+            '#define ORPHEUS_IDS_H',
+            '#include <stddef.h>',
+            '#include <stdint.h>',
+            '#include "orpheus_abi.h"',
+            '/* 数据 ID（32 位宏）：单 ID 寻址，方向只在接口（orpheus_data_read/write）。',
+            ' * ID = kind<<28 | module_id<<16 | slot；kind 0x0..0xF：',
+            ' * TUNE/CMD/PROBE/BULK/STATE/MODULE/CUSTOM，其余 Reserved（见 OrpheusIdKind）。',
+            ' * CUSTOM 类显式保留给用户自定义资源（可自行分配该类 ID 空间）。 */',
+            '',
+        ]
+        for path in ordered_paths:
+            if not path:
+                continue
+            mod = modules[path]
+            ids_lines.append(
+                f'#define ORPHEUS_MODULE_{self._camel(path)} '
+                f'(ORPHEUS_ID_MAKE(ORPHEUS_ID_MODULE, {mod["id"]}, 0))'
+            )
+        ids_lines.append('')
+        for path in ordered_paths:
+            mod = modules[path]
+            for slot, p in enumerate(self._module_data_points(plan, mod)):
+                kind = self._point_kind(p)
+                name = self._point_macro_name(mod, p)
+                ctype = self._ctype_of(p.get("type", "float"))
+                count = int(p.get("count", 1) or 1)
+                ids_lines.append(
+                    f'#define ORPHEUS_{kind}_{name} '
+                    f'(ORPHEUS_ID_MAKE(ORPHEUS_ID_{kind}, {mod["id"]}, {slot}))'
+                )
+                ids_lines.append(
+                    f'#define ORPHEUS_CHAR_COUNT_{name} (sizeof({ctype}) * {count}U)'
+                )
+        ids_lines.append('')
+        ids_lines.append('#endif /* ORPHEUS_IDS_H */')
+        (include_dir / "orpheus_ids.h").write_text(
+            "\n".join(ids_lines) + "\n", encoding="utf-8"
+        )
+
+        # ---------------- include/orpheus_id_map.h / src/orpheus_id_map.c ----------------
+        map_h = [
+            '#ifndef ORPHEUS_ID_MAP_H',
+            '#define ORPHEUS_ID_MAP_H',
+            '#include <stddef.h>',
+            '#include <stdint.h>',
+            '#include "orpheus_abi.h"',
+            '/* 数据 ID map：ID → 类型/长度/偏移。与 memory_map.md 对照即可完全得知内存布局：',
+            ' *   arena 基址 + arena_offset = 叶子状态内存，字节数见 byte_size；',
+            ' *   参数在叶子状态内的精确偏移由运行时注册表（register_slots）给出。 */',
+            'typedef struct {',
+            '    uint32_t id;',
+            '    const char* name;       /* 中文显示名 */',
+            '    uint32_t kind;          /* OrpheusIdKind */',
+            '    uint32_t type;          /* OrpheusValueType */',
+            '    uint32_t count;',
+            '    size_t byte_size;       /* count × sizeof(type) */',
+            '    uint32_t module_id;',
+            '    uint32_t slot;',
+            '    size_t module_offset;   /* 模块在 arena 中的偏移（offsetof） */',
+            '    size_t arena_offset;    /* 叶子状态在 arena 中的完整偏移（offsetof） */',
+            '} OrpheusIdEntry;',
+            'const OrpheusIdEntry* orpheus_id_map(size_t* out_count);',
+            '#endif /* ORPHEUS_ID_MAP_H */',
+        ]
+        (include_dir / "orpheus_id_map.h").write_text(
+            "\n".join(map_h) + "\n", encoding="utf-8"
+        )
+
+        map_c = [
+            '#include "orpheus_id_map.h"',
+            '#include "orpheus_ids.h"',
+            '#include "orpheus_arena.h"',
+            '',
+            'static const OrpheusIdEntry g_id_map[] = {',
+        ]
+        for path in ordered_paths:
+            if not path:
+                continue
+            mod = modules[path]
+            chain = ".".join(self._sanitized_node_id(seg) for seg in path.split("__"))
+            mod_type = self._module_type_name(path)
+            map_c.append(
+                f'    {{ ORPHEUS_MODULE_{self._camel(path)}, "{self._camel(path)}", '
+                f'ORPHEUS_ID_MODULE, ORPHEUS_VALUE_BULK_REF, 1, sizeof({mod_type}), '
+                f'{mod["id"]}, 0, offsetof(OrpheusArena, {chain}), '
+                f'offsetof(OrpheusArena, {chain}) }},'
+            )
+        for path in ordered_paths:
+            mod = modules[path]
+            for slot, p in enumerate(self._module_data_points(plan, mod)):
+                nid = p["node"]
+                if self._state_type(nid, plan) is None:
+                    continue
+                kind = self._point_kind(p)
+                name = self._point_macro_name(mod, p)
+                ctype = self._ctype_of(p.get("type", "float"))
+                vtype = self._value_type_of(p.get("type", "float"))
+                count = int(p.get("count", 1) or 1)
+                chain = self._arena_member_chain(nid)
+                segs = chain.split(".")
+                mod_chain = ".".join(segs[:-1])
+                mod_off = f'offsetof(OrpheusArena, {mod_chain})' if mod_chain else '0'
+                arena_off = f'offsetof(OrpheusArena, {chain})'
+                display = p.get("name", p["id"]).replace('"', '\\"')
+                map_c.append(
+                    f'    {{ ORPHEUS_{kind}_{name}, "{display}", ORPHEUS_ID_{kind}, '
+                    f'{vtype}, {count}, sizeof({ctype}) * {count}U, '
+                    f'{mod["id"]}, {slot}, {mod_off}, {arena_off} }},'
+                )
+        map_c.append('};')
+        map_c.append('')
+        map_c.append('const OrpheusIdEntry* orpheus_id_map(size_t* out_count) {')
+        map_c.append('    if (out_count) *out_count = sizeof(g_id_map) / sizeof(g_id_map[0]);')
+        map_c.append('    return g_id_map;')
+        map_c.append('}')
+        (src_dir / "orpheus_id_map.c").write_text(
+            "\n".join(map_c) + "\n", encoding="utf-8"
+        )
+
+        # ---------------- memory_map.md（可读布局） ----------------
+        md_lines = [
+            '# Orpheus 数据 ID 与内存布局（生成期静态视图）',
+            '',
+            f'- 采样率 {plan.sample_rate} Hz / 块长 {plan.block_size} 帧',
+            '- 精确偏移见 `src/orpheus_id_map.c`（编译期 offsetof/sizeof）；运行时 `RESOLVE <id>` 给出注册表最终地址。',
+            '- kind：TUNE/CMD/PROBE/BULK/STATE/MODULE/CUSTOM，其余 Reserved（`OrpheusIdKind`）。',
+            '',
+            '## 模块（MODULE 类 ID，指向整块连续内存）',
+            '',
+        ]
+        for path in ordered_paths:
+            if not path:
+                continue
+            mod = modules[path]
+            value = self._id_value("MODULE", mod["id"], 0)
+            md_lines.append(
+                f'- `ORPHEUS_MODULE_{self._camel(path)}` = 0x{value:08X}：'
+                f'`{path}`，`sizeof({self._module_type_name(path)})` 字节'
+            )
+        md_lines.append('')
+        md_lines.append('## 数据点（ID 宏 / 类别 / 类型 × 个数 = 字节数）')
+        md_lines.append('')
+        for path in ordered_paths:
+            mod = modules[path]
+            md_lines.append(f'### 模块 `{path or "<顶层>"}` (id={mod["id"]})')
+            md_lines.append('')
+            for slot, p in enumerate(self._module_data_points(plan, mod)):
+                kind = self._point_kind(p)
+                name = self._point_macro_name(mod, p)
+                ctype = self._ctype_of(p.get("type", "float"))
+                count = int(p.get("count", 1) or 1)
+                display = p.get("name", p["id"])
+                runtime = ' [运行期槽]' if p.get("runtime") else ''
+                value = self._id_value(kind, mod["id"], slot)
+                md_lines.append(
+                    f'- `ORPHEUS_{kind}_{name}` = 0x{value:08X}：{display}{runtime}，'
+                    f'{ctype} × {count} = {self._bytes_of(ctype) * count} B'
+                )
+            md_lines.append('')
+        (output_dir / "memory_map.md").write_text(
+            "\n".join(md_lines), encoding="utf-8"
+        )
+
     def _generate_cmake(self, plan: ExecutionPlan, component_ids: list[str], output_dir: Path) -> None:
         lines: list[str] = []
         lines.append('cmake_minimum_required(VERSION 3.16)')
@@ -526,6 +844,8 @@ class CodeGenerator:
         app_sources = "src/main.c"
         if (output_dir / "src" / "platform_io.c").exists():
             app_sources += " src/platform_io.c"
+        if (output_dir / "src" / "orpheus_id_map.c").exists():
+            app_sources += " src/orpheus_id_map.c"
         lines.append(f'add_executable(orpheus_generated_app {app_sources})')
         libs = " ".join(self._component_target_name(cid) for cid in component_ids)
         lines.append(f'target_link_libraries(orpheus_generated_app {libs})')
