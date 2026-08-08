@@ -214,6 +214,33 @@
   overflow: hidden;
 }
 
+/* 左右侧栏收起按钮：常驻边缘细条，收起后画布自动扩大 */
+.side-toggle {
+  width: 16px;
+  flex-shrink: 0;
+  border: none;
+  background: #e9ecef;
+  color: #868e96;
+  cursor: pointer;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.side-toggle:hover {
+  background: #dee2e6;
+  color: #343a40;
+}
+
+.side-toggle-left {
+  border-right: 1px solid #dee2e6;
+}
+
+.side-toggle-right {
+  border-left: 1px solid #dee2e6;
+}
+
 /* ---------------------------------------------------------- tabs */
 
 .tabbar {

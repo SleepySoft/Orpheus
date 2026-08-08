@@ -60,6 +60,8 @@ function Editor() {
   const [autoSave, setAutoSave] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showParams, setShowParams] = useState(false);
+  const [leftOpen, setLeftOpen] = useState(true);   // 组件库
+  const [rightOpen, setRightOpen] = useState(true); // 参数面板/子组件面板
   const [openMenu, setOpenMenu] = useState(null); // 'project' | 'run' | null：分组展开菜单
   const distillFileRef = useRef(null);
   const [status, setStatus] = useState('未连接后端');
@@ -1275,13 +1277,22 @@ const { screenToFlowPosition } = useReactFlow();
         ))}
       </div>
       <div className="main">
-        <Palette
-          components={catalog}
-          subsMeta={subsMeta}
-          onDeleteSub={deleteSub}
-          onDeleteComponent={onDeleteComponent}
-          onPromoteComponent={onPromoteComponent}
-        />
+        <button
+          className="side-toggle side-toggle-left"
+          onClick={() => setLeftOpen((v) => !v)}
+          title={leftOpen ? '收起组件库' : '展开组件库'}
+        >
+          {leftOpen ? '«' : '»'}
+        </button>
+        {leftOpen && (
+          <Palette
+            components={catalog}
+            subsMeta={subsMeta}
+            onDeleteSub={deleteSub}
+            onDeleteComponent={onDeleteComponent}
+            onPromoteComponent={onPromoteComponent}
+          />
+        )}
         <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
           <ReactFlow
             nodes={view.nodes}
@@ -1311,24 +1322,33 @@ const { screenToFlowPosition } = useReactFlow();
             <MiniMap />
           </ReactFlow>
         </div>
-        <div className="rightbar">
-          {activeSub && (
-            <SubPortsPanel
-              sub={activeSub}
-              viewNodes={view.nodes}
-              catalogById={catalogById}
-              onAddPort={addSubPort}
-              onRemovePort={removeSubPort}
+        {rightOpen && (
+          <div className="rightbar">
+            {activeSub && (
+              <SubPortsPanel
+                sub={activeSub}
+                viewNodes={view.nodes}
+                catalogById={catalogById}
+                onAddPort={addSubPort}
+                onRemovePort={removeSubPort}
+              />
+            )}
+            <ParamPanel
+              node={selectedNode}
+              onParamChange={onParamChange}
+              onDeleteNode={onDeleteNode}
+              onRenameNode={onRenameNode}
+              ctx={paramCtx}
             />
-          )}
-          <ParamPanel
-            node={selectedNode}
-            onParamChange={onParamChange}
-            onDeleteNode={onDeleteNode}
-            onRenameNode={onRenameNode}
-            ctx={paramCtx}
-          />
-        </div>
+          </div>
+        )}
+        <button
+          className="side-toggle side-toggle-right"
+          onClick={() => setRightOpen((v) => !v)}
+          title={rightOpen ? '收起参数面板' : '展开参数面板'}
+        >
+          {rightOpen ? '»' : '«'}
+        </button>
       </div>
       {showSettings && doc && (
         <ProjectSettings
