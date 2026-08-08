@@ -1292,7 +1292,14 @@ const { screenToFlowPosition } = useReactFlow();
             onNodeClick={(_, node) => setSelectedId(node.id)}
             onNodeDoubleClick={onNodeDoubleClick}
             onPaneClick={() => setSelectedId(null)}
-            onSelectionChange={({ nodes: sn }) => setSelectedIds((sn || []).map((n) => n.id))}
+            onSelectionChange={({ nodes: sn }) => {
+              const ids = (sn || []).map((n) => n.id);
+              setSelectedIds(ids);
+              // 视觉选中同步参数面板：某些内部元素（如监控节点 ⤢）会吞掉 click，
+              // 但 React Flow 的视觉选中仍发生——用 selection 保证 selectedId 一致。
+              if (ids.length === 1) setSelectedId(ids[0]);
+              else if (ids.length === 0) setSelectedId(null);
+            }}
             nodeTypes={nodeTypes}
             deleteKeyCode={['Delete', 'Backspace']}
             selectionKeyCode="Control"

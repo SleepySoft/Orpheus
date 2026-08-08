@@ -33,6 +33,12 @@
   （空=用 id 显示），Project Node/schema/loader/序列化与前端 graphToFlow/flowToGraph 全链路往返。
 - 测试：PUT 带 label → GET 保留 → 编译不受影响；全量 85 passed。
 
+## 2026-08-08（第三十六次讨论：参数面板选中同步）
+
+- 现象：点击某些节点（尤其监控节点 ⤢ 内部元素）时视觉选中了、参数面板却没刷新。
+- 根因：节点内交互元素 stopPropagation 吞掉 click，onNodeClick 不触发，selectedId 停留旧节点。
+- 修法：onSelectionChange 同步——单选时设置 selectedId、空选时清空，覆盖所有“视觉选中但 click 没到”的情况。
+
 ## 2026-08-08（第三十一次讨论：自定义组件壳脚手架）
 
 - `cli new-component <name>`：生成 ABI 骨架 + 用户文件隔离（`user/` 目录生成器永不覆盖）。
