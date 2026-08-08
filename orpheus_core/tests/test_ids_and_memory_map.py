@@ -88,6 +88,9 @@ def test_generated_ids_macros_and_map(tmp_path: Path, registry: Registry, plan) 
     assert "ORPHEUS_MODULE_Front" in ids
     assert "ORPHEUS_TUNE_FrontEqBankFc0" in ids  # 单叶子模块 = 公司风格 模块+参数
     assert "ORPHEUS_CHAR_COUNT_FrontEqBankFc0" in ids
+    # bulk 数据是「用途=TUNE + 形式=bulk」（ORPHEUS_BULK_* 不再是用途宏）
+    assert "ORPHEUS_TUNE_FrontEqBankBq0Coefs" in ids
+    assert "ORPHEUS_BULK_FrontEqBankBq0Coefs" not in ids
     # RTC = 实时可调参数（smoothed）；TUNE = restart/配置参数
     assert "ORPHEUS_RTC_FrontTrimGainDb" in ids   # gain_db smoothed → RTC
     assert "ORPHEUS_RTC_FrontMuteMute" in ids     # mute smoothed → RTC
@@ -107,16 +110,20 @@ def test_generated_ids_macros_and_map(tmp_path: Path, registry: Registry, plan) 
     assert "ORPHEUS_ID_CUSTOM" in abi
     assert "ORPHEUS_ID_RESERVED_7" in abi
     assert "ORPHEUS_ID_MAKE" in abi
+    assert "ORPHEUS_FORM_BULK" in abi and "ORPHEUS_FORM_MODULE" in abi
 
     idc = (out / "src" / "orpheus_id_map.c").read_text(encoding="utf-8")
     assert "offsetof(OrpheusArena, front.eq_bank.bq)" in idc
     assert "ORPHEUS_MODULE_Front" in idc
     assert "sizeof(OrpheusMod_Front)" in idc
+    assert "ORPHEUS_FORM_MODULE" in idc
+    assert "ORPHEUS_FORM_BULK" in idc
 
     md = (out / "memory_map.md").read_text(encoding="utf-8")
     assert "ORPHEUS_TUNE_FrontEqBankFc0" in md
     assert "sizeof(OrpheusMod_Front)" in md
-    assert "0x50040000" in md  # MODULE_Front = 5<<28 | 4<<16
+    assert "0x10040000" in md  # 模块包 = TUNE(0x1)<<28 | 4<<16
+    assert "形式=模块包" in md
 
 
 @pytest.mark.skipif(

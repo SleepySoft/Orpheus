@@ -469,25 +469,29 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 ### 17.1 单 ID：一个数据点一个 uint32_t 宏，方向只在接口
 
 ```c
-/* 布局：bits31..28 kind，bits23..16 module id，bits15..0 模块内槽序号 */
-#define ORPHEUS_TUNE_FrontEqBankFc0       (0x0c000002U)
-#define ORPHEUS_RTC_FrontReset            (0x1c200000U)
-#define ORPHEUS_PROBE_FrontMonRms         (0x2cb00003U)  /* CHAR_COUNT = sizeof(float) */
-#define ORPHEUS_BULK_FrontEqBankBq0Coefs  (0x3cb00008U)  /* CHAR_COUNT = 5*sizeof(float) */
-#define ORPHEUS_MODULE_Front              (0x5c000000U)  /* 模块整块连续内存，CHAR_COUNT=sizeof(FrontModule) */
+/* 布局：bits31..28 用途（purpose，按使用频率排序 RTC 第一），bits23..16 module id，bits15..0 模块内槽序号。
+   形式（form：标量/bulk/模块包）是独立维度，不进 ID 位，由 ID map 的 form/count/byte_size 描述。 */
+#define ORPHEUS_RTC_FrontVolume           (0x00040002U)  /* 实时控制：界面调、MCU 写 */
+#define ORPHEUS_TUNE_FrontEqBankFc0       (0x10050000U)  /* 调音：标量形式 */
+#define ORPHEUS_TUNE_FrontEqBankBq0Coefs  (0x10050008U)  /* 调音：bulk 形式（CHAR_COUNT=5*sizeof(float)） */
+#define ORPHEUS_PROBE_FrontMonRms         (0x20040003U)  /* 观测：只读 */
+#define ORPHEUS_MODULE_Front              (0x10040000U)  /* 用途=TUNE、形式=模块包：整块连续内存 */
 ```
 
-- kind：`0x0 TUNE` / `0x1 RTC` / `0x2 PROBE` / `0x3 BULK` / `0x4 STATE` / `0x5 MODULE` /
-  `0x6 CUSTOM`（显式开放给用户自定义资源，可自行分配该类 ID 空间）/ `0x7..0xF Reserved`。
-- **RTC（real-time control）不只是命令**：音量/fade/balance 等实时可调参数、一次性命令、实时信号输入
-  都走 RTC 类——用户界面调，MCU 用该 ID 写 DSP。对应 update_policy 为
-  immediate/block_boundary/smoothed/transactional 的参数；命令在槽层以 COMMAND 标记。
-  TUNE 仅保留 restart_required / 影响签名 / 系数等配置类参数。
+- 用途（purpose，kind）按使用频率排序：`0x0 RTC`（实时控制：音量/fade/balance 等实时参数 +
+  一次性命令 + 实时信号输入——用户界面调，MCU 用该 ID 写 DSP）`0x1 TUNE`（调音/配置：滤波器参数、
+  系数、EQ，常为 bulk 包）`0x2 PROBE`（观测回读）`0x3 STATE`（调试状态）`0x4 CUSTOM`（用户自定义）/
+  `0x5..0xF Reserved`。
+- **用途与形式正交**：BULK/MODULE 不是用途——调音数据（TUNE）常以 bulk 形式存在
+  （一个子模块所有滤波器参数 = 一块连续内存）；探针（PROBE）也可以是 bulk（波形/频谱数组）。
+  形式由 `OrpheusDataForm`（SCALAR/BULK/MODULE）+ count + CHAR_COUNT 描述。
+- 实时可调参数（update_policy 为 immediate/block_boundary/smoothed/transactional）→ RTC；
+  restart_required / 影响签名 / 系数等 → TUNE；命令在槽层以 COMMAND 标记（用途仍是 RTC）。
 - module id：生成期按工程分配（模块 = 子组件实例或顶层节点，**含实例维度**），同一份生成工程内稳定；
   命名 = `ORPHEUS_<KIND>_<模块路径驼峰><参数名>`，由生成器产出 `orpheus_ids.h`。
 - 方向只存在于接口：`orpheus_data_read(id,...)` / `orpheus_data_write(id,...)` / bulk 提交接口。
-- 防误用（拿读 ID 写、拿命令 ID 读）：注册表按 kind 强制方向——PROBE/STATE 拒写、CMD 拒读、
-  TUNE/BULK 可读写；访问期校验不通过即报错，**不靠 ID 拆位**。配套测试断言写 PROBE ID 失败。
+- 防误用（拿读 ID 写、拿命令 ID 读）：注册表按用途强制方向——PROBE/STATE 拒写、命令拒读、
+  RTC/TUNE 可读写（含 bulk 形式）；访问期校验不通过即报错，**不靠 ID 拆位**。配套测试断言写 PROBE ID 失败。
 
 ### 17.2 内存透明：注册表既是寻址表也是地图
 
@@ -495,7 +499,7 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - 协议支持 `RESOLVE <id>`（单条）与 `MAP`（dump 全表）；生成路径输出 `memory_map` 报告
   （ID / 名称 / 基址 / 偏移 / 字节数），调试器可直接按 `arena 基址 + 偏移` 定位验证。
 - **生成代码时同时产出 ID map**：`orpheus_ids.h`（宏 + `ORPHEUS_CHAR_COUNT_*` = 类型×个数）、
-  `src/orpheus_id_map.c`（静态表：ID/名称/kind/type/count/byte_size/模块偏移/叶子 arena 偏移，
+  `src/orpheus_id_map.c`（静态表：ID/名称/用途 kind/形式 form/type/count/byte_size/模块偏移/叶子 arena 偏移，
   用编译期 `offsetof/sizeof` 精确计算）与可读的 `memory_map.md`——对照 map 即可完全得知内存布局。
 - 目标：ID → 内存可查询、可 dump、可校验（canary/ASan 覆盖），回应「有 map 文件也难找地址」的痛点。
 
@@ -506,7 +510,7 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
     arena = 模块结构体拼接，每个模块一块连续内存，布局由 C 编译器决定；
   - 动态路径：plan 增加 `modules` 段（每模块实例 = 叶子（节点、state_type、顺序）列表），
     Runtime 按模块切片分配，实例 `state_block = 模块基址 + 叶子偏移`，与生成路径同一规则。
-- 模块级 ID（MODULE kind）指向整块连续内存，对应公司「一个子模块下所有滤波器参数 = 一份 bulk」。
+- 模块包（用途=TUNE、形式=FORM_MODULE）指向整块连续内存，对应公司「一个子模块下所有滤波器参数 = 一份 bulk」。
 - 执行时仍用 flatten 后的节点指针（指向各自切片内偏移），两路逐字节一致。
 
 ### 2026-08-06（第五次讨论：经验与待办归档）

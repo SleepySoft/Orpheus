@@ -1,5 +1,18 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-08（第二十四次讨论：用途/形式正交分类 + RTC 排序第一）
+
+- 纠正分类混维：BULK/MODULE 是**形式**不是用途——「TUNE 又是 BULK 形式」不再矛盾
+  （一个子模块所有滤波器参数 = 用途 TUNE + 形式 FORM_MODULE 的一块连续内存；系数/波形是 FORM_BULK）。
+- `OrpheusIdKind` 重排（按使用频率，RTC 第一）：`0x0 RTC` / `0x1 TUNE` / `0x2 PROBE` /
+  `0x3 STATE` / `0x4 CUSTOM` / `0x5..0xF Reserved`；BULK、MODULE 从用途中移除。
+- 新增 `OrpheusDataForm`（SCALAR/BULK/MODULE）作为独立维度，不进 ID 位，
+  由 ID map 的 form/count/byte_size（CHAR_COUNT）描述。
+- 生成器：bulk 参数/运行期槽 → 用途 TUNE + 形式 BULK；模块包宏 `ORPHEUS_MODULE_*` 用途=TUNE、
+  形式=FORM_MODULE；`OrpheusIdEntry` 增 `form` 字段；memory_map.md 标注形式。
+- 测试更新：模块包 ID = 0x10040000、`ORPHEUS_TUNE_FrontEqBankBq0Coefs`（不再有 ORPHEUS_BULK_* 用途宏）、
+  id_map 含 FORM_MODULE/FORM_BULK。
+
 ## 2026-08-08（第二十三次讨论：RTC 语义修正——实时控制类，不只是命令）
 
 - 澄清：RTC（real-time control）承载音量/fade/balance 等**实时可调参数**、一次性命令与实时信号输入——

@@ -63,20 +63,19 @@ class CodeGenerator:
     def _module_member(self, path: str) -> str:
         return self._sanitized_node_id(path.split("__")[-1])
 
-    _KIND_BITS = {"TUNE": 0x0, "RTC": 0x1, "PROBE": 0x2, "BULK": 0x3,
-                  "STATE": 0x4, "MODULE": 0x5, "CUSTOM": 0x6}
+    _KIND_BITS = {"RTC": 0x0, "TUNE": 0x1, "PROBE": 0x2,
+                  "STATE": 0x3, "CUSTOM": 0x4}
 
     def _point_kind(self, p: dict) -> str:
-        """数据点类别（32 位 ID kind）：
+        """数据点用途（purpose，32 位 ID kind）：
         - 命令 → RTC（实时控制类，槽层以 COMMAND 标记）；
-        - 探针 → PROBE；bulk → BULK；state → STATE；
+        - 探针 → PROBE；state → STATE；
+        - bulk 参数/槽 → TUNE（调音数据，形式为 bulk，用途仍是调音）；
         - 实时可调参数（immediate/block_boundary/smoothed/transactional）→ RTC；
         - 其余（restart_required、影响签名、系数等配置参数）→ TUNE。"""
         k = p.get("kind")
         if k == "probe":
             return "PROBE"
-        if k == "bulk":
-            return "BULK"
         if k == "state":
             return "STATE"
         if k == "command":
@@ -86,6 +85,12 @@ class CodeGenerator:
         if p.get("update_policy") in ("immediate", "block_boundary", "smoothed", "transactional"):
             return "RTC"
         return "TUNE"
+
+    def _point_form(self, p: dict) -> str:
+        """数据点形式（form，与用途正交）：bulk 参数/运行期槽 → BULK，否则 SCALAR。"""
+        if p.get("runtime") or p.get("kind") == "bulk":
+            return "ORPHEUS_FORM_BULK"
+        return "ORPHEUS_FORM_SCALAR"
 
     def _ctype_of(self, ptype: str) -> str:
         return {"float": "float", "int": "int32_t", "bool": "bool",
@@ -670,7 +675,7 @@ class CodeGenerator:
             mod = modules[path]
             ids_lines.append(
                 f'#define ORPHEUS_MODULE_{self._camel(path)} '
-                f'(ORPHEUS_ID_MAKE(ORPHEUS_ID_MODULE, {mod["id"]}, 0))'
+                f'(ORPHEUS_ID_MAKE(ORPHEUS_ID_TUNE, {mod["id"]}, 0))'
             )
         ids_lines.append('')
         for path in ordered_paths:
@@ -707,6 +712,7 @@ class CodeGenerator:
             '    uint32_t id;',
             '    const char* name;       /* 中文显示名 */',
             '    uint32_t kind;          /* OrpheusIdKind */',
+            '    uint32_t form;          /* OrpheusDataForm（标量/bulk/模块包，与用途正交） */',
             '    uint32_t type;          /* OrpheusValueType */',
             '    uint32_t count;',
             '    size_t byte_size;       /* count × sizeof(type) */',
@@ -737,7 +743,8 @@ class CodeGenerator:
             mod_type = self._module_type_name(path)
             map_c.append(
                 f'    {{ ORPHEUS_MODULE_{self._camel(path)}, "{self._camel(path)}", '
-                f'ORPHEUS_ID_MODULE, ORPHEUS_VALUE_BULK_REF, 1, sizeof({mod_type}), '
+                f'ORPHEUS_ID_TUNE, ORPHEUS_FORM_MODULE, ORPHEUS_VALUE_BULK_REF, '
+                f'1, sizeof({mod_type}), '
                 f'{mod["id"]}, 0, offsetof(OrpheusArena, {chain}), '
                 f'offsetof(OrpheusArena, {chain}) }},'
             )
@@ -760,7 +767,7 @@ class CodeGenerator:
                 display = p.get("name", p["id"]).replace('"', '\\"')
                 map_c.append(
                     f'    {{ ORPHEUS_{kind}_{name}, "{display}", ORPHEUS_ID_{kind}, '
-                    f'{vtype}, {count}, sizeof({ctype}) * {count}U, '
+                    f'{self._point_form(p)}, {vtype}, {count}, sizeof({ctype}) * {count}U, '
                     f'{mod["id"]}, {slot}, {mod_off}, {arena_off} }},'
                 )
         map_c.append('};')
@@ -788,10 +795,10 @@ class CodeGenerator:
             if not path:
                 continue
             mod = modules[path]
-            value = self._id_value("MODULE", mod["id"], 0)
+            value = self._id_value("TUNE", mod["id"], 0)
             md_lines.append(
                 f'- `ORPHEUS_MODULE_{self._camel(path)}` = 0x{value:08X}：'
-                f'`{path}`，`sizeof({self._module_type_name(path)})` 字节'
+                f'`{path}`（用途=TUNE，形式=模块包），`sizeof({self._module_type_name(path)})` 字节'
             )
         md_lines.append('')
         md_lines.append('## 数据点（ID 宏 / 类别 / 类型 × 个数 = 字节数）')
@@ -808,9 +815,10 @@ class CodeGenerator:
                 display = p.get("name", p["id"])
                 runtime = ' [运行期槽]' if p.get("runtime") else ''
                 value = self._id_value(kind, mod["id"], slot)
+                form = "bulk" if self._point_form(p) == "ORPHEUS_FORM_BULK" else "scalar"
                 md_lines.append(
                     f'- `ORPHEUS_{kind}_{name}` = 0x{value:08X}：{display}{runtime}，'
-                    f'{ctype} × {count} = {self._bytes_of(ctype) * count} B'
+                    f'形式={form}，{ctype} × {count} = {self._bytes_of(ctype) * count} B'
                 )
             md_lines.append('')
         (output_dir / "memory_map.md").write_text(

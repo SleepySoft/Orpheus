@@ -122,17 +122,17 @@ typedef uint64_t OrpheusSlotId;
 #define ORPHEUS_SLOT_ID_INVALID ((OrpheusSlotId)UINT64_MAX)
 
 /* 数据 ID：32 位，单 ID 寻址（不拆读写，方向只在接口）。
-   bits31..28 kind，bits23..16 module id，bits15..0 模块内槽序号。
-   访问：orpheus_data_read(id,...) / orpheus_data_write(id,...)；PROBE/STATE 拒写、CMD 拒读。 */
+   bits31..28 = 用途（purpose，按使用频率排序，RTC 最高），bits23..16 = module id，bits15..0 = 槽序号。
+   形式（form：标量/bulk/模块包）是独立维度，不进 ID 位，由 ID map 的 form/count/byte_size 描述：
+   TUNE 常以 bulk 形式出现（一个子模块所有滤波器参数 = 一块连续内存，FORM_MODULE）。 */
 typedef enum {
-    ORPHEUS_ID_TUNE = 0x0,        /* 调音参数（可读写） */
-    ORPHEUS_ID_RTC = 0x1,         /* 实时控制：实时可调参数（音量/fade/balance 等，immediate/smoothed）
-                                      + 一次性命令 + 实时信号输入；命令在槽层以 COMMAND 标记 */
+    ORPHEUS_ID_RTC = 0x0,         /* 实时控制（音量/fade/balance 等实时参数 + 一次性命令 + 实时信号输入）——最高频 */
+    ORPHEUS_ID_TUNE = 0x1,        /* 调音/配置（滤波器参数、系数、EQ；常为 bulk 包） */
     ORPHEUS_ID_PROBE = 0x2,       /* 探针（只读） */
-    ORPHEUS_ID_BULK = 0x3,        /* 大块数据（读写，双 bank 提交） */
-    ORPHEUS_ID_STATE = 0x4,       /* 内部状态（只读调试） */
-    ORPHEUS_ID_MODULE = 0x5,      /* 模块包：指向子模块整块连续内存 */
-    ORPHEUS_ID_CUSTOM = 0x6,      /* 用户自定义类：可自行分配该类 ID 空间 */
+    ORPHEUS_ID_STATE = 0x3,       /* 内部状态（只读调试） */
+    ORPHEUS_ID_CUSTOM = 0x4,      /* 用户自定义类：可自行分配该类 ID 空间 */
+    ORPHEUS_ID_RESERVED_5 = 0x5,
+    ORPHEUS_ID_RESERVED_6 = 0x6,
     ORPHEUS_ID_RESERVED_7 = 0x7,
     ORPHEUS_ID_RESERVED_8 = 0x8,
     ORPHEUS_ID_RESERVED_9 = 0x9,
@@ -143,6 +143,13 @@ typedef enum {
     ORPHEUS_ID_RESERVED_E = 0xE,
     ORPHEUS_ID_RESERVED_F = 0xF
 } OrpheusIdKind;
+
+/* 形式（form）：数据的存在/传输形态，与用途（kind）正交。 */
+typedef enum {
+    ORPHEUS_FORM_SCALAR = 0,  /* 单个值（float/int/bool/string） */
+    ORPHEUS_FORM_BULK = 1,    /* 连续数组/大块（系数、查表、波形）；CHAR_COUNT = count×sizeof(type) */
+    ORPHEUS_FORM_MODULE = 2   /* 子模块整块连续内存（调音包：一个模块所有滤波器参数） */
+} OrpheusDataForm;
 
 #define ORPHEUS_ID_CMD ORPHEUS_ID_RTC  /* 旧名兼容：命令属于 RTC 实时控制类 */
 
