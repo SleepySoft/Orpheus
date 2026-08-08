@@ -126,7 +126,8 @@ typedef uint64_t OrpheusSlotId;
    访问：orpheus_data_read(id,...) / orpheus_data_write(id,...)；PROBE/STATE 拒写、CMD 拒读。 */
 typedef enum {
     ORPHEUS_ID_TUNE = 0x0,        /* 调音参数（可读写） */
-    ORPHEUS_ID_CMD = 0x1,         /* 一次性命令（只写） */
+    ORPHEUS_ID_RTC = 0x1,         /* 实时控制：实时可调参数（音量/fade/balance 等，immediate/smoothed）
+                                      + 一次性命令 + 实时信号输入；命令在槽层以 COMMAND 标记 */
     ORPHEUS_ID_PROBE = 0x2,       /* 探针（只读） */
     ORPHEUS_ID_BULK = 0x3,        /* 大块数据（读写，双 bank 提交） */
     ORPHEUS_ID_STATE = 0x4,       /* 内部状态（只读调试） */
@@ -142,6 +143,8 @@ typedef enum {
     ORPHEUS_ID_RESERVED_E = 0xE,
     ORPHEUS_ID_RESERVED_F = 0xF
 } OrpheusIdKind;
+
+#define ORPHEUS_ID_CMD ORPHEUS_ID_RTC  /* 旧名兼容：命令属于 RTC 实时控制类 */
 
 #define ORPHEUS_ID_MAKE(kind_, module_id_, slot_) \
     ((((uint32_t)(kind_)) << 28) | (((uint32_t)(module_id_)) << 16) | ((uint32_t)(slot_)))

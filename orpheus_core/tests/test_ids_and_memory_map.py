@@ -88,6 +88,10 @@ def test_generated_ids_macros_and_map(tmp_path: Path, registry: Registry, plan) 
     assert "ORPHEUS_MODULE_Front" in ids
     assert "ORPHEUS_TUNE_FrontEqBankFc0" in ids  # 单叶子模块 = 公司风格 模块+参数
     assert "ORPHEUS_CHAR_COUNT_FrontEqBankFc0" in ids
+    # RTC = 实时可调参数（smoothed）；TUNE = restart/配置参数
+    assert "ORPHEUS_RTC_FrontTrimGainDb" in ids   # gain_db smoothed → RTC
+    assert "ORPHEUS_RTC_FrontMuteMute" in ids     # mute smoothed → RTC
+    assert "ORPHEUS_TUNE_FrontTrimChannels" in ids  # channels restart → TUNE
     # 多叶子模块带叶子名，避免顶层同名参数冲突
     assert "ORPHEUS_TUNE_WavInChannels" in ids
     assert "ORPHEUS_TUNE_OutMonChannels" in ids
@@ -99,6 +103,7 @@ def test_generated_ids_macros_and_map(tmp_path: Path, registry: Registry, plan) 
     assert len(names) == len(set(names)), "宏名重复"
 
     abi = (ROOT / "orpheus_abi" / "include" / "orpheus_abi.h").read_text(encoding="utf-8")
+    assert "ORPHEUS_ID_RTC" in abi
     assert "ORPHEUS_ID_CUSTOM" in abi
     assert "ORPHEUS_ID_RESERVED_7" in abi
     assert "ORPHEUS_ID_MAKE" in abi

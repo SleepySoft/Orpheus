@@ -471,14 +471,18 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 ```c
 /* 布局：bits31..28 kind，bits23..16 module id，bits15..0 模块内槽序号 */
 #define ORPHEUS_TUNE_FrontEqBankFc0       (0x0c000002U)
-#define ORPHEUS_CMD_FrontReset            (0x1c200000U)
+#define ORPHEUS_RTC_FrontReset            (0x1c200000U)
 #define ORPHEUS_PROBE_FrontMonRms         (0x2cb00003U)  /* CHAR_COUNT = sizeof(float) */
 #define ORPHEUS_BULK_FrontEqBankBq0Coefs  (0x3cb00008U)  /* CHAR_COUNT = 5*sizeof(float) */
 #define ORPHEUS_MODULE_Front              (0x5c000000U)  /* 模块整块连续内存，CHAR_COUNT=sizeof(FrontModule) */
 ```
 
-- kind：`0x0 TUNE` / `0x1 CMD` / `0x2 PROBE` / `0x3 BULK` / `0x4 STATE` / `0x5 MODULE` /
+- kind：`0x0 TUNE` / `0x1 RTC` / `0x2 PROBE` / `0x3 BULK` / `0x4 STATE` / `0x5 MODULE` /
   `0x6 CUSTOM`（显式开放给用户自定义资源，可自行分配该类 ID 空间）/ `0x7..0xF Reserved`。
+- **RTC（real-time control）不只是命令**：音量/fade/balance 等实时可调参数、一次性命令、实时信号输入
+  都走 RTC 类——用户界面调，MCU 用该 ID 写 DSP。对应 update_policy 为
+  immediate/block_boundary/smoothed/transactional 的参数；命令在槽层以 COMMAND 标记。
+  TUNE 仅保留 restart_required / 影响签名 / 系数等配置类参数。
 - module id：生成期按工程分配（模块 = 子组件实例或顶层节点，**含实例维度**），同一份生成工程内稳定；
   命名 = `ORPHEUS_<KIND>_<模块路径驼峰><参数名>`，由生成器产出 `orpheus_ids.h`。
 - 方向只存在于接口：`orpheus_data_read(id,...)` / `orpheus_data_write(id,...)` / bulk 提交接口。

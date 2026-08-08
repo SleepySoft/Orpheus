@@ -63,16 +63,28 @@ class CodeGenerator:
     def _module_member(self, path: str) -> str:
         return self._sanitized_node_id(path.split("__")[-1])
 
-    _KIND_BITS = {"TUNE": 0x0, "CMD": 0x1, "PROBE": 0x2, "BULK": 0x3,
+    _KIND_BITS = {"TUNE": 0x0, "RTC": 0x1, "PROBE": 0x2, "BULK": 0x3,
                   "STATE": 0x4, "MODULE": 0x5, "CUSTOM": 0x6}
 
     def _point_kind(self, p: dict) -> str:
+        """数据点类别（32 位 ID kind）：
+        - 命令 → RTC（实时控制类，槽层以 COMMAND 标记）；
+        - 探针 → PROBE；bulk → BULK；state → STATE；
+        - 实时可调参数（immediate/block_boundary/smoothed/transactional）→ RTC；
+        - 其余（restart_required、影响签名、系数等配置参数）→ TUNE。"""
         k = p.get("kind")
-        if k:
-            return {"setting": "TUNE", "command": "CMD", "probe": "PROBE",
-                    "bulk": "BULK", "state": "STATE"}.get(k, "TUNE")
+        if k == "probe":
+            return "PROBE"
+        if k == "bulk":
+            return "BULK"
+        if k == "state":
+            return "STATE"
+        if k == "command":
+            return "RTC"
         if p.get("readback") and not p.get("persistent") and not p.get("affects_signature"):
             return "PROBE"
+        if p.get("update_policy") in ("immediate", "block_boundary", "smoothed", "transactional"):
+            return "RTC"
         return "TUNE"
 
     def _ctype_of(self, ptype: str) -> str:

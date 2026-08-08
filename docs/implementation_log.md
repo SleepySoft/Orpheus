@@ -1,5 +1,15 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-08（第二十三次讨论：RTC 语义修正——实时控制类，不只是命令）
+
+- 澄清：RTC（real-time control）承载音量/fade/balance 等**实时可调参数**、一次性命令与实时信号输入——
+  用户界面调，MCU 用该 ID 写 DSP。
+- `OrpheusIdKind`：`0x1 CMD` 更名为 `0x1 RTC`（`ORPHEUS_ID_CMD` 保留为别名，命令在槽层以 COMMAND 标记）。
+- 生成器 `_point_kind` 分类规则：update_policy 为 immediate/block_boundary/smoothed/transactional → RTC；
+  restart_required / 影响签名 / 系数等 → TUNE；探针 → PROBE；bulk → BULK；state → STATE。
+- 效果：gain_db/mute/mix 等实时参数生成 `ORPHEUS_RTC_*` 宏，biquad fc/q、channels 等仍是 `ORPHEUS_TUNE_*`，
+  与「界面上调实时参数、MCU 用 RTC ID 操作 DSP」的语义对齐。
+
 ## 2026-08-08（第二十二次讨论：32 位数据 ID + 模块连续内存 + 生成 ID map）
 
 ### 定案（并入 docs/design_registry.md §17）
