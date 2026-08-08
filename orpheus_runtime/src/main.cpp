@@ -12,7 +12,8 @@
 void print_usage(const char* prog) {
     std::cerr << "Usage: " << prog << " <plan.json> <component_dir> [--pace] [--probe-interval ms]"
               << "\n       " << prog << " <plan.json> <component_dir> --map"
-              << "\n       " << prog << " <plan.json> <component_dir> --resolve <id|0xhex>" << std::endl;
+              << "\n       " << prog << " <plan.json> <component_dir> --resolve <id|0xhex>"
+              << "\n       " << prog << " <plan.json> <component_dir> --rw <id> <value> | --rr <id> | --rwb <id> <n> <v0>..." << std::endl;
 }
 
 static const char* id_kind_name(uint32_t kind) {
@@ -93,6 +94,10 @@ int main(int argc, char** argv) {
     bool dump_map = false;
     bool have_resolve = false;
     uint32_t resolve_id = 0;
+    bool have_rw = false, have_rr = false, have_rwb = false;
+    uint32_t rw_id = 0, rr_id = 0, rwb_id = 0;
+    std::string rw_value;
+    std::vector<float> rwb_vals;
     for (int i = 3; i < argc; ++i) {
         if (std::string(argv[i]) == "--pace") {
             pace = true;
@@ -103,6 +108,20 @@ int main(int argc, char** argv) {
         } else if (std::string(argv[i]) == "--resolve" && i + 1 < argc) {
             resolve_id = (uint32_t)std::strtoul(argv[++i], nullptr, 0);
             have_resolve = true;
+        } else if (std::string(argv[i]) == "--rw" && i + 2 < argc) {
+            rw_id = (uint32_t)std::strtoul(argv[++i], nullptr, 0);
+            rw_value = argv[++i];
+            have_rw = true;
+        } else if (std::string(argv[i]) == "--rr" && i + 1 < argc) {
+            rr_id = (uint32_t)std::strtoul(argv[++i], nullptr, 0);
+            have_rr = true;
+        } else if (std::string(argv[i]) == "--rwb" && i + 2 < argc) {
+            rwb_id = (uint32_t)std::strtoul(argv[++i], nullptr, 0);
+            size_t n = (size_t)std::atoi(argv[++i]);
+            for (size_t k = 0; k < n && i + 1 < argc; ++k) {
+                rwb_vals.push_back((float)std::atof(argv[++i]));
+            }
+            have_rwb = true;
         }
     }
 
@@ -131,6 +150,50 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
+        bool did_id_cmd = false;
+        if (have_rw) {
+            OrpheusValue v;
+            char* end = nullptr;
+            float f = std::strtof(rw_value.c_str(), &end);
+            if (end != rw_value.c_str() && end && *end == '\0') {
+                v.type = ORPHEUS_VALUE_FLOAT;
+                v.value.f32 = f;
+            } else {
+                v.type = ORPHEUS_VALUE_STRING;
+                v.value.str = rw_value.c_str();
+            }
+            int r = runtime.write_id(rw_id, v);
+            std::cout << (r == ORPHEUS_OK ? "OK RW " : "ERR RW ")
+                      << std::hex << "0x" << rw_id << std::dec << std::endl;
+            did_id_cmd = true;
+        }
+        if (have_rr) {
+            OrpheusValue v;
+            int r = runtime.read_id(rr_id, &v);
+            if (r == ORPHEUS_OK) {
+                if (v.type == ORPHEUS_VALUE_FLOAT)
+                    std::cout << "RVALUE " << std::hex << "0x" << rr_id << std::dec
+                              << " " << v.value.f32 << std::endl;
+                else if (v.type == ORPHEUS_VALUE_INT)
+                    std::cout << "RVALUE " << std::hex << "0x" << rr_id << std::dec
+                              << " " << v.value.i32 << std::endl;
+                else if (v.type == ORPHEUS_VALUE_STRING)
+                    std::cout << "RVALUE " << std::hex << "0x" << rr_id << std::dec
+                              << " " << v.value.str << std::endl;
+                else
+                    std::cout << "RVALUE " << std::hex << "0x" << rr_id << std::dec << " ?" << std::endl;
+            } else {
+                std::cout << "ERR RR " << std::hex << "0x" << rr_id << std::dec << std::endl;
+            }
+            did_id_cmd = true;
+        }
+        if (have_rwb) {
+            int r = runtime.write_bulk_id(rwb_id, rwb_vals.data(), rwb_vals.size());
+            std::cout << (r == ORPHEUS_OK ? "OK RWB " : "ERR RWB ")
+                      << std::hex << "0x" << rwb_id << std::dec << std::endl;
+            did_id_cmd = true;
+        }
+        if (did_id_cmd) return 0;
 
         // Determine total frames from the file input node
         std::string input_node = find_input_node(plan);

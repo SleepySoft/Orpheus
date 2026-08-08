@@ -82,6 +82,20 @@ class RtBulkRequest(BaseModel):
     values: list[float]
 
 
+class RtIdRequest(BaseModel):
+    id: int
+
+
+class RtWriteRequest(BaseModel):
+    id: int
+    value: float | int | str
+
+
+class RtWriteBulkRequest(BaseModel):
+    id: int
+    values: list[float]
+
+
 class DistillImportRequest(BaseModel):
     yaml: str
 
@@ -343,6 +357,8 @@ def create_app(project_root: Path) -> FastAPI:
                 }
                 for nid, cfg in plan.node_configs.items()
             },
+            # 数据点 ID 表（用途/形式/类型/个数），供 UI 显示 0x ID 与按 ID 解析/控制
+            "id_map": plan.id_map,
         }
 
     @app.post("/api/projects/{name}/run")
@@ -635,6 +651,63 @@ def create_app(project_root: Path) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": "sent"}
+
+    @app.get("/api/projects/{name}/rt/resolve")
+    def rt_resolve_id(name: str, id: int) -> dict[str, Any]:
+        """内存透明：按 32 位数据 ID 查询类型/长度/基址/偏移。"""
+        session = rt_sessions.get(name)
+        if session is None or not session.running:
+            raise HTTPException(status_code=400, detail="realtime session not running")
+        try:
+            return session.resolve(id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/projects/{name}/rt/map")
+    def rt_map(name: str) -> dict[str, Any]:
+        """dump 全表：所有数据点 + 模块包（含真实基址）。"""
+        session = rt_sessions.get(name)
+        if session is None or not session.running:
+            raise HTTPException(status_code=400, detail="realtime session not running")
+        try:
+            return {"entries": session.map_all()}
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/projects/{name}/rt/write")
+    def rt_write_id(name: str, req: RtWriteRequest) -> dict[str, Any]:
+        """按 ID 实时控制（RTC 通道）：方向只在接口，PROBE/STATE 由注册表拒写。"""
+        session = rt_sessions.get(name)
+        if session is None or not session.running:
+            raise HTTPException(status_code=400, detail="realtime session not running")
+        try:
+            session.write_id(req.id, req.value)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": "sent", "id": req.id}
+
+    @app.post("/api/projects/{name}/rt/read")
+    def rt_read_id(name: str, req: RtIdRequest) -> dict[str, Any]:
+        session = rt_sessions.get(name)
+        if session is None or not session.running:
+            raise HTTPException(status_code=400, detail="realtime session not running")
+        try:
+            value = session.read_id(req.id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"id": req.id, "value": value}
+
+    @app.post("/api/projects/{name}/rt/write_bulk")
+    def rt_write_bulk_id(name: str, req: RtWriteBulkRequest) -> dict[str, Any]:
+        """按 ID 直写 BULK 槽（如 biquad_bank 系数）。"""
+        session = rt_sessions.get(name)
+        if session is None or not session.running:
+            raise HTTPException(status_code=400, detail="realtime session not running")
+        try:
+            session.write_bulk_id(req.id, req.values)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": "sent", "id": req.id}
 
     @app.get("/api/projects/{name}/files/{relpath:path}")
     def get_project_file(name: str, relpath: str) -> FileResponse:

@@ -65,6 +65,7 @@ function Editor() {
   const [log, setLog] = useState(null);
   const [outputs, setOutputs] = useState([]);
   const [generatedInfo, setGeneratedInfo] = useState(null); // {path, url} 生成工程位置与下载链接
+  const [idMap, setIdMap] = useState([]); // 编译响应携带的数据点 ID 表（0x ID / 用途/形式/类型）
   const [deviceOptions, setDeviceOptions] = useState([{ value: '', label: '默认设备' }]);
   const [rt, setRt] = useState({ running: false, logs: [], probes: {} });
   const [logCollapsed, setLogCollapsed] = useState(false);
@@ -136,6 +137,7 @@ const { screenToFlowPosition } = useReactFlow();
     setDirty(false);
     setOutputs([]);
     setGeneratedInfo(null);
+    setIdMap([]);
     setLog(null);
     setRt({ running: false, logs: [], probes: {} });
   }, []);
@@ -518,6 +520,27 @@ const { screenToFlowPosition } = useReactFlow();
     [current]
   );
 
+  /** 参数面板：按 32 位数据 ID 查询内存（内存透明），需实时会话运行。 */
+  const onResolve = useCallback(
+    async (nodeId, id) => {
+      if (!current || !rtRef.current.running) {
+        setStatus('实时会话未运行，无法解析地址');
+        return;
+      }
+      try {
+        const r = await api.rtResolve(current, id);
+        setStatus(
+          `ID 0x${id.toString(16).toUpperCase()} → ${r.node || ''} ${r.key || ''}：` +
+            `${r.kind}/${r.form}，count=${r.count}，${r.byte_size} B，` +
+            `base=${r.base} offset=${r.offset}`
+        );
+      } catch (e) {
+        setStatus(`解析失败: ${api.errorDetail(e)}`);
+      }
+    },
+    [current]
+  );
+
   /** 预设保存在工程文档顶层 `presets` 字段，随正常保存流程持久化。 */
   const onSavePreset = useCallback((name, snapshot) => {
     setDoc((d) => {
@@ -783,6 +806,7 @@ const { screenToFlowPosition } = useReactFlow();
           return next;
         });
       }
+      if (r.id_map) setIdMap(r.id_map);
     } catch (e) {
       setStatus('编译失败');
       setLog({ title: '编译错误', lines: [api.errorDetail(e)] });
@@ -1149,6 +1173,8 @@ const { screenToFlowPosition } = useReactFlow();
           onNodeParamChange={onNodeParamChange}
           onImportApply={onImportApply}
           onWriteBulk={onWriteBulk}
+          idMap={idMap}
+          onResolve={onResolve}
           presets={doc.presets || []}
           onSavePreset={onSavePreset}
           onDeletePreset={onDeletePreset}

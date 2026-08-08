@@ -198,6 +198,8 @@ export default function ParamBrowser({
   onNodeParamChange,
   onImportApply,
   onWriteBulk,
+  idMap,
+  onResolve,
   presets,
   onSavePreset,
   onDeletePreset,
@@ -207,6 +209,36 @@ export default function ParamBrowser({
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState({});
   const importFileRef = useRef(null);
+
+  /** 编译期稳定 ID 表：`node|key` → {id, kind, form, ...}（compile 响应 id_map）。 */
+  const idByKey = useMemo(() => {
+    const m = {};
+    for (const e of idMap || []) m[`${e.node}|${e.key}`] = e;
+    return m;
+  }, [idMap]);
+
+  /** 数据点行的 0x ID + 「解析」按钮（实时会话中按 ID 查内存地址）。 */
+  const renderId = (flatId, paramId) => {
+    const entry = idByKey[`${flatId}|${paramId}`];
+    if (!entry) return null;
+    const text = '0x' + entry.id.toString(16).toUpperCase().padStart(8, '0');
+    return (
+      <span className="pb-id">
+        <span className="pb-id-text" title={`${entry.kind}/${entry.form} · 编译期稳定 ID`}>
+          {text}
+        </span>
+        {rt.running && (
+          <button
+            className="pb-locate"
+            onClick={() => onResolve(flatId, entry.id)}
+            title="解析内存地址（RESOLVE <id>）"
+          >
+            解析
+          </button>
+        )}
+      </span>
+    );
+  };
 
   /** 遍历主图与子组件视图，产出扁平条目（flatId = 实例路径 join '__'，与 flatten_project 同规则）。 */
   const tree = useMemo(() => {
@@ -479,6 +511,7 @@ export default function ParamBrowser({
                                 <span className="pb-meta">
                                   {p.unit ? `(${p.unit}) ` : ''}只读
                                 </span>
+                                {renderId(e.flatId, p.id)}
                               </div>
                             );
                           }
@@ -495,6 +528,7 @@ export default function ParamBrowser({
                                     running={rt.running}
                                     onWrite={(vals) => onWriteBulk(e.flatId, p.id, vals)}
                                   />
+                                  {renderId(e.flatId, p.id)}
                                 </div>
                               );
                             }
@@ -508,6 +542,7 @@ export default function ParamBrowser({
                                     onNodeParamChange(e.viewKey, e.nodeId, id, v, e.flatId)
                                   }
                                 />
+                                {renderId(e.flatId, p.id)}
                               </div>
                             );
                           }
@@ -521,6 +556,7 @@ export default function ParamBrowser({
                                 }
                                 ctx={ctx}
                               />
+                              {renderId(e.flatId, p.id)}
                             </div>
                           );
                         })}

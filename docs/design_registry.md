@@ -517,6 +517,21 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - 模块包（用途=TUNE、形式=FORM_MODULE）指向整块连续内存，对应公司「一个子模块下所有滤波器参数 = 一份 bulk」。
 - 执行时仍用 flatten 后的节点指针（指向各自切片内偏移），两路逐字节一致。
 
+### 17.4 实现状态（2026-08-08）
+
+- [x] `OrpheusIdKind`（RTC 第一 + CUSTOM/Reserved）、`OrpheusDataForm`、`OrpheusResolvedData`、
+  `ORPHEUS_ID_MAKE/KIND/MODULE/SLOT`、`ORPHEUS_ID_SLOT_MODULE`（ABI）。
+- [x] `plan.modules` + `plan.id_map`（编译器生成，动态/生成两路共用同一张 ID 表）。
+- [x] 生成路径：模块嵌套 arena（`orpheus_arena.h`）+ `orpheus_ids.h` + `orpheus_id_map.c` +
+  `memory_map.md`；多叶子模块宏名带叶子名防冲突。
+- [x] Runtime：`resolve` / `resolve_all`（数据点真实地址；模块包按切片返回真实基址）。
+- [x] 动态路径模块连续分配（按 `plan.modules` 切片，根含全部）。
+- [x] 宿主入口：离线 `--resolve/--map/--rw/--rr/--rwb`；rt_host `RESOLVE/MAP/RW/RR/RWB`。
+- [x] 后端：`GET /rt/resolve`、`GET /rt/map`、`POST /rt/write`、`POST /rt/read`、`POST /rt/write_bulk`；
+  UI 参数面板显示 0x ID 并可解析地址。
+- [ ] 按 ID 的 bulk 读回（`get_bulk`，探针/调音整块读）。
+- [ ] BULK 双 bank 原子提交语义。
+
 ### 2026-08-06（第五次讨论：经验与待办归档）
 
 - 经验教训与待办清单归档到本文档第 15/16 节；SKILL 同步更新（v2 组件写法、环境要求、生成路径注意事项）。

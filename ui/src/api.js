@@ -34,6 +34,15 @@ export const rtSetParam = (name, node, param, value) =>
   unwrap(api.post(`/projects/${name}/rt/param`, { node, param, value }));
 export const rtWriteBulk = (name, node, key, values) =>
   unwrap(api.post(`/projects/${name}/rt/bulk`, { node, key, values }));
+export const rtResolve = (name, id) =>
+  unwrap(api.get(`/projects/${name}/rt/resolve`, { params: { id } }));
+export const rtMap = (name) => unwrap(api.get(`/projects/${name}/rt/map`));
+export const rtWriteById = (name, id, value) =>
+  unwrap(api.post(`/projects/${name}/rt/write`, { id, value }));
+export const rtReadById = (name, id) =>
+  unwrap(api.post(`/projects/${name}/rt/read`, { id }));
+export const rtWriteBulkById = (name, id, values) =>
+  unwrap(api.post(`/projects/${name}/rt/write_bulk`, { id, values }));
 export const listProjectFiles = (name, ext = null) =>
   unwrap(api.get(`/projects/${name}/files`, { params: ext ? { ext } : {} }));
 export const uploadProjectFile = (name, file) => {

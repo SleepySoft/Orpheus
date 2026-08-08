@@ -796,3 +796,46 @@ orpheus_platform_memory_section_bind(...);
 - **`orpheus.builtin.sweep_gen`**：对数/线性扫频发生器（起止频率、时长、幅度）；配合 `probe_waveform`（示波）、`wav_out`（记录）和 `probe_spectrum`（绘图）形成完整扫频测量链路，示例 `examples/sweep_spectrum.yaml`。
 - **`orpheus.builtin.probe_spectrum`**：radix-2 FFT + Hann 窗，`spectrum` readback 以 PROBE_JSON 输出幅度数组；UI 频谱控件按采样率/窗口绘制 dB 柱状图，可放大。
 - **子组件框选**：React Flow 开启 `selectionOnDrag`，画布拖拽框选 + Shift 点击多选；「包装为子组件」自动推导边界端口并打开新标签页（多标签已支持），层级嵌套由 `flatten_project` 递归展开。
+
+---
+
+## 27. 数据 ID、模块内存与内存透明（已实现）
+
+> 详细设计：`docs/design_registry.md` §17。目标：统一寻址（调音/实时控制/探针/状态）、模块内存连续、
+> 内存透明（ID → 类型/长度/地址可查询），对齐公司模型习惯（RTC/TOP/TSP 三类 ID，但按我们自己的
+> 用途/形式正交模型组织，且不拆读写）。
+
+### 27.1 32 位数据 ID（单 ID，方向只在接口）
+
+- 布局：`bits31..28` 用途（purpose），`bits23..16` 模块 id，`bits15..0` 模块内槽序号。
+- 用途按使用频率排序：`0x0 RTC`（实时控制：音量/fade/balance 等实时参数 + 命令 + 实时信号输入——
+  用户界面调，MCU 用该 ID 写 DSP）/ `0x1 TUNE`（调音/配置，常为 bulk 包）/ `0x2 PROBE`（观测回读）/
+  `0x3 STATE`（调试状态）/ `0x4 CUSTOM`（用户自定义）/ `0x5..0xF Reserved`。
+- 形式（`OrpheusDataForm`：SCALAR / BULK / MODULE）与用途正交，不进 ID 位，由 ID map 的
+  `form/count/byte_size`（`ORPHEUS_CHAR_COUNT_*`）描述——「TUNE 又是 bulk 形式」因此不矛盾。
+- 命名：`ORPHEUS_<KIND>_<模块Camel><参数Camel>`（单叶子模块=模块+参数，多叶子带叶子名防冲突）。
+
+### 27.2 模块内存连续（flatten 与布局正交）
+
+- `plan.modules`：按节点 id 的 `__` 路径前缀组织模块树，DFS 分配稳定模块 id；模块内叶子槽按执行序。
+- 生成路径：按子组件实例生成**嵌套结构体**（`include/orpheus_arena.h`，`OrpheusMod_*` + `OrpheusArena`），
+  每个子模块实例一块连续内存，布局由 C 编译器决定。
+- 动态路径：Runtime 按 `plan.modules` **切片分配**——每个模块（含根）一块连续内存，
+  叶子 `state_block = 模块基址 + 叶子偏移`，与生成路径同一规则；模块包 ID（槽号 `ORPHEUS_ID_SLOT_MODULE`）
+  因此有真实基址。
+
+### 27.3 内存透明（resolve / map）
+
+- `plan.id_map` 是唯一 ID 表（编译器按模块/槽/用途/形式/类型/个数生成），动态 Runtime 与代码生成共用。
+- `Runtime::resolve(id, OrpheusResolvedData*)`：数据点返回真实地址（base = 状态块 + 槽偏移）、
+  类型、长度、模块、槽、节点、key、中文名；模块包返回整块基址与字节数。
+- 入口：离线宿主 `orpheus_runtime --resolve <id> | --map`；rt_host stdin `RESOLVE <id>` / `MAP`；
+  后端 `GET /rt/resolve?id=` / `GET /rt/map`；UI 参数面板显示 0x ID 并可解析地址。
+- 生成路径产物：`orpheus_ids.h`（宏 + CHAR_COUNT）、`src/orpheus_id_map.c`（offsetof/sizeof 精确偏移）、
+  `memory_map.md`（可读布局）。
+
+### 27.4 按 ID 的实时控制（RTC 通道）
+
+- rt_host stdin：`RW <id> <value>`（按 ID 写，非 PROBE/STATE）、`RR <id>`（读回 `RVALUE`）、
+  `RWB <id> <n> <v0>...`（bulk 直写）；后端 `POST /rt/write`、`/rt/read`、`/rt/write_bulk`。
+- 方向只在接口 + 注册表按用途强制方向（PROBE/STATE 拒写、命令拒读），不靠 ID 拆位。

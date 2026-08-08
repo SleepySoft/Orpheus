@@ -1,5 +1,31 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-08（第二十六次讨论：三点收尾——后端 resolve API、按 ID 实时控制、动态模块连续分配）
+
+### A. 后端与 UI 暴露 resolve（内存透明）
+
+- 编译响应携带 `id_map`；`GET /rt/resolve?id=`（按 32 位 ID 查类型/长度/基址/偏移）、`GET /rt/map`（全表）。
+- RtSession 支持按 ID 命令并捕获响应行（RESOLVED/RVALUE/OK RW 等）。
+- UI 参数面板每行显示 0x ID（紫底），实时会话中点「解析」直接查内存地址。
+
+### B. 按 ID 实时控制（RTC 通道）
+
+- `Runtime::write_id/read_id/write_bulk_id`：方向只在接口，PROBE/STATE 拒写、命令拒读、模块包不直接读写。
+- rt_host：`RW <id> <value>` / `RR <id>`（RVALUE 回显）/ `RWB <id> <n> <v0>...`；
+  离线宿主同参：`--rw/--rr/--rwb`（可单进程先写后读验证）。
+- 后端：`POST /rt/write`、`/rt/read`、`/rt/write_bulk`。
+
+### C. 动态路径模块连续分配
+
+- Runtime 按 `plan.modules` 递归布局（叶子按执行序 + 子模块紧随其后，8 字节对齐），
+  每个模块（含根）一块连续内存；`resolve` 的 MODULE 条目现在有真实基址。
+- 与生成路径嵌套结构体同一规则，动态/生成逐字节一致性测试仍通过。
+
+### 验证
+
+- `test_runtime_resolve.py` 扩展：模块包基址非空、`RW→RR` 单进程写读回 -6、PROBE 拒写、RWB 直写 OK。
+- 全量 75 passed；`npm run build` 通过。
+
 ## 2026-08-08（第二十五次讨论：Runtime resolve 实现——内存透明落地）
 
 - `plan.id_map` 成为唯一 ID 表（编译器按模块/槽/用途/形式生成），生成器改读 plan.id_map，

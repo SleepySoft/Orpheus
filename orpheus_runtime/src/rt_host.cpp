@@ -374,6 +374,66 @@ static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) 
                           << " key=" << (d.key ? d.key : "")
                           << " name=" << (d.name ? d.name : "") << std::endl;
             }
+        } else if (cmd == "RW") {
+            std::string raw_id, raw;
+            iss >> raw_id;
+            std::getline(iss, raw);
+            if (!raw.empty() && raw[0] == ' ') raw.erase(0, 1);
+            uint32_t id = (uint32_t)std::strtoul(raw_id.c_str(), nullptr, 0);
+            OrpheusValue v;
+            char* end = nullptr;
+            float f = std::strtof(raw.c_str(), &end);
+            std::string storage = raw;
+            if (end != raw.c_str() && end && *end == '\0') {
+                v.type = ORPHEUS_VALUE_FLOAT;
+                v.value.f32 = f;
+            } else {
+                v.type = ORPHEUS_VALUE_STRING;
+                v.value.str = storage.c_str();
+            }
+            int r = runtime.write_id(id, v);
+            std::cout << (r == ORPHEUS_OK ? "OK RW " : "ERR RW ")
+                      << std::hex << "0x" << id << std::dec << std::endl;
+        } else if (cmd == "RR") {
+            std::string raw_id;
+            iss >> raw_id;
+            uint32_t id = (uint32_t)std::strtoul(raw_id.c_str(), nullptr, 0);
+            OrpheusValue v;
+            int r = runtime.read_id(id, &v);
+            if (r == ORPHEUS_OK) {
+                if (v.type == ORPHEUS_VALUE_FLOAT)
+                    std::cout << "RVALUE " << std::hex << "0x" << id << std::dec
+                              << " " << v.value.f32 << std::endl;
+                else if (v.type == ORPHEUS_VALUE_INT)
+                    std::cout << "RVALUE " << std::hex << "0x" << id << std::dec
+                              << " " << v.value.i32 << std::endl;
+                else if (v.type == ORPHEUS_VALUE_STRING)
+                    std::cout << "RVALUE " << std::hex << "0x" << id << std::dec
+                              << " " << v.value.str << std::endl;
+                else
+                    std::cout << "RVALUE " << std::hex << "0x" << id << std::dec << " ?" << std::endl;
+            } else {
+                std::cout << "ERR RR " << std::hex << "0x" << id << std::dec << std::endl;
+            }
+        } else if (cmd == "RWB") {
+            std::string raw_id;
+            size_t n = 0;
+            iss >> raw_id >> n;
+            uint32_t id = (uint32_t)std::strtoul(raw_id.c_str(), nullptr, 0);
+            std::vector<float> vals;
+            vals.reserve(n);
+            for (size_t i = 0; i < n; ++i) {
+                float x = 0.0f;
+                if (!(iss >> x)) break;
+                vals.push_back(x);
+            }
+            if (vals.size() != n) {
+                std::cout << "ERR RWB " << std::hex << "0x" << id << std::dec << std::endl;
+                continue;
+            }
+            int r = runtime.write_bulk_id(id, vals.data(), vals.size());
+            std::cout << (r == ORPHEUS_OK ? "OK RWB " : "ERR RWB ")
+                      << std::hex << "0x" << id << std::dec << std::endl;
         }
     }
     running = false;

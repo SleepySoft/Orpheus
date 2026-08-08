@@ -47,7 +47,9 @@ def test_runtime_resolve_and_map() -> None:
             "/api/projects", json={"name": name, "from_example": "dsp_model_reference"}
         )
         assert resp.status_code == 201, resp.text
-        assert client.post(f"/api/projects/{name}/compile").status_code == 200
+        compiled = client.post(f"/api/projects/{name}/compile")
+        assert compiled.status_code == 200, compiled.text
+        assert compiled.json()["id_map"], "编译响应应携带 id_map（UI 显示 0x ID 用）"
 
     plan_path = ROOT / "workspace" / name / "project.plan.json"
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -62,6 +64,7 @@ def test_runtime_resolve_and_map() -> None:
         (by_key[("front__eq_bank__bq", "fc0")]["id"], "TUNE"),
         (by_key[("front__mon", "rms")]["id"], "PROBE"),
     ]
+    probe_id = cases[2][0]
     for id_, kind in cases:
         out = subprocess.run(
             [str(exe), str(plan_path), str(comps), "--resolve", str(id_)],
@@ -86,7 +89,7 @@ def test_runtime_resolve_and_map() -> None:
     parts = out.stdout.strip().split()
     assert parts[3] == "BULK" and "bytes=20" in out.stdout
 
-    # 模块包：用途=TUNE、形式=MODULE、槽 0xFFFF；动态路径未连续分配 → base=0x0
+    # 模块包：用途=TUNE、形式=MODULE、槽 0xFFFF；动态路径按模块切片 → 有真实基址
     mod = next(m for m in plan["modules"] if m["path"] == "front")
     mod_id = (0x1 << 28) | (mod["id"] << 16) | 0xFFFF
     out = subprocess.run(
@@ -96,7 +99,7 @@ def test_runtime_resolve_and_map() -> None:
     assert out.returncode == 0, out.stderr
     parts = out.stdout.strip().split()
     assert parts[3] == "MODULE" and "slot=65535" in out.stdout
-    assert "base=0000000000000000" in out.stdout  # 动态路径模块未连续分配 → 无基址
+    assert "base=0000000000000000" not in out.stdout  # 模块连续分配后基址非空
 
     # MAP 全表：数据点 + 模块包
     out = subprocess.run(
@@ -109,3 +112,28 @@ def test_runtime_resolve_and_map() -> None:
     assert len(lines) >= len(plan["id_map"]) - 2 + 6
     assert any(l.split()[3] == "MODULE" for l in lines)
     assert any("node=front__trim key=gain_db" in l for l in lines)
+
+    # 按 ID 实时控制：RW 写 RTC 参数 → RR 读回；PROBE 拒写；RWB 直写 bulk
+    rtc_id = by_key[("front__trim", "gain_db")]["id"]
+    out = subprocess.run(
+        [str(exe), str(plan_path), str(comps),
+         "--rw", str(rtc_id), "-6", "--rr", str(rtc_id)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
+    )
+    assert out.returncode == 0, out.stderr
+    assert "OK RW" in out.stdout
+    rv = [l for l in out.stdout.splitlines() if l.startswith("RVALUE")]
+    assert rv and abs(float(rv[0].split()[-1]) + 6.0) < 1e-3
+
+    out = subprocess.run(
+        [str(exe), str(plan_path), str(comps), "--rw", str(probe_id), "1"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
+    )
+    assert out.returncode == 0 and "ERR RW" in out.stdout  # PROBE 拒写
+
+    out = subprocess.run(
+        [str(exe), str(plan_path), str(comps),
+         "--rwb", str(bulk_id), "5", "0.1", "0.2", "0.3", "0.4", "0.5"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
+    )
+    assert out.returncode == 0 and "OK RWB" in out.stdout, out.stderr

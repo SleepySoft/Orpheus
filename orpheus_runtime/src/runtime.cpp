@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
+#include <functional>
 #include <iostream>
 
 #ifdef _WIN32
@@ -122,18 +123,74 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
     }
 
     // Create instances
-    // v2 统一内存拼接：先按每个实例的 state_size 计算总大小，再连续切片下发。
-    size_t arena_total = 0;
+    // v2 模块连续内存：按 plan.modules 递归布局，每个模块（含根）一块连续内存，
+    // 叶子状态按执行序排在模块内、子模块紧随其后——与生成路径的嵌套结构体同一规则。
+    const size_t kAlign = 8;
+    std::map<std::string, std::vector<std::string>> module_children;
+    std::map<std::string, uint32_t> module_id_of;
+    for (const auto& m : plan_.modules) {
+        module_id_of[m.path] = m.id;
+        if (m.path.empty()) continue;
+        size_t sep = m.path.rfind("__");
+        std::string parent = sep == std::string::npos ? "" : m.path.substr(0, sep);
+        module_children[parent].push_back(m.path);
+    }
+    std::map<std::string, std::pair<size_t, size_t>> node_size_align;
     for (const auto& node_id : plan_.execution_order) {
-        const auto& cfg = plan_.node_configs[node_id];
-        auto iface_it = interfaces_.find(cfg.component);
+        auto iface_it = interfaces_.find(plan_.node_configs[node_id].component);
         if (iface_it == interfaces_.end()) return -1;
         const OrpheusComponentDescriptor* desc = iface_it->second->get_descriptor();
-        size_t align = desc->alignment > 0 ? (size_t)desc->alignment : 8;
-        arena_total += align_up((size_t)desc->state_size, align);
+        node_size_align[node_id] = {
+            (size_t)desc->state_size,
+            desc->alignment > 0 ? (size_t)desc->alignment : kAlign,
+        };
     }
+    std::map<std::string, size_t> module_size;
+    std::function<size_t(const std::string&)> compute_size =
+        [&](const std::string& path) -> size_t {
+        size_t size = 0;
+        for (const auto& m : plan_.modules) {
+            if (m.path != path) continue;
+            for (const auto& leaf : m.leaves) {
+                auto it = node_size_align.find(leaf.first);
+                if (it == node_size_align.end() || it->second.first == 0) continue;
+                size += align_up(it->second.first, it->second.second);
+            }
+        }
+        for (const auto& child : module_children[path]) {
+            size += align_up(compute_size(child), kAlign);
+        }
+        module_size[path] = size;
+        return size;
+    };
+    size_t arena_total = compute_size("");
     state_arena_.assign(arena_total, 0);
-    size_t arena_offset = 0;
+
+    std::map<std::string, size_t> node_offset;
+    std::function<void(const std::string&, size_t)> assign_layout =
+        [&](const std::string& path, size_t base) {
+        size_t cursor = base;
+        for (const auto& m : plan_.modules) {
+            if (m.path != path) continue;
+            for (const auto& leaf : m.leaves) {
+                auto it = node_size_align.find(leaf.first);
+                if (it == node_size_align.end() || it->second.first == 0) continue;
+                cursor = align_up(cursor, it->second.second);
+                node_offset[leaf.first] = cursor;
+                cursor += align_up(it->second.first, it->second.second);
+            }
+        }
+        for (const auto& child : module_children[path]) {
+            size_t cb = align_up(cursor, kAlign);
+            assign_layout(child, cb);
+            module_layout_[module_id_of[child]] = {cb, module_size[child]};
+            cursor = cb + module_size[child];
+        }
+        if (path.empty()) {
+            module_layout_[0] = {0, arena_total};  // 根模块
+        }
+    };
+    assign_layout("", 0);
 
     for (const auto& node_id : plan_.execution_order) {
         const auto& cfg = plan_.node_configs[node_id];
@@ -150,12 +207,10 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         inst->state = nullptr;
         inst->state_size = desc->state_size;
 
-        size_t align = desc->alignment > 0 ? (size_t)desc->alignment : 8;
-        size_t slice_size = align_up((size_t)desc->state_size, align);
-        void* state_block = (arena_total > 0 && arena_offset < arena_total)
-                                ? static_cast<void*>(state_arena_.data() + arena_offset)
+        auto no_it = node_offset.find(node_id);
+        void* state_block = (no_it != node_offset.end())
+                                ? static_cast<void*>(state_arena_.data() + no_it->second)
                                 : nullptr;
-        arena_offset += slice_size;
 
         // Prepare config
         OrpheusConfig config;
@@ -452,12 +507,11 @@ int Runtime::resolve(uint32_t id, OrpheusResolvedData* out) const {
                 out->module_id = module_id;
                 out->slot = ORPHEUS_ID_SLOT_MODULE;
                 out->name = m.path.c_str();
-                size_t total = 0;
-                for (const auto& leaf : m.leaves) {
-                    auto ii = instances_.find(leaf.first);
-                    if (ii != instances_.end()) total += ii->second->state_size;
+                auto ml = module_layout_.find(module_id);
+                if (ml != module_layout_.end()) {
+                    out->base = const_cast<uint8_t*>(state_arena_.data()) + ml->second.first;
+                    out->byte_size = ml->second.second;
                 }
-                out->byte_size = total;
                 return ORPHEUS_OK;
             }
         }
@@ -500,6 +554,28 @@ int Runtime::resolve_all(std::vector<OrpheusResolvedData>* out) const {
         if (resolve(mid, &d) == ORPHEUS_OK) out->push_back(d);
     }
     return ORPHEUS_OK;
+}
+
+int Runtime::write_id(uint32_t id, const OrpheusValue& value) {
+    OrpheusResolvedData d;
+    if (resolve(id, &d) != ORPHEUS_OK) return ORPHEUS_ERR_NOT_FOUND;
+    if (d.kind == ORPHEUS_ID_PROBE || d.kind == ORPHEUS_ID_STATE) return ORPHEUS_ERR_INVALID_ARG;
+    if (d.form == ORPHEUS_FORM_MODULE) return ORPHEUS_ERR_UNSUPPORTED;
+    return set_parameter(d.node, d.key, value);
+}
+
+int Runtime::read_id(uint32_t id, OrpheusValue* value) {
+    OrpheusResolvedData d;
+    if (resolve(id, &d) != ORPHEUS_OK) return ORPHEUS_ERR_NOT_FOUND;
+    if (d.form == ORPHEUS_FORM_MODULE) return ORPHEUS_ERR_UNSUPPORTED;
+    return get_parameter(d.node, d.key, value);
+}
+
+int Runtime::write_bulk_id(uint32_t id, const void* data, size_t count) {
+    OrpheusResolvedData d;
+    if (resolve(id, &d) != ORPHEUS_OK) return ORPHEUS_ERR_NOT_FOUND;
+    if (d.form != ORPHEUS_FORM_BULK) return ORPHEUS_ERR_INVALID_ARG;
+    return write_bulk(d.node, d.key, data, count);
 }
 
 const OrpheusComponentInterface* Runtime::get_interface(const std::string& node_id) {

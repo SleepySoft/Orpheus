@@ -1154,3 +1154,21 @@ pre {
   font-size: 12px;
   white-space: nowrap;
 }
+
+.pb-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.pb-id-text {
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  color: #6741d9;
+  background: #f3f0ff;
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}

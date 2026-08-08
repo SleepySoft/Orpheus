@@ -69,6 +69,12 @@ public:
     // 全表 dump：所有数据点 + 模块包条目（等价生成路径的 orpheus_id_map）。
     int resolve_all(std::vector<OrpheusResolvedData>* out) const;
 
+    // v2.1 按 ID 实时控制（RTC 通道）：方向只在接口；
+    // PROBE/STATE 拒写、命令拒读、模块包不直接读写（整块读回待 get_bulk）。
+    int write_id(uint32_t id, const OrpheusValue& value);
+    int read_id(uint32_t id, OrpheusValue* value);
+    int write_bulk_id(uint32_t id, const void* data, size_t count);
+
     // Access the component interface of a loaded node (metadata/introspection).
     const OrpheusComponentInterface* get_interface(const std::string& node_id);
 
@@ -91,6 +97,7 @@ private:
     std::vector<float> buffer_memory_;
     std::vector<uint8_t> state_arena_;   // v2：统一内存拼接（每实例一块连续切片）
     std::map<uint32_t, const IdMapEntry*> id_index_;   // 数据 ID → plan.id_map 条目
+    std::map<uint32_t, std::pair<size_t, size_t>> module_layout_;  // 模块 id → (arena 基址, 字节数)
     uint64_t block_counter_ = 0;  // for rate-divisor scheduling
 
     int prepare_instance(Instance& inst, const NodeConfig& cfg);

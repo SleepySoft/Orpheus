@@ -18,6 +18,9 @@ from typing import Any
 
 MAX_LOG_LINES = 500
 
+_KIND_NAMES = {0: "RTC", 1: "TUNE", 2: "PROBE", 3: "STATE", 4: "CUSTOM"}
+_FORM_NAMES = {0: "SCALAR", 1: "BULK", 2: "MODULE"}
+
 
 def parse_probe_line(line: str) -> tuple[str, str, Any] | None:
     """Parse one host stdout line into (node, param, value) or None.
@@ -50,6 +53,7 @@ class RtSession:
         self.started_at = time.time()
         self._logs: deque[str] = deque(maxlen=MAX_LOG_LINES)
         self._probes: dict[str, dict[str, Any]] = {}
+        self._cmd_lines: list[str] = []  # RESOLVED / RVALUE / OK RW / ERR ... 响应行
         self._lock = threading.Lock()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
@@ -70,7 +74,18 @@ class RtSession:
                         self._probes.setdefault(node, {})[param] = value
                 else:
                     with self._lock:
-                        self._logs.append(line)
+                        if (
+                            line.startswith("RESOLVED ")
+                            or line.startswith("ERR RESOLVE ")
+                            or line.startswith("RVALUE ")
+                            or line.startswith("OK RW ")
+                            or line.startswith("ERR RW ")
+                            or line.startswith("OK RWB ")
+                            or line.startswith("ERR RWB ")
+                        ):
+                            self._cmd_lines.append(line)
+                        else:
+                            self._logs.append(line)
         except (ValueError, OSError):
             pass  # stream closed
 
@@ -91,6 +106,95 @@ class RtSession:
         """BULK <node> <key> <n> <v0> <v1> ...：直写组件注册的 BULK 槽。"""
         nums = " ".join(str(v) for v in values)
         self.send(f"BULK {node} {key} {len(values)} {nums}")
+
+    def _send_cmd_wait(self, line: str, timeout: float = 3.0) -> str:
+        """发一条命令并等待一条命令响应行（RESOLVED/RVALUE/OK RW 等）。"""
+        with self._lock:
+            base = len(self._cmd_lines)
+        self.send(line)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._lock:
+                if len(self._cmd_lines) > base:
+                    return self._cmd_lines[-1]
+            time.sleep(0.02)
+        raise RuntimeError(f"rt_host 命令超时: {line}")
+
+    def resolve(self, data_id: int) -> dict[str, Any]:
+        """RESOLVE <id>：内存透明查询（ID → 类型/长度/基址/偏移）。"""
+        line = self._send_cmd_wait(f"RESOLVE {data_id}")
+        if line.startswith("ERR RESOLVE"):
+            raise RuntimeError(line)
+        parts = line.split()
+        d: dict[str, Any] = {
+            "id": int(parts[1], 16),
+            "kind": _KIND_NAMES.get(int(parts[2]), parts[2]),
+            "form": _FORM_NAMES.get(int(parts[3]), parts[3]),
+        }
+        for tok in parts[4:]:
+            if "=" in tok:
+                key, value = tok.split("=", 1)
+                d[key] = value
+        return d
+
+    def map_all(self) -> list[dict[str, Any]]:
+        """MAP：dump 全表（数据点 + 模块包），等待输出稳定后返回。"""
+        with self._lock:
+            base = len(self._cmd_lines)
+        self.send("MAP")
+        deadline = time.time() + 3.0
+        last_count = -1
+        while time.time() < deadline:
+            time.sleep(0.08)
+            with self._lock:
+                count = len(self._cmd_lines)
+            if count > base and count == last_count:
+                break
+            last_count = count
+        with self._lock:
+            lines = list(self._cmd_lines[base:])
+        return [
+            self._parse_resolved_line(l) for l in lines if l.startswith("RESOLVED ")
+        ]
+
+    @staticmethod
+    def _parse_resolved_line(line: str) -> dict[str, Any]:
+        parts = line.split()
+        d: dict[str, Any] = {
+            "id": int(parts[1], 16),
+            "kind": _KIND_NAMES.get(int(parts[2]), parts[2]),
+            "form": _FORM_NAMES.get(int(parts[3]), parts[3]),
+        }
+        for tok in parts[4:]:
+            if "=" in tok:
+                key, value = tok.split("=", 1)
+                d[key] = value
+        return d
+
+    def write_id(self, data_id: int, value: Any) -> None:
+        """RW <id> <value>：按 ID 写（RTC/TUNE；PROBE/STATE 由注册表拒写）。"""
+        line = self._send_cmd_wait(f"RW {data_id} {value}")
+        if not line.startswith("OK RW"):
+            raise RuntimeError(line)
+
+    def read_id(self, data_id: int) -> Any:
+        """RR <id>：按 ID 读回（RVALUE <id> <value>）。"""
+        line = self._send_cmd_wait(f"RR {data_id}")
+        if line.startswith("ERR RR"):
+            raise RuntimeError(line)
+        parts = line.split(maxsplit=2)
+        raw = parts[2] if len(parts) == 3 else ""
+        try:
+            return float(raw)
+        except ValueError:
+            return raw
+
+    def write_bulk_id(self, data_id: int, values: list[float]) -> None:
+        """RWB <id> <n> <v0>...：按 ID 直写 BULK 槽。"""
+        nums = " ".join(str(v) for v in values)
+        line = self._send_cmd_wait(f"RWB {data_id} {len(values)} {nums}")
+        if not line.startswith("OK RWB"):
+            raise RuntimeError(line)
 
     def stop(self, timeout: float = 3.0) -> None:
         if not self.running:
