@@ -60,6 +60,7 @@ function Editor() {
   const [autoSave, setAutoSave] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showParams, setShowParams] = useState(false);
+  const [openMenu, setOpenMenu] = useState(null); // 'project' | 'run' | null：分组展开菜单
   const distillFileRef = useRef(null);
   const [status, setStatus] = useState('未连接后端');
   const [log, setLog] = useState(null);
@@ -1005,108 +1006,161 @@ const { screenToFlowPosition } = useReactFlow();
 
   const selectedNode = view.nodes.find((nd) => nd.id === selectedId) || null;
 
+  // 点击工具栏外关闭展开菜单
+  useEffect(() => {
+    if (!openMenu) return undefined;
+    const onDocClick = (e) => {
+      if (!e.target.closest('.toolbar')) setOpenMenu(null);
+    };
+    document.addEventListener('click', onDocClick);
+    return () => document.removeEventListener('click', onDocClick);
+  }, [openMenu]);
+
   return (
     <div className="app">
       <div className="toolbar">
         <h1>Orpheus</h1>
-        <select value={current || ''} onChange={(e) => e.target.value && openProject(e.target.value)}>
-          <option value="" disabled>
-            {projects.length ? '选择工程…' : '无工程'}
-          </option>
-          {projects.map((p) => (
-            <option key={p.name} value={p.name}>
-              {p.name}
+        <span className="tb-group">
+          <select value={current || ''} onChange={(e) => e.target.value && openProject(e.target.value)}>
+            <option value="" disabled>
+              {projects.length ? '选择工程…' : '无工程'}
             </option>
-          ))}
-        </select>
-        <button onClick={doCreate}>新建工程</button>
-        <select value="" onChange={(e) => doImportExample(e.target.value)}>
-          <option value="">导入示例…</option>
-          {examples.map((ex) => (
-            <option key={ex} value={ex}>
-              {ex}
-            </option>
-          ))}
-        </select>
-        <button
-          onClick={() => distillFileRef.current && distillFileRef.current.click()}
-          title="导入蒸馏模型 YAML（公司 C 代码反向还原的工程，含嵌套子组件与 model_tree 注释）"
-        >
-          ⤵ 导入模型
-        </button>
-        <input
-          ref={distillFileRef}
-          type="file"
-          accept=".yaml,.yml,.json"
-          style={{ display: 'none' }}
-          onChange={onDistillFile}
-        />
-        <span className="toolbar-sep" />
-        <button onClick={doSave} disabled={!dirty || !current || saving}>
-          {saving ? '保存中…' : '保存'}
-        </button>
-        <label className="autosave">
-          <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
-          自动保存
-        </label>
-        <span className="toolbar-sep" />
-        <button className="primary" onClick={doRun} disabled={!current || rt.running}>
-          ▶ 运行
-        </button>
-        {rt.running && (
-          <button className="danger-tool" onClick={doRtStop}>
-            ■ 停止
+            {projects.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <button onClick={doCreate}>新建工程</button>
+          <select value="" onChange={(e) => doImportExample(e.target.value)}>
+            <option value="">导入示例…</option>
+            {examples.map((ex) => (
+              <option key={ex} value={ex}>
+                {ex}
+              </option>
+            ))}
+          </select>
+          <button
+            className="tb-more"
+            onClick={() => setOpenMenu(openMenu === 'project' ? null : 'project')}
+            title="更多工程操作"
+          >
+            ⋯
           </button>
-        )}
-      </div>
-      <div className="toolbar toolbar-secondary">
-        <span title="左键拖拽平移画布；Ctrl+拖拽圈选；Ctrl+点击多选">
-          <button onClick={wrapSelection} disabled={!current || selectedIds.length === 0}>
-            包装为子组件
+          {openMenu === 'project' && (
+            <div className="tb-menu">
+              <button
+                onClick={() => {
+                  setOpenMenu(null);
+                  distillFileRef.current && distillFileRef.current.click();
+                }}
+              >
+                ⤵ 导入模型
+              </button>
+              <input
+                ref={distillFileRef}
+                type="file"
+                accept=".yaml,.yml,.json"
+                style={{ display: 'none' }}
+                onChange={onDistillFile}
+              />
+            </div>
+          )}
+        </span>
+        <span className="toolbar-sep" />
+        <span className="tb-group">
+          <span title="左键拖拽平移画布；Ctrl+拖拽圈选；Ctrl+点击多选">
+            <button onClick={wrapSelection} disabled={!current || selectedIds.length === 0}>
+              包装为子组件
+            </button>
+          </span>
+          <button onClick={createSub} disabled={!current}>
+            新建子组件
           </button>
         </span>
-        <button onClick={createSub} disabled={!current}>
-          新建子组件
-        </button>
         <span className="toolbar-sep" />
-        <button onClick={() => setShowSettings(true)} disabled={!current || !doc} title="工程全局设置（采样率/块长度/缓冲）">
-          ⚙ 设置
-        </button>
-        <button
-          onClick={() => setShowParams(true)}
-          disabled={!current || !doc}
-          title="按树形浏览全部参数与探针（按数据类型分类），支持导入导出（含 Bulk 数据）"
-        >
-          ☰ 参数面板
-        </button>
+        <span className="tb-group">
+          <button onClick={doSave} disabled={!dirty || !current || saving}>
+            {saving ? '保存中…' : '保存'}
+          </button>
+          <label className="autosave">
+            <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
+            自动保存
+          </label>
+        </span>
         <span className="toolbar-sep" />
-        <button onClick={doCompile} disabled={!current}>
-          编译
-        </button>
-        <label className="pace-label" title="离线运行时按真实时长播放（进度条/曲线实时走动）">
-          <input
-            type="checkbox"
-            checked={paceRun}
-            onChange={(e) => setPaceRun(e.target.checked)}
-            disabled={!current || rt.running}
-          />
-          按真实时长播放
-        </label>
-        <button onClick={doRunGenerated} disabled={!current || rt.running}>
-          ⚙ 编译后运行
-        </button>
-        <button
-          onClick={doGenerate}
-          disabled={!current}
-          title="只生成独立 C 工程（不构建/运行），嵌入 DSP 部署用；含 platform_io.c 适配模板"
-        >
-          ⤓ 生成代码
-        </button>
-        {current && (
-          <a className="button" href={api.downloadUrl(current)} download>
-            下载 zip
-          </a>
-        )}
+        <span className="tb-group">
+          <button onClick={() => setShowSettings(true)} disabled={!current || !doc} title="工程全局设置（采样率/块长度/缓冲）">
+            ⚙ 设置
+          </button>
+          <button
+            onClick={() => setShowParams(true)}
+            disabled={!current || !doc}
+            title="按树形浏览全部参数与探针（按数据类型分类），支持导入导出（含 Bulk 数据）"
+          >
+            ☰ 参数面板
+          </button>
+        </span>
+        <span className="toolbar-sep" />
+        <span className="tb-group">
+          <button className="primary" onClick={doRun} disabled={!current || rt.running}>
+            ▶ 运行
+          </button>
+          {rt.running && (
+            <button className="danger-tool" onClick={doRtStop}>
+              ■ 停止
+            </button>
+          )}
+          <label className="pace-label" title="离线运行时按真实时长播放（进度条/曲线实时走动）">
+            <input
+              type="checkbox"
+              checked={paceRun}
+              onChange={(e) => setPaceRun(e.target.checked)}
+              disabled={!current || rt.running}
+            />
+            真实时长
+          </label>
+          <button
+            className="tb-more"
+            onClick={() => setOpenMenu(openMenu === 'run' ? null : 'run')}
+            title="更多运行/生成操作"
+          >
+            ⋯
+          </button>
+          {openMenu === 'run' && (
+            <div className="tb-menu">
+              <button
+                onClick={() => {
+                  setOpenMenu(null);
+                  doCompile();
+                }}
+              >
+                编译
+              </button>
+              <button
+                onClick={() => {
+                  setOpenMenu(null);
+                  doRunGenerated();
+                }}
+              >
+                ⚙ 编译后运行
+              </button>
+              <button
+                onClick={() => {
+                  setOpenMenu(null);
+                  doGenerate();
+                }}
+              >
+                ⤓ 生成代码
+              </button>
+              {current && (
+                <a className="button" href={api.downloadUrl(current)} download onClick={() => setOpenMenu(null)}>
+                  下载 zip
+                </a>
+              )}
+            </div>
+          )}
+        </span>
       </div>
       <div className="statusbar">
         <span className={`status ${dirty ? 'dirty' : ''}`}>
