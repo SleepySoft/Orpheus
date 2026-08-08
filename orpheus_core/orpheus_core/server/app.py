@@ -125,6 +125,7 @@ def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
         "parameters": m.get("parameters", []),
         "bulk_slots": m.get("bulk_slots", []),
         "custom_handles": m.get("custom_handles", []),
+        "user_owned": m.get("user_owned", False),
     }
 
 
@@ -252,6 +253,32 @@ def create_app(project_root: Path) -> FastAPI:
     def rescan_components() -> dict[str, Any]:
         registry.scan()
         return {"count": len(registry.list_components())}
+
+    @app.delete("/api/components/{component_id}")
+    def delete_component(component_id: str) -> dict[str, Any]:
+        """删除用户自定义组件（需 user_owned；公共库组件拒绝）。"""
+        info = registry.get(component_id)
+        if info is None:
+            raise HTTPException(status_code=404, detail=f"组件不存在: {component_id}")
+        if not info.manifest.get("user_owned", False):
+            raise HTTPException(status_code=400, detail="公共库组件不可删除")
+        shutil.rmtree(info.root_dir)
+        registry.scan()
+        return {"deleted": component_id}
+
+    @app.post("/api/components/{component_id}/promote")
+    def promote_component(component_id: str) -> dict[str, Any]:
+        """把用户自定义组件提升为公共库（user_owned=false，之后不可直接删除）。"""
+        info = registry.get(component_id)
+        if info is None:
+            raise HTTPException(status_code=404, detail=f"组件不存在: {component_id}")
+        yaml_path = info.root_dir / "component.yaml"
+        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        data["user_owned"] = False
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+        registry.scan()
+        return {"promoted": component_id}
 
     @app.get("/api/devices")
     def list_devices() -> dict[str, Any]:

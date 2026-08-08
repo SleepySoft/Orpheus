@@ -306,12 +306,38 @@ const { screenToFlowPosition } = useReactFlow();
 
   const onNodesChange = useCallback(
     (changes) => {
-      updateView(activeView, (v) => ({ ...v, nodes: applyNodeChanges(changes, v.nodes) }));
-      if (changes.some((c) => ['position', 'remove', 'add'].includes(c.type))) setDirty(true);
-      if (changes.some((c) => c.type === 'remove' && c.id === selectedId)) setSelectedId(null);
+      const removed = changes.filter((c) => c.type === 'remove').map((c) => c.id);
+      updateView(activeView, (v) => {
+        const gone = new Set(removed);
+        return {
+          nodes: applyNodeChanges(changes, v.nodes),
+          edges: gone.size
+            ? v.edges.filter((e) => !gone.has(e.source) && !gone.has(e.target))
+            : v.edges,
+        };
+      });
+      if (removed.length) {
+        setSelectedIds((ids) => ids.filter((id) => !removed.includes(id)));
+        if (removed.includes(selectedId)) setSelectedId(null);
+        setDirty(true);
+      }
+      if (changes.some((c) => ['position', 'add'].includes(c.type))) setDirty(true);
     },
     [activeView, selectedId, updateView]
   );
+
+  /** 显式删除选中节点（多选/单选通用；连边一并清理）。 */
+  const deleteSelected = useCallback(() => {
+    const ids = selectedIds.filter((id) => view.nodes.some((n) => n.id === id));
+    if (!ids.length) return;
+    updateView(activeView, (v) => ({
+      nodes: v.nodes.filter((n) => !ids.includes(n.id)),
+      edges: v.edges.filter((e) => !ids.includes(e.source) && !ids.includes(e.target)),
+    }));
+    setSelectedIds([]);
+    setSelectedId(null);
+    setDirty(true);
+  }, [selectedIds, view, activeView, updateView]);
 
   const onEdgesChange = useCallback(
     (changes) => {
@@ -738,6 +764,7 @@ const { screenToFlowPosition } = useReactFlow();
         setStatus(`子组件 ${id} 仍被实例引用，无法删除`);
         return;
       }
+      if (!window.confirm(`确认删除工程子组件「${id}」？此操作不可撤销。`)) return;
       setSubsMeta((prev) => prev.filter((s) => s.id !== id));
       setViews((prev) => {
         const next = { ...prev };
@@ -748,6 +775,53 @@ const { screenToFlowPosition } = useReactFlow();
       setDirty(true);
     },
     [views, closeTab]
+  );
+
+  /** 重命名画布节点（仅显示名；节点 id/协议地址不变）。 */
+  const onRenameNode = useCallback(
+    (nodeId) => {
+      const nd = view.nodes.find((n) => n.id === nodeId);
+      if (!nd) return;
+      const name = window.prompt('节点名称（用于画布/参数面板定位；不影响节点 id 与协议地址）:', nd.data.label || nd.id);
+      if (name === null || !name.trim()) return;
+      updateView(activeView, (v) => ({
+        ...v,
+        nodes: v.nodes.map((n) =>
+          n.id === nodeId ? { ...n, data: { ...n.data, label: name.trim() } } : n
+        ),
+      }));
+      setDirty(true);
+    },
+    [activeView, view, updateView]
+  );
+
+  /** 自定义组件管理：删除（确认） / 提升为公共库（之后不可直接删除）。 */
+  const onDeleteComponent = useCallback(
+    async (componentId) => {
+      if (!window.confirm(`确认删除自定义组件「${componentId}」？将移除其源码目录，此操作不可撤销。`)) return;
+      try {
+        await api.deleteComponent(componentId);
+        setCatalog(await api.listComponents());
+        setStatus(`已删除自定义组件 ${componentId}`);
+      } catch (e) {
+        setStatus(`删除组件失败: ${api.errorDetail(e)}`);
+      }
+    },
+    []
+  );
+
+  const onPromoteComponent = useCallback(
+    async (componentId) => {
+      if (!window.confirm(`确认把「${componentId}」提升为公共库组件？提升后不能再从界面删除。`)) return;
+      try {
+        await api.promoteComponent(componentId);
+        setCatalog(await api.listComponents());
+        setStatus(`已提升为公共库组件 ${componentId}`);
+      } catch (e) {
+        setStatus(`提升组件失败: ${api.errorDetail(e)}`);
+      }
+    },
+    []
   );
 
   const addSubPort = useCallback(
@@ -1077,6 +1151,14 @@ const { screenToFlowPosition } = useReactFlow();
           <button onClick={createSub} disabled={!current}>
             新建子组件
           </button>
+          <button
+            className="danger-soft"
+            onClick={deleteSelected}
+            disabled={!selectedIds.length}
+            title="删除选中的节点（Delete 键同样可用）"
+          >
+            删除选中
+          </button>
         </span>
         <span className="toolbar-sep" />
         <span className="tb-group">
@@ -1193,7 +1275,13 @@ const { screenToFlowPosition } = useReactFlow();
         ))}
       </div>
       <div className="main">
-        <Palette components={catalog} subsMeta={subsMeta} onDeleteSub={deleteSub} />
+        <Palette
+          components={catalog}
+          subsMeta={subsMeta}
+          onDeleteSub={deleteSub}
+          onDeleteComponent={onDeleteComponent}
+          onPromoteComponent={onPromoteComponent}
+        />
         <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
           <ReactFlow
             nodes={view.nodes}
@@ -1230,6 +1318,7 @@ const { screenToFlowPosition } = useReactFlow();
             node={selectedNode}
             onParamChange={onParamChange}
             onDeleteNode={onDeleteNode}
+            onRenameNode={onRenameNode}
             ctx={paramCtx}
           />
         </div>

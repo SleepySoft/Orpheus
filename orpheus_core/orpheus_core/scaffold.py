@@ -35,6 +35,7 @@ category: {category}
 version: 1.0.0
 abi_version: 1
 package_type: source
+user_owned: true
 state_type: {camel}State
 sources:
   - src/{name}.c

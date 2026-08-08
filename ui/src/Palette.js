@@ -12,7 +12,7 @@ function categorySort(a, b) {
 }
 
 /** Left-hand palette: project subcomponents + category tree of global components. */
-export default function Palette({ components, subsMeta, onDeleteSub }) {
+export default function Palette({ components, subsMeta, onDeleteSub, onDeleteComponent, onPromoteComponent }) {
   const [collapsed, setCollapsed] = useState({});
 
   const byCategory = useMemo(() => {
@@ -56,6 +56,29 @@ export default function Palette({ components, subsMeta, onDeleteSub }) {
         )}
       </div>
       <div className="palette-item-id">{c.id}</div>
+      {!c.sub && c.user_owned && (
+        <div className="palette-manage">
+          <button
+            title="提升为公共库组件（之后不可直接删除）"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPromoteComponent(c.id);
+            }}
+          >
+            提升
+          </button>
+          <button
+            className="palette-del-btn"
+            title="删除自定义组件（移除源码目录，需确认）"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteComponent(c.id);
+            }}
+          >
+            删除
+          </button>
+        </div>
+      )}
     </div>
   );
 

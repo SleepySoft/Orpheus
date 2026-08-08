@@ -114,6 +114,42 @@
   background: rgba(255, 255, 255, 0.12);
 }
 
+/* 自定义组件管理（提升为公共库 / 删除） */
+.palette-manage {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.palette-manage button {
+  font-size: 11px;
+  padding: 1px 7px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  color: #495057;
+}
+
+.palette-manage button.palette-del-btn {
+  color: #e03131;
+  border-color: #ffc9c9;
+}
+
+.rename-btn {
+  margin-left: 6px;
+  font-size: 11px;
+  padding: 1px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+}
+
+.toolbar button.danger-soft {
+  color: #e03131;
+}
+
 .toolbar-sep {
   width: 1px;
   height: 20px;

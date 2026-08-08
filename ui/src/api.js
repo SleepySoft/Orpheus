@@ -12,6 +12,8 @@ const unwrap = (p) => p.then((r) => r.data);
 
 export const listComponents = () => unwrap(api.get('/components'));
 export const rescanComponents = () => unwrap(api.post('/components/rescan'));
+export const deleteComponent = (id) => unwrap(api.delete(`/components/${id}`));
+export const promoteComponent = (id) => unwrap(api.post(`/components/${id}/promote`));
 export const listProjects = () => unwrap(api.get('/projects'));
 export const listExamples = () => unwrap(api.get('/examples'));
 export const createProject = (name, fromExample = null) =>

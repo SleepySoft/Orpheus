@@ -4,6 +4,7 @@ category: ???
 version: 1.0.0
 abi_version: 1
 package_type: source
+user_owned: true
 state_type: MyEffectState
 sources:
   - src/my_effect.c

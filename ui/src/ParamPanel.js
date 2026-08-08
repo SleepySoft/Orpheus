@@ -10,7 +10,7 @@ const isUniversalParam = (p) => p.affects_signature || UNIVERSAL_IDS.has(p.id);
 const isDisplayOnly = (p) => Boolean(p.readback) && !p.affects_signature && !p.persistent;
 
 /** Right-hand panel: edit the selected node's parameters per its manifest schema. */
-export default function ParamPanel({ node, onParamChange, onDeleteNode, ctx }) {
+export default function ParamPanel({ node, onParamChange, onDeleteNode, onRenameNode, ctx }) {
   if (!node) {
     return (
       <div className="sidebar">
@@ -29,6 +29,9 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode, ctx }) {
         <h3>参数面板</h3>
         <p className="node-ref">
           <strong>{node.id}</strong>
+          <button className="rename-btn" onClick={() => onRenameNode(node.id)} title="重命名节点（显示名）">
+            重命名
+          </button>
           <br />
           <span className="muted">子组件 {component}</span>
         </p>
@@ -61,6 +64,9 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode, ctx }) {
       <h3>参数面板</h3>
       <p className="node-ref">
         <strong>{node.id}</strong>
+        <button className="rename-btn" onClick={() => onRenameNode(node.id)} title="重命名节点（显示名）">
+          重命名
+        </button>
         <br />
         <span className="muted">{component}</span>
       </p>

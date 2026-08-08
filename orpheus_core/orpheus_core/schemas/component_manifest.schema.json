@@ -11,6 +11,11 @@
     "version": { "type": "string" },
     "abi_version": { "type": "integer", "minimum": 1 },
     "package_type": { "type": "string", "enum": ["source", "binary", "composite"], "default": "source" },
+    "user_owned": {
+      "type": "boolean",
+      "default": false,
+      "description": "用户自定义组件（脚手架创建）：可从 UI 删除（需确认）或提升为公共库（提升后不可直接删除）"
+    },
     "sources": {
       "type": "array",
       "items": { "type": "string" }
