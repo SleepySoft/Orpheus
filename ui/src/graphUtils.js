@@ -72,7 +72,7 @@ export function graphToFlow(graph, catalogById) {
       type: 'orpheus',
       position: { x: n.position?.x ?? 100, y: n.position?.y ?? 100 },
       data: {
-        label: n.id,
+        label: n.label || n.id,
         component: n.component,
         params: n.params || {},
         clockSource: !!comp?.clock_source,
@@ -98,6 +98,7 @@ export function flowToGraph(nodes, edges) {
       task: 'default',
       params: n.data.params || {},
       position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
+      ...(n.data.label && n.data.label !== n.id ? { label: n.data.label } : {}),
     })),
     connections: edges
       .filter((e) => e.sourceHandle && e.targetHandle)

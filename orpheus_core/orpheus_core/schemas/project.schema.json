@@ -78,6 +78,7 @@
             "properties": {
               "id": { "type": "string" },
               "component": { "type": "string" },
+              "label": { "type": "string", "description": "节点显示名（可重命名，空=用 id 显示）" },
               "version": { "type": "string" },
               "task": { "type": "string" },
               "params": { "type": "object" },

@@ -125,6 +125,32 @@ def test_import_example_and_compile(client):
         client.delete(f"/api/projects/{name}")
 
 
+def test_node_label_roundtrip(client):
+    """节点重命名（label）随工程文档持久化：PUT → GET 保留。"""
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        assert client.post("/api/projects", json={"name": name}).status_code == 201
+        doc = client.get(f"/api/projects/{name}").json()
+        doc["graph"] = {
+            "nodes": [
+                {
+                    "id": "g",
+                    "component": "orpheus.builtin.gain",
+                    "label": "主音量",
+                    "params": {"channels": 2},
+                    "position": {"x": 0, "y": 0},
+                }
+            ],
+            "connections": [],
+        }
+        assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+        got = client.get(f"/api/projects/{name}").json()
+        assert got["graph"]["nodes"][0]["label"] == "主音量"
+        assert client.post(f"/api/projects/{name}/compile").status_code == 200
+    finally:
+        client.delete(f"/api/projects/{name}")
+
+
 @pytest.mark.skipif(
     not (ROOT / "build" / "orpheus_runtime.exe").exists()
     or not (ROOT / "build" / "components").exists(),

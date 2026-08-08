@@ -27,6 +27,12 @@
 - 移除 device_out 的 `clock_source`/`clock_domain`：时钟徽标消失；仅 device_out 的图被正确拒绝
   （无数据源可播）；有源的“仅播放”图（wav_in/signal_gen → device_out）仍正常（源提供时钟域）。
 
+## 2026-08-08（第三十五次讨论：节点命名持久化）
+
+- 重命名后的节点 label 此前只在内存（保存后重开丢失）。工程节点格式新增 `label` 字段
+  （空=用 id 显示），Project Node/schema/loader/序列化与前端 graphToFlow/flowToGraph 全链路往返。
+- 测试：PUT 带 label → GET 保留 → 编译不受影响；全量 85 passed。
+
 ## 2026-08-08（第三十一次讨论：自定义组件壳脚手架）
 
 - `cli new-component <name>`：生成 ABI 骨架 + 用户文件隔离（`user/` 目录生成器永不覆盖）。

@@ -32,6 +32,7 @@ class PortRef:
 class Node:
     id: str
     component: str
+    label: str = ""  # 显示名（可重命名；空=用 id 显示）
     version: str | None = None
     task: str = "default"
     params: dict[str, Any] = field(default_factory=dict)
@@ -108,6 +109,7 @@ def _parse_graph(graph_data: dict[str, Any]) -> Graph:
         node = Node(
             id=n["id"],
             component=n["component"],
+            label=n.get("label", ""),
             version=n.get("version"),
             task=n.get("task", "default"),
             params=n.get("params", {}),
@@ -130,6 +132,7 @@ def _graph_to_dict(graph: Graph) -> dict[str, Any]:
             {
                 "id": n.id,
                 "component": n.component,
+                **({"label": n.label} if n.label else {}),
                 **({"version": n.version} if n.version else {}),
                 "task": n.task,
                 "params": n.params,
