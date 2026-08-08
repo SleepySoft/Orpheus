@@ -559,6 +559,190 @@ bool Runtime::lookup_id(const std::string& node_id, const std::string& key,
     return true;
 }
 
+namespace {
+constexpr size_t kMsgHdrSize = sizeof(OrpheusMessageHeader);
+
+uint32_t msg_event_of(uint32_t kind, bool write) {
+    switch (kind) {
+        case ORPHEUS_ID_RTC: return write ? ORPHEUS_EVENT_RTC_WRITE : ORPHEUS_EVENT_RTC_READ;
+        case ORPHEUS_ID_TUNE: return write ? ORPHEUS_EVENT_TUNE_WRITE : ORPHEUS_EVENT_TUNE_READ;
+        case ORPHEUS_ID_PROBE: return ORPHEUS_EVENT_PROBE_READ;
+        case ORPHEUS_ID_STATE: return ORPHEUS_EVENT_STATE_READ;
+        default: return ORPHEUS_EVENT_CUSTOM;
+    }
+}
+
+size_t msg_write_response(uint8_t* out, size_t out_cap, uint32_t route,
+                          uint32_t call_id, uint32_t flags, uint32_t words) {
+    if (out_cap < kMsgHdrSize + (size_t)words * 4) return 0;
+    OrpheusMessageHeader* h = reinterpret_cast<OrpheusMessageHeader*>(out);
+    h->route_id = route;
+    h->bits = ORPHEUS_MSG_MAKE(ORPHEUS_MSG_RESPONSE, flags, call_id, words);
+    return kMsgHdrSize + (size_t)words * 4;
+}
+}  // namespace
+
+int Runtime::register_hook(uint32_t id, OrpheusHookFn fn, void* ctx) {
+    if (fn == nullptr) return -1;
+    hooks_[id] = {fn, ctx};
+    return 0;
+}
+
+int Runtime::message(const uint8_t* in, size_t in_len, uint8_t* out,
+                     size_t out_cap, size_t* out_len) {
+    if (in == nullptr || in_len < kMsgHdrSize || out == nullptr || out_len == nullptr) return -1;
+    *out_len = 0;
+    const OrpheusMessageHeader* hdr = reinterpret_cast<const OrpheusMessageHeader*>(in);
+    size_t words = ORPHEUS_MSG_PAYLOAD_WORDS(hdr);
+    if (kMsgHdrSize + words * 4 > in_len) return -1;
+    uint32_t route = hdr->route_id;
+    uint32_t call_id = ORPHEUS_MSG_CALL_ID(hdr);
+    OrpheusBlob req{in + kMsgHdrSize, static_cast<uint32_t>(words * 4)};
+    uint32_t msg_type = ORPHEUS_MSG_TYPE(hdr);
+
+    if (msg_type == ORPHEUS_MSG_NOTIFICATION) {
+        /* 单向分发：外部 hook 或组件 hook；resp=NULL（notification 无返回） */
+        auto h = hooks_.find(route);
+        if (h != hooks_.end()) {
+            h->second.fn(h->second.ctx, route, ORPHEUS_EVENT_CUSTOM, &req, nullptr);
+            return 0;
+        }
+        OrpheusResolvedData d;
+        if (resolve(route, &d) == ORPHEUS_OK && d.node && d.key && d.form != ORPHEUS_FORM_MODULE) {
+            auto ii = instances_.find(d.node);
+            if (ii != instances_.end() &&
+                ii->second->interface_->get_descriptor()->abi_version >= 3 &&
+                ii->second->interface_->hook) {
+                ii->second->interface_->hook(ii->second->state, route,
+                                             msg_event_of(d.kind, false), &req, nullptr);
+            }
+        }
+        return 0;
+    }
+    if (msg_type != ORPHEUS_MSG_CALL) return -1;
+
+    /* CALL → 同步 RESPONSE（回显 call_id；错误置 flags 错误位） */
+    OrpheusBlob resp{out + kMsgHdrSize, 0};
+    auto hook_resp = [&](OrpheusHookFn fn, void* ctx, uint32_t event) -> size_t {
+        int r = fn(ctx, route, event, &req, &resp);
+        if (r == ORPHEUS_HOOK_ERROR || resp.len > out_cap - kMsgHdrSize) {
+            return msg_write_response(out, out_cap, route, call_id, ORPHEUS_MSG_FLAG_ERROR, 0);
+        }
+        if (r == ORPHEUS_HOOK_HANDLED) {
+            return msg_write_response(out, out_cap, route, call_id, 0, (resp.len + 3) / 4);
+        }
+        return 0;  /* CONTINUE */
+    };
+
+    size_t len = 0;
+    auto h = hooks_.find(route);
+    if (h != hooks_.end()) {
+        OrpheusResolvedData d0;
+        uint32_t event = ORPHEUS_EVENT_CUSTOM;
+        if (resolve(route, &d0) == ORPHEUS_OK) event = msg_event_of(d0.kind, words > 0);
+        len = hook_resp(h->second.fn, h->second.ctx, event);
+        if (len > 0) { *out_len = len; return 0; }
+    }
+    {
+        OrpheusResolvedData d;
+        if (resolve(route, &d) == ORPHEUS_OK && d.node && d.key && d.form != ORPHEUS_FORM_MODULE) {
+            auto ii = instances_.find(d.node);
+            if (ii != instances_.end() &&
+                ii->second->interface_->get_descriptor()->abi_version >= 3 &&
+                ii->second->interface_->hook) {
+                len = hook_resp(ii->second->interface_->hook, ii->second->state,
+                                msg_event_of(d.kind, words > 0));
+                if (len > 0) { *out_len = len; return 0; }
+            }
+        }
+    }
+    /* 默认语义 */
+    uint32_t resp_words = 0, resp_flags = 0;
+    int rc = msg_default(route, req, words > 0, out, out_cap, &resp_words, &resp_flags);
+    if (rc != 0) return rc;
+    len = msg_write_response(out, out_cap, route, call_id, resp_flags, resp_words);
+    if (len == 0) return -1;
+    *out_len = len;
+    return 0;
+}
+
+int Runtime::msg_default(uint32_t route, const OrpheusBlob& req, bool write,
+                         uint8_t* out, size_t out_cap, uint32_t* resp_words, uint32_t* resp_flags) {
+    OrpheusResolvedData d;
+    if (resolve(route, &d) != ORPHEUS_OK) { *resp_flags = ORPHEUS_MSG_FLAG_ERROR; return 0; }
+    if (d.kind == ORPHEUS_ID_CUSTOM || d.form == ORPHEUS_FORM_MODULE) {
+        *resp_flags = ORPHEUS_MSG_FLAG_ERROR;  /* CUSTOM 必须由 hook 处理；模块包整块暂不支持 */
+        return 0;
+    }
+    if ((d.kind == ORPHEUS_ID_PROBE || d.kind == ORPHEUS_ID_STATE) && write) {
+        *resp_flags = ORPHEUS_MSG_FLAG_ERROR;  /* 只读 */
+        return 0;
+    }
+    if (write) {
+        if (d.form == ORPHEUS_FORM_BULK) {
+            size_t n = req.len / 4;
+            if (n == 0 || n > d.count || write_bulk_id(route, req.data, n) != ORPHEUS_OK) {
+                *resp_flags = ORPHEUS_MSG_FLAG_ERROR;
+            }
+            return 0;
+        }
+        if (req.len < 4) { *resp_flags = ORPHEUS_MSG_FLAG_ERROR; return 0; }
+        OrpheusValue v;
+        if (d.type == ORPHEUS_VALUE_FLOAT) {
+            v.type = ORPHEUS_VALUE_FLOAT;
+            std::memcpy(&v.value.f32, req.data, 4);
+        } else if (d.type == ORPHEUS_VALUE_INT) {
+            v.type = ORPHEUS_VALUE_INT;
+            std::memcpy(&v.value.i32, req.data, 4);
+        } else if (d.type == ORPHEUS_VALUE_BOOL) {
+            v.type = ORPHEUS_VALUE_BOOL;
+            v.value.b = *reinterpret_cast<const uint8_t*>(req.data) != 0;
+        } else {
+            *resp_flags = ORPHEUS_MSG_FLAG_ERROR;
+            return 0;
+        }
+        if (write_id(route, v) != ORPHEUS_OK) *resp_flags = ORPHEUS_MSG_FLAG_ERROR;
+        return 0;
+    }
+    /* 读 */
+    if (d.form == ORPHEUS_FORM_BULK) {
+        size_t n = d.count;
+        if (n == 0 || n * 4 > out_cap - kMsgHdrSize) { *resp_flags = ORPHEUS_MSG_FLAG_ERROR; return 0; }
+        if (get_bulk_id(route, out + kMsgHdrSize, n) != ORPHEUS_OK) {
+            *resp_flags = ORPHEUS_MSG_FLAG_ERROR;
+            return 0;
+        }
+        *resp_words = static_cast<uint32_t>(n);
+        return 0;
+    }
+    OrpheusValue v;
+    if (read_id(route, &v) != ORPHEUS_OK) { *resp_flags = ORPHEUS_MSG_FLAG_ERROR; return 0; }
+    if (v.type == ORPHEUS_VALUE_FLOAT) {
+        std::memcpy(out + kMsgHdrSize, &v.value.f32, 4);
+        *resp_words = 1;
+    } else if (v.type == ORPHEUS_VALUE_INT) {
+        std::memcpy(out + kMsgHdrSize, &v.value.i32, 4);
+        *resp_words = 1;
+    } else if (v.type == ORPHEUS_VALUE_BOOL) {
+        out[kMsgHdrSize] = v.value.b ? 1 : 0;
+        *resp_words = 1;
+    } else {
+        *resp_flags = ORPHEUS_MSG_FLAG_ERROR;
+    }
+    return 0;
+}
+
+size_t Runtime::build_notification(uint32_t route_id, uint32_t call_id,
+                                   const void* data, size_t len, uint8_t* out, size_t out_cap) const {
+    size_t words = (len + 3) / 4;
+    if (out == nullptr || out_cap < kMsgHdrSize + words * 4) return 0;
+    OrpheusMessageHeader* h = reinterpret_cast<OrpheusMessageHeader*>(out);
+    h->route_id = route_id;
+    h->bits = ORPHEUS_MSG_MAKE(ORPHEUS_MSG_NOTIFICATION, 0, call_id, static_cast<uint32_t>(words));
+    if (words > 0) std::memcpy(out + kMsgHdrSize, data, len);
+    return kMsgHdrSize + words * 4;
+}
+
 std::vector<const SlotEntry*> Runtime::probe_slots(const std::string& node_id) const {
     std::vector<const SlotEntry*> out;
     auto it = instances_.find(node_id);

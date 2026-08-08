@@ -22,6 +22,13 @@ _KIND_NAMES = {0: "RTC", 1: "TUNE", 2: "PROBE", 3: "STATE", 4: "CUSTOM"}
 _FORM_NAMES = {0: "SCALAR", 1: "BULK", 2: "MODULE"}
 
 
+def _msg_call_id(frame_hex: str) -> int:
+    """从二进制消息帧（hex）解出 call_id（头 bits 的 bit25..10）。"""
+    raw = bytes.fromhex(frame_hex)
+    bits = int.from_bytes(raw[4:8], "little")
+    return (bits >> 10) & 0xFFFF
+
+
 def parse_probe_line(line: str) -> tuple[str, str, Any] | None:
     """Parse one host stdout line into (node, param, value) or None.
 
@@ -84,6 +91,9 @@ class RtSession:
                             or line.startswith("ERR RWB ")
                             or line.startswith("BULKVALUE ")
                             or line.startswith("ERR GETBULK ")
+                            or line.startswith("MSGRSP ")
+                            or line.startswith("MSGNONE")
+                            or line.startswith("ERR MSG ")
                         ):
                             self._cmd_lines.append(line)
                         else:
@@ -209,6 +219,24 @@ class RtSession:
             raise RuntimeError(line)
         parts = line.split()
         return [float(v) for v in parts[2:]]
+
+    def msg(self, msg_hex: str, call_id: int, timeout: float = 3.0) -> str:
+        """二进制消息：MSG <hex>；CALL → MSGRSP <hex>（按 call_id 匹配），NOTIFICATION/错误 → ''。"""
+        with self._lock:
+            base = len(self._cmd_lines)
+        self.send(f"MSG {msg_hex}")
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._lock:
+                for line in self._cmd_lines[base:]:
+                    if line.startswith("MSGRSP "):
+                        rsp = line[7:].strip()
+                        if _msg_call_id(rsp) == call_id:
+                            return rsp
+                    if line.startswith("MSGNONE") or line.startswith("ERR MSG "):
+                        return ""
+            time.sleep(0.02)
+        raise RuntimeError("rt_host MSG 超时（call_id 未匹配）")
 
     def stop(self, timeout: float = 3.0) -> None:
         if not self.running:

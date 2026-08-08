@@ -1,5 +1,38 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-08（第三十次讨论：二进制消息协议落地——CALL/RESPONSE/NOTIFICATION + call_id）
+
+### 语义（并入 design_registry §18）
+
+- 方向 runtime 向外：Response = 同步返回（所有 CALL 都有 RESPONSE）；Notification = 异步结果/事件推送。
+- call_id：调用方自选不透明令牌（当 session/handle 皆可），callee 只回声；跨 CPU 异步返回按 call_id 回原调用者。
+- 信封：8 字节头（route_id 一个 uint32 + msg_type 2b / flags 4b / call_id 16b / payload_words 10b），
+  payload 4 字节对齐、消息自描述、小端。
+
+### 实现
+
+- ABI v3：`OrpheusMessageHeader`/宏、`OrpheusMsgType`、`OrpheusBlob`、`OrpheusEvent`、
+  `OrpheusHookFn`；组件接口尾部追加统一 `hook`（旧 DLL 按 abi_version≥3 守门访问，避免越界读）。
+- Runtime：`register_hook`（外部注册优先）、`message()`（CALL→RESPONSE 同步返回；NOTIFICATION 单向分发；
+  分发优先级 外部 hook → 组件 hook → 默认槽语义；CUSTOM 必须由 hook 处理）、`build_notification`。
+- 宿主：离线 `--msg <hex>`（支持 `--msg ... --run N --msg ...` 按命令行顺序执行）、`--echo-hook <id>`；
+  rt_host `MSG <hex>`；后端 `POST /rt/msg`（RtSession 按 call_id 匹配 MSGRSP）。
+- 生成侧：`orpheus_control_register_hook/message`（同款分发 + g_all_id_ref 路由 + 默认槽读写），
+  生成 main 支持 `--msg`（多次，按序）。
+- 测试 `test_message_protocol.py`（2 项）：RTC 写/读、PROBE 读/写拒、CUSTOM 无 hook 错误/echo hook、
+  NOTIFICATION 无返回、BULK 双 bank 经消息通道写→run→读；动态与生成两路。
+
+### 修坑
+
+- ABI 尾部加字段必须升版本并按版本守门（旧组件 DLL 越界读 hook 崩溃）。
+- `ORPHEUS_MSG_FLAG_ERROR` 必须是 4 位 flags 窗口内位（0x8），不能是绝对位 1<<29（会被 MAKE 再移位溢出）。
+- 消息序列与块提交顺序：读回必须在 run（提交）之后；离线 CLI 改为按命令行顺序执行 msg/run。
+- payload 按字对齐，尾部补零为设计语义（接收端按需去尾零）。
+
+### 验证
+
+- 全量 79 passed。
+
 ## 2026-08-08（第二十九次讨论：双 bank 落到生成路径 + 清理 backlog）
 
 - 用户定调：双 bank 只有到最终生成的嵌入式代码才有意义；且实际场景是少数——通常先 mute 再更新。

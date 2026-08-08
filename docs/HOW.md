@@ -856,3 +856,18 @@ orpheus_platform_memory_section_bind(...);
 - UI：工程设置一个下拉（自动/全部/关闭）；参数面板 bulk 行只显示只读「双缓冲」徽标，无逐行开关。
 - **实际场景定位**：双 bank 是少数派——常规无毛刺调音惯例是 mute → 更新系数 → unmute
   （mute 是 RTC 实时参数）；双 bank 仅用于必须边跑边更的少数系数。
+
+---
+
+## 28. 二进制消息协议（CALL / RESPONSE / NOTIFICATION）
+
+> 设计：`docs/design_registry.md` §18。统一语义：kind = 运行时确定语义，hook = 扩展缝（外部注册优先），
+> CUSTOM = 用户完全自处理的消息。
+
+- **Response = 同步返回**：所有 CALL 都同步得到一个 RESPONSE；**Notification = 异步交付/事件推送**，
+  无返回；异步操作 = CALL 先 RESPONSE（受理）→ 结果经 NOTIFICATION（带 call_id）送达。
+- 信封：8 字节头（route_id 占满一个 uint32；另一个字 = msg_type 2b + flags 4b + call_id 16b +
+  payload_words 10b），payload 4 字节对齐，消息自描述，无帧长前缀；小端。
+- 分发优先级：外部注册 hook → 组件接口 hook → 默认槽语义（确定性 kind 读写；CUSTOM 必须由 hook 处理）。
+- 入口：`Runtime::register_hook/message`、rt_host `MSG <hex>`、离线 `--msg <hex>`、
+  后端 `POST /rt/msg`（按 call_id 匹配响应）；生成侧 `orpheus_control_message/register_hook` 同款。

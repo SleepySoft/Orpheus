@@ -67,6 +67,16 @@ public:
     // node/key → 32 位数据 ID（反查，GETBULK 等使用）
     bool lookup_id(const std::string& node_id, const std::string& key, uint32_t* out_id) const;
 
+    // v2.2 统一 hook（外部注册优先于组件接口 hook，最后默认语义）
+    int register_hook(uint32_t id, OrpheusHookFn fn, void* ctx);
+
+    // v2.2 二进制消息：CALL → RESPONSE（同步返回）；NOTIFICATION → 单向分发（out_len=0）
+    int message(const uint8_t* in, size_t in_len, uint8_t* out, size_t out_cap, size_t* out_len);
+
+    // 构造 NOTIFICATION 帧（异步结果/事件向外推送）；返回帧长（0=缓冲不足）
+    size_t build_notification(uint32_t route_id, uint32_t call_id, const void* data, size_t len,
+                              uint8_t* out, size_t out_cap) const;
+
     // v2 探针发现：返回某节点的 PROBE 槽列表（替代宿主按组件名/描述符猜测）。
     std::vector<const SlotEntry*> probe_slots(const std::string& node_id) const;
 
@@ -112,7 +122,12 @@ private:
     std::map<std::string, uint8_t*> bulk_active_map_;  // "node\x1fkey" -> active 指针
     std::map<std::string, size_t> bulk_span_map_;      // "node\x1fkey" -> 字节数
     std::map<std::string, bool> bulk_pending_;         // 待提交标志（块边界提交）
+    struct RegisteredHook { OrpheusHookFn fn; void* ctx; };
+    std::map<uint32_t, RegisteredHook> hooks_;         // 外部注册 hook（按 route_id）
     uint64_t block_counter_ = 0;  // for rate-divisor scheduling
+
+    int msg_default(uint32_t route, const OrpheusBlob& req, bool write,
+                    uint8_t* out, size_t out_cap, uint32_t* resp_words, uint32_t* resp_flags);
 
     int prepare_instance(Instance& inst, const NodeConfig& cfg);
 };

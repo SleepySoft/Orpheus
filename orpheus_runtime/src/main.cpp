@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
 
 void print_usage(const char* prog) {
     std::cerr << "Usage: " << prog << " <plan.json> <component_dir> [--pace] [--probe-interval ms]"
@@ -15,7 +16,8 @@ void print_usage(const char* prog) {
               << "\n       " << prog << " <plan.json> <component_dir> --resolve <id|0xhex>"
               << "\n       " << prog << " <plan.json> <component_dir> --rw <id> <value> | --rr <id>"
               << "\n       " << prog << " <plan.json> <component_dir> --rwb <id> <n> <v0>... [--run <blocks>] [--rgb <id>]"
-              << "\n       " << prog << " <plan.json> <component_dir> --getbulk <node> <key>" << std::endl;
+              << "\n       " << prog << " <plan.json> <component_dir> --getbulk <node> <key>"
+              << "\n       " << prog << " <plan.json> <component_dir> [--echo-hook <id>] --msg <hex>" << std::endl;
 }
 
 static const char* id_kind_name(uint32_t kind) {
@@ -53,6 +55,48 @@ static void print_resolved(const OrpheusResolvedData& d) {
               << " node=" << (d.node ? d.node : "")
               << " key=" << (d.key ? d.key : "")
               << " name=" << (d.name ? d.name : "") << std::endl;
+}
+
+static std::string to_hex(const uint8_t* p, size_t n) {
+    static const char* digits = "0123456789abcdef";
+    std::string s;
+    s.reserve(n * 2);
+    for (size_t i = 0; i < n; ++i) {
+        s.push_back(digits[p[i] >> 4]);
+        s.push_back(digits[p[i] & 0xF]);
+    }
+    return s;
+}
+
+static bool from_hex(const std::string& hx, std::vector<uint8_t>* out) {
+    if (hx.size() % 2 != 0) return false;
+    out->clear();
+    auto cv = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
+    for (size_t i = 0; i < hx.size(); i += 2) {
+        int hi = cv(hx[i]), lo = cv(hx[i + 1]);
+        if (hi < 0 || lo < 0) return false;
+        out->push_back(static_cast<uint8_t>((hi << 4) | lo));
+    }
+    return true;
+}
+
+/* 测试用 echo hook：把请求 payload 原样作为响应返回（CUSTOM/消息路径验证）。 */
+static int echo_hook(void* ctx, uint32_t id, uint32_t event,
+                     const OrpheusBlob* req, OrpheusBlob* resp) {
+    (void)ctx; (void)id; (void)event;
+    if (resp == nullptr) return ORPHEUS_HOOK_HANDLED;  /* notification：处理但不返回 */
+    if (req != nullptr && req->len > 0) {
+        std::memcpy(const_cast<void*>(resp->data), req->data, req->len);
+        resp->len = req->len;
+    } else {
+        resp->len = 0;
+    }
+    return ORPHEUS_HOOK_HANDLED;
 }
 
 static std::string find_input_node(const orpheus::Plan& plan) {
@@ -104,6 +148,9 @@ int main(int argc, char** argv) {
     bool have_gb = false, have_rgb = false;
     std::string gb_node, gb_key;
     uint32_t rgb_id = 0;
+    bool have_echo = false, have_msg = false;
+    uint32_t echo_id = 0;
+    std::vector<std::pair<std::string, std::string>> actions;  // ("msg", hex) / ("run", n)，按命令行顺序执行
     for (int i = 3; i < argc; ++i) {
         if (std::string(argv[i]) == "--pace") {
             pace = true;
@@ -130,6 +177,7 @@ int main(int argc, char** argv) {
             have_rwb = true;
         } else if (std::string(argv[i]) == "--run" && i + 1 < argc) {
             run_blocks = (uint32_t)std::atoi(argv[++i]);
+            actions.push_back({"run", std::to_string(run_blocks)});
         } else if (std::string(argv[i]) == "--getbulk" && i + 2 < argc) {
             gb_node = argv[++i];
             gb_key = argv[++i];
@@ -137,6 +185,12 @@ int main(int argc, char** argv) {
         } else if (std::string(argv[i]) == "--rgb" && i + 1 < argc) {
             rgb_id = (uint32_t)std::strtoul(argv[++i], nullptr, 0);
             have_rgb = true;
+        } else if (std::string(argv[i]) == "--echo-hook" && i + 1 < argc) {
+            echo_id = (uint32_t)std::strtoul(argv[++i], nullptr, 0);
+            have_echo = true;
+        } else if (std::string(argv[i]) == "--msg" && i + 1 < argc) {
+            actions.push_back({"msg", argv[++i]});
+            have_msg = true;
         }
     }
 
@@ -162,6 +216,37 @@ int main(int argc, char** argv) {
                 print_resolved(d);
             } else {
                 std::cout << "ERR RESOLVE " << std::hex << "0x" << resolve_id << std::dec << std::endl;
+            }
+            return 0;
+        }
+        if (have_echo) {
+            runtime.register_hook(echo_id, echo_hook, nullptr);
+        }
+        if (have_msg) {
+            for (const auto& act : actions) {
+                if (act.first == "run") {
+                    int n = std::atoi(act.second.c_str());
+                    for (int i = 0; i < n; ++i) {
+                        if (runtime.process_block(plan.block_size) != 0) return 1;
+                    }
+                    continue;
+                }
+                std::vector<uint8_t> in;
+                if (!from_hex(act.second, &in)) {
+                    std::cout << "ERR MSG hex" << std::endl;
+                    return 1;
+                }
+                uint8_t out[65536];
+                size_t out_len = 0;
+                if (runtime.message(in.data(), in.size(), out, sizeof(out), &out_len) != 0) {
+                    std::cout << "ERR MSG dispatch" << std::endl;
+                    return 1;
+                }
+                if (out_len == 0) {
+                    std::cout << "MSGNONE" << std::endl;
+                } else {
+                    std::cout << "MSGRSP " << to_hex(out, out_len) << std::endl;
+                }
             }
             return 0;
         }

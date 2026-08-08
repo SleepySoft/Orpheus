@@ -102,6 +102,10 @@ class RtReadBulkRequest(BaseModel):
     id: int | None = None
 
 
+class RtMsgRequest(BaseModel):
+    hex: str
+
+
 class DistillImportRequest(BaseModel):
     yaml: str
 
@@ -728,6 +732,26 @@ def create_app(project_root: Path) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"id": req.id, "values": values}
+
+    @app.post("/api/projects/{name}/rt/msg")
+    def rt_msg(name: str, req: RtMsgRequest) -> dict[str, Any]:
+        """二进制消息：CALL → 同步 RESPONSE（按 call_id 匹配），NOTIFICATION → 无返回。"""
+        session = rt_sessions.get(name)
+        if session is None or not session.running:
+            raise HTTPException(status_code=400, detail="realtime session not running")
+        try:
+            frame = bytes.fromhex(req.hex)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="无效 hex") from exc
+        if len(frame) < 8:
+            raise HTTPException(status_code=400, detail="消息过短（至少 8 字节头）")
+        bits = int.from_bytes(frame[4:8], "little")
+        call_id = (bits >> 10) & 0xFFFF
+        try:
+            rsp = session.msg(req.hex, call_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"call_id": call_id, "response_hex": rsp or None}
 
     @app.get("/api/projects/{name}/files/{relpath:path}")
     def get_project_file(name: str, relpath: str) -> FileResponse:

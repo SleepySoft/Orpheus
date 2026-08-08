@@ -14,6 +14,34 @@
 #include <thread>
 #include <vector>
 
+static std::string to_hex(const uint8_t* p, size_t n) {
+    static const char* digits = "0123456789abcdef";
+    std::string s;
+    s.reserve(n * 2);
+    for (size_t i = 0; i < n; ++i) {
+        s.push_back(digits[p[i] >> 4]);
+        s.push_back(digits[p[i] & 0xF]);
+    }
+    return s;
+}
+
+static bool from_hex(const std::string& hx, std::vector<uint8_t>* out) {
+    if (hx.size() % 2 != 0) return false;
+    out->clear();
+    auto cv = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
+    for (size_t i = 0; i < hx.size(); i += 2) {
+        int hi = cv(hx[i]), lo = cv(hx[i + 1]);
+        if (hi < 0 || lo < 0) return false;
+        out->push_back(static_cast<uint8_t>((hi << 4) | lo));
+    }
+    return true;
+}
+
 struct HostContext {
     orpheus::Runtime* runtime;
     OrpheusBuffer* device_in_buf;
@@ -290,6 +318,7 @@ static void report_probes(orpheus::Runtime& runtime, const orpheus::Plan& plan) 
 //   BULK <node> <key> <n> <v0>...-> runtime.write_bulk (BULK 槽直写，如 biquad_bank 系数)
 //   RESOLVE <id>                -> 打印 RESOLVED <id> ...（内存透明：类型/长度/基址/偏移）
 //   MAP                         -> 打印全部 RESOLVED 行（数据点 + 模块包）
+//   MSG <hex>                   -> 二进制消息（8 字节头+payload）：CALL→MSGRSP <hex>，NOTIFICATION→MSGNONE
 //   STOP (or empty line / EOF)   -> shut down
 static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) {
     std::string line;
@@ -461,6 +490,25 @@ static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) 
             std::cout << "BULKVALUE " << std::hex << "0x" << id << std::dec;
             for (const float v : vals) std::cout << " " << v;
             std::cout << std::endl;
+        } else if (cmd == "MSG") {
+            std::string hx;
+            iss >> hx;
+            std::vector<uint8_t> in;
+            if (!from_hex(hx, &in)) {
+                std::cout << "ERR MSG hex" << std::endl;
+                continue;
+            }
+            uint8_t out[65536];
+            size_t out_len = 0;
+            if (runtime.message(in.data(), in.size(), out, sizeof(out), &out_len) != 0) {
+                std::cout << "ERR MSG dispatch" << std::endl;
+                continue;
+            }
+            if (out_len == 0) {
+                std::cout << "MSGNONE" << std::endl;
+            } else {
+                std::cout << "MSGRSP " << to_hex(out, out_len) << std::endl;
+            }
         }
     }
     running = false;

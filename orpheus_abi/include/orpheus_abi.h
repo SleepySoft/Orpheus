@@ -11,8 +11,9 @@ extern "C" {
 
 /* ABI 版本
    v2: 资源槽注册（register_slots）+ 实例内存块下发（OrpheusConfig.state_block）。
-   组件接口表尾部追加字段，旧 DLL（abi_version=1）由 Runtime 按版本号规避访问。 */
-#define ORPHEUS_ABI_VERSION 2
+   v3: 接口表尾部追加统一 hook（外部注册 hook 优先于组件 hook）。
+   组件接口表尾部追加字段，旧 DLL 由 Runtime 按版本号规避访问。 */
+#define ORPHEUS_ABI_VERSION 3
 
 /* 平台导出宏 */
 #ifndef ORPHEUS_API
@@ -178,6 +179,57 @@ typedef struct {
     const char* name;   /* 中文显示名（模块包=模块路径） */
 } OrpheusResolvedData;
 
+/* 二进制消息协议：CALL / RESPONSE / NOTIFICATION。
+   方向：runtime 向外；Response = 同步返回（所有 CALL 都有 RESPONSE）；
+   Notification = 异步结果/事件推送，无返回。call_id 为调用方自选不透明令牌。 */
+typedef enum {
+    ORPHEUS_MSG_CALL = 0,
+    ORPHEUS_MSG_RESPONSE = 1,
+    ORPHEUS_MSG_NOTIFICATION = 2
+} OrpheusMsgType;
+
+#define ORPHEUS_MSG_FLAG_ERROR (1u << 3)  /* 4 位 flags 窗口的 bit3 = 头 bits 的 bit29（错误） */
+
+typedef struct {
+    uint32_t route_id;
+    uint32_t bits;  /* msg_type(2)<<30 | flags(4)<<26 | call_id(16)<<10 | payload_words(10) */
+} OrpheusMessageHeader;
+
+#define ORPHEUS_MSG_TYPE(h)       (((h)->bits >> 30) & 0x3u)
+#define ORPHEUS_MSG_FLAGS(h)      (((h)->bits >> 26) & 0xFu)
+#define ORPHEUS_MSG_CALL_ID(h)    (((h)->bits >> 10) & 0xFFFFu)
+#define ORPHEUS_MSG_PAYLOAD_WORDS(h) ((h)->bits & 0x3FFu)
+#define ORPHEUS_MSG_MAKE(type_, flags_, call_id_, words_) \
+    ((((uint32_t)(type_)) << 30) | (((uint32_t)(flags_)) << 26) | \
+     (((uint32_t)(call_id_)) << 10) | ((uint32_t)(words_)))
+
+/* 二进制消息负载（4 字节对齐；hook 读写均用此结构，len 为字节数）。 */
+typedef struct {
+    const void* data;
+    uint32_t len;
+} OrpheusBlob;
+
+/* 统一 hook：kind = 运行时确定语义，hook = 扩展缝（外部注册优先），CUSTOM = 用户自处理。 */
+typedef enum {
+    ORPHEUS_EVENT_RTC_WRITE = 0,
+    ORPHEUS_EVENT_RTC_READ = 1,
+    ORPHEUS_EVENT_TUNE_WRITE = 2,
+    ORPHEUS_EVENT_TUNE_READ = 3,
+    ORPHEUS_EVENT_PROBE_READ = 4,
+    ORPHEUS_EVENT_STATE_READ = 5,
+    ORPHEUS_EVENT_CUSTOM = 6
+} OrpheusEvent;
+
+#define ORPHEUS_HOOK_CONTINUE 0   /* 未处理，继续默认语义 */
+#define ORPHEUS_HOOK_HANDLED 1    /* 已处理，跳过默认语义 */
+#define ORPHEUS_HOOK_ERROR (-1)
+
+typedef int (*OrpheusHookFn)(void* ctx, uint32_t id, uint32_t event,
+                             const OrpheusBlob* req, OrpheusBlob* resp);
+
+/* 消息负载访问：payload 按 4 字节对齐；读/写标量槽的便捷宏。 */
+#define ORPHEUS_MSG_PAYLOAD(msg) ((const void*)((const uint8_t*)(msg) + sizeof(OrpheusMessageHeader)))
+
 /* 槽描述：组件在 register_slots 中逐项提供 */
 typedef struct {
     OrpheusSlotKind kind;
@@ -312,6 +364,11 @@ typedef struct {
     /* v2：主动注册资源槽（地址/类型/说明）。实现后 Runtime 直接读写槽内存，
        set/get_parameter 退化为兜底。旧 DLL 该字段为 NULL（且 abi_version=1）。 */
     int (*register_slots)(void* state, const OrpheusRegistry* reg);
+
+    /* v2.2 统一 hook：外部注册 hook 优先，其次组件自带 hook，最后默认语义。
+       req/resp 为二进制 payload（OrpheusBlob）；resp=NULL 表示 notification。 */
+    int (*hook)(void* state, uint32_t id, uint32_t event,
+                const OrpheusBlob* req, OrpheusBlob* resp);
 } OrpheusComponentInterface;
 
 /* 组件唯一导出入口 */

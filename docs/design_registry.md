@@ -546,6 +546,40 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - **实际场景定位**：双 bank 是少数派——常规无毛刺调音惯例是 mute → 更新系数 → unmute
   （mute 为 RTC 实时参数，界面/协议均可即时控制）；双 bank 仅用于必须边跑边更的系数。
 
+## 18. 二进制消息协议（2026-08-08 定案）
+
+### 18.1 语义
+
+- **方向**：runtime 向外。**Response = 同步返回**——所有 CALL 都有一个 RESPONSE（哪怕只是“已受理/状态”）；
+  **Notification = 异步交付**——结果不是同步返回的操作，先收 RESPONSE（受理），结果之后以 NOTIFICATION
+  送达；纯事件（欠载、状态变化）也是 NOTIFICATION，无配对。
+- **call_id**：调用方自选的不透明令牌（当 session 或 handle 用皆可），callee 只回声不解析；
+  跨 CPU 异步返回时按 call_id 回到原调用者。单条链路/方向内唯一即可。
+- 消息类型：`CALL` / `RESPONSE` / `NOTIFICATION`。
+
+### 18.2 信封（8 字节头，payload 4 字节对齐，小端）
+
+```c
+hdr[0] = route_id                        /* 32 位数据 ID */
+hdr[1] = (msg_type   & 0x3)  << 30       /* 2b: CALL / RESPONSE / NOTIFICATION / reserved */
+       | (flags      & 0xF)  << 26       /* 4b: bit29 错误，bit28-26 reserved */
+       | (call_id    & 0xFFFF) << 10     /* 16b: 调用方自选不透明令牌 */
+       | (payload_words & 0x3FF);        /* 10b: payload 长度（32 位字数，0..1023 字 ≈ 4KB） */
+```
+
+- 消息自描述：总长 = 8 + payload_words×4，恒为 4 的倍数，无需帧级长度前缀。
+- 字节序统一小端；CRC/流式成帧留给传输层。
+
+### 18.3 分发（Runtime 与生成侧同款）
+
+- 优先级：外部注册 hook → 组件接口 hook → 默认语义（确定性 kind 的槽读写）。
+- CALL：有 payload = 写、无 payload = 读（RTC/TUNE/PROBE/STATE 走槽语义；CUSTOM 必须由 hook 处理）。
+- RESPONSE：回显 call_id/route_id；失败置 flags 错误位。
+- NOTIFICATION：单向分发（事件/异步结果），无返回。
+- hook 签名：`OrpheusHookFn(ctx, id, event, req, resp)`，req/resp 为二进制 payload（OrpheusBlob），
+  resp=NULL 表示 notification。
+- 异步：CALL 先同步 RESPONSE（受理），结果后经 `emit_notification(call_id, ...)` 推送。
+
 ### 2026-08-06（第五次讨论：经验与待办归档）
 
 - 经验教训与待办清单归档到本文档第 15/16 节；SKILL 同步更新（v2 组件写法、环境要求、生成路径注意事项）。
