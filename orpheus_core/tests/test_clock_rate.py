@@ -70,6 +70,33 @@ def test_device_flow_accepted(compiler):
     assert len(plan.nodes) == 3
 
 
+def test_device_out_is_not_clock_source():
+    """device_out 是汇不是时钟源：manifest 不再声明 clock_source（数据源才是时钟源）。"""
+    import yaml
+
+    manifest = yaml.safe_load(
+        (ROOT / "components" / "orpheus" / "builtin" / "device_out" / "component.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert not manifest.get("clock_source")
+    assert not manifest.get("clock_domain")
+
+
+def test_file_source_to_device_out_accepted(compiler):
+    """wav_in → device_out（播放 WAV 到声卡）：数据源提供时钟域，编译通过。"""
+    project = make_project(
+        [
+            Node(id="wav", component="orpheus.builtin.wav_in",
+                 params={"channels": 2, "file_path": "a.wav"}),
+            Node(id="dout", component="orpheus.builtin.device_out", params={"channels": 2}),
+        ],
+        [conn("wav:out", "dout:in")],
+    )
+    plan = compiler.compile(project)
+    assert len(plan.nodes) == 2
+
+
 def test_clock_free_graph_runs_on_implicit_clock(compiler):
     """No clock sources at all -> implicit host clock (legacy behavior)."""
     project = make_project(

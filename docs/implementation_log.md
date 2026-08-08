@@ -19,6 +19,14 @@
   原生与自定义组件实例均可。
 - 测试 `test_component_management.py`（公共库拒删、提升后拒删、自定义删除）；全量 82 passed。
 
+## 2026-08-08（第三十四次讨论：device_out 不是时钟源）
+
+- 纠正：只有 out 没有 source 本就无法播放；把 device_out 标为 clock_source 是错误 hack，
+  会掩盖“无源图通过校验”的假象。数据源才是时钟源（wav_in/signal_gen/device_in/embed_in），
+  device_out 只是汇；播放回调驱动处理是 rt_host 的传输层细节。
+- 移除 device_out 的 `clock_source`/`clock_domain`：时钟徽标消失；仅 device_out 的图被正确拒绝
+  （无数据源可播）；有源的“仅播放”图（wav_in/signal_gen → device_out）仍正常（源提供时钟域）。
+
 ## 2026-08-08（第三十一次讨论：自定义组件壳脚手架）
 
 - `cli new-component <name>`：生成 ABI 骨架 + 用户文件隔离（`user/` 目录生成器永不覆盖）。

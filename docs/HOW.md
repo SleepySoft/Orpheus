@@ -756,7 +756,7 @@ orpheus_platform_memory_section_bind(...);
 
 - **概念澄清**：运行方式只有两种——基座动态加载 / 代码生成后静态编译运行。WAV 还是系统音频是**输入输出组件**的事，可自由组合（如系统声音 → 处理 → WAV 录制）。
 - **统一入口**：`POST /api/projects/{name}/run` 按图内容分流——含 device_in/device_out 的图进入实时会话（rt_host），纯文件图走离线宿主；UI 只有一个「▶ 运行」按钮。「⚙ 编译后运行」走 `run_generated`（生成独立 C 工程 → 静态构建 → 运行）。
-- **rt_host 按图组合设备**：in+out+mic=duplex；in+out+loopback=环回+播放双设备；仅 out=播放时钟（WAV 播到声卡）；仅 in=采集/环回时钟（系统声音录到 WAV）。
+- **rt_host 按图组合设备**：in+out+mic=duplex；in+out+loopback=环回+播放双设备；仅 out（如 wav_in/signal_gen → device_out）=播放回调驱动、图语义时钟源仍是数据源组件；仅 in=采集/环回时钟（系统声音录到 WAV）。
 - **生成器修复**：组件入口函数支持 `ORPHEUS_ENTRY_NAME` 宏（静态链接时各组件入口唯一，修复了之前所有节点共享第一个组件入口符号导致的崩溃——此前生成工程只验证过编译未验证运行）；生成参数表（类型化 OrpheusValue）传入 prepare；Buffer 指针按端口 ID 槽位绑定；ABI 头文件随工程复制（自包含，可脱离仓库编译）；main 支持 argv 指定块数。
 - **一致性测试**：`test_generated_run_matches_dynamic_run` 对同一工程分别走动态/生成两条路径，逐字节比较输出 WAV（设计原则 5 的自动化落实）。
 
