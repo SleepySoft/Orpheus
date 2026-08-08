@@ -1058,6 +1058,7 @@ const { screenToFlowPosition } = useReactFlow();
           <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
           自动保存
         </label>
+        <span className="toolbar-sep" />
         <button onClick={() => setShowSettings(true)} disabled={!current || !doc} title="工程全局设置（采样率/块长度/缓冲）">
           ⚙ 设置
         </button>
@@ -1068,6 +1069,7 @@ const { screenToFlowPosition } = useReactFlow();
         >
           ☰ 参数面板
         </button>
+        <span className="toolbar-sep" />
         <button onClick={doCompile} disabled={!current}>
           编译
         </button>
@@ -1103,6 +1105,8 @@ const { screenToFlowPosition } = useReactFlow();
             下载 zip
           </a>
         )}
+      </div>
+      <div className="statusbar">
         <span className={`status ${dirty ? 'dirty' : ''}`}>
           {rt.running ? '⏺ 实时运行中' : dirty ? '● 未保存' : status}
         </span>
