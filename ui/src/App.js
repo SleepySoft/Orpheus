@@ -1042,6 +1042,24 @@ const { screenToFlowPosition } = useReactFlow();
           onChange={onDistillFile}
         />
         <span className="toolbar-sep" />
+        <button onClick={doSave} disabled={!dirty || !current || saving}>
+          {saving ? '保存中…' : '保存'}
+        </button>
+        <label className="autosave">
+          <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
+          自动保存
+        </label>
+        <span className="toolbar-sep" />
+        <button className="primary" onClick={doRun} disabled={!current || rt.running}>
+          ▶ 运行
+        </button>
+        {rt.running && (
+          <button className="danger-tool" onClick={doRtStop}>
+            ■ 停止
+          </button>
+        )}
+      </div>
+      <div className="toolbar toolbar-secondary">
         <span title="左键拖拽平移画布；Ctrl+拖拽圈选；Ctrl+点击多选">
           <button onClick={wrapSelection} disabled={!current || selectedIds.length === 0}>
             包装为子组件
@@ -1050,14 +1068,6 @@ const { screenToFlowPosition } = useReactFlow();
         <button onClick={createSub} disabled={!current}>
           新建子组件
         </button>
-        <span className="toolbar-sep" />
-        <button onClick={doSave} disabled={!dirty || !current || saving}>
-          {saving ? '保存中…' : '保存'}
-        </button>
-        <label className="autosave">
-          <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
-          自动保存
-        </label>
         <span className="toolbar-sep" />
         <button onClick={() => setShowSettings(true)} disabled={!current || !doc} title="工程全局设置（采样率/块长度/缓冲）">
           ⚙ 设置
@@ -1072,9 +1082,6 @@ const { screenToFlowPosition } = useReactFlow();
         <span className="toolbar-sep" />
         <button onClick={doCompile} disabled={!current}>
           编译
-        </button>
-        <button className="primary" onClick={doRun} disabled={!current || rt.running}>
-          ▶ 运行
         </button>
         <label className="pace-label" title="离线运行时按真实时长播放（进度条/曲线实时走动）">
           <input
@@ -1095,11 +1102,6 @@ const { screenToFlowPosition } = useReactFlow();
         >
           ⤓ 生成代码
         </button>
-        {rt.running && (
-          <button className="danger-tool" onClick={doRtStop}>
-            ■ 停止
-          </button>
-        )}
         {current && (
           <a className="button" href={api.downloadUrl(current)} download>
             下载 zip
