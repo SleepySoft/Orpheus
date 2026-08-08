@@ -241,6 +241,48 @@
   border-left: 1px solid #dee2e6;
 }
 
+/* 侧栏容器与头部收起按钮（展开态可见、明显） */
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  width: 200px;
+  background: #f1f3f5;
+  border-right: 1px solid #dee2e6;
+}
+
+.side-panel .palette {
+  width: auto;
+  border-right: none;
+  flex: 1;
+}
+
+.side-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #e9ecef;
+  border-bottom: 1px solid #dee2e6;
+  flex-shrink: 0;
+}
+
+.side-collapse {
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: white;
+  color: #495057;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 8px;
+  line-height: 1.6;
+}
+
+.side-collapse:hover {
+  background: #dee2e6;
+}
+
 /* ---------------------------------------------------------- tabs */
 
 .tabbar {

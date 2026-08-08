@@ -1285,13 +1285,21 @@ const { screenToFlowPosition } = useReactFlow();
           {leftOpen ? '«' : '»'}
         </button>
         {leftOpen && (
-          <Palette
-            components={catalog}
-            subsMeta={subsMeta}
-            onDeleteSub={deleteSub}
-            onDeleteComponent={onDeleteComponent}
-            onPromoteComponent={onPromoteComponent}
-          />
+          <div className="side-panel side-panel-left">
+            <div className="side-panel-header">
+              <span>组件库</span>
+              <button className="side-collapse" onClick={() => setLeftOpen(false)} title="收起组件库">
+                « 收起
+              </button>
+            </div>
+            <Palette
+              components={catalog}
+              subsMeta={subsMeta}
+              onDeleteSub={deleteSub}
+              onDeleteComponent={onDeleteComponent}
+              onPromoteComponent={onPromoteComponent}
+            />
+          </div>
         )}
         <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
           <ReactFlow
@@ -1324,6 +1332,12 @@ const { screenToFlowPosition } = useReactFlow();
         </div>
         {rightOpen && (
           <div className="rightbar">
+            <div className="side-panel-header">
+              <span>参数 / 子组件</span>
+              <button className="side-collapse" onClick={() => setRightOpen(false)} title="收起参数面板">
+                收起 »
+              </button>
+            </div>
             {activeSub && (
               <SubPortsPanel
                 sub={activeSub}
