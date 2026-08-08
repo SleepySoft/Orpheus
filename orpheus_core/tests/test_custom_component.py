@@ -75,10 +75,18 @@ def test_scaffold_generates_isolated_files(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(
     not (ROOT / "build" / "orpheus_runtime.exe").exists()
-    or not (ROOT / "build" / "components" / "liborpheus_builtin_my_effect.dll").exists(),
+    or not (ROOT / "build" / "components").exists(),
     reason="runtime / my_effect not built",
 )
 def test_custom_component_custom_message() -> None:
+    from orpheus_core.registry import Registry
+
+    reg = Registry()
+    reg.add_search_path(ROOT / "components")
+    reg.scan()
+    if reg.get("orpheus.builtin.my_effect") is None:
+        pytest.skip("演示组件 my_effect 未安装（可在组件库中重新创建）")
+
     name = _new_name()
     with TestClient(create_app(ROOT)) as client:
         assert client.post("/api/projects", json={"name": name}).status_code == 201
