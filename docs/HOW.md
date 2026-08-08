@@ -849,5 +849,10 @@ orpheus_platform_memory_section_bind(...);
 - 生效槽：Runtime 分配**影子区**：
   `write_bulk` 越界检查后仅 memcpy 进影子（标记 pending），`process_block` 块边界一次性
   memcpy 提交到 active——组件零样板，并发/原子性由框架承担（仓库原则）。
+- **生成路径同样支持**（部署到 MCU 才有意义）：生效槽在生成代码里产出 `orpheus_control.c`
+  （影子数组 + 槽表 + 按 node/key 与按 ID 的 bulk 读写 + 块边界提交），
+  生成 main 带 `--write-bulk/--read-bulk/--run` 控制 CLI；off 时零影子直写。
 - `get_bulk`：读 active bank，越界检查后仅 memcpy（高速大块特性）。
 - UI：工程设置一个下拉（自动/全部/关闭）；参数面板 bulk 行只显示只读「双缓冲」徽标，无逐行开关。
+- **实际场景定位**：双 bank 是少数派——常规无毛刺调音惯例是 mute → 更新系数 → unmute
+  （mute 是 RTC 实时参数）；双 bank 仅用于必须边跑边更的少数系数。

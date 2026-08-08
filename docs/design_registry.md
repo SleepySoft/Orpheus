@@ -452,9 +452,9 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - [x] `deps` 复用模型：manifest deps 泛化 + 生成递归复制依赖闭包（2026-08-06 完成，组件级头文件依赖）；构建侧链接闭包与共享库形态仍待
 - [ ] 共享 DSP 库 `orpheus.dsp.common`（消重 bass/midrange/treble 重复代码）
 - [x] 聚合组件试点：`biquad_bank`（内嵌 2 段 biquad 子块 + 父代理注册子块字段/系数 buffer + `Runtime::write_bulk` 直写闭环，2026-08-06 完成）
-- [ ] BULK 双 bank 原子提交语义（单槽直写已可用）
+- [x] BULK 双 bank 原子提交语义（Runtime 层影子+块边界提交，工程级 auto/on/off；见 §17）
 - [x] 探针上报改走注册表（rt_host/offline 宿主遍历 PROBE 槽，替代 `component.find(".probe")`，2026-08-07 完成；顺带修复非 .probe 组件探针漏报：fir.taps、mp3 total_frames）
-- [ ] ID/协议层：64 位槽 ID、`slot_key ↔ 数字 ID` 双向映射、`SET <u64id>` 紧凑协议
+- [x] 32 位单 ID 取代 64 位草案：`RW/RR/RWB/GETBULK/RGB` 按 ID（见 §17）
 - [ ] 含代码的封装型复合组件（Type B 带代码）建模
 - [ ] 子块字段表放 header vs manifest 的决策
 - [ ] 跨编译器布局静态断言覆盖
@@ -539,6 +539,12 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
   越界检查（count ≤ 槽容量、offset+span ≤ state_size）后仅 memcpy；
   入口 `GETBULK <node> <key>` / `RGB <id>`、`--getbulk/--rgb`、`POST /rt/read_bulk`、
   UI bulk 行「读回」按钮。
+- [x] **生成路径双 bank（部署到 MCU 才有意义）**：工程 double_bank 生效的 BULK 槽，
+  生成代码产出 `src/orpheus_control.c`——影子数组 + 槽表（init 时 register_slots 记录）+
+  `orpheus_control_write_bulk/get_bulk`（node/key 与按 ID 两套）+ `commit_bulk` 块边界提交；
+  off 时零影子直写。生成 main 支持 `--write-bulk/--read-bulk/--run` 部署控制 CLI。
+- **实际场景定位**：双 bank 是少数派——常规无毛刺调音惯例是 mute → 更新系数 → unmute
+  （mute 为 RTC 实时参数，界面/协议均可即时控制）；双 bank 仅用于必须边跑边更的系数。
 
 ### 2026-08-06（第五次讨论：经验与待办归档）
 

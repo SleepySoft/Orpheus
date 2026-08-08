@@ -1,5 +1,18 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-08（第二十九次讨论：双 bank 落到生成路径 + 清理 backlog）
+
+- 用户定调：双 bank 只有到最终生成的嵌入式代码才有意义；且实际场景是少数——通常先 mute 再更新。
+- 实现：生成路径可选双 bank——`src/orpheus_control.c`（影子数组、槽表、按 node/key 与按 ID 的
+  bulk 读写、`commit_bulk` 块边界提交）；生成 main 支持 `--write-bulk/--write-bulk-id/--read-bulk/
+  --read-bulk-id/--run` 部署控制 CLI；`double_bank=off` 时零影子直写即时生效。
+- 测试 `test_generated_double_bank.py`：auto 影子语义（写后旧值 → 跑 1 块后新值）、按 ID 读写、
+  off 直写即时生效、off 无影子数组。
+- 修坑：无 bulk 槽工程 `g_bulk_id_ref[] = {}` 触发 MSVC 内部编译错误 → 空表加哨兵条目；
+  读回 CLI 必须在 process（提交）之后执行，不能在参数解析时内联读。
+- 清理 §16 过时 backlog：BULK 双 bank、64 位 ID 两项标记完成（被 §17 取代）。
+- 全量 77 passed。
+
 ## 2026-08-08（第二十八次讨论：双 bank 可选化——工程级 auto/on/off）
 
 - 背景：双 bank 全局吃 2× 内存，部署时吃不消；可选后 UI 呈现要做到不啰嗦。

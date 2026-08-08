@@ -162,6 +162,9 @@ class CodeGenerator:
         # 数据 ID（32 位宏）+ ID map + 内存布局（模块嵌套 arena 定义在 include/orpheus_arena.h）
         self._generate_ids(plan, include_dir, src_dir, output_dir)
 
+        # 生成路径控制 API + BULK 双 bank（可选：仅工程 double_bank 生效的槽产出影子）
+        self._generate_control(plan, include_dir, src_dir)
+
         # Generate CMakeLists.txt
         self._generate_cmake(plan, all_ids, output_dir)
 
@@ -183,6 +186,7 @@ class CodeGenerator:
             lines.append(f'#include "{header_name}"')
         if any(self._state_type(nid, plan) for nid in plan.execution_order):
             lines.append('#include "orpheus_arena.h"')
+        lines.append('#include "orpheus_control.h"')
         lines.append("")
 
         # Per-component entry points: each component lib is compiled with
@@ -249,7 +253,7 @@ class CodeGenerator:
         # 仅保证注册流程对等；bulk/控制通路启用后在此扩展）。
         lines.append('static uint64_t g_slot_seq = 0;')
         lines.append('static OrpheusSlotId generated_reg_add(void* ctx, const OrpheusSlotInfo* info) {')
-        lines.append('    (void)ctx; (void)info;')
+        lines.append('    orpheus_control_slot_register(ctx, info);')
         lines.append('    return g_slot_seq++;')
         lines.append('}')
         lines.append('static OrpheusRegistry g_reg = { NULL, generated_reg_add, NULL };')
@@ -393,6 +397,8 @@ class CodeGenerator:
             lines.append(f'    rc = g_iface_{s}->create(&g_state_{s}, &config);')
             lines.append(f'    if (rc != ORPHEUS_OK) return rc;')
             lines.append(f'    if (g_iface_{s}->get_descriptor()->abi_version >= 2 && g_iface_{s}->register_slots) {{')
+            lines.append(f'        g_reg.ctx = g_state_{s};')
+            lines.append(f'        orpheus_control_set_reg_node("{node_id}", g_state_{s});')
             lines.append(f'        g_iface_{s}->register_slots(g_state_{s}, &g_reg);')
             lines.append('    }')
             lines.append(f'    rc = g_iface_{s}->prepare(g_state_{s}, &config);')
@@ -427,6 +433,8 @@ class CodeGenerator:
         lines.append('    ctx.scratch_size = 0;')
         lines.append('    ctx.timestamp = 0.0;')
         lines.append("")
+        lines.append('    orpheus_control_commit_bulk();')
+        lines.append('')
         if embed_in_nodes or embed_out_nodes:
             lines.append('    orpheus_platform_io_pre_block();')
             lines.append('')
@@ -468,10 +476,83 @@ class CodeGenerator:
         lines.append('        fprintf(stderr, "init failed: %d\\n", rc);')
         lines.append('        return 1;')
         lines.append('    }')
+        lines.append('    /* 可选控制参数（双 bank / BULK 读写，部署与验证用）：')
+        lines.append('       --write-bulk <node> <key> <n> <v0>... | --write-bulk-id <id> <n> <v0>...')
+        lines.append('       --run <blocks>（控制模式下处理 N 块触发块边界提交）')
+        lines.append('       --read-bulk <node> <key> | --read-bulk-id <id> */')
+        lines.append('    int control_mode = 0;')
+        lines.append('    int run_blocks = 0;')
+        lines.append('    const char* rb_node = NULL;')
+        lines.append('    const char* rb_key = NULL;')
+        lines.append('    int rb_by_id = 0;')
+        lines.append('    uint32_t rb_id = 0;')
+        lines.append('    for (int i = 2; i < argc; ++i) {')
+        lines.append('        if (strcmp(argv[i], "--write-bulk") == 0 && i + 3 < argc) {')
+        lines.append('            const char* node = argv[i + 1];')
+        lines.append('            const char* key = argv[i + 2];')
+        lines.append('            size_t n = (size_t)atoi(argv[i + 3]);')
+        lines.append('            float vals[64]; size_t got = 0;')
+        lines.append('            for (size_t k = 0; k < n && i + 4 + (int)k < argc && got < 64; ++k)')
+        lines.append('                vals[got++] = (float)atof(argv[i + 4 + (int)k]);')
+        lines.append('            i += 3 + (int)n;')
+        lines.append('            int r = orpheus_control_write_bulk(node, key, vals, got);')
+        lines.append('            printf("%s WRITEBULK %s %s\\n", r == 0 ? "OK" : "ERR", node, key);')
+        lines.append('            control_mode = 1;')
+        lines.append('        } else if (strcmp(argv[i], "--write-bulk-id") == 0 && i + 3 < argc) {')
+        lines.append('            uint32_t id = (uint32_t)strtoul(argv[i + 1], NULL, 0);')
+        lines.append('            size_t n = (size_t)atoi(argv[i + 2]);')
+        lines.append('            float vals[64]; size_t got = 0;')
+        lines.append('            for (size_t k = 0; k < n && i + 3 + (int)k < argc && got < 64; ++k)')
+        lines.append('                vals[got++] = (float)atof(argv[i + 3 + (int)k]);')
+        lines.append('            i += 2 + (int)n;')
+        lines.append('            int r = orpheus_control_write_bulk_id(id, vals, got);')
+        lines.append('            printf("%s WRITEBULK 0x%08X\\n", r == 0 ? "OK" : "ERR", id);')
+        lines.append('            control_mode = 1;')
+        lines.append('        } else if (strcmp(argv[i], "--run") == 0 && i + 1 < argc) {')
+        lines.append('            run_blocks = atoi(argv[++i]);')
+        lines.append('        } else if (strcmp(argv[i], "--read-bulk") == 0 && i + 2 < argc) {')
+        lines.append('            rb_node = argv[i + 1];')
+        lines.append('            rb_key = argv[i + 2];')
+        lines.append('            i += 2;')
+        lines.append('            control_mode = 1;')
+        lines.append('        } else if (strcmp(argv[i], "--read-bulk-id") == 0 && i + 1 < argc) {')
+        lines.append('            rb_id = (uint32_t)strtoul(argv[i + 1], NULL, 0);')
+        lines.append('            rb_by_id = 1;')
+        lines.append('            i += 1;')
+        lines.append('            control_mode = 1;')
+        lines.append('        }')
+        lines.append('    }')
+        lines.append('    if (control_mode) {')
+        lines.append('        for (int i = 0; i < run_blocks; ++i) {')
+        lines.append(f'            if (orpheus_generated_process({plan.block_size}) != ORPHEUS_OK) return 1;')
+        lines.append('        }')
+        lines.append('        /* 读回：解析时仅记录，处理完再读（块边界提交后才是新值） */')
+        lines.append('        if (rb_node) {')
+        lines.append('            size_t n = orpheus_control_bulk_count(rb_node, rb_key);')
+        lines.append('            if (n == 0 || n > 64) { printf("ERR GETBULK %s %s\\n", rb_node, rb_key); goto teardown; }')
+        lines.append('            float vals[64];')
+        lines.append('            if (orpheus_control_get_bulk(rb_node, rb_key, vals, n) == 0) {')
+        lines.append('                printf("BULKVALUE %s %s", rb_node, rb_key);')
+        lines.append('                for (size_t k = 0; k < n; ++k) printf(" %g", vals[k]);')
+        lines.append('                printf("\\n");')
+        lines.append('            } else { printf("ERR GETBULK %s %s\\n", rb_node, rb_key); }')
+        lines.append('        } else if (rb_by_id) {')
+        lines.append('            size_t n = orpheus_control_bulk_count_id(rb_id);')
+        lines.append('            if (n == 0 || n > 64) { printf("ERR GETBULK 0x%08X\\n", rb_id); goto teardown; }')
+        lines.append('            float vals[64];')
+        lines.append('            if (orpheus_control_get_bulk_id(rb_id, vals, n) == 0) {')
+        lines.append('                printf("BULKVALUE 0x%08X", rb_id);')
+        lines.append('                for (size_t k = 0; k < n; ++k) printf(" %g", vals[k]);')
+        lines.append('                printf("\\n");')
+        lines.append('            } else { printf("ERR GETBULK 0x%08X\\n", rb_id); }')
+        lines.append('        }')
+        lines.append('        goto teardown;')
+        lines.append('    }')
         lines.append('    for (int i = 0; i < blocks; ++i) {')
         lines.append(f'        rc = orpheus_generated_process({plan.block_size});')
         lines.append('        if (rc != ORPHEUS_OK) return 1;')
         lines.append('    }')
+        lines.append('teardown:')
         lines.append('    // Teardown: destroy instances so sinks flush output')
         lines.append('    // (e.g. wav_out writes the file in destroy).')
         for node_id in reversed(plan.execution_order):
@@ -797,6 +878,176 @@ class CodeGenerator:
             "\n".join(md_lines), encoding="utf-8"
         )
 
+    def _generate_control(self, plan: ExecutionPlan, include_dir: Path, src_dir: Path) -> None:
+        """生成路径控制 API + BULK 双 bank（可选）。
+
+        src/orpheus_control.c：
+        - 影子数组（仅 plan.id_map 中 double_bank 生效的 BULK 槽；off 时为空，零额外内存）；
+        - 槽表（init 时 register_slots 记录，write/get 按 node/key 寻址）；
+        - orpheus_control_write_bulk/get_bulk（node/key 与按 ID 两套）；
+        - orpheus_control_commit_bulk()：块边界把 pending 影子 memcpy 提交到 active。
+        """
+        db_entries = [e for e in plan.id_map if e.get("form") == "BULK" and e.get("double_bank")]
+        bulk_entries = [e for e in plan.id_map if e.get("form") == "BULK"]
+        max_slots = len(plan.id_map) + 16
+
+        h = [
+            '#ifndef ORPHEUS_CONTROL_H',
+            '#define ORPHEUS_CONTROL_H',
+            '#include "orpheus_abi.h"',
+            '#include <stddef.h>',
+            '#include <stdint.h>',
+            '/* 生成路径控制 API：按 node/key 或 32 位数据 ID 读写 BULK 槽。',
+            ' * BULK 双 bank（可选）：工程 double_bank=auto/on 且组件声明时，写影子、块边界提交；',
+            ' * 未开启（double_bank=off）直写 active 即时生效（部署省内存）。',
+            ' * 常规无毛刺调音惯例：mute → 更新系数 → unmute；双 bank 仅用于必须边跑边更的少数场景。 */',
+            'void orpheus_control_set_reg_node(const char* node, void* state);',
+            'void orpheus_control_slot_register(void* state, const OrpheusSlotInfo* info);',
+            'void orpheus_control_commit_bulk(void);',
+            'size_t orpheus_control_bulk_count(const char* node, const char* key);',
+            'size_t orpheus_control_bulk_count_id(uint32_t id);',
+            'int orpheus_control_write_bulk(const char* node, const char* key, const void* data, size_t count);',
+            'int orpheus_control_write_bulk_id(uint32_t id, const void* data, size_t count);',
+            'int orpheus_control_get_bulk(const char* node, const char* key, void* out, size_t count);',
+            'int orpheus_control_get_bulk_id(uint32_t id, void* out, size_t count);',
+            '#endif /* ORPHEUS_CONTROL_H */',
+        ]
+        (include_dir / "orpheus_control.h").write_text("\n".join(h) + "\n", encoding="utf-8")
+
+        def shadow_var(e: dict) -> str:
+            return f'g_db_{self._sanitized_node_id(e["node"])}_{self._sanitized_node_id(e["key"])}'
+
+        c = [
+            '#include "orpheus_control.h"',
+            '#include <string.h>',
+            '',
+            f'#define ORPHEUS_GEN_MAX_SLOTS {max_slots}u',
+            '',
+            '/* 双 bank 影子区（仅生效槽；double_bank=off 时为空，零额外内存） */',
+        ]
+        for e in db_entries:
+            c.append(f'static {self._ctype_of(e["type"])} {shadow_var(e)}[{e["count"]}];')
+        c.append('')
+        c.append('/* 槽表：init 时 register_slots 记录，write/get 按 node/key 寻址 */')
+        c.append('typedef struct {')
+        c.append('    const char* node;')
+        c.append('    const char* key;')
+        c.append('    uint32_t kind;')
+        c.append('    uint32_t type;')
+        c.append('    uint32_t count;')
+        c.append('    size_t size;')
+        c.append('    size_t offset;')
+        c.append('    void* state;')
+        c.append('    void* shadow;   /* NULL = 未开启双 bank（直写 active） */')
+        c.append('    uint32_t pending;')
+        c.append('} OrpheusGenSlot;')
+        c.append('')
+        c.append('static OrpheusGenSlot g_gen_slots[ORPHEUS_GEN_MAX_SLOTS];')
+        c.append('static size_t g_gen_slot_count = 0;')
+        c.append('static const char* g_reg_node = NULL;')
+        c.append('')
+        c.append('void orpheus_control_set_reg_node(const char* node, void* state) {')
+        c.append('    g_reg_node = node;')
+        c.append('    (void)state;')
+        c.append('}')
+        c.append('')
+        c.append('static void* orpheus_control_shadow_of(const char* node, const char* key) {')
+        for e in db_entries:
+            c.append(f'    if (strcmp(node, "{e["node"]}") == 0 && strcmp(key, "{e["key"]}") == 0) return {shadow_var(e)};')
+        c.append('    return NULL;')
+        c.append('}')
+        c.append('')
+        c.append('void orpheus_control_slot_register(void* state, const OrpheusSlotInfo* info) {')
+        c.append('    if (!info || !info->key || g_gen_slot_count >= ORPHEUS_GEN_MAX_SLOTS) return;')
+        c.append('    OrpheusGenSlot* s = &g_gen_slots[g_gen_slot_count++];')
+        c.append('    s->node = g_reg_node;')
+        c.append('    s->key = info->key;')
+        c.append('    s->kind = info->kind;')
+        c.append('    s->type = info->type;')
+        c.append('    s->count = info->count;')
+        c.append('    s->size = info->size;')
+        c.append('    s->offset = info->offset;')
+        c.append('    s->state = state;')
+        c.append('    s->shadow = orpheus_control_shadow_of(g_reg_node, info->key);')
+        c.append('    s->pending = 0;')
+        c.append('}')
+        c.append('')
+        c.append('static OrpheusGenSlot* orpheus_control_find(const char* node, const char* key) {')
+        c.append('    for (size_t i = 0; i < g_gen_slot_count; ++i) {')
+        c.append('        OrpheusGenSlot* s = &g_gen_slots[i];')
+        c.append('        if (s->state && s->node && s->key && strcmp(s->node, node) == 0 && strcmp(s->key, key) == 0) return s;')
+        c.append('    }')
+        c.append('    return NULL;')
+        c.append('}')
+        c.append('')
+        c.append('size_t orpheus_control_bulk_count(const char* node, const char* key) {')
+        c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
+        c.append('    return s ? s->count : 0;')
+        c.append('}')
+        c.append('')
+        c.append('int orpheus_control_write_bulk(const char* node, const char* key, const void* data, size_t count) {')
+        c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
+        c.append('    if (!s || s->kind != ORPHEUS_SLOT_BULK) return -1;')
+        c.append('    if (count > s->count) return -1;')
+        c.append('    size_t span = count * s->size;')
+        c.append('    if (s->shadow) {')
+        c.append('        memcpy(s->shadow, data, span);')
+        c.append('        s->pending = 1;')
+        c.append('    } else {')
+        c.append('        memcpy((char*)s->state + s->offset, data, span);')
+        c.append('    }')
+        c.append('    return 0;')
+        c.append('}')
+        c.append('')
+        c.append('int orpheus_control_get_bulk(const char* node, const char* key, void* out, size_t count) {')
+        c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
+        c.append('    if (!s || s->kind != ORPHEUS_SLOT_BULK || !out) return -1;')
+        c.append('    if (count > s->count) return -1;')
+        c.append('    memcpy(out, (const char*)s->state + s->offset, count * s->size);')
+        c.append('    return 0;')
+        c.append('}')
+        c.append('')
+        c.append('/* 块边界提交：把 pending 影子一次性 memcpy 到 active（单控制写者假设） */')
+        c.append('void orpheus_control_commit_bulk(void) {')
+        c.append('    for (size_t i = 0; i < g_gen_slot_count; ++i) {')
+        c.append('        OrpheusGenSlot* s = &g_gen_slots[i];')
+        c.append('        if (s->pending && s->shadow) {')
+        c.append('            memcpy((char*)s->state + s->offset, s->shadow, s->count * s->size);')
+        c.append('            s->pending = 0;')
+        c.append('        }')
+        c.append('    }')
+        c.append('}')
+        c.append('')
+        c.append('static const struct { uint32_t id; const char* node; const char* key; } g_bulk_id_ref[] = {')
+        if bulk_entries:
+            for e in bulk_entries:
+                c.append(f'    {{ 0x{e["id"]:08X}U, "{e["node"]}", "{e["key"]}" }},')
+        else:
+            c.append('    { 0U, "", "" },  /* 无 bulk 槽：哨兵（id 永不为 0） */')
+        c.append('};')
+        c.append('')
+        c.append('size_t orpheus_control_bulk_count_id(uint32_t id) {')
+        c.append('    for (size_t i = 0; i < sizeof(g_bulk_id_ref) / sizeof(g_bulk_id_ref[0]); ++i) {')
+        c.append('        if (g_bulk_id_ref[i].id == id) return orpheus_control_bulk_count(g_bulk_id_ref[i].node, g_bulk_id_ref[i].key);')
+        c.append('    }')
+        c.append('    return 0;')
+        c.append('}')
+        c.append('')
+        c.append('int orpheus_control_write_bulk_id(uint32_t id, const void* data, size_t count) {')
+        c.append('    for (size_t i = 0; i < sizeof(g_bulk_id_ref) / sizeof(g_bulk_id_ref[0]); ++i) {')
+        c.append('        if (g_bulk_id_ref[i].id == id) return orpheus_control_write_bulk(g_bulk_id_ref[i].node, g_bulk_id_ref[i].key, data, count);')
+        c.append('    }')
+        c.append('    return -1;')
+        c.append('}')
+        c.append('')
+        c.append('int orpheus_control_get_bulk_id(uint32_t id, void* out, size_t count) {')
+        c.append('    for (size_t i = 0; i < sizeof(g_bulk_id_ref) / sizeof(g_bulk_id_ref[0]); ++i) {')
+        c.append('        if (g_bulk_id_ref[i].id == id) return orpheus_control_get_bulk(g_bulk_id_ref[i].node, g_bulk_id_ref[i].key, out, count);')
+        c.append('    }')
+        c.append('    return -1;')
+        c.append('}')
+        (src_dir / "orpheus_control.c").write_text("\n".join(c) + "\n", encoding="utf-8")
+
     def _generate_cmake(self, plan: ExecutionPlan, component_ids: list[str], output_dir: Path) -> None:
         lines: list[str] = []
         lines.append('cmake_minimum_required(VERSION 3.16)')
@@ -838,6 +1089,8 @@ class CodeGenerator:
             app_sources += " src/platform_io.c"
         if (output_dir / "src" / "orpheus_id_map.c").exists():
             app_sources += " src/orpheus_id_map.c"
+        if (output_dir / "src" / "orpheus_control.c").exists():
+            app_sources += " src/orpheus_control.c"
         lines.append(f'add_executable(orpheus_generated_app {app_sources})')
         libs = " ".join(self._component_target_name(cid) for cid in component_ids)
         lines.append(f'target_link_libraries(orpheus_generated_app {libs})')
