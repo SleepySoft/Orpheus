@@ -541,6 +541,28 @@ const { screenToFlowPosition } = useReactFlow();
     [current]
   );
 
+  /** 参数面板：按 ID 读回 BULK active bank（高速大块读回）。 */
+  const onReadBulk = useCallback(
+    async (nodeId, id) => {
+      if (!current || !rtRef.current.running) {
+        setStatus('实时会话未运行，无法读回 Bulk');
+        return;
+      }
+      try {
+        const r = await api.rtReadBulkById(current, id);
+        const vals = r.values || [];
+        setStatus(
+          `Bulk 0x${id.toString(16).toUpperCase()} 读回 ${vals.length} 个值：` +
+            vals.slice(0, 8).join(', ') +
+            (vals.length > 8 ? ', …' : '')
+        );
+      } catch (e) {
+        setStatus(`Bulk 读回失败: ${api.errorDetail(e)}`);
+      }
+    },
+    [current]
+  );
+
   /** 预设保存在工程文档顶层 `presets` 字段，随正常保存流程持久化。 */
   const onSavePreset = useCallback((name, snapshot) => {
     setDoc((d) => {
@@ -1175,6 +1197,7 @@ const { screenToFlowPosition } = useReactFlow();
           onWriteBulk={onWriteBulk}
           idMap={idMap}
           onResolve={onResolve}
+          onReadBulk={onReadBulk}
           presets={doc.presets || []}
           onSavePreset={onSavePreset}
           onDeletePreset={onDeletePreset}

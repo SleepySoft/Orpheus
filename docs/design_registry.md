@@ -529,8 +529,14 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 - [x] 宿主入口：离线 `--resolve/--map/--rw/--rr/--rwb`；rt_host `RESOLVE/MAP/RW/RR/RWB`。
 - [x] 后端：`GET /rt/resolve`、`GET /rt/map`、`POST /rt/write`、`POST /rt/read`、`POST /rt/write_bulk`；
   UI 参数面板显示 0x ID 并可解析地址。
-- [ ] 按 ID 的 bulk 读回（`get_bulk`，探针/调音整块读）。
-- [ ] BULK 双 bank 原子提交语义。
+- [x] **BULK 双 bank 做在 Runtime 层**：组件只注册一块 active 区；Runtime 加载时为每个 BULK 槽分配
+  影子区，`write_bulk` 越界检查后 memcpy 进影子（标记 pending），`process_block` 块边界一次性
+  memcpy 提交到 active——glitch-free，组件零样板；代价与模块自管相同（2×内存）。
+  并发假设：单控制写者 + 音频线程提交；提交即一次 memcpy（高速大块特性）。
+- [x] **`get_bulk`（确定实现）**：`Runtime::get_bulk/get_bulk_id` 读 active bank，
+  越界检查（count ≤ 槽容量、offset+span ≤ state_size）后仅 memcpy；
+  入口 `GETBULK <node> <key>` / `RGB <id>`、`--getbulk/--rgb`、`POST /rt/read_bulk`、
+  UI bulk 行「读回」按钮。
 
 ### 2026-08-06（第五次讨论：经验与待办归档）
 

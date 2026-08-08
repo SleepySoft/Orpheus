@@ -82,6 +82,8 @@ class RtSession:
                             or line.startswith("ERR RW ")
                             or line.startswith("OK RWB ")
                             or line.startswith("ERR RWB ")
+                            or line.startswith("BULKVALUE ")
+                            or line.startswith("ERR GETBULK ")
                         ):
                             self._cmd_lines.append(line)
                         else:
@@ -195,6 +197,18 @@ class RtSession:
         line = self._send_cmd_wait(f"RWB {data_id} {len(values)} {nums}")
         if not line.startswith("OK RWB"):
             raise RuntimeError(line)
+
+    def read_bulk(self, node: str | None = None, key: str | None = None,
+                  data_id: int | None = None) -> list[float]:
+        """GETBULK <node> <key> / RGB <id>：读回 BULK active bank（仅拷贝）。"""
+        if data_id is not None:
+            line = self._send_cmd_wait(f"RGB {data_id}")
+        else:
+            line = self._send_cmd_wait(f"GETBULK {node} {key}")
+        if line.startswith("ERR GETBULK"):
+            raise RuntimeError(line)
+        parts = line.split()
+        return [float(v) for v in parts[2:]]
 
     def stop(self, timeout: float = 3.0) -> None:
         if not self.running:

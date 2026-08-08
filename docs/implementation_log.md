@@ -1,5 +1,28 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-08（第二十七次讨论：BULK 双 bank 定层 + get_bulk 实现）
+
+### 定层决策：双 bank 做在 Runtime
+
+- 依据：仓库原则「临界资源保护/并发由框架提供，组件不自行实现线程同步」；双 bank 本质是并发原子性机制；
+  提交时机天然是块边界（runtime 拥有 process_block）；内存成本与模块自管相同（2×），但组件零样板、
+  语义统一、可观测。
+- 落地：组件只注册一块 active 区；Runtime 为每个 BULK 槽分配影子区，
+  `write_bulk` 越界检查后仅 memcpy 进影子并标记 pending，`process_block` 块边界一次性 memcpy 提交。
+
+### get_bulk（确定实现，高速大块）
+
+- `Runtime::get_bulk/get_bulk_id`：读 active bank，越界检查（count≤容量、offset+span≤state_size）
+  后仅 memcpy；`lookup_id` 提供 node/key → ID 反查。
+- 入口：rt_host `GETBULK <node> <key>` / `RGB <id>`（`BULKVALUE` 行）；
+  离线 `--getbulk/--rgb`（支持 `--rwb ... --run N --rgb` 验证块边界提交）；
+  后端 `POST /rt/read_bulk`；UI bulk 行「读回」按钮。
+- 测试：写影子未提交 → 读回旧值；跑 1 块后 → 读到新值；按 (node,key) 读回 5 值。
+
+### 验证
+
+- 全量 75 passed；`npm run build` 通过。
+
 ## 2026-08-08（第二十六次讨论：三点收尾——后端 resolve API、按 ID 实时控制、动态模块连续分配）
 
 ### A. 后端与 UI 暴露 resolve（内存透明）

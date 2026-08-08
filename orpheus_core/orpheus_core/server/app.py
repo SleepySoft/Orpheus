@@ -96,6 +96,12 @@ class RtWriteBulkRequest(BaseModel):
     values: list[float]
 
 
+class RtReadBulkRequest(BaseModel):
+    node: str | None = None
+    key: str | None = None
+    id: int | None = None
+
+
 class DistillImportRequest(BaseModel):
     yaml: str
 
@@ -708,6 +714,20 @@ def create_app(project_root: Path) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": "sent", "id": req.id}
+
+    @app.post("/api/projects/{name}/rt/read_bulk")
+    def rt_read_bulk(name: str, req: RtReadBulkRequest) -> dict[str, Any]:
+        """BULK 读回（active bank）：按 ID 或 (node, key)；越界检查后仅拷贝。"""
+        session = rt_sessions.get(name)
+        if session is None or not session.running:
+            raise HTTPException(status_code=400, detail="realtime session not running")
+        if req.id is None and (req.node is None or req.key is None):
+            raise HTTPException(status_code=400, detail="需提供 id 或 (node, key)")
+        try:
+            values = session.read_bulk(node=req.node, key=req.key, data_id=req.id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"id": req.id, "values": values}
 
     @app.get("/api/projects/{name}/files/{relpath:path}")
     def get_project_file(name: str, relpath: str) -> FileResponse:

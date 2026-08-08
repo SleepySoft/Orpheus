@@ -837,5 +837,13 @@ orpheus_platform_memory_section_bind(...);
 ### 27.4 按 ID 的实时控制（RTC 通道）
 
 - rt_host stdin：`RW <id> <value>`（按 ID 写，非 PROBE/STATE）、`RR <id>`（读回 `RVALUE`）、
-  `RWB <id> <n> <v0>...`（bulk 直写）；后端 `POST /rt/write`、`/rt/read`、`/rt/write_bulk`。
+  `RWB <id> <n> <v0>...`（bulk 直写）、`GETBULK <node> <key>` / `RGB <id>`（bulk 读回 `BULKVALUE`）；
+  后端 `POST /rt/write`、`/rt/read`、`/rt/write_bulk`、`/rt/read_bulk`。
 - 方向只在接口 + 注册表按用途强制方向（PROBE/STATE 拒写、命令拒读），不靠 ID 拆位。
+
+### 27.5 BULK 双 bank（Runtime 层，glitch-free）
+
+- 组件只注册一块 BULK active 区；Runtime 加载时为每个 BULK 槽分配**影子区**：
+  `write_bulk` 越界检查后仅 memcpy 进影子（标记 pending），`process_block` 块边界一次性
+  memcpy 提交到 active——组件零样板，并发/原子性由框架承担（仓库原则）。
+- `get_bulk`：读 active bank，越界检查后仅 memcpy（高速大块特性）。

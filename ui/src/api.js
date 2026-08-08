@@ -43,6 +43,8 @@ export const rtReadById = (name, id) =>
   unwrap(api.post(`/projects/${name}/rt/read`, { id }));
 export const rtWriteBulkById = (name, id, values) =>
   unwrap(api.post(`/projects/${name}/rt/write_bulk`, { id, values }));
+export const rtReadBulkById = (name, id) =>
+  unwrap(api.post(`/projects/${name}/rt/read_bulk`, { id }));
 export const listProjectFiles = (name, ext = null) =>
   unwrap(api.get(`/projects/${name}/files`, { params: ext ? { ext } : {} }));
 export const uploadProjectFile = (name, file) => {

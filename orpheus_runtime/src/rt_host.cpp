@@ -434,6 +434,33 @@ static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) 
             int r = runtime.write_bulk_id(id, vals.data(), vals.size());
             std::cout << (r == ORPHEUS_OK ? "OK RWB " : "ERR RWB ")
                       << std::hex << "0x" << id << std::dec << std::endl;
+        } else if (cmd == "GETBULK" || cmd == "RGB") {
+            uint32_t id = 0;
+            bool have_id = false;
+            if (cmd == "RGB") {
+                std::string raw;
+                iss >> raw;
+                id = (uint32_t)std::strtoul(raw.c_str(), nullptr, 0);
+                have_id = true;
+            } else {
+                std::string node, key;
+                iss >> node >> key;
+                have_id = runtime.lookup_id(node, key, &id);
+            }
+            OrpheusResolvedData d;
+            if (!have_id || runtime.resolve(id, &d) != ORPHEUS_OK ||
+                d.form != ORPHEUS_FORM_BULK) {
+                std::cout << "ERR GETBULK " << std::hex << "0x" << id << std::dec << std::endl;
+                continue;
+            }
+            std::vector<float> vals(d.count);
+            if (runtime.get_bulk_id(id, vals.data(), vals.size()) != ORPHEUS_OK) {
+                std::cout << "ERR GETBULK " << std::hex << "0x" << id << std::dec << std::endl;
+                continue;
+            }
+            std::cout << "BULKVALUE " << std::hex << "0x" << id << std::dec;
+            for (const float v : vals) std::cout << " " << v;
+            std::cout << std::endl;
         }
     }
     running = false;

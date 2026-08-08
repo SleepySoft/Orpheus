@@ -13,7 +13,9 @@ void print_usage(const char* prog) {
     std::cerr << "Usage: " << prog << " <plan.json> <component_dir> [--pace] [--probe-interval ms]"
               << "\n       " << prog << " <plan.json> <component_dir> --map"
               << "\n       " << prog << " <plan.json> <component_dir> --resolve <id|0xhex>"
-              << "\n       " << prog << " <plan.json> <component_dir> --rw <id> <value> | --rr <id> | --rwb <id> <n> <v0>..." << std::endl;
+              << "\n       " << prog << " <plan.json> <component_dir> --rw <id> <value> | --rr <id>"
+              << "\n       " << prog << " <plan.json> <component_dir> --rwb <id> <n> <v0>... [--run <blocks>] [--rgb <id>]"
+              << "\n       " << prog << " <plan.json> <component_dir> --getbulk <node> <key>" << std::endl;
 }
 
 static const char* id_kind_name(uint32_t kind) {
@@ -98,6 +100,10 @@ int main(int argc, char** argv) {
     uint32_t rw_id = 0, rr_id = 0, rwb_id = 0;
     std::string rw_value;
     std::vector<float> rwb_vals;
+    uint32_t run_blocks = 0;
+    bool have_gb = false, have_rgb = false;
+    std::string gb_node, gb_key;
+    uint32_t rgb_id = 0;
     for (int i = 3; i < argc; ++i) {
         if (std::string(argv[i]) == "--pace") {
             pace = true;
@@ -122,6 +128,15 @@ int main(int argc, char** argv) {
                 rwb_vals.push_back((float)std::atof(argv[++i]));
             }
             have_rwb = true;
+        } else if (std::string(argv[i]) == "--run" && i + 1 < argc) {
+            run_blocks = (uint32_t)std::atoi(argv[++i]);
+        } else if (std::string(argv[i]) == "--getbulk" && i + 2 < argc) {
+            gb_node = argv[++i];
+            gb_key = argv[++i];
+            have_gb = true;
+        } else if (std::string(argv[i]) == "--rgb" && i + 1 < argc) {
+            rgb_id = (uint32_t)std::strtoul(argv[++i], nullptr, 0);
+            have_rgb = true;
         }
     }
 
@@ -167,6 +182,17 @@ int main(int argc, char** argv) {
                       << std::hex << "0x" << rw_id << std::dec << std::endl;
             did_id_cmd = true;
         }
+        if (have_rwb) {
+            int r = runtime.write_bulk_id(rwb_id, rwb_vals.data(), rwb_vals.size());
+            std::cout << (r == ORPHEUS_OK ? "OK RWB " : "ERR RWB ")
+                      << std::hex << "0x" << rwb_id << std::dec << std::endl;
+            did_id_cmd = true;
+        }
+        if (run_blocks > 0 && did_id_cmd) {
+            for (uint32_t i = 0; i < run_blocks; ++i) {
+                if (runtime.process_block(plan.block_size) != 0) return 1;
+            }
+        }
         if (have_rr) {
             OrpheusValue v;
             int r = runtime.read_id(rr_id, &v);
@@ -187,10 +213,29 @@ int main(int argc, char** argv) {
             }
             did_id_cmd = true;
         }
-        if (have_rwb) {
-            int r = runtime.write_bulk_id(rwb_id, rwb_vals.data(), rwb_vals.size());
-            std::cout << (r == ORPHEUS_OK ? "OK RWB " : "ERR RWB ")
-                      << std::hex << "0x" << rwb_id << std::dec << std::endl;
+        if (have_gb || have_rgb) {
+            uint32_t id = 0;
+            bool have_id = false;
+            if (have_rgb) {
+                id = rgb_id;
+                have_id = true;
+            } else {
+                have_id = runtime.lookup_id(gb_node, gb_key, &id);
+            }
+            OrpheusResolvedData d;
+            if (!have_id || runtime.resolve(id, &d) != ORPHEUS_OK ||
+                d.form != ORPHEUS_FORM_BULK) {
+                std::cout << "ERR GETBULK " << std::hex << "0x" << id << std::dec << std::endl;
+            } else {
+                std::vector<float> vals(d.count);
+                if (runtime.get_bulk_id(id, vals.data(), vals.size()) == ORPHEUS_OK) {
+                    std::cout << "BULKVALUE " << std::hex << "0x" << id << std::dec;
+                    for (const float v : vals) std::cout << " " << v;
+                    std::cout << std::endl;
+                } else {
+                    std::cout << "ERR GETBULK " << std::hex << "0x" << id << std::dec << std::endl;
+                }
+            }
             did_id_cmd = true;
         }
         if (did_id_cmd) return 0;

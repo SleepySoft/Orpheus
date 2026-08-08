@@ -137,3 +137,32 @@ def test_runtime_resolve_and_map() -> None:
         capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
     )
     assert out.returncode == 0 and "OK RWB" in out.stdout, out.stderr
+
+    # 双 bank：写影子未提交 → 读回仍是旧值；跑 1 块（块边界提交）→ 读到新值
+    new_vals = ["1", "2", "3", "4", "5"]
+    out = subprocess.run(
+        [str(exe), str(plan_path), str(comps),
+         "--rwb", str(bulk_id), "5", *new_vals, "--rgb", str(bulk_id)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
+    )
+    assert out.returncode == 0 and "OK RWB" in out.stdout, out.stderr
+    rv = [l for l in out.stdout.splitlines() if l.startswith("BULKVALUE ")]
+    assert rv and float(rv[0].split()[2]) != 1.0, "影子未提交前应读到旧值"
+
+    out = subprocess.run(
+        [str(exe), str(plan_path), str(comps),
+         "--rwb", str(bulk_id), "5", *new_vals, "--run", "1", "--rgb", str(bulk_id)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
+    )
+    assert out.returncode == 0, out.stderr
+    rv = [l for l in out.stdout.splitlines() if l.startswith("BULKVALUE ")]
+    assert rv and [float(v) for v in rv[0].split()[2:]] == [1.0, 2.0, 3.0, 4.0, 5.0]
+
+    # GETBULK 按 (node, key) 读回 active
+    out = subprocess.run(
+        [str(exe), str(plan_path), str(comps),
+         "--getbulk", "front__eq_bank__bq", "bq0.coefs"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
+    )
+    assert out.returncode == 0 and out.stdout.strip().startswith("BULKVALUE "), out.stderr
+    assert len(out.stdout.strip().split()) == 7  # BULKVALUE 0xID + 5 个值

@@ -338,10 +338,39 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         }
     }
 
+    // BULK 双 bank：为每个 BULK 槽分配影子区（控制写影子、块边界提交到 active）
+    size_t shadow_total = 0;
+    for (auto& kv : instances_) {
+        for (const auto& e : kv.second->slots) {
+            if (e.kind == ORPHEUS_SLOT_BULK) {
+                shadow_total += align_up(e.count * e.size, 8);
+            }
+        }
+    }
+    bulk_shadow_.assign(shadow_total, 0);
+    bulk_shadow_map_.clear();
+    bulk_active_map_.clear();
+    bulk_span_map_.clear();
+    bulk_pending_.clear();
+    size_t shadow_offset = 0;
+    for (auto& kv : instances_) {
+        for (const auto& e : kv.second->slots) {
+            if (e.kind != ORPHEUS_SLOT_BULK) continue;
+            std::string key = kv.first + "\x1f" + e.key;
+            bulk_shadow_map_[key] = bulk_shadow_.data() + shadow_offset;
+            bulk_active_map_[key] = static_cast<uint8_t*>(kv.second->state) + e.offset;
+            bulk_span_map_[key] = e.count * e.size;
+            bulk_pending_[key] = false;
+            shadow_offset += align_up(e.count * e.size, 8);
+        }
+    }
+
     // 数据 ID 索引：plan.id_map → 条目（指向 plan_ 内部存储，加载后不再变动）
     id_index_.clear();
+    key_to_id_.clear();
     for (const auto& e : plan_.id_map) {
         id_index_[e.id] = &e;
+        key_to_id_[e.node + "\x1f" + e.key] = e.id;
     }
 
     return 0;
@@ -473,8 +502,44 @@ int Runtime::write_bulk(const std::string& node_id, const std::string& key,
     if (count > e.count) return -1;                  /* 内部边界：不超过槽容量 */
     size_t span = count * e.size;
     if (inst.state == nullptr || e.offset + span > inst.state_size) return -1; /* 上下边界 */
-    std::memcpy(static_cast<char*>(inst.state) + e.offset, data, span);
+    /* 双 bank：写影子区，process_block 块边界提交到 active（process 读的是 active） */
+    auto sm = bulk_shadow_map_.find(node_id + "\x1f" + key);
+    if (sm == bulk_shadow_map_.end()) return -1;
+    std::memcpy(sm->second, data, span);
+    bulk_pending_[node_id + "\x1f" + key] = true;
     return ORPHEUS_OK;
+}
+
+int Runtime::get_bulk(const std::string& node_id, const std::string& key,
+                      void* out, size_t count) {
+    if (out == nullptr) return -1;
+    auto it = instances_.find(node_id);
+    if (it == instances_.end()) return -1;
+    const Instance& inst = *it->second;
+    auto si = inst.slot_index.find(key);
+    if (si == inst.slot_index.end()) return -1;
+    const SlotEntry& e = inst.slots[si->second];
+    if (e.kind != ORPHEUS_SLOT_BULK) return -1;
+    if (count > e.count) return -1;                  /* 内部边界 */
+    size_t span = count * e.size;
+    if (inst.state == nullptr || e.offset + span > inst.state_size) return -1; /* 上下边界 */
+    std::memcpy(out, static_cast<const char*>(inst.state) + e.offset, span);   /* 仅拷贝 */
+    return ORPHEUS_OK;
+}
+
+int Runtime::get_bulk_id(uint32_t id, void* out, size_t count) {
+    OrpheusResolvedData d;
+    if (resolve(id, &d) != ORPHEUS_OK) return ORPHEUS_ERR_NOT_FOUND;
+    if (d.form != ORPHEUS_FORM_BULK) return ORPHEUS_ERR_INVALID_ARG;
+    return get_bulk(d.node, d.key, out, count);
+}
+
+bool Runtime::lookup_id(const std::string& node_id, const std::string& key,
+                        uint32_t* out_id) const {
+    auto it = key_to_id_.find(node_id + "\x1f" + key);
+    if (it == key_to_id_.end()) return false;
+    if (out_id) *out_id = it->second;
+    return true;
 }
 
 std::vector<const SlotEntry*> Runtime::probe_slots(const std::string& node_id) const {
@@ -585,6 +650,19 @@ const OrpheusComponentInterface* Runtime::get_interface(const std::string& node_
 }
 
 int Runtime::process_block(uint32_t frame_count) {
+    /* 块边界提交：待写的 BULK 影子区一次性 memcpy 到 active（单控制写者假设） */
+    for (auto& kv : bulk_pending_) {
+        if (!kv.second) continue;
+        auto sm = bulk_shadow_map_.find(kv.first);
+        auto am = bulk_active_map_.find(kv.first);
+        auto span_it = bulk_span_map_.find(kv.first);
+        if (sm != bulk_shadow_map_.end() && am != bulk_active_map_.end() &&
+            span_it != bulk_span_map_.end()) {
+            std::memcpy(am->second, sm->second, span_it->second);
+        }
+        kv.second = false;
+    }
+
     OrpheusProcessContext ctx;
     ctx.scratch = nullptr;
     ctx.scratch_size = 0;

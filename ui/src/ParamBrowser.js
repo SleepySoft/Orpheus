@@ -200,6 +200,7 @@ export default function ParamBrowser({
   onWriteBulk,
   idMap,
   onResolve,
+  onReadBulk,
   presets,
   onSavePreset,
   onDeletePreset,
@@ -234,6 +235,15 @@ export default function ParamBrowser({
             title="解析内存地址（RESOLVE <id>）"
           >
             解析
+          </button>
+        )}
+        {rt.running && entry.form === 'BULK' && (
+          <button
+            className="pb-locate"
+            onClick={() => onReadBulk(flatId, entry.id)}
+            title="读回 BULK active bank（GETBULK/RGB）"
+          >
+            读回
           </button>
         )}
       </span>

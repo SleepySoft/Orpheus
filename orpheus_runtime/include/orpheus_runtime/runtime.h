@@ -56,8 +56,16 @@ public:
     int get_parameter(const std::string& node_id, const std::string& param_id, OrpheusValue* value);
 
     // v2 BULK 直写：把大块数据（系数/查表）写入注册的 BULK 数组槽，带边界校验。
+    // 双 bank：写入影子区，块边界（process_block 开始）memcpy 提交到 active——glitch-free。
     int write_bulk(const std::string& node_id, const std::string& key,
                    const void* data, size_t count);
+
+    // v2.1 BULK 读回（active bank）：越界检查后仅 memcpy，体现高速大块特性。
+    int get_bulk(const std::string& node_id, const std::string& key, void* out, size_t count);
+    int get_bulk_id(uint32_t id, void* out, size_t count);
+
+    // node/key → 32 位数据 ID（反查，GETBULK 等使用）
+    bool lookup_id(const std::string& node_id, const std::string& key, uint32_t* out_id) const;
 
     // v2 探针发现：返回某节点的 PROBE 槽列表（替代宿主按组件名/描述符猜测）。
     std::vector<const SlotEntry*> probe_slots(const std::string& node_id) const;
@@ -97,7 +105,13 @@ private:
     std::vector<float> buffer_memory_;
     std::vector<uint8_t> state_arena_;   // v2：统一内存拼接（每实例一块连续切片）
     std::map<uint32_t, const IdMapEntry*> id_index_;   // 数据 ID → plan.id_map 条目
+    std::map<std::string, uint32_t> key_to_id_;        // "node\x1fkey" → 数据 ID
     std::map<uint32_t, std::pair<size_t, size_t>> module_layout_;  // 模块 id → (arena 基址, 字节数)
+    std::vector<uint8_t> bulk_shadow_;                 // BULK 槽影子区（双 bank 写侧）
+    std::map<std::string, uint8_t*> bulk_shadow_map_;  // "node\x1fkey" -> 影子指针
+    std::map<std::string, uint8_t*> bulk_active_map_;  // "node\x1fkey" -> active 指针
+    std::map<std::string, size_t> bulk_span_map_;      // "node\x1fkey" -> 字节数
+    std::map<std::string, bool> bulk_pending_;         // 待提交标志（块边界提交）
     uint64_t block_counter_ = 0;  // for rate-divisor scheduling
 
     int prepare_instance(Instance& inst, const NodeConfig& cfg);
