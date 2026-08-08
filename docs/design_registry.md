@@ -496,6 +496,10 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 ### 17.2 内存透明：注册表既是寻址表也是地图
 
 - `resolve(id)` 返回完整描述：kind、name、base_ptr、offset、span、type、count、unit、flags、节点路径。
+- **已实现（2026-08-08）**：`plan.id_map`（数据点 ID 表，动态/生成两路共用）→ Runtime 加载时建立
+  `id → 实例槽` 索引；`Runtime::resolve(id, OrpheusResolvedData*)` 返回用途/形式/类型/长度/基址/偏移
+  （数据点给真实地址，模块包给元数据、动态路径未连续分配前 base=NULL）。
+  离线宿主 `--resolve <id>` / `--map`，rt_host stdin 同样支持 `RESOLVE <id>` / `MAP`。
 - 协议支持 `RESOLVE <id>`（单条）与 `MAP`（dump 全表）；生成路径输出 `memory_map` 报告
   （ID / 名称 / 基址 / 偏移 / 字节数），调试器可直接按 `arena 基址 + 偏移` 定位验证。
 - **生成代码时同时产出 ID map**：`orpheus_ids.h`（宏 + `ORPHEUS_CHAR_COUNT_*` = 类型×个数）、

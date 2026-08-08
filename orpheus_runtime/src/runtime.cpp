@@ -193,6 +193,7 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
                 }
                 SlotEntry e;
                 e.key = info->key;
+                e.name = info->name ? info->name : "";
                 e.kind = info->kind;
                 e.type = info->type;
                 e.offset = info->offset;
@@ -280,6 +281,12 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             std::cerr << "[Runtime] unknown input port: " << conn.to << std::endl;
             return -1;
         }
+    }
+
+    // 数据 ID 索引：plan.id_map → 条目（指向 plan_ 内部存储，加载后不再变动）
+    id_index_.clear();
+    for (const auto& e : plan_.id_map) {
+        id_index_[e.id] = &e;
     }
 
     return 0;
@@ -423,6 +430,76 @@ std::vector<const SlotEntry*> Runtime::probe_slots(const std::string& node_id) c
         if (e.kind == ORPHEUS_SLOT_PROBE) out.push_back(&e);
     }
     return out;
+}
+
+int Runtime::resolve(uint32_t id, OrpheusResolvedData* out) const {
+    if (out == nullptr) return -1;
+    std::memset(out, 0, sizeof(*out));
+    out->id = id;
+
+    auto it = id_index_.find(id);
+    if (it == id_index_.end()) {
+        /* 模块包条目：用途=TUNE、槽=ORPHEUS_ID_SLOT_MODULE（不占数据点槽） */
+        uint32_t module_id = ORPHEUS_ID_MODULE(id);
+        if (ORPHEUS_ID_KIND(id) == ORPHEUS_ID_TUNE &&
+            ORPHEUS_ID_SLOT(id) == ORPHEUS_ID_SLOT_MODULE) {
+            for (const auto& m : plan_.modules) {
+                if (m.id != module_id) continue;
+                out->kind = ORPHEUS_ID_TUNE;
+                out->form = ORPHEUS_FORM_MODULE;
+                out->type = ORPHEUS_VALUE_BULK_REF;
+                out->count = 1;
+                out->module_id = module_id;
+                out->slot = ORPHEUS_ID_SLOT_MODULE;
+                out->name = m.path.c_str();
+                size_t total = 0;
+                for (const auto& leaf : m.leaves) {
+                    auto ii = instances_.find(leaf.first);
+                    if (ii != instances_.end()) total += ii->second->state_size;
+                }
+                out->byte_size = total;
+                return ORPHEUS_OK;
+            }
+        }
+        return ORPHEUS_ERR_NOT_FOUND;
+    }
+
+    const IdMapEntry* e = it->second;
+    auto ii = instances_.find(e->node);
+    if (ii == instances_.end()) return ORPHEUS_ERR_NOT_FOUND;
+    const Instance& inst = *ii->second;
+    auto si = inst.slot_index.find(e->key);
+    if (si == inst.slot_index.end()) return ORPHEUS_ERR_NOT_FOUND;
+    const SlotEntry& slot = inst.slots[si->second];
+
+    out->kind = e->kind;
+    out->form = e->form;
+    out->type = slot.type;
+    out->count = slot.count;
+    out->byte_size = slot.count * slot.size;
+    out->module_id = ORPHEUS_ID_MODULE(id);
+    out->slot = ORPHEUS_ID_SLOT(id);
+    out->base = static_cast<char*>(inst.state) + slot.offset;
+    out->offset = slot.offset;
+    out->node = e->node.c_str();
+    out->key = e->key.c_str();
+    out->name = slot.name.empty() ? e->name.c_str() : slot.name.c_str();
+    return ORPHEUS_OK;
+}
+
+int Runtime::resolve_all(std::vector<OrpheusResolvedData>* out) const {
+    if (out == nullptr) return -1;
+    out->clear();
+    OrpheusResolvedData d;
+    for (const auto& e : plan_.id_map) {
+        if (resolve(e.id, &d) == ORPHEUS_OK) out->push_back(d);
+    }
+    for (const auto& m : plan_.modules) {
+        if (m.path.empty()) continue;
+        uint32_t mid = ORPHEUS_ID_MAKE(ORPHEUS_ID_TUNE, m.id, ORPHEUS_ID_SLOT_MODULE);
+        if (resolve(mid, &d) == ORPHEUS_OK) out->push_back(d);
+    }
+    return ORPHEUS_OK;
 }
 
 const OrpheusComponentInterface* Runtime::get_interface(const std::string& node_id) {

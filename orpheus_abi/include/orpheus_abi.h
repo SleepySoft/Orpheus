@@ -158,6 +158,24 @@ typedef enum {
 #define ORPHEUS_ID_KIND(id_) ((((uint32_t)(id_)) >> 28) & 0xFu)
 #define ORPHEUS_ID_MODULE(id_) ((((uint32_t)(id_)) >> 16) & 0xFFu)
 #define ORPHEUS_ID_SLOT(id_) (((uint32_t)(id_)) & 0xFFFFu)
+#define ORPHEUS_ID_SLOT_MODULE 0xFFFFu  /* 模块包条目占用的槽号（不与数据点槽冲突） */
+
+/* resolve(id)：内存透明的完整描述（Runtime 接口，供控制/调试查询 ID 对应的内存）。 */
+typedef struct {
+    uint32_t id;
+    uint32_t kind;      /* OrpheusIdKind（用途） */
+    uint32_t form;      /* OrpheusDataForm（形式：标量/bulk/模块包） */
+    uint32_t type;      /* OrpheusValueType */
+    uint32_t count;
+    size_t byte_size;   /* count × sizeof(type)（模块包=整块字节数） */
+    uint32_t module_id;
+    uint32_t slot;
+    void* base;         /* 实例状态块基址 + 槽偏移（可寻址）；模块包未连续分配时为 NULL */
+    size_t offset;      /* 槽在状态块内的偏移（模块包=0） */
+    const char* node;   /* 节点路径（模块包为空串） */
+    const char* key;    /* 槽 key（参数 id；模块包为空串） */
+    const char* name;   /* 中文显示名（模块包=模块路径） */
+} OrpheusResolvedData;
 
 /* 槽描述：组件在 register_slots 中逐项提供 */
 typedef struct {

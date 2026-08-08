@@ -122,7 +122,7 @@ def test_generated_ids_macros_and_map(tmp_path: Path, registry: Registry, plan) 
     md = (out / "memory_map.md").read_text(encoding="utf-8")
     assert "ORPHEUS_TUNE_FrontEqBankFc0" in md
     assert "sizeof(OrpheusMod_Front)" in md
-    assert "0x10040000" in md  # 模块包 = TUNE(0x1)<<28 | 4<<16
+    assert "0x1004FFFF" in md  # 模块包 = TUNE(0x1)<<28 | 4<<16 | 槽 0xFFFF
     assert "形式=模块包" in md
 
 

@@ -1,5 +1,19 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-08（第二十五次讨论：Runtime resolve 实现——内存透明落地）
+
+- `plan.id_map` 成为唯一 ID 表（编译器按模块/槽/用途/形式生成），生成器改读 plan.id_map，
+  动态 Runtime 加载同一张表 → 两路寻址一致。
+- `orpheus_abi.h` 增 `OrpheusResolvedData`（id/kind/form/type/count/byte_size/module/slot/base/offset/node/key/name）
+  与 `ORPHEUS_ID_SLOT_MODULE`（模块包槽号 0xFFFF，不与数据点槽冲突）。
+- Runtime：`resolve(id)` / `resolve_all()`（数据点=真实地址；模块包=元数据，动态路径未连续分配 base=NULL）；
+  plan 解析 id_map/modules。
+- 宿主入口：离线 `orpheus_runtime --resolve <id>|--map`；rt_host stdin `RESOLVE <id>` / `MAP`。
+- 测试 `tests/test_runtime_resolve.py`：RTC/TUNE/PROBE 三类 resolve（真实地址）、bulk 20B、
+  模块包 0xFFFF、MAP 全表。
+- 修坑：`operator<<(const char*)` 打印 NULL 崩溃（模块条目的 node/key 为空，需兜底空串）。
+- 说明：manifest 参数未注册为运行槽（如 fir.coefficients 走 prepare）resolve 返回 NOT_FOUND，符合预期。
+
 ## 2026-08-08（第二十四次讨论：用途/形式正交分类 + RTC 排序第一）
 
 - 纠正分类混维：BULK/MODULE 是**形式**不是用途——「TUNE 又是 BULK 形式」不再矛盾

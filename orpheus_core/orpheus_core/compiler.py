@@ -9,6 +9,7 @@ from typing import Any
 
 from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import ComponentInfo, Registry
+from orpheus_core.parameter_catalog import id_form_of, id_kind_of, id_value
 
 
 class CompileError(Exception):
@@ -41,6 +42,7 @@ class ExecutionPlan:
     connections: list[dict[str, str]] = field(default_factory=list)
     duration_frames: int = 0   # 离线宿主运行时长提示（纯时钟图按扫频 duration_s 推导；0=宿主默认）
     modules: list[dict[str, Any]] = field(default_factory=list)  # 模块内存布局（ID 寻址：模块 id + 槽）
+    id_map: list[dict[str, Any]] = field(default_factory=list)   # 数据点 ID 表（动态/生成两路共用）
 
 
 def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
@@ -384,8 +386,44 @@ class GraphCompiler:
         # 模块布局：按节点 id 的 `__` 路径前缀组织模块树，DFS 分配稳定模块 id。
         # flatten 只决定执行拓扑；内存布局按模块连续（生成路径=嵌套结构体/动态路径=按模块切片）。
         plan.modules = self._build_module_layout(execution_order)
+        # 数据点 ID 表：同一份工程内稳定，动态 Runtime 与代码生成共用同一寻址
+        plan.id_map = self._build_id_map(plan)
 
         return plan
+
+    def _module_data_points(self, plan: ExecutionPlan, module: dict) -> list[dict[str, Any]]:
+        """模块内数据点：叶子按执行序 × manifest 参数序 + bulk_slots 序（槽序号同此顺序）。"""
+        points: list[dict[str, Any]] = []
+        for leaf in module.get("leaves", []):
+            nid = leaf["node"]
+            cfg = plan.node_configs[nid]
+            info = self.registry.get(cfg["component"])
+            for p in (info.manifest.get("parameters", []) if info else []):
+                points.append({**p, "node": nid})
+            for bs in (info.manifest.get("bulk_slots", []) if info else []):
+                points.append({**bs, "node": nid, "runtime": True})
+        return points
+
+    def _build_id_map(self, plan: ExecutionPlan) -> list[dict[str, Any]]:
+        """32 位数据 ID 表（用途 kind + 形式 form + 类型/个数），动态/生成两路共用。"""
+        entries: list[dict[str, Any]] = []
+        for module in plan.modules:
+            for slot, p in enumerate(self._module_data_points(plan, module)):
+                kind = id_kind_of(p)
+                entries.append(
+                    {
+                        "id": id_value(kind, module["id"], slot),
+                        "node": p["node"],
+                        "key": p["id"],
+                        "kind": kind,
+                        "form": id_form_of(p),
+                        "type": p.get("type", "float"),
+                        "count": int(p.get("count", 1) or 1),
+                        "name": p.get("name", p["id"]),
+                        "runtime": bool(p.get("runtime", False)),
+                    }
+                )
+        return entries
 
     def _build_module_layout(self, execution_order: list[str]) -> list[dict[str, Any]]:
         """按 flatId 路径前缀分组：模块=子组件实例路径（根="" 存顶层叶子）。

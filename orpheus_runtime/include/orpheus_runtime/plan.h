@@ -35,6 +35,24 @@ struct ConnectionConfig {
     std::string buffer;
 };
 
+struct ModuleConfig {
+    std::string path;
+    uint32_t id = 0;
+    std::vector<std::pair<std::string, uint32_t>> leaves;  // (node, slot)
+};
+
+struct IdMapEntry {
+    uint32_t id = 0;
+    std::string node;
+    std::string key;
+    uint32_t kind = 0;    // OrpheusIdKind（用途）
+    uint32_t form = 0;    // OrpheusDataForm（形式）
+    std::string type;     // "float"/"int"/"bool"/"string"
+    uint32_t count = 1;
+    std::string name;     // 中文显示名
+    bool runtime = false; // 运行期槽（bulk_slots）
+};
+
 struct Plan {
     uint32_t abi_version = 1;
     uint32_t sample_rate = 48000;
@@ -47,6 +65,8 @@ struct Plan {
     std::map<std::string, NodeConfig> node_configs;
     std::map<std::string, BufferConfig> buffers;
     std::vector<ConnectionConfig> connections;
+    std::vector<ModuleConfig> modules;
+    std::vector<IdMapEntry> id_map;
 
     static Plan load_from_file(const std::string& path);
 };

@@ -1,5 +1,7 @@
 #include "orpheus_runtime/plan.h"
 
+#include "orpheus_abi.h"
+
 #include "json.hpp"
 
 #include <fstream>
@@ -72,6 +74,36 @@ Plan Plan::load_from_file(const std::string& path) {
         cc.to = c.value("to", "");
         cc.buffer = c.value("buffer", "");
         p.connections.push_back(cc);
+    }
+
+    for (const auto& m : j.value("modules", json::array())) {
+        ModuleConfig mc;
+        mc.path = m.value("path", "");
+        mc.id = m.value("id", 0u);
+        for (const auto& leaf : m.value("leaves", json::array())) {
+            mc.leaves.emplace_back(leaf.value("node", ""), leaf.value("slot", 0u));
+        }
+        p.modules.push_back(mc);
+    }
+
+    for (const auto& e : j.value("id_map", json::array())) {
+        IdMapEntry ie;
+        ie.id = e.value("id", 0u);
+        ie.node = e.value("node", "");
+        ie.key = e.value("key", "");
+        ie.kind = e.value("kind", "TUNE") == "RTC" ? ORPHEUS_ID_RTC
+                 : e.value("kind", "TUNE") == "PROBE" ? ORPHEUS_ID_PROBE
+                 : e.value("kind", "TUNE") == "STATE" ? ORPHEUS_ID_STATE
+                 : e.value("kind", "TUNE") == "CUSTOM" ? ORPHEUS_ID_CUSTOM
+                 : ORPHEUS_ID_TUNE;
+        ie.form = e.value("form", "SCALAR") == "BULK" ? ORPHEUS_FORM_BULK
+                  : e.value("form", "SCALAR") == "MODULE" ? ORPHEUS_FORM_MODULE
+                  : ORPHEUS_FORM_SCALAR;
+        ie.type = e.value("type", "float");
+        ie.count = e.value("count", 1u);
+        ie.name = e.value("name", ie.key);
+        ie.runtime = e.value("runtime", false);
+        p.id_map.push_back(ie);
     }
 
     return p;

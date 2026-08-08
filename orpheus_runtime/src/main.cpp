@@ -10,7 +10,46 @@
 #include <thread>
 
 void print_usage(const char* prog) {
-    std::cerr << "Usage: " << prog << " <plan.json> <component_dir>" << std::endl;
+    std::cerr << "Usage: " << prog << " <plan.json> <component_dir> [--pace] [--probe-interval ms]"
+              << "\n       " << prog << " <plan.json> <component_dir> --map"
+              << "\n       " << prog << " <plan.json> <component_dir> --resolve <id|0xhex>" << std::endl;
+}
+
+static const char* id_kind_name(uint32_t kind) {
+    switch (kind) {
+        case ORPHEUS_ID_RTC: return "RTC";
+        case ORPHEUS_ID_TUNE: return "TUNE";
+        case ORPHEUS_ID_PROBE: return "PROBE";
+        case ORPHEUS_ID_STATE: return "STATE";
+        case ORPHEUS_ID_CUSTOM: return "CUSTOM";
+        default: return "RESERVED";
+    }
+}
+
+static const char* data_form_name(uint32_t form) {
+    switch (form) {
+        case ORPHEUS_FORM_SCALAR: return "SCALAR";
+        case ORPHEUS_FORM_BULK: return "BULK";
+        case ORPHEUS_FORM_MODULE: return "MODULE";
+        default: return "?";
+    }
+}
+
+/* 内存透明：ID → 类型/长度/基址/偏移（供控制/调试查询） */
+static void print_resolved(const OrpheusResolvedData& d) {
+    std::cout << "RESOLVED " << std::hex << "0x" << d.id << std::dec
+              << " " << id_kind_name(d.kind)
+              << " " << data_form_name(d.form)
+              << " type=" << d.type
+              << " count=" << d.count
+              << " bytes=" << d.byte_size
+              << " module=" << d.module_id
+              << " slot=" << d.slot
+              << " base=" << static_cast<const void*>(d.base)
+              << " offset=" << d.offset
+              << " node=" << (d.node ? d.node : "")
+              << " key=" << (d.key ? d.key : "")
+              << " name=" << (d.name ? d.name : "") << std::endl;
 }
 
 static std::string find_input_node(const orpheus::Plan& plan) {
@@ -51,11 +90,19 @@ int main(int argc, char** argv) {
     std::string component_dir = argv[2];
     bool pace = false;
     uint32_t probe_interval_ms = 0;
+    bool dump_map = false;
+    bool have_resolve = false;
+    uint32_t resolve_id = 0;
     for (int i = 3; i < argc; ++i) {
         if (std::string(argv[i]) == "--pace") {
             pace = true;
         } else if (std::string(argv[i]) == "--probe-interval" && i + 1 < argc) {
             probe_interval_ms = (uint32_t)std::atoi(argv[++i]);
+        } else if (std::string(argv[i]) == "--map") {
+            dump_map = true;
+        } else if (std::string(argv[i]) == "--resolve" && i + 1 < argc) {
+            resolve_id = (uint32_t)std::strtoul(argv[++i], nullptr, 0);
+            have_resolve = true;
         }
     }
 
@@ -67,6 +114,22 @@ int main(int argc, char** argv) {
         if (rc != 0) {
             std::cerr << "Failed to load plan: " << rc << std::endl;
             return 1;
+        }
+
+        if (dump_map) {
+            std::vector<OrpheusResolvedData> all;
+            runtime.resolve_all(&all);
+            for (const auto& d : all) print_resolved(d);
+            return 0;
+        }
+        if (have_resolve) {
+            OrpheusResolvedData d;
+            if (runtime.resolve(resolve_id, &d) == ORPHEUS_OK) {
+                print_resolved(d);
+            } else {
+                std::cout << "ERR RESOLVE " << std::hex << "0x" << resolve_id << std::dec << std::endl;
+            }
+            return 0;
         }
 
         // Determine total frames from the file input node

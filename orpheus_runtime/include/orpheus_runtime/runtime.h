@@ -15,6 +15,7 @@ namespace orpheus {
 
 struct SlotEntry {
     std::string key;
+    std::string name;
     OrpheusSlotKind kind;
     OrpheusValueType type;
     size_t offset;
@@ -61,6 +62,13 @@ public:
     // v2 探针发现：返回某节点的 PROBE 槽列表（替代宿主按组件名/描述符猜测）。
     std::vector<const SlotEntry*> probe_slots(const std::string& node_id) const;
 
+    // v2.1 数据 ID 解析（内存透明）：ID → 类型/长度/基址/偏移。
+    // 数据点返回真实地址（base = 实例状态块 + 槽偏移）；模块包返回元数据（base=NULL 直到模块连续分配）。
+    int resolve(uint32_t id, OrpheusResolvedData* out) const;
+
+    // 全表 dump：所有数据点 + 模块包条目（等价生成路径的 orpheus_id_map）。
+    int resolve_all(std::vector<OrpheusResolvedData>* out) const;
+
     // Access the component interface of a loaded node (metadata/introspection).
     const OrpheusComponentInterface* get_interface(const std::string& node_id);
 
@@ -82,6 +90,7 @@ private:
     std::map<std::string, std::unique_ptr<OrpheusBuffer>> buffers_;
     std::vector<float> buffer_memory_;
     std::vector<uint8_t> state_arena_;   // v2：统一内存拼接（每实例一块连续切片）
+    std::map<uint32_t, const IdMapEntry*> id_index_;   // 数据 ID → plan.id_map 条目
     uint64_t block_counter_ = 0;  // for rate-divisor scheduling
 
     int prepare_instance(Instance& inst, const NodeConfig& cfg);

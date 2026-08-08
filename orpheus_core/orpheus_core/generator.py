@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from orpheus_core.compiler import ExecutionPlan
+from orpheus_core.parameter_catalog import ID_SLOT_MODULE, id_value
 from orpheus_core.project import Project
 from orpheus_core.registry import Registry
 
@@ -63,35 +64,6 @@ class CodeGenerator:
     def _module_member(self, path: str) -> str:
         return self._sanitized_node_id(path.split("__")[-1])
 
-    _KIND_BITS = {"RTC": 0x0, "TUNE": 0x1, "PROBE": 0x2,
-                  "STATE": 0x3, "CUSTOM": 0x4}
-
-    def _point_kind(self, p: dict) -> str:
-        """数据点用途（purpose，32 位 ID kind）：
-        - 命令 → RTC（实时控制类，槽层以 COMMAND 标记）；
-        - 探针 → PROBE；state → STATE；
-        - bulk 参数/槽 → TUNE（调音数据，形式为 bulk，用途仍是调音）；
-        - 实时可调参数（immediate/block_boundary/smoothed/transactional）→ RTC；
-        - 其余（restart_required、影响签名、系数等配置参数）→ TUNE。"""
-        k = p.get("kind")
-        if k == "probe":
-            return "PROBE"
-        if k == "state":
-            return "STATE"
-        if k == "command":
-            return "RTC"
-        if p.get("readback") and not p.get("persistent") and not p.get("affects_signature"):
-            return "PROBE"
-        if p.get("update_policy") in ("immediate", "block_boundary", "smoothed", "transactional"):
-            return "RTC"
-        return "TUNE"
-
-    def _point_form(self, p: dict) -> str:
-        """数据点形式（form，与用途正交）：bulk 参数/运行期槽 → BULK，否则 SCALAR。"""
-        if p.get("runtime") or p.get("kind") == "bulk":
-            return "ORPHEUS_FORM_BULK"
-        return "ORPHEUS_FORM_SCALAR"
-
     def _ctype_of(self, ptype: str) -> str:
         return {"float": "float", "int": "int32_t", "bool": "bool",
                 "string": "const char*"}.get(ptype, "float")
@@ -104,21 +76,12 @@ class CodeGenerator:
     def _bytes_of(self, ctype: str) -> int:
         return {"float": 4, "int32_t": 4, "bool": 1, "const char*": 8}.get(ctype, 4)
 
-    def _id_value(self, kind: str, module_id: int, slot: int) -> int:
-        return (self._KIND_BITS[kind] << 28) | ((module_id & 0xFF) << 16) | (slot & 0xFFFF)
-
-    def _module_data_points(self, plan: ExecutionPlan, module: dict) -> list[dict]:
-        """模块内数据点：叶子按执行序 × manifest 参数序 + bulk_slots 序（槽序号同此顺序）。"""
-        points: list[dict] = []
-        for leaf in module.get("leaves", []):
-            nid = leaf["node"]
-            cfg = plan.node_configs[nid]
-            info = self.registry.get(cfg["component"])
-            for p in (info.manifest.get("parameters", []) if info else []):
-                points.append({**p, "node": nid})
-            for bs in (info.manifest.get("bulk_slots", []) if info else []):
-                points.append({**bs, "node": nid, "runtime": True})
-        return points
+    def _id_map_by_module(self, plan: ExecutionPlan) -> dict[int, list[dict]]:
+        """plan.id_map 按模块 id 分组（保持 id_map 顺序 = 模块内槽顺序）。"""
+        by_module: dict[int, list[dict]] = {}
+        for entry in plan.id_map:
+            by_module.setdefault((entry["id"] >> 16) & 0xFF, []).append(entry)
+        return by_module
 
     def _point_macro_name(self, module: dict, p: dict) -> str:
         """数据点宏名：模块Camel + (叶子Camel，仅模块多叶子时) + 参数Camel。
@@ -665,8 +628,8 @@ class CodeGenerator:
             '#include "orpheus_abi.h"',
             '/* 数据 ID（32 位宏）：单 ID 寻址，方向只在接口（orpheus_data_read/write）。',
             ' * ID = kind<<28 | module_id<<16 | slot；kind 0x0..0xF：',
-            ' * TUNE/CMD/PROBE/BULK/STATE/MODULE/CUSTOM，其余 Reserved（见 OrpheusIdKind）。',
-            ' * CUSTOM 类显式保留给用户自定义资源（可自行分配该类 ID 空间）。 */',
+            ' * RTC/TUNE/PROBE/STATE/CUSTOM，其余 Reserved（见 OrpheusIdKind）。',
+            ' * 形式（SCALAR/BULK/MODULE）是独立维度，由 ID map 与 CHAR_COUNT 描述。 */',
             '',
         ]
         for path in ordered_paths:
@@ -675,19 +638,20 @@ class CodeGenerator:
             mod = modules[path]
             ids_lines.append(
                 f'#define ORPHEUS_MODULE_{self._camel(path)} '
-                f'(ORPHEUS_ID_MAKE(ORPHEUS_ID_TUNE, {mod["id"]}, 0))'
+                f'(ORPHEUS_ID_MAKE(ORPHEUS_ID_TUNE, {mod["id"]}, ORPHEUS_ID_SLOT_MODULE))'
             )
         ids_lines.append('')
+        by_module = self._id_map_by_module(plan)
         for path in ordered_paths:
             mod = modules[path]
-            for slot, p in enumerate(self._module_data_points(plan, mod)):
-                kind = self._point_kind(p)
-                name = self._point_macro_name(mod, p)
-                ctype = self._ctype_of(p.get("type", "float"))
-                count = int(p.get("count", 1) or 1)
+            for entry in by_module.get(mod["id"], []):
+                kind = entry["kind"]
+                name = self._point_macro_name(mod, {"id": entry["key"], "node": entry["node"]})
+                ctype = self._ctype_of(entry["type"])
+                count = entry["count"]
                 ids_lines.append(
                     f'#define ORPHEUS_{kind}_{name} '
-                    f'(ORPHEUS_ID_MAKE(ORPHEUS_ID_{kind}, {mod["id"]}, {slot}))'
+                    f'(ORPHEUS_ID_MAKE(ORPHEUS_ID_{kind}, {mod["id"]}, {entry["id"] & 0xFFFF}))'
                 )
                 ids_lines.append(
                     f'#define ORPHEUS_CHAR_COUNT_{name} (sizeof({ctype}) * {count}U)'
@@ -745,30 +709,32 @@ class CodeGenerator:
                 f'    {{ ORPHEUS_MODULE_{self._camel(path)}, "{self._camel(path)}", '
                 f'ORPHEUS_ID_TUNE, ORPHEUS_FORM_MODULE, ORPHEUS_VALUE_BULK_REF, '
                 f'1, sizeof({mod_type}), '
-                f'{mod["id"]}, 0, offsetof(OrpheusArena, {chain}), '
+                f'{mod["id"]}, ORPHEUS_ID_SLOT_MODULE, offsetof(OrpheusArena, {chain}), '
                 f'offsetof(OrpheusArena, {chain}) }},'
             )
+        by_module = self._id_map_by_module(plan)
         for path in ordered_paths:
             mod = modules[path]
-            for slot, p in enumerate(self._module_data_points(plan, mod)):
-                nid = p["node"]
+            for entry in by_module.get(mod["id"], []):
+                nid = entry["node"]
                 if self._state_type(nid, plan) is None:
                     continue
-                kind = self._point_kind(p)
-                name = self._point_macro_name(mod, p)
-                ctype = self._ctype_of(p.get("type", "float"))
-                vtype = self._value_type_of(p.get("type", "float"))
-                count = int(p.get("count", 1) or 1)
+                kind = entry["kind"]
+                name = self._point_macro_name(mod, {"id": entry["key"], "node": nid})
+                ctype = self._ctype_of(entry["type"])
+                vtype = self._value_type_of(entry["type"])
+                count = entry["count"]
                 chain = self._arena_member_chain(nid)
                 segs = chain.split(".")
                 mod_chain = ".".join(segs[:-1])
                 mod_off = f'offsetof(OrpheusArena, {mod_chain})' if mod_chain else '0'
                 arena_off = f'offsetof(OrpheusArena, {chain})'
-                display = p.get("name", p["id"]).replace('"', '\\"')
+                display = entry.get("name", entry["key"]).replace('"', '\\"')
                 map_c.append(
                     f'    {{ ORPHEUS_{kind}_{name}, "{display}", ORPHEUS_ID_{kind}, '
-                    f'{self._point_form(p)}, {vtype}, {count}, sizeof({ctype}) * {count}U, '
-                    f'{mod["id"]}, {slot}, {mod_off}, {arena_off} }},'
+                    f'ORPHEUS_FORM_{entry["form"]}, {vtype}, {count}, '
+                    f'sizeof({ctype}) * {count}U, '
+                    f'{mod["id"]}, {entry["id"] & 0xFFFF}, {mod_off}, {arena_off} }},'
                 )
         map_c.append('};')
         map_c.append('')
@@ -786,16 +752,17 @@ class CodeGenerator:
             '',
             f'- 采样率 {plan.sample_rate} Hz / 块长 {plan.block_size} 帧',
             '- 精确偏移见 `src/orpheus_id_map.c`（编译期 offsetof/sizeof）；运行时 `RESOLVE <id>` 给出注册表最终地址。',
-            '- kind：TUNE/CMD/PROBE/BULK/STATE/MODULE/CUSTOM，其余 Reserved（`OrpheusIdKind`）。',
+            '- kind：RTC/TUNE/PROBE/STATE/CUSTOM（RTC 最高频，排第一），其余 Reserved；'
+            '形式（SCALAR/BULK/MODULE）是独立维度。',
             '',
-            '## 模块（MODULE 类 ID，指向整块连续内存）',
+            '## 模块包（用途=TUNE，形式=MODULE，指向整块连续内存）',
             '',
         ]
         for path in ordered_paths:
             if not path:
                 continue
             mod = modules[path]
-            value = self._id_value("TUNE", mod["id"], 0)
+            value = id_value("TUNE", mod["id"], ID_SLOT_MODULE)
             md_lines.append(
                 f'- `ORPHEUS_MODULE_{self._camel(path)}` = 0x{value:08X}：'
                 f'`{path}`（用途=TUNE，形式=模块包），`sizeof({self._module_type_name(path)})` 字节'
@@ -807,15 +774,17 @@ class CodeGenerator:
             mod = modules[path]
             md_lines.append(f'### 模块 `{path or "<顶层>"}` (id={mod["id"]})')
             md_lines.append('')
-            for slot, p in enumerate(self._module_data_points(plan, mod)):
-                kind = self._point_kind(p)
-                name = self._point_macro_name(mod, p)
-                ctype = self._ctype_of(p.get("type", "float"))
-                count = int(p.get("count", 1) or 1)
-                display = p.get("name", p["id"])
-                runtime = ' [运行期槽]' if p.get("runtime") else ''
-                value = self._id_value(kind, mod["id"], slot)
-                form = "bulk" if self._point_form(p) == "ORPHEUS_FORM_BULK" else "scalar"
+            for entry in by_module.get(mod["id"], []):
+                kind = entry["kind"]
+                name = self._point_macro_name(
+                    mod, {"id": entry["key"], "node": entry["node"]}
+                )
+                ctype = self._ctype_of(entry["type"])
+                count = entry["count"]
+                display = entry.get("name", entry["key"])
+                runtime = ' [运行期槽]' if entry.get("runtime") else ''
+                value = entry["id"]
+                form = entry["form"].lower()
                 md_lines.append(
                     f'- `ORPHEUS_{kind}_{name}` = 0x{value:08X}：{display}{runtime}，'
                     f'形式={form}，{ctype} × {count} = {self._bytes_of(ctype) * count} B'

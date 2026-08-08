@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <sstream>
@@ -287,6 +288,8 @@ static void report_probes(orpheus::Runtime& runtime, const orpheus::Plan& plan) 
 //   SET <node> <param> <value>   -> runtime.set_parameter (numeric -> float, else string)
 //   GET <node> <param>           -> prints VALUE <node> <param> <value>
 //   BULK <node> <key> <n> <v0>...-> runtime.write_bulk (BULK 槽直写，如 biquad_bank 系数)
+//   RESOLVE <id>                -> 打印 RESOLVED <id> ...（内存透明：类型/长度/基址/偏移）
+//   MAP                         -> 打印全部 RESOLVED 行（数据点 + 模块包）
 //   STOP (or empty line / EOF)   -> shut down
 static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) {
     std::string line;
@@ -347,6 +350,30 @@ static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) 
             }
             int r = runtime.write_bulk(node, key, vals.data(), vals.size());
             std::cout << (r == ORPHEUS_OK ? "OK BULK " : "ERR BULK ") << node << " " << key << std::endl;
+        } else if (cmd == "RESOLVE" || cmd == "MAP") {
+            std::vector<OrpheusResolvedData> entries;
+            if (cmd == "RESOLVE") {
+                std::string raw;
+                iss >> raw;
+                uint32_t id = (uint32_t)std::strtoul(raw.c_str(), nullptr, 0);
+                OrpheusResolvedData d;
+                if (runtime.resolve(id, &d) == ORPHEUS_OK) entries.push_back(d);
+                else std::cout << "ERR RESOLVE " << std::hex << "0x" << id << std::dec << std::endl;
+            } else {
+                runtime.resolve_all(&entries);
+            }
+            for (const auto& d : entries) {
+                std::cout << "RESOLVED " << std::hex << "0x" << d.id << std::dec
+                          << " kind=" << d.kind << " form=" << d.form
+                          << " type=" << d.type << " count=" << d.count
+                          << " bytes=" << d.byte_size
+                          << " module=" << d.module_id << " slot=" << d.slot
+                          << " base=" << static_cast<const void*>(d.base)
+                          << " offset=" << d.offset
+                          << " node=" << (d.node ? d.node : "")
+                          << " key=" << (d.key ? d.key : "")
+                          << " name=" << (d.name ? d.name : "") << std::endl;
+            }
         }
     }
     running = false;
