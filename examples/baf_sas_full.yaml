@@ -1,0 +1,210 @@
+version: "0.1.0"
+metadata:
+  name: bose_baf_medusa_full
+  description: "Bose BAF SAS 完整蒸馏 - 6 task + 8 条音频链 + 7 pooliir + 8 延迟 + 8 参数分区"
+  author: Orpheus
+  distilled_from: Model_1_1.c v7.736 (905KB static C, Simulink Coder R2022b)
+  target_dsp: ADI SHARC+ GLXP
+  base_block_rate: 1500Hz (48kHz/32-sample block)
+sample_rate: 48000
+block_size: 32
+graph:
+  nodes:
+    - id: sys_in
+      component: orpheus.builtin.embed_in
+      params: {channels: 22, sample_rate: 48000}
+      position: {x: 40, y: 200}
+    - id: chain
+      component: sub:chain
+      position: {x: 300, y: 200}
+    - id: sys_out
+      component: orpheus.builtin.embed_out
+      params: {channels: 22, sample_rate: 48000}
+      position: {x: 560, y: 200}
+  connections:
+    - {from: "sys_in:out", to: "chain:in"}
+    - {from: "chain:out", to: "sys_out:in"}
+subcomponents:
+  - id: chain
+    name: 完整处理链
+    ports:
+      - {id: in, direction: input, maps_to: "g:in"}
+      - {id: out, direction: output, maps_to: "g:out"}
+    graph:
+      nodes:
+        - id: g
+          component: orpheus.builtin.gain
+          params: {gain_db: 0.0, channels: 22}
+          position: {x: 100, y: 120}
+      connections: []
+model_tree:
+  name: Bose BAF SAS 空间音频系统（完整蒸馏）
+  source: Model_1_1.c v7.736 (905KB, 20642 行静态 C)
+  base_rate: 1500Hz (48kHz/32样本块)
+  task_flows:
+    - tid: 0
+      rate_hz: 1500
+      call_interval: 1
+      label: 主音频链
+      chain: InputSelect -> PreAmpPart1 -> [SAS Part2-6] -> PostProcess -> Audiopilot调制
+    - tid: 1
+      rate_hz: 750
+      call_interval: 2
+      label: Audiopilot ref/mic 延迟缓冲
+      chain: BufferRef(128环形) -> delayBuffer(226) -> BufferMic(128) -> Buffer(512)
+    - tid: 2
+      rate_hz: 375
+      call_interval: 4
+      label: FDP 频域处理
+      chain: BufferIn(2ch读128) -> Fdp(256点STFT) -> BufferOut(6ch写128)
+    - tid: 3
+      rate_hz: 23.4
+      call_interval: 64
+      label: Audiopilot FFT 噪声估计
+      chain: Buffer(10ch×512) -> Windowing(256点) -> RFFT(256点10ch) -> FormCoherenceMatrixGXY
+    - tid: 4
+      rate_hz: 5.86
+      call_interval: 256
+      label: Audiopilot LF 噪声速度界限
+      chain: SpeedBounds(128点速度轴) -> NoiseSlew -> RateTransition
+    - tid: 5
+      rate_hz: 1.95
+      call_interval: 768
+      label: Audiopilot 相干求和
+      chain: SumOfElements(30ch) -> Gxx/Gyy/Gyx相干 -> magnitude^2 -> Saturation
+  chains:
+    - id: input_select
+      label: InputSelect（输入路由）
+      flow: "routerOutMap[30](tune) 或 REQ_routerMap[30](RTC覆盖) -> Variable Selector(sdspperm2, 30ch->32ch) -> 主路径+preq路径"
+      params: "routerOutMap(30 int)"
+    - id: preamp_part1
+      label: PreAmpPart1（预放）
+      flow: "MakeupGain -> InputMixer3D(AddWeights: LFE+10dB/Lrs2Ls/Rrs2Rs) -> DownmixToStereo(Weights_L_R[8]) -> Send514Out -> Bass/Midrange/Treble BoostCut -> Balance -> Volume -> LevelDetect(PreEmpFilter pooliir 10stages)"
+      params:
+        - MakeupGainMakeupGain(1 float, default 1.0)
+        - InputMixer3dWeights_514(3 float)
+        - InputMixer3dWeights_L_R(8 float)
+        - BassBoostCoeffs(3) BassCutCoeffs(3) BassMaximum_dB(1)
+        - MidrangeBoostCoeffs(5) MidrangeCutCoeffs(5) MidrangeMaximum_dB(1)
+        - TrebleBoostCoeffs(3) TrebleCutCoeffs(3) TrebleMaximum_dB(1)
+        - Balance(TableDb[30] TableIdx[30] ChanRampMap[10] RampTime Offset)
+        - Volume(Table_dB[8] Table_Idx[8] RampTime maxgain)
+        - LevelDetectPreEmpFilterpooliirCoeffs(50 float = 10stages×5) NumStages(10 uint)
+        - LevelDetect(FastDecay HoldMargin HoldTime MaxVol MinVol SlowDecay ×2=12 float)
+    - id: part2_fdp
+      label: Part2 FDP 频域环绕解码
+      flow: >
+        TrebleDelay[7928](2ch) -> BufferIn(2ch×256) ->
+        Windowing(InputOverlap×sine[128] + AudioIn×cosine[128]) ->
+        RFFT(256点, Model_1_1_MATLABFunction1, 2ch->129复数bin×2) ->
+        Coeffs1stStage(Lok/Rok/Lxk/Rxk = min(|L|,|R|)/|L| 等, SPS=|Lx-Rx|/(|Lx|+|Rx|)) ->
+        LPF平滑(lsGain1=0.90993 lsPole1=0.0450350046) ->
+        Coeffs2ndStage(Lxks=1-Loks Rxks=1-Roks) ->
+        ApplyCoefficients(Lo=Lok×Lin Ro=Rok×Rin Lsr=Lxk×Lin Rsr=Rxk×Rin -> 6路频域) ->
+        PSD平滑(FastPsdSmoothFactor SlowPsdSmoothFactor) -> DetectImpulse ->
+        ReverbExtraction(LeftFast/LeftSlow/RightFast/RightSlow 4条延迟[2193]) ->
+        IFFT+overlapAdd -> BufferOut(6ch×256) -> Selector(4ch:{0,1,2,4})
+      delays: [TrebleDelay(2ch,7928), SASFdpLeftFast(2193), SASFdpLeftSlow(2193), SASFdpRightFast(2193), SASFdpRightSlow(2193)]
+      fft: {size: 256, bins: 129, channels_in: 2, channels_out: 6, window: sine+cosine 128+128, overlap_add: yes}
+      params: "FdpCoeffs(6 float) FdpSpum(4 float) DirectPathSamplesDec(1 uint,1161) TrebleDelay(1 uint,1280)"
+    - id: part3_mixing
+      label: Part3 全速率混合
+      flow: >
+        TrebleSurroundDelay[30436](7ch,stateLen4348,delay1664) ->
+        SelectSurroundDiscrete/SelectLeftSurroundAtmos/SelectRightSurroundAtmos ->
+        SumOfElements(LtfLtb+surround) -> 路由(b={0,2,3} c={1,4,5} d={7,9,10} e={8,11,12}) ->
+        LeftAtmos/LeftFdp/RightAtmos/RightFdp(各3ch×32)
+      delays: [TrebleSurroundDelay(7ch,30436,stateLen4348)]
+      params: "MixEqpooliirCoeffs(484 float) RampCoeff(1,0.995842) NumStages(13 uint,各10) TrebleSurroundDelay(1 uint,1664)"
+    - id: part4_peripheral_eq
+      label: Part4 外围 EQ
+      flow: >
+        Switch(enable/disable) -> Selector1(22ch从32ch: {0,1,2,3,4,5,12,13,14,15,6,7,16,17,8,18,9,19,10,20,11,21}) ->
+        pooliir(iir_accelerator_process, 22ch×32, GLXP IIR, workMem 1104, 13stages×10, RmdlShutdown时输出零) ->
+        ChannelDelay(dsp.Delay, 22ch, W1_IC_BUFF circBuf 254)
+      pooliir: {instance: PeripheralEq_FullRateEq, work_memory: 1104, channels: 22, stages: 13}
+      params: "pooliirCoeffs(484默认单位矩阵) NumStages(13)"
+    - id: part5_post_holigram
+      label: Part5 全息后处理
+      flow: >
+        SleepingBeauty(4 ramper: currentGain/targetGain/rampCoeff/frameCount) ->
+        channelToRamperMap[22]映射 -> rampCoeffMultipliers=powf(rampCoeff,1:32) ->
+        gain×rampCoeffMultipliers施加到映射通道 -> 未用通道置零 ->
+        PostHoligramRoutingMap[22]路由 -> FadeControl(2 ramper) -> MuteControl
+      params: "ChannelToRamperMap(22) TableDb(30) TableIdx(30) Offset(1,128) RampTime(1,30) MutesBass(1) PhaseAlignmentDelays(22 uint)"
+    - id: part6_summation
+      label: Part6 求和与预放
+      flow: >
+        Sum(holigram[22×32]+direct[22×32]) -> SpeakerDelay[32384](22ch,stateLen1472,per-ch delay) ->
+        SASOutputRouter -> FadeRamper LPF(TOPFilterCoefficients[3]) -> SpatialFader
+      delays: [SpeakerDelay(22ch,32384,stateLen1472)]
+      params: "SpeakerDelay(22 uint) PostHoligramRoutingMap(22) FadeControl(TableDb[30] TableIdx[30] RampTime Offset) FadeRamper(ChannelToRamperMap[22] DisableLpf TOPFilterCoeffs[3]) MuteRampTime(1,100)"
+    - id: post_process
+      label: PostProcess 后处理
+      flow: >
+        PostEQ(pooliir, workMem 1104) -> TestRouter/ASDRouter(MainChannel: mainSelect[22]+mainGain, AuxChannel: AuxSelect[22]+EnableAux, VariableSelector) ->
+        OutputCalibration FreqComp(pooliir, workMem 1104) -> Limiter(attack/decay/k1/maxAttack ×高低2带) -> SoftClipper(p2/xmax/xmin ×2带) -> PreqOut1[22ch] + AudioOut[32ch]
+      pooliir: [PostEQ(1104), OutputCalibrationFreqComp(1104)]
+      params: "ASDRouterMainSelect(22) AuxSelect(22) EnableAux(1) OutputEQpooliirCoeffs(matrix) FreqCompxpooliirCoeffs(matrix) Limiter(8×2=16 float) SoftClipper(3×2=6 float) OutputSclip(3×2=6) MuteRampTime MuteRampRate AllMuteRampTime RmdlMuteRampTime MuteMapSwitch"
+    - id: audiopilot
+      label: Audiopilot35 自适应音频
+      flow: >
+        TID0: 正弦调制(11点表) -> MatrixMultiply(10×32) -> poolIIR输入缓冲 ->
+        TID1: ref/mic延迟缓冲(BufferRef 128 + delayBuffer 226 + BufferMic 128 + Buffer 512) ->
+        TID3: 256点RFFT(10ch) + 窗 + FormCoherenceMatrixGXY(HF噪声估计, Welch窗) ->
+        TID4: SpeedBounds(128点速度轴) + NoiseSlew ->
+        TID5: 30ch相干求和(Gxx/Gyy/Gyx magnitude^2 Saturation)
+      pooliir: [HF_AntiAliasing(528) HF_BandpassOrLowpass(528) LF_FilterMic(96) LF_FilterRef(96)]
+      fft: {size: 256, channels: 10}
+      params: "LatencySamples(3 int) AntiZipperLpf(3) BassBpf(6) BassControl(9) DyneqBass(2) HfNoise(18+pooliirCoeffs) LfNoise(16+pooliirCoeffs) SpeedBounds(3) HvacTable(array) EnableRampCoef(1)"
+  pooliir_instances:
+    - {name: SAS_PeripheralEq_FullRateEq, work_mem: 1104, channels: 22, stages: 13, default_coeffs: p5(484单位矩阵)}
+    - {name: PostProcess_PostEQ, work_mem: 1104, default_coeffs: PostProcess_p0(OutputEQpooliirCoeffs)}
+    - {name: PostProcess_OutputCalibration_FreqComp, work_mem: 1104, default_coeffs: PostProcess_p0(FreqCompxpooliirCoeffs)}
+    - {name: Audiopilot_HF_AntiAliasing, work_mem: 528, default_coeffs: p14(AudiopilotHfNoiseAaFilterpooliirCoeffs)}
+    - {name: Audiopilot_HF_BandpassOrLowpass, work_mem: 528, default_coeffs: p14(AudiopilotHfNoiseBpLpFilterpooliirCoeffs)}
+    - {name: Audiopilot_LF_FilterMic, work_mem: 96, default_coeffs: p14(AudiopilotLfNoiseFilterMicpooliirCoeffs)}
+    - {name: Audiopilot_LF_FilterRef, work_mem: 96, default_coeffs: p14(AudiopilotLfNoiseFilterRefpooliirCoeffs)}
+  delay_lines:
+    - {name: TrebleDelay, samples: 7928, channels: 2, state_len: 3964}
+    - {name: TrebleSurroundDelay, samples: 30436, channels: 7, state_len: 4348, default_delay: 1664}
+    - {name: SpeakerDelay, samples: 32384, channels: 22, state_len: 1472}
+    - {name: FullRateHoligramDelay, samples: 1760}
+    - {name: SASFdpFullRateLeftFastDelay, samples: 2193, state_len: 129, default_delay: 1161}
+    - {name: SASFdpFullRateLeftSlowDelay, samples: 2193, state_len: 129}
+    - {name: SASFdpFullRateRightFastDelay, samples: 2193, state_len: 129}
+    - {name: SASFdpFullRateRightSlowDelay, samples: 2193, state_len: 129}
+  parameter_partitions:
+    - partition: PreAmp_p0_b0
+      label: InputSelect+PreAmpPart1
+      fields: "routerOutMap(30 int), MakeupGain(1), InputMixer3dWeights(11), LevelDetectPreEmpFilterpooliirCoeffs(50=10×5), NumStages(10 uint), Bass(10), Midrange(15), Treble(12), Balance(75), Volume(18), DyneqLevelDetect(6), AudiopilotLevelDetect(6), LevelDetectSysMaxDbspl(1)"
+    - partition: PreAmp_p3_b0
+      label: FDP系数
+      fields: "FdpCoeffs(6), FdpSpum(4), DirectPathSamplesDec(1,uint,1161), TrebleDelay(1,uint,1280)"
+    - partition: PreAmp_p5_b0
+      label: SAS混合
+      fields: "MixEqpooliirCoeffs(484,默认单位矩阵), RampCoeff(1,0.995842), NumStages(13 uint,各10), TrebleSurroundDelay(1,uint,1664)"
+    - partition: PreAmp_p8_b0
+      label: Holigram IIR
+      fields: "HoligramIirpooliirCoeffs(matrix), HoligramIirPooliirNumStages(array)"
+    - partition: PreAmp_p12_b0
+      label: SleepingBeauty
+      fields: "ChannelToRamperMap(22), MutesBass(1,0.0), Offset(1,128.0), RampTime(1,30.0), TableDb(30), TableIdx(30), PhaseAlignmentDelays(22 uint)"
+    - partition: PreAmp_p13_b0
+      label: Fade/Mute/路由
+      fields: "FadeControl(TableDb[30] TableIdx[30] RampTime Offset BoostDisable EnableSilentExtreme=64), FadeRamper(ChannelToRamperMap[22] DisableLpf TOPFilterCoeffs[3]=26), MuteRampTime(1,100.0), PostHoligramRoutingMap(22), SpeakerDelay(22 uint)"
+    - partition: PreAmp_p14_b0
+      label: Audiopilot
+      fields: "LatencySamples(3 int), AntiZipperLpf(3), BassBpf(6), BassControl(9), DyneqBass(2), EnableRampCoef(1), HfNoise(18+pooliirCoeffs), LfNoise(16+pooliirCoeffs), SpeedBounds(3), HvacTable(array)"
+    - partition: PostProcess_p0_b0
+      label: PostProcess(ASDRouter+Limiter+SoftClipper+EQ)
+      fields: "ASDRouterMainSelect(22), AuxSelect(22), EnableAux(1), OutputEQpooliirCoeffs(matrix), FreqCompxpooliirCoeffs(matrix), Limiter(16=8×2带), SoftClipper(6=3×2带), OutputSclip(6=3×2带), MuteRampTime, MuteRampRate, AllMuteRampTime, RmdlMuteRampTime, MuteMapSwitch"
+  const_params:
+    pooled_arrays: 16
+    fir_taps: [348, 351, 525, 525]
+    fft_windows: [256, 256]
+    index_tables: [36, 36]
+    misc: [11, 34, 22, 26, 80, 70, 13]
+  subsystem_hierarchy:
+    root: PreAmp/Selection_HCI_nonHCI_Subsystem/HCI_Content/DecRate/SAS/SAS6System
+    parts: [Part1Bands(输入分带), Part2FdpFullRate(FDP频域), Part3FullRateMixing(混合), Part4FullRatePeripheralEq(外围EQ), Part5FullRatePostHoligram(全息后处理), Part6SummationAndPreAmp(求和预放)]
