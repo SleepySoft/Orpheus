@@ -103,6 +103,7 @@ Plan Plan::load_from_file(const std::string& path) {
         ie.count = e.value("count", 1u);
         ie.name = e.value("name", ie.key);
         ie.runtime = e.value("runtime", false);
+        ie.double_bank = e.value("double_bank", false);
         p.id_map.push_back(ie);
     }
 

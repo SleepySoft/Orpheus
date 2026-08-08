@@ -18,6 +18,12 @@
     "sample_rate": { "type": "integer", "default": 48000 },
     "block_size": { "type": "integer", "default": 128 },
     "buffer_size": { "type": "integer", "default": 0 },
+    "double_bank": {
+      "type": "string",
+      "enum": ["auto", "on", "off"],
+      "default": "auto",
+      "description": "BULK 双 bank：auto=按组件声明 / on=全部开启 / off=关闭（直写即时生效，部署内存紧张时用）"
+    },
     "tasks": {
       "type": "array",
       "items": {

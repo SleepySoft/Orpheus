@@ -225,6 +225,11 @@ export default function ParamBrowser({
     const text = '0x' + entry.id.toString(16).toUpperCase().padStart(8, '0');
     return (
       <span className="pb-id">
+        {entry.double_bank && (
+          <span className="pb-db" title="BULK 双缓冲：写影子、块边界提交">
+            双缓冲
+          </span>
+        )}
         <span className="pb-id-text" title={`${entry.kind}/${entry.form} · 编译期稳定 ID`}>
           {text}
         </span>

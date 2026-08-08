@@ -81,6 +81,7 @@ def test_runtime_resolve_and_map() -> None:
 
     # bulk 形式：bq0.coefs = 5 floats = 20 B
     bulk_id = by_key[("front__eq_bank__bq", "bq0.coefs")]["id"]
+    assert by_key[("front__eq_bank__bq", "bq0.coefs")]["double_bank"] is True  # auto=按组件声明
     out = subprocess.run(
         [str(exe), str(plan_path), str(comps), "--resolve", str(bulk_id)],
         capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
@@ -166,3 +167,32 @@ def test_runtime_resolve_and_map() -> None:
     )
     assert out.returncode == 0 and out.stdout.strip().startswith("BULKVALUE "), out.stderr
     assert len(out.stdout.strip().split()) == 7  # BULKVALUE 0xID + 5 个值
+
+    # 工程级 double_bank=off：关闭双缓冲 → 直写 active、即时生效（部署省内存路径）
+    name2 = _new_name()
+    with TestClient(create_app(ROOT)) as client:
+        resp2 = client.post(
+            "/api/projects", json={"name": name2, "from_example": "dsp_model_reference"}
+        )
+        assert resp2.status_code == 201, resp2.text
+        doc2 = client.get(f"/api/projects/{name2}").json()
+        doc2["double_bank"] = "off"
+        assert client.put(f"/api/projects/{name2}", json=doc2).status_code == 200
+        assert client.post(f"/api/projects/{name2}/compile").status_code == 200
+    plan2_path = ROOT / "workspace" / name2 / "project.plan.json"
+    plan2 = json.loads(plan2_path.read_text(encoding="utf-8"))
+    e2 = next(
+        x for x in plan2["id_map"]
+        if x["node"] == "front__eq_bank__bq" and x["key"] == "bq0.coefs"
+    )
+    assert e2["double_bank"] is False
+    cwd2 = ROOT / "workspace" / name2
+    out = subprocess.run(
+        [str(exe), str(plan2_path), str(comps),
+         "--rwb", str(e2["id"]), "5", *new_vals, "--rgb", str(e2["id"])],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd2,
+    )
+    assert out.returncode == 0 and "OK RWB" in out.stdout, out.stderr
+    rv = [l for l in out.stdout.splitlines() if l.startswith("BULKVALUE ")]
+    assert rv and [float(v) for v in rv[0].split()[2:]] == [1.0, 2.0, 3.0, 4.0, 5.0], \
+        "off 模式应直写 active 即时生效"

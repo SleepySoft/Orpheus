@@ -843,7 +843,11 @@ orpheus_platform_memory_section_bind(...);
 
 ### 27.5 BULK 双 bank（Runtime 层，glitch-free）
 
-- 组件只注册一块 BULK active 区；Runtime 加载时为每个 BULK 槽分配**影子区**：
+- 组件只注册一块 BULK active 区，**双 bank 可选**：组件声明语义意图
+  （`ORPHEUS_SLOT_DOUBLE_BUFFERED` + manifest `bulk_slots[].double_bank`），
+  工程级 `double_bank: auto|on|off` 决定部署生效（默认 auto；off=直写即时生效、省内存）。
+- 生效槽：Runtime 分配**影子区**：
   `write_bulk` 越界检查后仅 memcpy 进影子（标记 pending），`process_block` 块边界一次性
   memcpy 提交到 active——组件零样板，并发/原子性由框架承担（仓库原则）。
 - `get_bulk`：读 active bank，越界检查后仅 memcpy（高速大块特性）。
+- UI：工程设置一个下拉（自动/全部/关闭）；参数面板 bulk 行只显示只读「双缓冲」徽标，无逐行开关。

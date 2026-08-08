@@ -387,7 +387,7 @@ class GraphCompiler:
         # flatten 只决定执行拓扑；内存布局按模块连续（生成路径=嵌套结构体/动态路径=按模块切片）。
         plan.modules = self._build_module_layout(execution_order)
         # 数据点 ID 表：同一份工程内稳定，动态 Runtime 与代码生成共用同一寻址
-        plan.id_map = self._build_id_map(plan)
+        plan.id_map = self._build_id_map(plan, getattr(project, "double_bank", "auto"))
 
         return plan
 
@@ -404,12 +404,18 @@ class GraphCompiler:
                 points.append({**bs, "node": nid, "runtime": True})
         return points
 
-    def _build_id_map(self, plan: ExecutionPlan) -> list[dict[str, Any]]:
-        """32 位数据 ID 表（用途 kind + 形式 form + 类型/个数），动态/生成两路共用。"""
+    def _build_id_map(self, plan: ExecutionPlan, double_bank_mode: str = "auto") -> list[dict[str, Any]]:
+        """32 位数据 ID 表（用途 kind + 形式 form + 类型/个数 + 双 bank 生效位），动态/生成两路共用。"""
         entries: list[dict[str, Any]] = []
         for module in plan.modules:
             for slot, p in enumerate(self._module_data_points(plan, module)):
                 kind = id_kind_of(p)
+                declared = bool(p.get("double_bank", False))
+                effective = (
+                    True if double_bank_mode == "on"
+                    else False if double_bank_mode == "off"
+                    else declared
+                )
                 entries.append(
                     {
                         "id": id_value(kind, module["id"], slot),
@@ -421,6 +427,7 @@ class GraphCompiler:
                         "count": int(p.get("count", 1) or 1),
                         "name": p.get("name", p["id"]),
                         "runtime": bool(p.get("runtime", False)),
+                        "double_bank": effective,
                     }
                 )
         return entries

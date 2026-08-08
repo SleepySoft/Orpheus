@@ -338,12 +338,20 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         }
     }
 
-    // BULK 双 bank：为每个 BULK 槽分配影子区（控制写影子、块边界提交到 active）
+    // BULK 双 bank（可选）：仅对「生效」的槽分配影子区（工程 auto/on/off × 组件声明）
+    std::map<std::string, bool> db_enabled;
+    for (const auto& e : plan_.id_map) {
+        db_enabled[e.node + "\x1f" + e.key] = e.double_bank;
+    }
     size_t shadow_total = 0;
     for (auto& kv : instances_) {
         for (const auto& e : kv.second->slots) {
             if (e.kind == ORPHEUS_SLOT_BULK) {
-                shadow_total += align_up(e.count * e.size, 8);
+                auto db = db_enabled.find(kv.first + "\x1f" + e.key);
+                bool enabled = db != db_enabled.end()
+                    ? db->second
+                    : (e.flags & ORPHEUS_SLOT_DOUBLE_BUFFERED) != 0;
+                if (enabled) shadow_total += align_up(e.count * e.size, 8);
             }
         }
     }
@@ -357,6 +365,11 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         for (const auto& e : kv.second->slots) {
             if (e.kind != ORPHEUS_SLOT_BULK) continue;
             std::string key = kv.first + "\x1f" + e.key;
+            auto db = db_enabled.find(key);
+            bool enabled = db != db_enabled.end()
+                ? db->second
+                : (e.flags & ORPHEUS_SLOT_DOUBLE_BUFFERED) != 0;
+            if (!enabled) continue;  // 未开启双 bank：直写 active（部署省内存）
             bulk_shadow_map_[key] = bulk_shadow_.data() + shadow_offset;
             bulk_active_map_[key] = static_cast<uint8_t*>(kv.second->state) + e.offset;
             bulk_span_map_[key] = e.count * e.size;
@@ -504,7 +517,11 @@ int Runtime::write_bulk(const std::string& node_id, const std::string& key,
     if (inst.state == nullptr || e.offset + span > inst.state_size) return -1; /* 上下边界 */
     /* 双 bank：写影子区，process_block 块边界提交到 active（process 读的是 active） */
     auto sm = bulk_shadow_map_.find(node_id + "\x1f" + key);
-    if (sm == bulk_shadow_map_.end()) return -1;
+    if (sm == bulk_shadow_map_.end()) {
+        /* 未开启双 bank：直写 active（部署时内存受限路径） */
+        std::memcpy(static_cast<char*>(inst.state) + e.offset, data, span);
+        return ORPHEUS_OK;
+    }
     std::memcpy(sm->second, data, span);
     bulk_pending_[node_id + "\x1f" + key] = true;
     return ORPHEUS_OK;

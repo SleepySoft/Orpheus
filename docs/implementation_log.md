@@ -1,5 +1,17 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-08（第二十八次讨论：双 bank 可选化——工程级 auto/on/off）
+
+- 背景：双 bank 全局吃 2× 内存，部署时吃不消；可选后 UI 呈现要做到不啰嗦。
+- 方案：声明在组件层（`ORPHEUS_SLOT_DOUBLE_BUFFERED` + manifest `bulk_slots[].double_bank`，
+  只读徽标）；开关在部署层（工程 `double_bank: auto|on|off`，工程设置一个下拉，面板无逐行开关）。
+- 实现：Project/schema/loader 增 double_bank；编译器折算生效位进 `plan.id_map[].double_bank`；
+  Runtime 只对生效槽分配影子，未生效槽 `write_bulk` 直写 active（即时生效、零额外内存）；
+  生成器 id_map 表/memory_map 标注；biquad_bank 声明双缓冲。
+- 测试：auto（默认）→ 影子语义（写后未提交读旧值、跑 1 块后读新值）；
+  off → 直写即时生效（写后立即读到新值）。
+- 全量 75 passed；`npm run build` 通过。
+
 ## 2026-08-08（第二十七次讨论：BULK 双 bank 定层 + get_bulk 实现）
 
 ### 定层决策：双 bank 做在 Runtime

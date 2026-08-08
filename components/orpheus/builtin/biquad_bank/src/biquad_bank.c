@@ -211,14 +211,16 @@ static int bank_register_slots(void* state, const OrpheusRegistry* reg) {
         .kind = ORPHEUS_SLOT_BULK, .key = "bq0.coefs", .name = "第 1 段系数",
         .type = ORPHEUS_VALUE_FLOAT,
         .offset = (size_t)((char*)&s->bq[0].b0 - (char*)s),
-        .size = sizeof(float), .count = 5
+        .size = sizeof(float), .count = 5,
+        .flags = ORPHEUS_SLOT_DOUBLE_BUFFERED
     };
     reg->add(reg->ctx, &coef0);
     OrpheusSlotInfo coef1 = {
         .kind = ORPHEUS_SLOT_BULK, .key = "bq1.coefs", .name = "第 2 段系数",
         .type = ORPHEUS_VALUE_FLOAT,
         .offset = (size_t)((char*)&s->bq[1].b0 - (char*)s),
-        .size = sizeof(float), .count = 5
+        .size = sizeof(float), .count = 5,
+        .flags = ORPHEUS_SLOT_DOUBLE_BUFFERED
     };
     reg->add(reg->ctx, &coef1);
     ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",

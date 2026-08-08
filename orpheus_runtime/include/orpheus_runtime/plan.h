@@ -51,6 +51,7 @@ struct IdMapEntry {
     uint32_t count = 1;
     std::string name;     // 中文显示名
     bool runtime = false; // 运行期槽（bulk_slots）
+    bool double_bank = false;  // BULK 双 bank 生效（工程 auto/on/off × 组件声明）
 };
 
 struct Plan {

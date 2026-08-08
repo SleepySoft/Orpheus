@@ -32,6 +32,7 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
   const sr0 = parseInt(doc?.sample_rate ?? 48000, 10) || 48000;
   const [sampleRate, setSampleRate] = useState(String(sr0));
   const [blockSize, setBlockSize] = useState(String(doc?.block_size ?? 128));
+  const [doubleBank, setDoubleBank] = useState(doc?.double_bank || 'auto');
 
   const frames0 = parseInt(doc?.buffer_size ?? 0, 10) || 0;
   const autoFrames0 = Math.round(sr0 / 10);
@@ -96,7 +97,7 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
       setError('缓冲帧数范围 1-1048576');
       return;
     }
-    onSave({ sample_rate: srVal, block_size: bs, buffer_size: buf });
+    onSave({ sample_rate: srVal, block_size: bs, buffer_size: buf, double_bank: doubleBank });
   };
 
   return (
@@ -145,6 +146,19 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
           </div>
           <span className="settings-hint">
             底层以「帧」存储（0=自动=采样率/10≈100ms）。按帧/按时间二选一，按当前采样率联动：编辑一个，另一个自动换算。按时间输入四舍五入到最近整数帧，故帧↔毫秒来回切换可能 ±1 帧偏差（正常）。增大缓冲可容忍更多时钟漂移与调度抖动，但增加延迟。
+          </span>
+        </div>
+
+        <div className="settings-field">
+          <label>BULK 双缓冲 (double_bank)</label>
+          <select value={doubleBank} onChange={(e) => setDoubleBank(e.target.value)}>
+            <option value="auto">自动（按组件声明）</option>
+            <option value="on">全部开启（最安全，内存 ×2）</option>
+            <option value="off">关闭（直写即时生效，部署省内存）</option>
+          </select>
+          <span className="settings-hint">
+            双 bank = 写影子、块边界原子提交（无毛刺热更新系数）。部署内存紧张时选「关闭」，
+            所有 BULK 槽改为直写 active、即时生效；自动模式按组件 manifest 的 double_bank 声明。
           </span>
         </div>
 

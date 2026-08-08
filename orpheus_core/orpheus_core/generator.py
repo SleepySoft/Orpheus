@@ -677,6 +677,7 @@ class CodeGenerator:
             '    const char* name;       /* 中文显示名 */',
             '    uint32_t kind;          /* OrpheusIdKind */',
             '    uint32_t form;          /* OrpheusDataForm（标量/bulk/模块包，与用途正交） */',
+            '    uint32_t double_bank;   /* BULK 双 bank 是否生效（工程 auto/on/off × 组件声明） */',
             '    uint32_t type;          /* OrpheusValueType */',
             '    uint32_t count;',
             '    size_t byte_size;       /* count × sizeof(type) */',
@@ -707,7 +708,7 @@ class CodeGenerator:
             mod_type = self._module_type_name(path)
             map_c.append(
                 f'    {{ ORPHEUS_MODULE_{self._camel(path)}, "{self._camel(path)}", '
-                f'ORPHEUS_ID_TUNE, ORPHEUS_FORM_MODULE, ORPHEUS_VALUE_BULK_REF, '
+                f'ORPHEUS_ID_TUNE, ORPHEUS_FORM_MODULE, 0, ORPHEUS_VALUE_BULK_REF, '
                 f'1, sizeof({mod_type}), '
                 f'{mod["id"]}, ORPHEUS_ID_SLOT_MODULE, offsetof(OrpheusArena, {chain}), '
                 f'offsetof(OrpheusArena, {chain}) }},'
@@ -732,7 +733,8 @@ class CodeGenerator:
                 display = entry.get("name", entry["key"]).replace('"', '\\"')
                 map_c.append(
                     f'    {{ ORPHEUS_{kind}_{name}, "{display}", ORPHEUS_ID_{kind}, '
-                    f'ORPHEUS_FORM_{entry["form"]}, {vtype}, {count}, '
+                    f'ORPHEUS_FORM_{entry["form"]}, '
+                    f'{"1" if entry.get("double_bank") else "0"}, {vtype}, {count}, '
                     f'sizeof({ctype}) * {count}U, '
                     f'{mod["id"]}, {entry["id"] & 0xFFFF}, {mod_off}, {arena_off} }},'
                 )
@@ -785,9 +787,10 @@ class CodeGenerator:
                 runtime = ' [运行期槽]' if entry.get("runtime") else ''
                 value = entry["id"]
                 form = entry["form"].lower()
+                db = "，双缓冲" if entry.get("double_bank") else ""
                 md_lines.append(
                     f'- `ORPHEUS_{kind}_{name}` = 0x{value:08X}：{display}{runtime}，'
-                    f'形式={form}，{ctype} × {count} = {self._bytes_of(ctype) * count} B'
+                    f'形式={form}{db}，{ctype} × {count} = {self._bytes_of(ctype) * count} B'
                 )
             md_lines.append('')
         (output_dir / "memory_map.md").write_text(

@@ -75,10 +75,12 @@ bulk_slots:
     name: 第 1 段系数
     type: float
     count: 5
+    double_bank: true
   - id: bq1.coefs
     name: 第 2 段系数
     type: float
     count: 5
+    double_bank: true
 memory:
   state_size: 0
   scratch_size: 0
