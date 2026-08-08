@@ -402,6 +402,8 @@ class GraphCompiler:
                 points.append({**p, "node": nid})
             for bs in (info.manifest.get("bulk_slots", []) if info else []):
                 points.append({**bs, "node": nid, "runtime": True})
+            for ch in (info.manifest.get("custom_handles", []) if info else []):
+                points.append({**ch, "node": nid, "kind": "custom", "type": "string"})
         return points
 
     def _build_id_map(self, plan: ExecutionPlan, double_bank_mode: str = "auto") -> list[dict[str, Any]]:
@@ -428,6 +430,7 @@ class GraphCompiler:
                         "name": p.get("name", p["id"]),
                         "runtime": bool(p.get("runtime", False)),
                         "double_bank": effective,
+                        "reply": bool(p.get("reply", False)),
                     }
                 )
         return entries

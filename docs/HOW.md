@@ -871,3 +871,15 @@ orpheus_platform_memory_section_bind(...);
 - 分发优先级：外部注册 hook → 组件接口 hook → 默认槽语义（确定性 kind 读写；CUSTOM 必须由 hook 处理）。
 - 入口：`Runtime::register_hook/message`、rt_host `MSG <hex>`、离线 `--msg <hex>`、
   后端 `POST /rt/msg`（按 call_id 匹配响应）；生成侧 `orpheus_control_message/register_hook` 同款。
+
+---
+
+## 29. 自定义组件壳（脚手架）
+
+- `python -m orpheus_core.cli new-component <name>` 生成：component.yaml（含 `custom_handles`）、
+  公开状态头、ABI 骨架（含 hook→user_handle 转发）、`user/<name>_user.c`（**用户代码隔离**，
+  生成器永不覆盖）、CMakeLists（src+user 一起编译）。
+- 用户只写 `user/<name>_user.c`：prepare/reset/process（DSP 算法）+ handle（CUSTOM 消息：
+  req→resp；resp==NULL 为 notification；HANDLED/CONTINUE 决定是否回落默认语义）。
+- `custom_handles` 声明进 id_map（CUSTOM 类），二进制 MSG 协议直接 CALL/NOTIFY 到组件 hook；
+  演示组件 `orpheus.builtin.my_effect`。

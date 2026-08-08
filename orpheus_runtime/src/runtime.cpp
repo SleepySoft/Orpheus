@@ -789,7 +789,20 @@ int Runtime::resolve(uint32_t id, OrpheusResolvedData* out) const {
     if (ii == instances_.end()) return ORPHEUS_ERR_NOT_FOUND;
     const Instance& inst = *ii->second;
     auto si = inst.slot_index.find(e->key);
-    if (si == inst.slot_index.end()) return ORPHEUS_ERR_NOT_FOUND;
+    if (si == inst.slot_index.end()) {
+        if (e->kind == ORPHEUS_ID_CUSTOM) {
+            /* CUSTOM 消息入口：无槽内存，但可按 ID 路由到组件 hook */
+            out->kind = ORPHEUS_ID_CUSTOM;
+            out->form = ORPHEUS_FORM_SCALAR;
+            out->module_id = ORPHEUS_ID_MODULE(id);
+            out->slot = ORPHEUS_ID_SLOT(id);
+            out->node = e->node.c_str();
+            out->key = e->key.c_str();
+            out->name = e->name.c_str();
+            return ORPHEUS_OK;
+        }
+        return ORPHEUS_ERR_NOT_FOUND;
+    }
     const SlotEntry& slot = inst.slots[si->second];
 
     out->kind = e->kind;

@@ -124,6 +124,7 @@ def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
         "ports": m.get("ports", []),
         "parameters": m.get("parameters", []),
         "bulk_slots": m.get("bulk_slots", []),
+        "custom_handles": m.get("custom_handles", []),
     }
 
 

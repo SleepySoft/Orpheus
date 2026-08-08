@@ -62,6 +62,8 @@ def id_kind_of(param: dict[str, Any]) -> str:
         return "RTC"
     if k == "bulk":
         return "TUNE"
+    if k == "custom":
+        return "CUSTOM"
     if param.get("readback") and not param.get("persistent") and not param.get("affects_signature"):
         return "PROBE"
     if param.get("update_policy") in ("immediate", "block_boundary", "smoothed", "transactional"):

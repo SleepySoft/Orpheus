@@ -112,6 +112,22 @@
     "graph": { "type": "object" },
     "public_ports": { "type": "array" },
     "public_parameters": { "type": "array" },
+    "custom_handles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "reply"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "reply": {
+            "type": "boolean",
+            "description": "true=response（同步返回内容）；false=notification（单向消息）"
+          }
+        }
+      },
+      "description": "CUSTOM 类消息入口声明（进 id_map，供二进制 MSG 协议路由到组件 hook；用户完全自处理）。"
+    },
     "bulk_slots": {
       "type": "array",
       "items": {

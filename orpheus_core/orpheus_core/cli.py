@@ -158,6 +158,24 @@ def new(ctx: click.Context, name: str) -> None:
     click.echo(f"created {path}")
 
 
+@cli.command("new-component")
+@click.argument("name")
+@click.option("--category", default="自定义", help="组件分类")
+@click.pass_context
+def new_component(ctx: click.Context, name: str, category: str) -> None:
+    """Scaffold a custom component: ABI 骨架 + user 文件（隔离，重生成不覆盖）。"""
+    from orpheus_core.scaffold import scaffold_custom_component
+
+    root = ctx.obj["project_root"]
+    try:
+        path = scaffold_custom_component(root, name, category)
+    except (FileExistsError, ValueError) as exc:
+        click.echo(str(exc), err=True)
+        sys.exit(1)
+    click.echo(f"created custom component at {path}")
+    click.echo(f"编辑 user/{name}_user.c 实现算法与 CUSTOM 消息；然后 python -m orpheus_core.cli build")
+
+
 @cli.command()
 @click.option("--host", default="127.0.0.1")
 @click.option("--port", type=int, default=8000)

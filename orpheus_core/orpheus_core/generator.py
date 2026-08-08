@@ -140,6 +140,8 @@ class CodeGenerator:
                 shutil.copytree(info.root_dir / "src", comp_out / "src", dirs_exist_ok=True)
             if (info.root_dir / "include").exists():
                 shutil.copytree(info.root_dir / "include", comp_out / "include", dirs_exist_ok=True)
+            if (info.root_dir / "user").exists():
+                shutil.copytree(info.root_dir / "user", comp_out / "user", dirs_exist_ok=True)
             # Third-party deps declared in the manifest are copied into the
             # component include dir so generated projects stay self-contained.
             if "miniaudio" in info.manifest.get("deps", []):
@@ -795,9 +797,10 @@ class CodeGenerator:
                     f'#define ORPHEUS_{kind}_{name} '
                     f'(ORPHEUS_ID_MAKE(ORPHEUS_ID_{kind}, {mod["id"]}, {entry["id"] & 0xFFFF}))'
                 )
-                ids_lines.append(
-                    f'#define ORPHEUS_CHAR_COUNT_{name} (sizeof({ctype}) * {count}U)'
-                )
+                if kind != "CUSTOM":  # 消息入口无内存尺寸
+                    ids_lines.append(
+                        f'#define ORPHEUS_CHAR_COUNT_{name} (sizeof({ctype}) * {count}U)'
+                    )
         ids_lines.append('')
         ids_lines.append('#endif /* ORPHEUS_IDS_H */')
         (include_dir / "orpheus_ids.h").write_text(
@@ -863,6 +866,8 @@ class CodeGenerator:
                 if self._state_type(nid, plan) is None:
                     continue
                 kind = entry["kind"]
+                if kind == "CUSTOM":
+                    continue  # 消息入口无内存，不产生 map 偏移项
                 name = self._point_macro_name(mod, {"id": entry["key"], "node": nid})
                 ctype = self._ctype_of(entry["type"])
                 vtype = self._value_type_of(entry["type"])
@@ -928,6 +933,12 @@ class CodeGenerator:
                 display = entry.get("name", entry["key"])
                 runtime = ' [运行期槽]' if entry.get("runtime") else ''
                 value = entry["id"]
+                if kind == "CUSTOM":
+                    reply = "response" if entry.get("reply") else "notification"
+                    md_lines.append(
+                        f'- `ORPHEUS_{kind}_{name}` = 0x{value:08X}：{display}（消息入口，{reply}）'
+                    )
+                    continue
                 form = entry["form"].lower()
                 db = "，双缓冲" if entry.get("double_bank") else ""
                 md_lines.append(

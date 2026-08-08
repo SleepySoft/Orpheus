@@ -543,6 +543,10 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
   生成代码产出 `src/orpheus_control.c`——影子数组 + 槽表（init 时 register_slots 记录）+
   `orpheus_control_write_bulk/get_bulk`（node/key 与按 ID 两套）+ `commit_bulk` 块边界提交；
   off 时零影子直写。生成 main 支持 `--write-bulk/--read-bulk/--run` 部署控制 CLI。
+- [x] **自定义组件壳脚手架**（`cli new-component`）：ABI 骨架 + `user/` 用户文件隔离；
+  manifest `custom_handles` 声明（reply: true/false）进 id_map（CUSTOM 类）；
+  Runtime/生成侧 `resolve` 支持 CUSTOM 入口（无槽内存，按 ID 路由到组件 hook）；
+  演示组件 `orpheus.builtin.my_effect`（user_handle 回显 CUSTOM 消息）。
 - **实际场景定位**：双 bank 是少数派——常规无毛刺调音惯例是 mute → 更新系数 → unmute
   （mute 为 RTC 实时参数，界面/协议均可即时控制）；双 bank 仅用于必须边跑边更的系数。
 

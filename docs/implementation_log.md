@@ -1,5 +1,16 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-08（第三十一次讨论：自定义组件壳脚手架）
+
+- `cli new-component <name>`：生成 ABI 骨架 + 用户文件隔离（`user/` 目录生成器永不覆盖）。
+- manifest 新增 `custom_handles`（reply: true=response / false=notification），进 id_map（CUSTOM 类）；
+  `resolve` 支持 CUSTOM 入口（无槽内存，按 ID 路由到组件 hook）；`/api/components` 暴露 custom_handles。
+- 生成器复制组件 `user/` 目录（生成工程自包含）。
+- 演示组件 `orpheus.builtin.my_effect`：user_handle 回显 CUSTOM 消息。
+- 测试 `test_custom_component.py`（2 项）：脚手架文件隔离/内容；CUSTOM 消息走组件 hook 回显 +
+  notification 无返回 + 离线运行直通。
+- 全量 81 passed。
+
 ## 2026-08-08（第三十次讨论：二进制消息协议落地——CALL/RESPONSE/NOTIFICATION + call_id）
 
 ### 语义（并入 design_registry §18）
