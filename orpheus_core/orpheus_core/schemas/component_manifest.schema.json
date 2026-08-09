@@ -113,6 +113,11 @@
     "execution": {
       "type": "object",
       "properties": {
+        "none": {
+          "type": "boolean",
+          "default": false,
+          "description": "声明式平台节点（如 platform_hook）：不参与运行时执行，仅代码生成，供用户程序引用"
+        },
         "sample_rate_independent": { "type": "boolean" },
         "latency_samples": { "type": "integer" },
         "supports_inplace": { "type": "boolean" },

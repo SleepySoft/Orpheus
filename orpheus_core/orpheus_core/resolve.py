@@ -263,6 +263,8 @@ def resolve_project(
                 raise ResolutionError(
                     f"组件不存在: {node.component} (node {nid})"
                 )
+            if comp.manifest.get("execution", {}).get("none"):
+                continue  # 声明式平台节点（如 platform_hook）不约束平台可达性
             node_platforms[nid] = _node_reachable_platforms(
                 node, [node], registry, platforms
             )

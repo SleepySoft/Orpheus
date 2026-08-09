@@ -41,6 +41,7 @@ class ExecutionPlan:
     buffers: dict[str, dict[str, Any]] = field(default_factory=dict)
     connections: list[dict[str, str]] = field(default_factory=list)
     duration_frames: int = 0   # 离线宿主运行时长提示（纯时钟图按扫频 duration_s 推导；0=宿主默认）
+    declarations: list[dict[str, Any]] = field(default_factory=list)  # 声明式平台节点（execution.none）
     modules: list[dict[str, Any]] = field(default_factory=list)  # 模块内存布局（ID 寻址：模块 id + 槽）
     id_map: list[dict[str, Any]] = field(default_factory=list)   # 数据点 ID 表（动态/生成两路共用）
 
@@ -209,6 +210,26 @@ class GraphCompiler:
         task = project.get_default_task()
         task = self._resolve_source_rate(project, task)
 
+        # 声明式平台节点（execution.none，如 platform_hook）：不参与执行计划，
+        # 仅作为声明进入 plan.declarations，生成器据此产出用户钩子（不连线）。
+        declarations: list[dict[str, Any]] = []
+        for nid in list(graph.nodes):
+            decl_comp = self.registry.get(graph.nodes[nid].component)
+            if decl_comp and decl_comp.manifest.get("execution", {}).get("none"):
+                for conn in graph.connections:
+                    if conn.from_ref.node_id == nid or conn.to_ref.node_id == nid:
+                        raise CompileError(
+                            f"平台资源节点 {nid}（{graph.nodes[nid].component}）不支持连线"
+                        )
+                declarations.append(
+                    {
+                        "id": nid,
+                        "component": graph.nodes[nid].component,
+                        "params": dict(graph.nodes[nid].params),
+                    }
+                )
+                graph.nodes.pop(nid)
+
         # 0.5 wav_out 输入采样率自动跟随源端口（免手填）：
         #     先解析所有输出端口，把源端口采样率注入 wav_out 的 sample_rate 参数，
         #     其输入端口声明为 param:sample_rate，随后按注入值解析，连接校验自然一致。
@@ -316,6 +337,7 @@ class GraphCompiler:
             nodes=list(graph.nodes.keys()),
             execution_order=execution_order,
         )
+        plan.declarations = declarations
 
         # per-node processing quantum: the producer buffer's frame count
         # (differs from task block size in rate-shifted domains)

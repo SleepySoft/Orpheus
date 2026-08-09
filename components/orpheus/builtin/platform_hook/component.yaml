@@ -1,0 +1,29 @@
+id: orpheus.builtin.platform_hook
+name: 平台资源钩子
+category: 平台
+description: 声明式平台集成节点：不参与运行时执行，生成 init/read/write 钩子（USER CODE 填充），供用户程序引用（如 amixer/通信/传感器）
+version: 1.0.0
+abi_version: 1
+package_type: source
+execution:
+  none: true
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true
+parameters:
+  - id: hook_name
+    name: 钩子名
+    type: string
+    default: "platform_hook"
+    update_policy: restart_required
+  - id: interface
+    name: 接口
+    type: string
+    default: "generic"
+    update_policy: restart_required
+  - id: note
+    name: 说明
+    type: string
+    default: ""
+    update_policy: restart_required

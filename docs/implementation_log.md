@@ -1,5 +1,22 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-09（第四十次讨论：平台集成/外部接口节点——platform_hook 原型）
+
+- 设计（design_registry §21）：把 embed_in/out 的「生成代码 + 用户填充」泛化为
+  **声明式平台节点**类别——覆盖非音频 DSP 集成（amixer/通信/传感器），作为控制面（§20）落地前的过渡层。
+- 实现：
+  - manifest 新增 `execution.none: true`（声明式：不参与运行时执行，仅代码生成）；
+  - 新组件 `orpheus.builtin.platform_hook`（无源码/无端口，参数 hook_name/interface/note）；
+  - 编译器：execution.none 节点不进执行计划，收集进 `plan.declarations`（连线报错）；
+  - resolve.py：声明节点不约束平台可达性（不把 PC 目标卡死）；
+  - cli build：跳过 execution.none 组件（无运行时代码不构建）；
+  - 生成器：`include/orpheus_platform_hooks.h` + `src/platform_hooks.c`
+    （每个钩子 init/read/write + USER CODE BEGIN/END 段），CMakeLists 纳入编译。
+- 测试 `test_platform_nodes.py`（3 项）：不进执行计划、不约束平台、生成钩子与 USER CODE；
+  全量 107 passed、1 skipped。
+- 边界：v1 只做无音频输入的纯声明节点；「有音频输入的观测汇」与控制面（CONTROL 端口 +
+  参数投递，design_registry §20.3）后续再落地。
+
 ## 2026-08-09（第三十九次讨论：蒸馏多速率/task 建模——SKILL 与展开器）
 
 - SKILL 更新（`SKILL/references/distill-model.md` + `SKILL/SKILL.md`）：

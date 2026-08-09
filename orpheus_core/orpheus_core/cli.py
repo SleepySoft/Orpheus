@@ -92,6 +92,9 @@ def build(ctx: click.Context, component_ids: tuple[str, ...], build_dir: Path | 
         component_ids = tuple(info.id for info in registry.list_components())
 
     for cid in component_ids:
+        info = registry.get(cid)
+        if info and info.manifest.get("execution", {}).get("none"):
+            continue  # 声明式平台节点（如 platform_hook）：无运行时代码，不构建
         try:
             lib_path = builder.build_component(cid)
             click.echo(f"{cid} -> {lib_path}")

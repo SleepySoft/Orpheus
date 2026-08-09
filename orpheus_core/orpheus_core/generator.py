@@ -161,6 +161,12 @@ class CodeGenerator:
         if embed_nodes:
             self._generate_platform_io(plan, src_dir / "platform_io.c")
 
+        # 声明式平台节点（platform_hook）：生成 init/read/write 钩子，用户程序引用
+        if plan.declarations:
+            self._generate_platform_hooks(
+                plan, src_dir / "platform_hooks.c", include_dir / "orpheus_platform_hooks.h"
+            )
+
         # 数据 ID（32 位宏）+ ID map + 内存布局（模块嵌套 arena 定义在 include/orpheus_arena.h）
         self._generate_ids(plan, include_dir, src_dir, output_dir)
 
@@ -696,6 +702,79 @@ class CodeGenerator:
         lines.append('}')
         with open(path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
+
+    def _generate_platform_hooks(self, plan: ExecutionPlan, src_path: Path, hdr_path: Path) -> None:
+        """声明式平台节点（platform_hook）→ init/read/write 钩子（USER CODE 填充）。
+
+        生成：
+        - include/orpheus_platform_hooks.h：每个钩子的函数声明（orpheus_platform_<name>_*）；
+        - src/platform_hooks.c：空实现 + USER CODE BEGIN/END 段，用户按硬件填充。
+        """
+        hooks = [
+            d for d in plan.declarations
+            if d["component"] == "orpheus.builtin.platform_hook"
+        ]
+        if not hooks:
+            return
+
+        def sym(d: dict[str, Any]) -> str:
+            name = str(d["params"].get("hook_name") or d["id"])
+            return self._sanitized_node_id(name)
+
+        hdr = [
+            '#ifndef ORPHEUS_PLATFORM_HOOKS_H',
+            '#define ORPHEUS_PLATFORM_HOOKS_H',
+            '#include <stdint.h>',
+            '#ifdef __cplusplus',
+            'extern "C" {',
+            '#endif',
+            '',
+        ]
+        src = [
+            '/* platform_hooks.c —— 平台资源钩子（自动生成，USER CODE 段可按硬件填充）。',
+            ' * 供用户程序引用：include "orpheus_platform_hooks.h"，在 USER CODE 段实现各钩子',
+            ' * （如 amixer 控件、通信收发、传感器读取）。重新生成会覆盖本文件，请另存副本。 */',
+            '#include "orpheus_platform_hooks.h"',
+            '',
+        ]
+        for d in hooks:
+            s = sym(d)
+            iface = str(d["params"].get("interface") or "generic")
+            note = str(d["params"].get("note") or "")
+            hdr.append(f'/* 节点 {d["id"]} · interface={iface}{" · " + note if note else ""} */')
+            hdr.append(f'void orpheus_platform_{s}_init(void);')
+            hdr.append(f'int orpheus_platform_{s}_read(float* value);')
+            hdr.append(f'int orpheus_platform_{s}_write(float value);')
+            hdr.append('')
+            src.append(f'/* 节点 {d["id"]} · interface={iface}{" · " + note if note else ""} */')
+            src.append(f'void orpheus_platform_{s}_init(void) {{')
+            src.append('    /* USER CODE BEGIN init */')
+            src.append('    /* 例（amixer）：snd_mixer_open / snd_mixer_selem_id_set_name */')
+            src.append('    /* USER CODE END init */')
+            src.append('}')
+            src.append(f'int orpheus_platform_{s}_read(float* value) {{')
+            src.append('    /* USER CODE BEGIN read */')
+            src.append('    *value = 0.0f;')
+            src.append('    /* USER CODE END read */')
+            src.append('    return 0;')
+            src.append('}')
+            src.append(f'int orpheus_platform_{s}_write(float value) {{')
+            src.append('    /* USER CODE BEGIN write */')
+            src.append('    (void)value;')
+            src.append('    /* USER CODE END write */')
+            src.append('    return 0;')
+            src.append('}')
+            src.append('')
+        hdr += [
+            '#ifdef __cplusplus',
+            '}',
+            '#endif',
+            '',
+            '#endif /* ORPHEUS_PLATFORM_HOOKS_H */',
+            '',
+        ]
+        hdr_path.write_text("\n".join(hdr), encoding="utf-8")
+        src_path.write_text("\n".join(src), encoding="utf-8")
 
     def _generate_ids(
         self,
@@ -1260,6 +1339,8 @@ class CodeGenerator:
         app_sources = "src/main.c"
         if (output_dir / "src" / "platform_io.c").exists():
             app_sources += " src/platform_io.c"
+        if (output_dir / "src" / "platform_hooks.c").exists():
+            app_sources += " src/platform_hooks.c"
         if (output_dir / "src" / "orpheus_id_map.c").exists():
             app_sources += " src/orpheus_id_map.c"
         if (output_dir / "src" / "orpheus_control.c").exists():
