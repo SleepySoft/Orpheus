@@ -1,0 +1,66 @@
+id: orpheus.builtin.level_detect
+name: 电平检测
+category: 监控工具
+description: 峰值/RMS 包络检测（attack/release 平滑），电平经探针 readback 上报，音频直通
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: LevelDetectState
+sources:
+  - src/level_detect.c
+headers:
+  - include/orpheus_level_detect.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: mode
+    name: 模式
+    type: int
+    default: 0
+    range: [0, 1]
+    update_policy: restart_required
+  - id: attack_ms
+    name: 启动时间
+    type: float
+    default: 10.0
+    range: [0.1, 1000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: release_ms
+    name: 释放时间
+    type: float
+    default: 100.0
+    range: [1.0, 5000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: level
+    name: 电平
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

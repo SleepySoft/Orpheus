@@ -1,0 +1,54 @@
+id: orpheus.builtin.switch
+name: 开关
+category: 基础算法
+description: 音频开关（enable=1 直通 / 0 静音），斜坡过渡消除咔哒声
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: SwitchState
+sources:
+  - src/switch.c
+headers:
+  - include/orpheus_switch.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: enable
+    name: 使能
+    type: float
+    default: 1.0
+    range: [0.0, 1.0]
+    update_policy: smoothed
+    widget: checkbox
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: ramp_ms
+    name: 斜坡时间
+    type: float
+    default: 20.0
+    range: [0.0, 1000.0]
+    unit: ms
+    update_policy: restart_required
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

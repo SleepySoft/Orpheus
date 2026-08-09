@@ -47,6 +47,14 @@
 | FIR 系数数组 | `orpheus.builtin.fir` | `coefficients: "0.5, 0.25, -0.1, ..."`（`kind: bulk`） |
 | 增益（dB） | `orpheus.builtin.gain` | `gain_db`（平滑可 `smoothed`） |
 | 静音/门限 | `orpheus.builtin.mute` | `mute` 0/1（smoothed）、`ramp_ms` |
+| 开关/旁通 | `orpheus.builtin.switch` | `enable` 0/1（smoothed）、`ramp_ms` |
+| 峰值限幅 | `orpheus.builtin.limiter` | `threshold_db`、`attack_ms`、`release_ms` |
+| 软削波 | `orpheus.builtin.soft_clipper` | `drive_db`（tanh 归一化） |
+| 饱和限幅 | `orpheus.builtin.saturation` | `limit`、`soft`（0=硬 1=软） |
+| 矩阵乘法 | `orpheus.builtin.matrix_mul` | `rows`/`cols` + `matrix`（BULK，行主序） |
+| 窗函数 | `orpheus.builtin.window` | `window_size` + `coefficients`（BULK，每块从头应用） |
+| 变化率限幅 | `orpheus.builtin.noise_slew` | `rise_rate`/`fall_rate`（/s） |
+| 电平检测 | `orpheus.builtin.level_detect` | `mode`（峰值/RMS）、`attack_ms`、`release_ms` + `level` 探针 |
 | 延迟 | `orpheus.builtin.delay` | `delay_ms`、`mix` |
 | 多通道拆分/合并（并联各通道） | `orpheus.builtin.deinterleave` / `orpheus.builtin.interleave` | `channels` |
 | 并联求和 | `orpheus.builtin.mixer` | `gain0/gain1`（dB） |

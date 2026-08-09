@@ -1,5 +1,19 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-09（第三十六次讨论：缺失组件——先实现实现明确的）
+
+- 梳理 BAF SAS 蒸馏的 33 个占位块，先实现一批**实现明确**的通用 DSP 组件（8 个）：
+  `switch`（开关/旁通，enable+斜坡）、`limiter`（峰值限幅，阈值/attack/release）、
+  `soft_clipper`（tanh 软削波，drive 归一化）、`saturation`（饱和限幅，limit/soft 硬软切换）、
+  `matrix_mul`（矩阵乘法，rows×cols BULK 系数）、`window`（窗函数，BULK 系数每块从头应用）、
+  `noise_slew`（逐样本变化率限幅）、`level_detect`（峰值/RMS 包络检测 + level 探针 readback）。
+- 全部注册进蒸馏映射表（后端 `distill_topology.py` 与前端 `ProjectTree.js` 徽章同步）：
+  baf_sas_full 重新展开后占位块从 41 → 33，真实映射 23 → 31。
+- 数值验证 `tests/test_dynamics_components.py`（6 项）：饱和削波边界、开关静音/窗加权、
+  矩阵缩放、限幅稳态增益、软削波有界、变化率步长、电平探针——离线运行全部通过。
+- 变长 BULK（matrix/window 系数）暂不注册运行期 BULK 槽（register_slots 先于 prepare，
+  数量未知），与 fir 组件一致，仅 `kind: bulk` 走参数导入导出。
+
 ## 2026-08-08（第三十二次讨论：工具栏布局修复）
 
 - 状态提示从工具栏移出到独立 statusbar（固定高度 + 单行截断），保存/运行等长提示不再改变控件布局。

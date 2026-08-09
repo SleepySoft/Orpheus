@@ -1,0 +1,47 @@
+id: orpheus.builtin.soft_clipper
+name: 软削波
+category: 音效算法
+description: tanh 软削波（drive 控制输入增益，小信号近似线性，大信号饱和）
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: SoftClipperState
+sources:
+  - src/soft_clipper.c
+headers:
+  - include/orpheus_soft_clipper.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: drive_db
+    name: 驱动
+    type: float
+    default: 0.0
+    range: [-12.0, 24.0]
+    unit: dB
+    update_policy: smoothed
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

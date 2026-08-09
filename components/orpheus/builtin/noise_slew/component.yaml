@@ -1,0 +1,54 @@
+id: orpheus.builtin.noise_slew
+name: 变化率限幅
+category: 音效算法
+description: 逐样本变化率限幅（rise/fall 速率，抑制突变噪声）
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: NoiseSlewState
+sources:
+  - src/noise_slew.c
+headers:
+  - include/orpheus_noise_slew.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: rise_rate
+    name: 上升速率
+    type: float
+    default: 1.0
+    range: [0.0001, 100.0]
+    unit: "/s"
+    update_policy: smoothed
+  - id: fall_rate
+    name: 下降速率
+    type: float
+    default: 1.0
+    range: [0.0001, 100.0]
+    unit: "/s"
+    update_policy: smoothed
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

@@ -1,0 +1,53 @@
+id: orpheus.builtin.window
+name: 窗函数
+category: 基础算法
+description: 按系数数组逐样本加权（每块从头应用，超窗长部分直通），系数为 BULK
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: WindowState
+sources:
+  - src/window.c
+headers:
+  - include/orpheus_window.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: window_size
+    name: 窗长
+    type: int
+    default: 256
+    range: [2, 4096]
+    update_policy: restart_required
+  - id: coefficients
+    name: 系数
+    type: string
+    default: "1.0"
+    widget: text
+    kind: bulk
+    update_policy: restart_required
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

@@ -1,0 +1,61 @@
+id: orpheus.builtin.limiter
+name: 峰值限幅
+category: 音效算法
+description: 峰值限幅器（阈值以下透明，超阈值按包络压缩，attack/release 平滑）
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: LimiterState
+sources:
+  - src/limiter.c
+headers:
+  - include/orpheus_limiter.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: threshold_db
+    name: 阈值
+    type: float
+    default: -6.0
+    range: [-60.0, 0.0]
+    unit: dB
+    update_policy: smoothed
+  - id: attack_ms
+    name: 启动时间
+    type: float
+    default: 5.0
+    range: [0.1, 1000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: release_ms
+    name: 释放时间
+    type: float
+    default: 100.0
+    range: [1.0, 5000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true
