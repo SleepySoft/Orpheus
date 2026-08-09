@@ -665,3 +665,46 @@ signal_gen(4ch) -> gain_ramper -> iir_bank -> rfft -> ifft
 - 运行时处理 480000 帧（10s @ 48kHz）无错误，输出 wav 1.92MB
 - probe_rms 实测 RMS = 0.192（-6dB 正弦经链路，量级合理）
 - rfft->ifft round-trip 恒等验证通过
+
+## 14. 架构演进方向（蒸馏覆盖与多速率建模缺口）
+
+> 后续架构演进重点考虑方向，源自全量组件覆盖核查与多速率 TID 建模分析（2026-08-09）。
+
+### 14.1 组件覆盖现状（四档）
+
+| 档位 | 范围 | 状态 |
+|---|---|---|
+| 内置可直接映射 | §10.1 的 21 项（input_select/gain/bass/midrange/treble/balance/level_detect/delay/window/mixer/fade/mute/limiter/soft_clipper/saturation/sine_mod/matrix_mul/noise_slew/switch/output_router/interleave 等） | 无需新建 |
+| DSP 硬件软件近似 | §10.2：pooliir->iir_bank、FIR 加速器->fir、RFFT/IFFT->rfft/ifft | 已覆盖，非比特一致（GLXP 硬件定点 vs 软件 float） |
+| 高级组件已实现 | gain_ramper / iir_bank / rfft / ifft / input_mixer_3d / sleeping_beauty | 已落地 |
+| 可组合无需新建 | Holigram（delay+biquad_bank+output_router，§11.5）、DetectImpulse（level_detect+switch，§11.8） | 用现有组件拼 |
+
+### 14.2 仍缺 / 无法只用基本组件复刻
+
+| 缺口 | 性质 | 处置 |
+|---|---|---|
+| FormCoherenceMatrixGXY（§11.6） | 复数域交叉 PSD `Gxy=X*conj(Y)` + 相干 `Cxy=|Gxy|^2/(Gxx*Gyy)` + 高斯消元，算法层面不可拆解 | 必须新建 `coherence_matrix` 专用组件（依赖 rfft 输出） |
+| FDP 自定义块（§11.4） | 系数计算（Lok/Rok/Lxk/Rxk/SPS）、4 路混响提取（fast/slow×L/R 延迟）、overlap-add 重建 | 可用 rfft+matrix_mul+delay+mixer+biquad+ifft 近似拼，缺忠实一体化块；overlap-add 需 delay+mixer 手搭 |
+| SpeedBounds（§11.7） | 速度轴查表插值 | 新建 `interp_lut`（逻辑简单） |
+
+### 14.3 滤波器编排无法复刻的三类
+
+1. **相干矩阵分析链**：FormCoherenceMatrixGXY 卡住整个 Audiopilot HF 噪声估计（TID3）。
+2. **自适应反馈控制环**：TID1-5 分析结果回灌控制 TID0 参数；`SKILL/references/distill-model.md` §2 明确"当前 Orpheus 不支持图内反馈环"，闭环结构性地无法在图内表达，只能拆任务桥/注释。
+3. **多速率 TID 调度**：见 14.4。
+
+### 14.4 为什么蒸馏图没有多条编排线路（根因）
+
+Orpheus 本身支持多速率（`scheduling.divisor` / `downrate`），但蒸馏导入器把所有链压成一条线：
+
+- `orpheus_core/orpheus_core/distill_topology.py:178` `build_topology` 注释"每条链串接为一条主链"；
+- `:191`/`:231`/`:232` 链间串联：`sys_in -> chain0 -> chain1 -> ... -> chainN -> sys_out`，链与链是串联非并联；
+- `parse_flow` 用 `re.sub(r"^TID\d+\s*:\s*", "", piece)` 剥掉 TID 前缀，建节点不赋 `scheduling.divisor`、不插 `downrate` -> 6 个速率域（1500/750/375/23.4/5.86/1.95Hz）全部坍缩到基础速率。
+
+**结构性校正**：6 个 TID 并非 6 条并行音频通路。按 §2，TID0（1500Hz）是唯一承载音频 input->output 的主路径；TID1-5 是 Audiopilot 分析侧链，逐级降采样做噪声/相干估计，产物是控制参数回灌 TID0，非另一路音频输出。理想形态应为"1 条主音频链 + 若干降速率分析抽头（divisor/downrate）+ 任务桥回灌控制"，而非 6 条并列完整链。
+
+### 14.5 演进重点
+
+1. **build_topology 多速率建模**：按 TID 分速率域，用 `scheduling.divisor`/`downrate` 把分析侧链建成主链上的降速率抽头而非串联；保留 TID 前缀作为速率域标注。
+2. **补不可组合组件**：新建 `coherence_matrix`（复数相干矩阵）、`interp_lut`（查表插值）；FDP 自定义块视需要做一体化 `fdp` 组件或文档化组合方案。
+3. **反馈环 / 任务桥**：评估是否引入受控的"任务桥"原语，表达分析->控制->主链的回灌（当前图内禁反馈）。
