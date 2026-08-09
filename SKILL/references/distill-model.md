@@ -110,6 +110,10 @@ model_tree:
 - UI：工具栏「⤵ 导入模型」选择 YAML → 输入工程名 → 自动打开工程（画布/参数面板立即可用）。
 - API：`POST /api/projects/{name}/distill`，body `{"yaml": "<工程 YAML 文本>"}`；
   顶层未知字段（`model_tree`、`presets` 等）原样保留，编译/运行不受影响。
+- **拓扑自动展开**：若 `model_tree.chains` 存在且 graph 是骨架（≤3 节点），导入时自动把每条链
+  展开为子模块：流程文本（`A(param) -> B -> ...`）解析成块节点，能映射到内置组件的块用真实组件 id，
+  未映射块用占位组件 id（`orpheus.builtin.placeholder`，UI 显示「组件缺失」红标），原始括号参数写入
+  节点 `note` 便于查看。此时工程以浏览拓扑为主，替换占位组件前不可编译运行。
 
 ## 7. 红线与坑
 

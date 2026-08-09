@@ -235,14 +235,13 @@ function DistillContent({ doc }) {
 
 function ProjectOutline({ doc, views, subsMeta, activeView, onLocate, onOpenView }) {
   const [query, setQuery] = useState('');
-  const [distillOpen, setDistillOpen] = useState(true);
+  const [showDistill, setShowDistill] = useState(false);
   const [expanded, setExpanded] = useState(() => {
     const init = { main: true };
     for (const s of subsMeta || []) init[subViewKey(s.id)] = true;
     return init;
   });
   const mt = doc?.model_tree;
-  const distillCount = mt ? (mt.children?.length ?? mt.chains?.length ?? '') : '';
 
   const outline = useMemo(() => {
     const subName = (id) => subsMeta.find((s) => s.id === id)?.name || id;
@@ -338,18 +337,26 @@ function ProjectOutline({ doc, views, subsMeta, activeView, onLocate, onOpenView
         <div className="tree-item">
           <div
             className="tree-item-row"
-            onClick={() => setDistillOpen((v) => !v)}
-            title="蒸馏分析：滤波器块映射与参数（标注缺失/可替代组件）"
+            onClick={() => setShowDistill(true)}
+            title="查看完整蒸馏分析：Task 流程、各链的滤波器块映射与参数（标注缺失/可替代组件）"
           >
-            <span className="tree-caret">{distillOpen ? '▼' : '▶'}</span>
+            <span className="tree-caret">▶</span>
             <span className="tree-item-label">蒸馏分析</span>
-            <span className="palette-count">{distillCount}</span>
+            <span className="palette-count">查看</span>
           </div>
-          {distillOpen && (
-            <div className="distill-inline">
+        </div>
+      )}
+      {showDistill && (
+        <div className="distill-modal-overlay" onClick={() => setShowDistill(false)}>
+          <div className="distill-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="distill-modal-header">
+              <span>蒸馏分析（来源：工程 YAML 顶层 model_tree）</span>
+              <button onClick={() => setShowDistill(false)}>× 关闭</button>
+            </div>
+            <div className="distill-modal-body">
               <DistillContent doc={doc} />
             </div>
-          )}
+          </div>
         </div>
       )}
       <div className="tree-item">

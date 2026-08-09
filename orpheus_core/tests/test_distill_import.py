@@ -67,6 +67,38 @@ def test_distill_import_rejects_invalid_yaml() -> None:
         assert "缺少 graph" in resp.json()["detail"]
 
 
+def test_parse_flow_splits_blocks_and_respects_parens() -> None:
+    """流程文本解析：顶层 -> 与 + 切块，括号内不拆，TIDn 前缀剥离。"""
+    from orpheus_core.distill_topology import map_block, parse_flow
+
+    blocks = parse_flow("A(1) -> B(2, 3ch->4ch) -> TID3: C + D -> E")
+    assert [b["name"] for b in blocks] == ["A", "B", "C", "D", "E"]
+    assert blocks[1]["params"] == "2, 3ch->4ch"
+    assert map_block("MakeupGain") == "orpheus.builtin.gain"
+    assert map_block("RFFT") == "orpheus.builtin.placeholder"
+
+
+def test_distill_baf_sas_topology_expansion() -> None:
+    """baf_sas_full 的 model_tree.chains 在导入时展开为拓扑：
+    主图含全部链子模块，未映射块用占位组件 id（UI 标红「组件缺失」），注释保留。"""
+    name = _new_name()
+    text = (ROOT / "examples" / "baf_sas_full.yaml").read_text(encoding="utf-8")
+    with TestClient(create_app(ROOT)) as client:
+        resp = client.post(f"/api/projects/{name}/distill", json={"yaml": text})
+        assert resp.status_code == 200, resp.text
+        doc = resp.json()["document"]
+        assert len(doc["graph"]["nodes"]) == 11  # embed_in + 9 链 + embed_out
+        assert len(doc["subcomponents"]) == 9
+        assert any(n["component"].startswith("sub:") for n in doc["graph"]["nodes"])
+        comps = [n["component"] for s in doc["subcomponents"] for n in s["graph"]["nodes"]]
+        assert "orpheus.builtin.placeholder" in comps
+        assert any(c.startswith("orpheus.builtin.") and c != "orpheus.builtin.placeholder" for c in comps)
+        # model_tree 注释随展开保留，且经重载往返不丢
+        got = client.get(f"/api/projects/{name}").json()
+        assert len(got["subcomponents"]) == 9
+        assert got["model_tree"]["name"].startswith("Bose")
+
+
 @pytest.mark.skipif(
     not (ROOT / "build" / "orpheus_runtime.exe").exists()
     or not (ROOT / "build" / "components").exists(),

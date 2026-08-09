@@ -11,7 +11,11 @@ export default function OrpheusNode({ data, selected }) {
   const inputs = ports.filter((p) => p.direction === 'input');
   const outputs = ports.filter((p) => p.direction === 'output');
   const isSub = (data.component || '').startsWith('sub:');
-  const shortName = isSub ? '📦 子组件（双击打开）' : (data.component || '').split('.').pop();
+  const shortName = data.missing
+    ? '未映射组件'
+    : isSub
+      ? '📦 子组件（双击打开）'
+      : (data.component || '').split('.').pop();
 
   // Each handle is anchored to its own port row (position: relative in CSS),
   // so pins never overlap and each wire lands on a labeled, distinct pin.
@@ -86,6 +90,11 @@ export default function OrpheusNode({ data, selected }) {
           {rateBadge}
         </div>
         <div className="node-subtitle">{shortName}</div>
+        {data.missing && data.params && data.params.note ? (
+          <div className="node-note" title={data.params.note}>
+            {data.params.note}
+          </div>
+        ) : null}
         {BodyWidget && (
           <button
             className="monitor-enlarge"

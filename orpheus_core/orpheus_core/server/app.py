@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from orpheus_core.builder import BuildError, ComponentBuilder, run_cmake_with_msvc_env
 from orpheus_core.compiler import CompileError, ExecutionPlan, GraphCompiler
+from orpheus_core.distill_topology import build_topology
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.server.manager import ProjectError, ProjectManager, ProjectRecord
@@ -360,6 +361,23 @@ def create_app(project_root: Path) -> FastAPI:
         data.setdefault("version", "0.1.0")
         data.setdefault("metadata", {})
         data["metadata"]["name"] = name
+        # 蒸馏拓扑展开：model_tree.chains 存在且原图为骨架时，把每条链展开为
+        # 子模块（块 → 节点，未映射块用占位组件 id，UI 标红「组件缺失」）。
+        mt = data.get("model_tree")
+        existing_graph = data.get("graph") or {}
+        if isinstance(mt, dict) and mt.get("chains") and len(existing_graph.get("nodes") or []) <= 3:
+            channels = 22
+            for n in existing_graph.get("nodes") or []:
+                if n.get("component") == "orpheus.builtin.embed_in":
+                    channels = (n.get("params") or {}).get("channels", channels)
+                    break
+            graph, subs = build_topology(
+                mt,
+                sample_rate=data.get("sample_rate", 48000),
+                channels=channels,
+            )
+            data["graph"] = graph
+            data["subcomponents"] = subs
         try:
             manager.create(name)
         except ProjectError as exc:
