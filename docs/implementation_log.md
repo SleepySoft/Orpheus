@@ -1,5 +1,22 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-09（第三十八次讨论：baf_sas_analysis 缺口核查与补齐）
+
+- 核查 `examples/baf_sas_analysis.md` 与 `baf_sas_full.yaml`：§13 声称已实现的 6 个组件
+  （gain_ramper/iir_bank/rfft/ifft/input_mixer_3d/sleeping_beauty）在仓库中存在，但
+  **从未接入蒸馏映射**（distill_topology / 前端徽章仍把 RFFT/pooliir/SleepingBeauty
+  /InputMixer3D 当占位或错误映射），且 **DLL 未构建**、示例工程无自动化测试。
+- 补齐：
+  - 映射更新：pooliir→iir_bank、RFFT/FFT→rfft、IFFT→ifft、SleepingBeauty→sleeping_beauty、
+    InputMixer3D/Downmix→input_mixer_3d（前后端同步）——重新展开占位 17 → 13、真实映射 38 → 40；
+  - 构建 6 个组件 DLL；
+  - 新增 `test_baf_components.py`（编译 + 离线端到端运行 + rms 探针），
+    修正 `test_parse_flow` 旧断言（RFFT 现映射 rfft）。
+- 剩余占位 13 个与 §14.2 一致：FDP 专用（Coeffs1st/2ndStage、ApplyCoefficients、PSD平滑、
+  DetectImpulse、ReverbExtraction）、相干族（FormCoherenceMatrixGXY、30ch相干求和）、
+  SpeedBounds（待 interp_lut）、输出总线结构（PreqOut1/AudioOut）、路由描述片段。
+- 仍缺组件（§14.2）：`interp_lut`（查表插值，实现明确）、`coherence_matrix`（复数相干矩阵）；
+  结构性缺口：多速率 TID 建模（§14.4，build_topology 串链坍缩速率域）与反馈环/任务桥。
 ## 2026-08-09（第三十七次讨论：目标平台与 alter 组件——后端核心）
 
 - 设计定案（design_registry §19）：平台属性归组件自声明（缺省=无指定平台，可移植），

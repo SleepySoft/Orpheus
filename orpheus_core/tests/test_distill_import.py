@@ -75,7 +75,9 @@ def test_parse_flow_splits_blocks_and_respects_parens() -> None:
     assert [b["name"] for b in blocks] == ["A", "B", "C", "D", "E"]
     assert blocks[1]["params"] == "2, 3ch->4ch"
     assert map_block("MakeupGain") == "orpheus.builtin.gain"
-    assert map_block("RFFT") == "orpheus.builtin.placeholder"
+    assert map_block("RFFT") == "orpheus.builtin.rfft"
+    assert map_block("pooliir") == "orpheus.builtin.iir_bank"
+    assert map_block("Coeffs1stStage") == "orpheus.builtin.placeholder"
 
 
 def test_distill_baf_sas_topology_expansion() -> None:
