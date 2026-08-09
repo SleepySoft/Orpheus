@@ -458,25 +458,49 @@ delay ─> window ─> [RFFT(新)] ─> [fdp_coeffs(新)] ─> biquad(LPF平滑)
 
 ---
 
-### 11.6 FormCoherenceMatrixGXY — Audiopilot 相干矩阵
+### 11.6 FormCoherenceMatrixGXY - Audiopilot 相干矩阵（实证）
 
-**源码位置**：`Model_1_1.c:17628-18130`
+**源码位置**：`Model_1_1.c:17628-18160`，子系统 `HFNoiseEstimatorCoh/HfNoiseMusicSeparation`
 
-**功能**：Audiopilot HF 噪声估计的核心。从 10 通道 RFFT 结果计算相干矩阵，区分音乐与噪声。
+**功能**：Audiopilot HF 噪声估计核心。用多参考相干（multiple coherence）把麦克风功率谱分离为"音乐（相干）"与"噪声（残余）"两部分，输出噪声功率谱 Gnn。**无需知道扬声器->麦克风传递函数 H**。
 
-**算法**（MATLAB Function 块）：
+**块层级**（5 个 MATLAB Function / S-Function）：
+- `FormCoherenceMatrixGXY`(S784)：构建交叉谱矩阵
+- `GaussianElimination`(S793)：高斯消元求噪声残余
+- `CoherenceModifier`(S792)：高相干压缩
+- `RefPowerMin`(S789, TOP_MEX)：噪声下限
+- `ExtractMicLevel`(S794) / `NoisePsdLevel`(S796)：电平求和
 
-```
-1. CrossPSD: Gxy = X * conj(Y)  (通道间交叉功率谱)
-2. AutoPSD:  Gxx = |X|^2, Gyy = |Y|^2
-3. Coherence: Cxy = |Gxy|^2 / (Gxx * Gyy)   (0~1, 1=完全相干)
-4. 相干 > 阈值 => 噪声低 => 增强该频段
-5. CoherenceModifier: 高斯消元修正相干矩阵
-```
+**实证参数**（从生成代码注释 `<S784>:1` 等读出，非推测）：
+- `K = HFWELCHSIZE = 16`（Welch 平均帧数）
+- `L = 65` 频率 bin（129 点 RFFT 取奇数 bin 1:2:end，x2 缩放）
+- `M = 10` 通道（1 mic + 9 ref）
+- GXY = `65x10x10` 复数 CSD 矩阵（6500 creal32_T）
+- CoherenceModifier `threshold = 0.88`
 
-**Orpheus 分解**：高度自定义的信号分析算法，无法用基本组件组合。需新建 `coherence_matrix` 组件（复数运算 + 矩阵操作），依赖 `rfft` 输出。
+**算法（逐块实证）**：
 
----
+1. **构建 CSD 矩阵**（FormCoherenceMatrixGXY）：帧计数 1..16 循环。每帧对下三角（i<=j）累加 `GXY(:,i,j) += conj(Xi).Xj / K`；第 16 帧用 Hermitian 对称 `GXY(:,i,j)=conj(GXY(:,j,i))` 补全上三角，置 `GnnUpdate=true`。即 GXY 是 16 帧 Welch 平均的交叉谱密度矩阵。
+
+2. **高斯消元 = Schur 补 = 多重相干**（GaussianElimination，仅 GnnUpdate 帧）：对每个 bin 的 10x10 切片做前向行消元（带主元跳过：`a(j,j)/temp(j,j)` 近零则跳过该行）：
+   ```
+   for j=1..9, i=j+1..10:
+     if 主元显著: mult = a(i,j)/a(j,j); a(i,:) = a(i,:) - a(j,:)*mult
+   Snn_Gauss = a(N,N)   // 消元后的 (10,10) 元 = 投影掉 ref 后的 mic 残余功率
+   Gyy = real(GXY(:,N,N))   // 原始 mic 自谱
+   c(i) = 1 - real(Snn_Gauss)/real(Gyy)   // 若 Gyy>eps，否则 c=1
+   ```
+   `c(i)` 即**平方多重相干**（mic 被 9 个 ref 线性解释的功率比例）。数学上 `Snn_Gauss = Gyy - G_mic,ref . G_ref,ref^-1 . G_ref,mic`（Schur 补）= 噪声残余功率；高斯消元是不显式求逆计算 Schur 补的标准方法。**音乐功率 = c(i).Gyy，噪声功率 = (1-c(i)).Gyy = Snn_Gauss**。
+
+3. **CoherenceModifier**（threshold=0.88）：`if c(i)>0.88: c(i)=sqrt((c(i)-0.88)*(1-0.88))+0.88`。压缩高相干（低噪声）区间，避免低噪声时噪声过估。
+
+4. **噪声 PSD 输出**：`Gnn(i) = max((1-c(i)).Gyy(i), RefPowerMin)`。非更新帧 memcpy 上一帧 Gnn（每 16 帧更新一次）。`NoiseLevel=sum(Gnn)`、`MicLevel=sum(Gyy)` 供下游 AGC/自适应。
+
+**为什么不能"直接减"、为什么要矩阵**：
+- "直接减"需逐样本知道扬声器->mic 传递函数 H（未知、时变、带混响），减 raw ref 会留 `(H-1).m` 残留。本方法在**交叉谱域**用矩阵消元把 ref 贡献投影掉，直接得噪声残余 `Snn_Gauss`，**H 隐含在交叉谱里被消掉，无需显式估计**。
+- 之所以要**矩阵**而非标量相干：有 9 个 ref 且彼此相关（非正交），必须用矩阵消元/Schur 补一次性投影掉所有相关分量；标量两两相干 `|Gxy|^2/(Gxx.Gyy)` 只能处理 1 个 ref，多 ref 会重复扣除相关分量。
+
+**Orpheus 分解**：复数域交叉谱矩阵 + 高斯消元（Schur 补）+ 阈值压缩，无法用基本组件组合。需新建 `coherence_matrix` 专用组件，依赖 `rfft` 输出（复数 bin），输入 10 通道 STFT、输出 65 bin 噪声 PSD + 多重相干。
 
 ### 11.7 SpeedBounds — 速度相关噪声界限
 
