@@ -1133,15 +1133,16 @@ const { screenToFlowPosition } = useReactFlow();
               >
                 ⤵ 导入模型
               </button>
-              <input
-                ref={distillFileRef}
-                type="file"
-                accept=".yaml,.yml,.json"
-                style={{ display: 'none' }}
-                onChange={onDistillFile}
-              />
             </div>
           )}
+          {/* 文件框必须常驻 DOM：若随菜单一起卸载，选完文件后的 change 事件会因元素已脱离文档而丢失，导致导入静默无反应 */}
+          <input
+            ref={distillFileRef}
+            type="file"
+            accept=".yaml,.yml,.json"
+            style={{ display: 'none' }}
+            onChange={onDistillFile}
+          />
         </span>
         <span className="toolbar-sep" />
         <span className="tb-group">
