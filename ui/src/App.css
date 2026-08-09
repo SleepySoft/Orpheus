@@ -576,6 +576,16 @@
   font-size: 12px;
 }
 
+.palette-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 5px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
 .tree-item {
   user-select: none;
 }

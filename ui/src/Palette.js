@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { subCatalogEntry } from './graphUtils';
+import { fuzzyMatch } from './fuzzy';
 
 // preferred display order for categories; unknown ones go last
 const CATEGORY_ORDER = ['信号源', '基础算法', '通道路由', '文件', '设备', '监控工具'];
@@ -14,6 +15,7 @@ function categorySort(a, b) {
 /** Left-hand palette: project subcomponents + category tree of global components. */
 export default function Palette({ components, subsMeta, onDeleteSub, onDeleteComponent, onPromoteComponent }) {
   const [collapsed, setCollapsed] = useState({});
+  const [query, setQuery] = useState('');
 
   const byCategory = useMemo(() => {
     const m = new Map();
@@ -31,6 +33,21 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
   };
 
   const toggle = (cat) => setCollapsed((prev) => ({ ...prev, [cat]: !prev[cat] }));
+
+  // 模糊搜索：中文显示名 / 英文 id / 描述均参与匹配；命中时平铺展示结果
+  const flat = useMemo(
+    () => [
+      ...subsMeta.map((s) => ({ item: subCatalogEntry(s), deletable: true, sub: true })),
+      ...byCategory.flatMap(([, items]) => items.map((c) => ({ item: c, deletable: false }))),
+    ],
+    [subsMeta, byCategory]
+  );
+  const searching = query.trim().length > 0;
+  const results = searching
+    ? flat.filter(({ item }) =>
+        fuzzyMatch(query, item.name, item.id, item.description || '')
+      )
+    : [];
 
   const renderItem = (c, deletable = false) => (
     <div
@@ -84,6 +101,25 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
 
   return (
     <div className="palette">
+      <input
+        className="palette-search"
+        placeholder="搜索组件（中/英文模糊）"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      {searching ? (
+        <div className="palette-category">
+          <div className="palette-category-header static">搜索结果（{results.length}）</div>
+          {results.length === 0 && <p className="muted">无匹配组件</p>}
+          {results.map(({ item, deletable, sub }) =>
+            renderItem(
+              sub ? { ...item, sub: true, user_owned: false } : item,
+              deletable
+            )
+          )}
+        </div>
+      ) : (
+        <>
       {subsMeta.length > 0 && (
         <div className="palette-category">
           <div className="palette-category-header static">工程子组件</div>
@@ -101,6 +137,8 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
         </div>
       ))}
       {components.length === 0 && <p className="muted">后端未连接或无组件</p>}
+        </>
+      )}
     </div>
   );
 }

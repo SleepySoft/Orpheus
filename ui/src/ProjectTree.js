@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { isSubRef, subIdOf, subViewKey } from './graphUtils';
+import { fuzzyMatch } from './fuzzy';
 
 /* 蒸馏分析里的块 → Orpheus 组件映射规则（顺序即优先级，先匹配先生效）。
  * status: builtin=已有组件 / substitute=可用现有组件替代 / missing=无内置需自定义 / na=结构件无需组件 */
@@ -269,14 +270,8 @@ function ProjectOutline({ doc, views, subsMeta, activeView, onLocate, onOpenView
   }, [views, subsMeta]);
 
   const matches = (n) => {
-    if (!query) return true;
-    const q = query.toLowerCase();
     const label = n.data.label || n.id;
-    return (
-      label.toLowerCase().includes(q) ||
-      n.id.toLowerCase().includes(q) ||
-      (n.data.component || '').toLowerCase().includes(q)
-    );
+    return fuzzyMatch(query, label, n.id, n.data.component || '');
   };
 
   const renderItem = (item, depth) => {
