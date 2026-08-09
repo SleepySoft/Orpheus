@@ -46,32 +46,32 @@ model_tree:
       rate_hz: 1500
       call_interval: 1
       label: 主音频链
-      chain: InputSelect -> PreAmpPart1 -> [SAS Part2-6] -> PostProcess -> Audiopilot调制
+      chains: [input_select, preamp_part1, part3_mixing, part4_peripheral_eq, part5_post_holigram, part6_summation, post_process, audiopilot]
     - tid: 1
       rate_hz: 750
       call_interval: 2
       label: Audiopilot ref/mic 延迟缓冲
-      chain: BufferRef(128环形) -> delayBuffer(226) -> BufferMic(128) -> Buffer(512)
+      blocks: [BufferRef, delayBuffer, BufferMic, Buffer]
     - tid: 2
       rate_hz: 375
       call_interval: 4
       label: FDP 频域处理
-      chain: BufferIn(2ch读128) -> Fdp(256点STFT) -> BufferOut(6ch写128)
+      chains: [part2_fdp]
     - tid: 3
       rate_hz: 23.4
       call_interval: 64
       label: Audiopilot FFT 噪声估计
-      chain: Buffer(10ch×512) -> Windowing(256点) -> RFFT(256点10ch) -> FormCoherenceMatrixGXY
+      blocks: [Windowing, RFFT, FormCoherenceMatrixGXY]
     - tid: 4
       rate_hz: 5.86
       call_interval: 256
       label: Audiopilot LF 噪声速度界限
-      chain: SpeedBounds(128点速度轴) -> NoiseSlew -> RateTransition
+      blocks: [SpeedBounds, NoiseSlew, RateTransition]
     - tid: 5
       rate_hz: 1.95
       call_interval: 768
       label: Audiopilot 相干求和
-      chain: SumOfElements(30ch) -> Gxx/Gyy/Gyx相干 -> magnitude^2 -> Saturation
+      blocks: [SumOfElements, 相干求和, magnitude^2, Saturation]
   chains:
     - id: input_select
       label: InputSelect（输入路由）
@@ -147,13 +147,9 @@ model_tree:
       pooliir: [PostEQ(1104), OutputCalibrationFreqComp(1104)]
       params: "ASDRouterMainSelect(22) AuxSelect(22) EnableAux(1) OutputEQpooliirCoeffs(matrix) FreqCompxpooliirCoeffs(matrix) Limiter(8×2=16 float) SoftClipper(3×2=6 float) OutputSclip(3×2=6) MuteRampTime MuteRampRate AllMuteRampTime RmdlMuteRampTime MuteMapSwitch"
     - id: audiopilot
-      label: Audiopilot35 自适应音频
+      label: Audiopilot35 TID0 正弦调制（分析侧链见 task_flows TID1/3/4/5）
       flow: >
-        TID0: 正弦调制(11点表) -> MatrixMultiply(10×32) -> poolIIR输入缓冲 ->
-        TID1: ref/mic延迟缓冲(BufferRef 128 + delayBuffer 226 + BufferMic 128 + Buffer 512) ->
-        TID3: 256点RFFT(10ch) + 窗 + FormCoherenceMatrixGXY(HF噪声估计, Welch窗) ->
-        TID4: SpeedBounds(128点速度轴) + NoiseSlew ->
-        TID5: 30ch相干求和(Gxx/Gyy/Gyx magnitude^2 Saturation)
+        TID0: 正弦调制(11点表) -> MatrixMultiply(10×32) -> poolIIR输入缓冲
       pooliir: [HF_AntiAliasing(528) HF_BandpassOrLowpass(528) LF_FilterMic(96) LF_FilterRef(96)]
       fft: {size: 256, channels: 10}
       params: "LatencySamples(3 int) AntiZipperLpf(3) BassBpf(6) BassControl(9) DyneqBass(2) HfNoise(18+pooliirCoeffs) LfNoise(16+pooliirCoeffs) SpeedBounds(3) HvacTable(array) EnableRampCoef(1)"

@@ -89,15 +89,31 @@ def test_distill_baf_sas_topology_expansion() -> None:
         resp = client.post(f"/api/projects/{name}/distill", json={"yaml": text})
         assert resp.status_code == 200, resp.text
         doc = resp.json()["document"]
-        assert len(doc["graph"]["nodes"]) == 11  # embed_in + 9 链 + embed_out
-        assert len(doc["subcomponents"]) == 9
+        # 主音频链（TID0：8 链）+ 4 个降速率分析抽头（downrate + tap 子模块 + 分析汇）
+        assert len(doc["graph"]["nodes"]) == 22
+        assert len(doc["subcomponents"]) == 12
         assert any(n["component"].startswith("sub:") for n in doc["graph"]["nodes"])
+        downrates = {
+            n["id"]: n["params"].get("factor")
+            for n in doc["graph"]["nodes"]
+            if n["component"] == "orpheus.builtin.downrate"
+        }
+        assert downrates == {
+            "downrate_2": 4,
+            "downrate_3": 64,
+            "downrate_4": 256,
+            "downrate_5": 768,
+        }
+        # part2_fdp（TID2，÷4）不在主音频链里，而是 tap_2 抽头
+        main_chain = [n["id"] for n in doc["graph"]["nodes"]]
+        assert "part2_fdp" not in main_chain
+        assert "tap_2" in main_chain and "tap_5" in main_chain
         comps = [n["component"] for s in doc["subcomponents"] for n in s["graph"]["nodes"]]
         assert "orpheus.builtin.placeholder" in comps
         assert any(c.startswith("orpheus.builtin.") and c != "orpheus.builtin.placeholder" for c in comps)
         # model_tree 注释随展开保留，且经重载往返不丢
         got = client.get(f"/api/projects/{name}").json()
-        assert len(got["subcomponents"]) == 9
+        assert len(got["subcomponents"]) == 12
         assert got["model_tree"]["name"].startswith("Bose")
 
 

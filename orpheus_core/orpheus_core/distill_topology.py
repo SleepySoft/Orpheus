@@ -162,7 +162,8 @@ def _sanitize_id(text: str, fallback: str) -> str:
 
 
 _NOISE_RE = re.compile(
-    r"map$|路径|缓冲|未用|置零|rampcoeff|powf|=|bufferin|bufferout", re.I
+    r"map$|路径|缓冲|未用|置零|rampcoeff|powf|=|bufferin|bufferout|"
+    r"^buffer|bufferref|buffermic|delaybuffer|ratetransition", re.I
 )
 
 
@@ -171,14 +172,63 @@ def _is_noise(block: dict[str, str]) -> bool:
     return bool(_NOISE_RE.search(block["name"]))
 
 
+def _chain_blocks(chain: dict[str, Any], sub_id: str) -> list[dict[str, str]]:
+    """链 flow 文本 → 块列表（过滤噪声；空则保留链名占位）。"""
+    blocks = parse_flow(chain.get("flow"))
+    blocks = [b for b in blocks if not _is_noise(b)]
+    if not blocks:
+        blocks = [{"name": chain.get("label") or chain.get("id") or sub_id, "params": "", "raw": ""}]
+    return blocks
+
+
+def _blocks_to_sub(sub_id: str, name: str, blocks: list[dict[str, str]]) -> dict[str, Any]:
+    """块列表 → 子组件（串接 b0..bN，端口 in/out）。"""
+    inner_nodes: list[dict[str, Any]] = []
+    for j, b in enumerate(blocks):
+        inner_nodes.append(
+            {
+                "id": f"b{j}",
+                "component": map_block(b["name"], b["raw"]),
+                "label": b["name"],
+                "params": {"note": b["params"]},
+                "position": {"x": j * 220, "y": 60},
+            }
+        )
+    inner_edges = [
+        {"from": f"b{j}:out", "to": f"b{j + 1}:in"} for j in range(len(inner_nodes) - 1)
+    ]
+    return {
+        "id": sub_id,
+        "name": name,
+        "description": f"蒸馏链：{name}",
+        "ports": [
+            {"id": "in", "direction": "input", "maps_to": "b0:in"},
+            {"id": "out", "direction": "output", "maps_to": f"b{len(inner_nodes) - 1}:out"},
+        ],
+        "graph": {"nodes": inner_nodes, "connections": inner_edges},
+    }
+
+
 def build_topology(
     model_tree: dict[str, Any],
     *,
     sample_rate: int = 48000,
     channels: int = 22,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """model_tree.chains → (主图 graph, 子模块列表)。每条链串接为一条主链。"""
-    chains = model_tree.get("chains") or []
+    """model_tree → (主图 graph, 子模块列表)。
+
+    task_flows 带结构化 chains/blocks 时：
+    - call_interval=1 的 task（TID0）= 主音频链（基础速率，串接 sys_in..sys_out）；
+    - call_interval>1 的 task = 降速率分析抽头：主图插入 downrate(factor=call_interval)
+      从 sys_in 抽头 → 抽头子模块 → 分析汇（embed_out），体现多速率域。
+    旧格式（task_flows 无 chains/blocks）回退为全部链串接一条主链。
+    """
+    chains_by_id = {c.get("id"): c for c in model_tree.get("chains") or [] if c.get("id")}
+    task_flows = model_tree.get("task_flows") or []
+    structured = [t for t in task_flows if t.get("chains") or t.get("blocks")]
+    if not structured:
+        task_flows = [{"tid": 0, "call_interval": 1, "chains": list(chains_by_id)}]
+
     subs: list[dict[str, Any]] = []
     main_nodes: list[dict[str, Any]] = [
         {
@@ -190,39 +240,34 @@ def build_topology(
         }
     ]
     main_edges: list[dict[str, str]] = []
+
+    main_chain_ids: list[str] = []
+    taps: list[tuple[int, int, str, list[dict[str, str]]]] = []
+    for t in task_flows:
+        call_interval = int(t.get("call_interval") or 1)
+        if call_interval <= 1:
+            for cid in t.get("chains") or []:
+                if cid in chains_by_id:
+                    main_chain_ids.append(cid)
+        else:
+            tid = int(t.get("tid") or 0)
+            label = t.get("label") or f"TID{tid}"
+            blocks: list[dict[str, str]] = []
+            for cid in t.get("chains") or []:
+                ch = chains_by_id.get(cid)
+                if ch:
+                    blocks += parse_flow(ch.get("flow"))
+            for b in t.get("blocks") or []:
+                blocks.append({"name": str(b), "params": "", "raw": str(b)})
+            blocks = [b for b in blocks if not _is_noise(b)]
+            if blocks:
+                taps.append((tid, call_interval, label, blocks))
+
     prev = "sys_in"
-    for i, ch in enumerate(chains):
-        sub_id = _sanitize_id(ch.get("id") or "", f"chain_{i}")
-        blocks = parse_flow(ch.get("flow"))
-        blocks = [b for b in blocks if not _is_noise(b)]
-        if not blocks:
-            blocks = [{"name": ch.get("label") or ch.get("id") or sub_id, "params": "", "raw": ""}]
-        inner_nodes: list[dict[str, Any]] = []
-        for j, b in enumerate(blocks):
-            inner_nodes.append(
-                {
-                    "id": f"b{j}",
-                    "component": map_block(b["name"], b["raw"]),
-                    "label": b["name"],
-                    "params": {"note": b["params"]},
-                    "position": {"x": j * 220, "y": 60},
-                }
-            )
-        inner_edges = [
-            {"from": f"b{j}:out", "to": f"b{j + 1}:in"} for j in range(len(inner_nodes) - 1)
-        ]
-        subs.append(
-            {
-                "id": sub_id,
-                "name": ch.get("label") or ch.get("id") or sub_id,
-                "description": f"蒸馏链：{ch.get('label') or ch.get('id') or sub_id}",
-                "ports": [
-                    {"id": "in", "direction": "input", "maps_to": "b0:in"},
-                    {"id": "out", "direction": "output", "maps_to": f"b{len(inner_nodes) - 1}:out"},
-                ],
-                "graph": {"nodes": inner_nodes, "connections": inner_edges},
-            }
-        )
+    for i, cid in enumerate(main_chain_ids):
+        ch = chains_by_id[cid]
+        sub_id = _sanitize_id(cid, f"chain_{i}")
+        subs.append(_blocks_to_sub(sub_id, ch.get("label") or cid, _chain_blocks(ch, sub_id)))
         main_nodes.append(
             {
                 "id": sub_id,
@@ -232,13 +277,50 @@ def build_topology(
         )
         main_edges.append({"from": f"{prev}:out", "to": f"{sub_id}:in"})
         prev = sub_id
+
+    # 降速率分析抽头：downrate(factor=call_interval) -> tap 子模块 -> 分析汇
+    for k, (tid, call_interval, label, blocks) in enumerate(taps):
+        tap_id = f"tap_{tid}"
+        dr_id = f"downrate_{tid}"
+        sink_id = f"sink_{tid}"
+        subs.append(_blocks_to_sub(tap_id, label, blocks))
+        x = 40 + (k + 1) * 300
+        main_nodes.append(
+            {
+                "id": dr_id,
+                "component": "orpheus.builtin.downrate",
+                "label": f"{label} ÷{call_interval}",
+                "params": {"factor": call_interval, "channels": channels},
+                "position": {"x": x, "y": 560},
+            }
+        )
+        main_nodes.append(
+            {
+                "id": tap_id,
+                "component": f"sub:{tap_id}",
+                "position": {"x": x + 180, "y": 560},
+            }
+        )
+        main_nodes.append(
+            {
+                "id": sink_id,
+                "component": "orpheus.builtin.embed_out",
+                "label": f"分析汇 TID{tid}",
+                "params": {"channels": channels, "sample_rate": sample_rate},
+                "position": {"x": x + 360, "y": 560},
+            }
+        )
+        main_edges.append({"from": "sys_in:out", "to": f"{dr_id}:in"})
+        main_edges.append({"from": f"{dr_id}:out", "to": f"{tap_id}:in"})
+        main_edges.append({"from": f"{tap_id}:out", "to": f"{sink_id}:in"})
+
     main_nodes.append(
         {
             "id": "sys_out",
             "component": "orpheus.builtin.embed_out",
             "label": "系统输出",
             "params": {"channels": channels, "sample_rate": sample_rate},
-            "position": {"x": 40 + (len(chains) + 1) * 280, "y": 200},
+            "position": {"x": 40 + (len(main_chain_ids) + 1) * 280, "y": 200},
         }
     )
     main_edges.append({"from": f"{prev}:out", "to": "sys_out:in"})

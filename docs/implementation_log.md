@@ -1,5 +1,25 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-09（第三十九次讨论：蒸馏多速率/task 建模——SKILL 与展开器）
+
+- SKILL 更新（`SKILL/references/distill-model.md` + `SKILL/SKILL.md`）：
+  - 分析步骤新增「任务/速率域（TID）识别」：提取全部 TID 的 rate_hz、call_interval（分频比），
+    区分主音频链（interval=1）与分析侧链（interval>1）；
+  - 新增 §4.1 多速率 task_flows 规范：主链用 `chains`（引用链 id）、分析侧链用 `chains`/`blocks`
+    显式列出；`call_interval × rate_hz = 基块率`；纯缓冲/结构块不列入；
+  - 映射表补充 iir_bank / rfft / ifft / input_mixer_3d / sleeping_beauty / gain_ramper；
+  - 校验清单加 task_flows 完整性条目。
+- `build_topology` 消费结构化 task_flows：interval=1 的链串接为主音频链（sys_in..sys_out）；
+  interval>1 的 task 生成 `downrate(factor=call_interval)` 抽头 + 抽头子模块 + 分析汇（embed_out），
+  从 sys_in 抽头；旧格式（无 chains/blocks）回退为全部链串接。
+- `examples/baf_sas_full.yaml` 重构：task_flows 结构化（TID0 主链 8 链，TID2 含 part2_fdp，
+  TID1/3/4/5 为 Audiopilot 分析侧链）；audiopilot 链收敛为 TID0 正弦调制部分；
+  噪声过滤补充 BufferRef/delayBuffer/RateTransition 等结构块。
+- 结果：重新展开 22 主图节点（8 主链 + 4 downrate 抽头 + 4 分析汇）、12 子模块；
+  占位 13、真实映射 43（tap_5 的 magnitude²/saturation 从括号文本中拆出）。
+- 测试：蒸馏导入断言更新（downrate factor 2/4/64/256/768 检查、part2_fdp 不在主链）；
+  全量 104 passed、1 skipped。
+
 ## 2026-08-09（第三十八次讨论：baf_sas_analysis 缺口核查与补齐）
 
 - 核查 `examples/baf_sas_analysis.md` 与 `baf_sas_full.yaml`：§13 声称已实现的 6 个组件

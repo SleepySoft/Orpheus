@@ -36,6 +36,12 @@
    运行期可写的系数槽（如 biquad 组系数）在 manifest 声明 `bulk_slots`。
 7. **探针**：rms/波形/频谱等观测点 → `probe_rms`/`probe_waveform`/`probe_spectrum`
    （readback 参数自动归类为「探针」）。
+8. **任务/速率域（TID）识别**：从调度代码（rtmodel.c TID switch / 分频比）提取全部 TID：
+   - 每条 task 记录 `tid`、`rate_hz`、`call_interval`（= 基块率 ÷ rate_hz）、`label`；
+   - `call_interval=1` 的 task 是**主音频链**（基础速率，承载 input→output）；
+     `call_interval>1` 的是**降速率分析侧链**（产物回灌控制，不是另一路音频输出）；
+   - 输出到 `model_tree.task_flows`：主链用 `chains: [链id...]`，分析侧链用 `chains` 或
+     `blocks: [块名...]` 显式列出（格式见 §4.1），不要把分析侧链串进主链。
 
 ## 3. 滤波器 → Orpheus 组件映射表
 
@@ -44,6 +50,12 @@
 | 二阶 IIR（RBJ peaking） | `orpheus.builtin.biquad` | `type: peaking, fc, q, gain_db` |
 | 二阶 IIR（lowpass/highpass/bandpass/notch/lowshelf/highshelf） | `orpheus.builtin.biquad` | 对应 `type`，fc/q/gain_db |
 | N 段 biquad 串联 | `orpheus.builtin.biquad_bank` | `fcN/qN/gain_dbN`（N=0..）；系数 BULK 槽 `bqN.coefs`（5 个 float） |
+| N 级 IIR（pooliir / GLXP 加速器软件近似） | `orpheus.builtin.iir_bank` | `num_stages` + `coefs`（BULK，5×N 连续） |
+| 实数 FFT（半复数输出） | `orpheus.builtin.rfft` | `channels`（FFT 点数 = block_size，须 2 的幂） |
+| 实数 IFFT（半复数输入） | `orpheus.builtin.ifft` | `channels`（输入须为 rfft 半复数格式） |
+| 加权矩阵混音（M→N 下混） | `orpheus.builtin.input_mixer_3d` | `input_channels`/`output_channels` + `weights`（BULK） |
+| 响度补偿（SleepingBeauty） | `orpheus.builtin.sleeping_beauty` | `gain_index`/`offset`/`ramp_ms` + `chan_map` |
+| 指数增益斜坡器（Rgainx/Rgainy） | `orpheus.builtin.gain_ramper` | `num_rampers` + `chan_map` + `ramp_ms` |
 | FIR 系数数组 | `orpheus.builtin.fir` | `coefficients: "0.5, 0.25, -0.1, ..."`（`kind: bulk`） |
 | 增益（dB） | `orpheus.builtin.gain` | `gain_db`（平滑可 `smoothed`） |
 | 静音/门限 | `orpheus.builtin.mute` | `mute` 0/1（smoothed）、`ramp_ms` |
@@ -103,9 +115,44 @@ model_tree:
         - {id: gain, filter: gain, params: {gain_db: -1.0}}
 ```
 
+### 4.1 多速率 task_flows 规范（TID / 分频）
+
+被蒸馏模型若有多个速率域（多 TID / 分频），必须用结构化 `task_flows` 表达，不能只写注释：
+
+```yaml
+model_tree:
+  base_rate: 1500                # 基块率 Hz（如 48kHz / 32 样本块）
+  task_flows:
+    - tid: 0
+      rate_hz: 1500
+      call_interval: 1           # = 基块率 ÷ rate_hz；1 = 主音频链
+      label: 主音频链
+      chains: [input_select, preamp_part1, post_process]   # 主链：引用 model_tree.chains 的 id
+    - tid: 2
+      rate_hz: 375
+      call_interval: 4
+      label: FDP 频域处理
+      chains: [part2_fdp]        # 降速率链：导入时生成 downrate(÷4) 抽头
+    - tid: 3
+      rate_hz: 23.4
+      call_interval: 64
+      label: Audiopilot FFT 噪声估计
+      blocks: [Windowing, RFFT, FormCoherenceMatrixGXY]    # 或直接列块名
+```
+
+规则：
+
+- `call_interval × rate_hz = 基块率`；主音频链只能有一条（interval=1，承载 input→output）；
+- 分析侧链（interval>1）用 `chains` 或 `blocks` 显式列出，**不要串进主链**；
+- 纯缓冲/结构块（BufferRef、delayBuffer、RateTransition 等）不列入 `blocks`，
+  Orpheus 按 block 调度无需显式缓冲组件；
+- 导入时 interval>1 的 task 自动生成 `downrate(factor=call_interval)` 抽头 + 抽头子模块 + 分析汇。
+
 ## 5. 校验清单（提交前逐项过）
 
 - [ ] `version` + `graph` 存在；schema 校验通过（`ProjectLoader` 加载无异常）。
+- [ ] `task_flows` 覆盖全部 TID：`call_interval × rate_hz = 基块率`；主链只引用音频链 id，
+      分析侧链用 `chains`/`blocks` 显式列出且不串进主链（无多速率则省略 task_flows）。
 - [ ] 子组件边界 `maps_to` 只指向原子节点；无循环引用；实例引用 `sub:<id>` 均定义。
 - [ ] 节点 id 只用 `[A-Za-z0-9_-]`（`.` 等字符会破坏代码生成标识符）。
 - [ ] `channels`/`sample_rate` 与端口一致；`restart_required` 标注影响签名的参数。
@@ -124,6 +171,9 @@ model_tree:
   展开为子模块：流程文本（`A(param) -> B -> ...`）解析成块节点，能映射到内置组件的块用真实组件 id，
   未映射块用占位组件 id（`orpheus.builtin.placeholder`，UI 显示「组件缺失」红标），原始括号参数写入
   节点 `note` 便于查看。此时工程以浏览拓扑为主，替换占位组件前不可编译运行。
+- **多速率展开**：`task_flows` 中 `call_interval>1` 的 task 导入为
+  `downrate(factor=call_interval)` 抽头 + 抽头子模块 + 分析汇，主音频链保持基础速率；
+  旧格式（task_flows 无 `chains`/`blocks`）回退为全部链串接一条主链。
 
 ## 7. 红线与坑
 
