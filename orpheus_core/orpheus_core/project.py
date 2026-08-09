@@ -37,6 +37,7 @@ class Node:
     task: str = "default"
     params: dict[str, Any] = field(default_factory=dict)
     position: dict[str, float] = field(default_factory=dict)
+    alters: list[str] = field(default_factory=list)  # 用户声明的替代组（同图节点 id）
 
 
 @dataclass
@@ -86,6 +87,7 @@ class Project:
     block_size: int = 128
     buffer_size: int = 0
     double_bank: str = "auto"  # BULK 双 bank：auto=按组件声明 / on=全部 / off=关闭（直写即时生效）
+    target: str = "auto"  # 期望目标平台：auto / win / dsp（解析与警告用，缺省自动）
     tasks: dict[str, Task] = field(default_factory=dict)
     graph: Graph = field(default_factory=Graph)
     subcomponents: list[Subcomponent] = field(default_factory=list)
@@ -114,6 +116,7 @@ def _parse_graph(graph_data: dict[str, Any]) -> Graph:
             task=n.get("task", "default"),
             params=n.get("params", {}),
             position=n.get("position", {}),
+            alters=list(n.get("alters", []) or []),
         )
         graph.nodes[node.id] = node
     for c in graph_data.get("connections", []):
@@ -137,6 +140,7 @@ def _graph_to_dict(graph: Graph) -> dict[str, Any]:
                 "task": n.task,
                 "params": n.params,
                 "position": n.position,
+                **({"alters": n.alters} if n.alters else {}),
             }
             for n in graph.nodes.values()
         ],
@@ -156,6 +160,7 @@ def project_to_dict(project: Project) -> dict[str, Any]:
         "block_size": project.block_size,
         "buffer_size": project.buffer_size,
         "double_bank": project.double_bank,
+        "target": project.target,
         "tasks": [
             {
                 "id": t.id,
@@ -202,6 +207,7 @@ class ProjectLoader:
         project.block_size = data.get("block_size", 128)
         project.buffer_size = data.get("buffer_size", 0)
         project.double_bank = data.get("double_bank", "auto")
+        project.target = data.get("target", "auto")
 
         for t in data.get("tasks", []):
             task = Task(
@@ -236,7 +242,7 @@ class ProjectLoader:
         # 保留未知顶层字段（presets / model_tree 等），往返不丢
         known = {
             "version", "metadata", "sample_rate", "block_size", "buffer_size",
-            "tasks", "graph", "subcomponents",
+            "double_bank", "target", "tasks", "graph", "subcomponents",
         }
         for key, value in data.items():
             if key not in known:

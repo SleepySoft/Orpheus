@@ -198,7 +198,13 @@ class GraphCompiler:
             return replace(task, sample_rate=next(iter(rates)))
         return task
 
-    def compile(self, project: Project) -> ExecutionPlan:
+    def compile(self, project: Project, target: str | None = None) -> ExecutionPlan:
+        # 目标平台与 alter 组解析：先把工程解析为选定平台下的等价副本
+        # （替换 alter 成员、剔除未激活成员、重映射边），再走现有编译管线。
+        from orpheus_core.resolve import resolve_project
+
+        resolved, _resolution = resolve_project(project, self.registry, target)
+        project = resolved
         graph = project.graph
         task = project.get_default_task()
         task = self._resolve_source_rate(project, task)

@@ -16,6 +16,11 @@
       "default": false,
       "description": "用户自定义组件（脚手架创建）：可从 UI 删除（需确认）或提升为公共库（提升后不可直接删除）"
     },
+    "platforms": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "平台限制标签（缺省=无指定平台，可移植、任何平台可用）；如 [win] / [dsp]"
+    },
     "sources": {
       "type": "array",
       "items": { "type": "string" }

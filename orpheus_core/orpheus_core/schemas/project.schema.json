@@ -24,6 +24,12 @@
       "default": "auto",
       "description": "BULK 双 bank：auto=按组件声明 / on=全部开启 / off=关闭（直写即时生效，部署内存紧张时用）"
     },
+    "target": {
+      "type": "string",
+      "enum": ["auto", "win", "dsp"],
+      "default": "auto",
+      "description": "期望目标平台：auto 自动判定 / win（Windows PC）/ dsp（通用 DSP）"
+    },
     "tasks": {
       "type": "array",
       "items": {
@@ -82,6 +88,11 @@
               "version": { "type": "string" },
               "task": { "type": "string" },
               "params": { "type": "object" },
+              "alters": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "用户声明的替代组：本节点与同图内这些节点二选一（按目标平台解析）"
+              },
               "position": {
                 "type": "object",
                 "properties": {

@@ -1,6 +1,7 @@
 id: orpheus.builtin.device_in
 name: 音频采集
 category: 设备
+platforms: [win]
 version: 1.0.0
 abi_version: 1
 package_type: source

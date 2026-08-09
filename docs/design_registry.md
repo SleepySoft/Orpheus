@@ -552,6 +552,8 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 
 ## 18. 二进制消息协议（2026-08-08 定案）
 
+---
+
 ### 18.1 语义
 
 - **方向**：runtime 向外。**Response = 同步返回**——所有 CALL 都有一个 RESPONSE（哪怕只是“已受理/状态”）；
@@ -583,6 +585,136 @@ hdr[1] = (msg_type   & 0x3)  << 30       /* 2b: CALL / RESPONSE / NOTIFICATION /
 - hook 签名：`OrpheusHookFn(ctx, id, event, req, resp)`，req/resp 为二进制 payload（OrpheusBlob），
   resp=NULL 表示 notification。
 - 异步：CALL 先同步 RESPONSE（受理），结果后经 `emit_notification(call_id, ...)` 推送。
+
+## 19. 平台属性与 alter 组件（2026-08-09 设计草案，取代早期 role 草案）
+
+> 状态：设计草案。方向：组件自声明平台限制与 alter（同接口替代）关系，
+> 引擎对整条链做平台可达性判定，运行/生成时统一解析。
+
+### 19.1 问题
+
+同一逻辑职能在不同目标平台上需要不同的具体组件：
+
+- FIR/IIR：PC 调试用通用 `fir`/`biquad_bank`；DSP（如 ADI GLXP）用带加速器的专用版本（pooliir）；
+- 输入/输出：PC 用 `device_in`/`device_out`（或 wav/sweep 源）；DSP 上是"框架占位 + 用户代码"。
+
+早期 role 草案（逻辑组件 + 解析表）的问题：角色抽象是"引擎外生"的，需要维护 role 清单与
+role→组件映射表，与组件的真实能力（平台 API、指令集、加速器）脱节。**平台限制本质属于组件**，
+应当由组件自声明；替代关系（alter）本质是组件之间的等价关系，而非新的抽象层。
+
+### 19.2 概念
+
+1. **平台属性（platforms）**：组件 manifest 可选 `platforms: [tag...]`。
+   - 缺省 = **不指定**：纯 C 源码、可移植的组件支持所有平台；
+   - 声明了 `platforms` 的组件只在这些平台可用（使用了特殊指令、特殊格式、特定平台 API）。
+2. **alter 关系（用户声明）**：用户在画布上把两个（或多个）节点声明为替代组
+   （节点级 `alters: [node_id...]`，非组件 manifest）。语义：组内节点占据同一逻辑槽位，
+   任意平台下最多一个成员被选中参与编译/运行。**引擎不自动发现 alter，只校验合规性**
+   （端口/通道语义一致、核心参数 id 一致），并用于平台可达性判定。
+3. **候选组件集** C(n)：节点 n 所在 alter 组的全部成员组件（无向，用户声明；无 alter 则仅自身）。
+4. **平台标签与层次**：组件 manifest 可选 `platforms: [tag...]`，
+   **缺省 = 无指定平台**（作者未声明限制 = 纯 C 可移植，任何平台都接受）。
+   不用 `ALL` 标签——"无指定"与"明确声明支持一切平台"是两种语义，混用一个词以后会出问题。
+   标签有层次，统一在数据驱动的一张表里声明（避免写死）：
+   - v1 词表只留粗粒度：`Win` = Windows PC、`DSP` = 通用 DSP；
+   - 层次机制是数据驱动的，以后要细分（如 `SHARC: [ADSP]`）只改表、不动代码；
+   - 组件标 `DSP` → 支持所有 DSP；标具体子平台（未来）→ 仅该子平台；
+   - 判定：组件支持平台 P ⇔ 未声明 platforms，或标签含 P，或标签含 P 的祖先
+     （如 `SHARC` 支持 `ADSP`）。
+5. **目标平台**：`target` 是具体平台（`pc` / `dsp-adi-glxp` / …）；族标签只用于组件声明，
+   不作为目标（避免"标 ADSP 的组件能否用于 SHARC 目标"这类歧义）。
+
+### 19.3 解析算法（链路平台判定）
+
+对工程所有节点 n：
+
+1. 候选集：C(n) = 节点 n 所在 alter 组的全部成员组件；
+2. 每节点可达平台：R(n) = ∪_{c∈C(n)} S(c)，其中 S(c) = c.platforms 或全部平台；
+3. **链路交集**：P_all = ∩_n R(n)（或对子图/任务分别计算）。
+
+然后按以下规则判定：
+
+- `P_all` 非空：该模型在所有 P_all 平台可用。选择平台 P：用户目标 ∈ P_all 优先；
+  否则 PC（调试运行）优先；否则按平台声明顺序取第一个。
+- 选定 P 后逐 alter 组选择组件：优先组内首个成员（若支持 P），否则取支持 P 的其他成员；
+  未选中的成员标记「当前平台不使用」，不参与编译。
+- `P_all` 为空：模型不可用——无任何平台能让整链完整，报错并列出冲突节点对
+  （节点 A 仅 PC、节点 B 仅 DSP 等）。
+- 用户指定目标 P 但 P ∉ P_all：**警告并列出第一个（或全部）不支持 P 的节点**，
+  即"你想跑的链条在哪断了"；同时给出 P_all 中可用的平台。
+
+算法本质：每个节点一个"平台可达集合"，整链做集合交集——每节点是并集、跨节点是交集，
+复杂度 O(节点数 × 候选数 × 平台数)，无回溯需要。
+
+### 19.4 alter 合规校验（用户声明后引擎检查）
+
+用户声明 alter 组后，编译/解析时校验：
+
+- 端口集合一致（in/out 数量与通道语义，可变端口参数一致）；
+- 核心参数 id 一致（如 FIR 的 `coefficients`）；平台特有参数（pooliir `work_mem`/`stages`）
+  由目标解析时按清单默认补齐，不出现在逻辑参数里（或只读展示）。
+- 校验失败：**直接拒绝并编译报错**（接口/参数不一致的组件做不了 alter，不自动修复）。
+
+### 19.5 输入/输出定位（修正 embed_in）
+
+- `device_in` 与 `embed_in` 互为 alter：端口一致（audio in/out、channels、sample_rate），
+  `device_in.platforms=[Win]`、`embed_in.platforms=[DSP]`。
+- 画布上放 `device_in` 时，链路若含 DSP 专用组件，引擎自动收窄到 dsp 并把输入解析为 `embed_in`
+  （生成 `platform_io.c` USER CODE）；反之 PC 调试时输入解析为 `device_in`。
+- 不再把 `embed_in` 当作"手动放置的空 source"：它是输入职能在 dsp 目标下的具体实现。
+
+### 19.6 文件格式（草案）
+
+```yaml
+# component.yaml（新字段，均可选）
+platforms: [SHARC]               # 缺省 = 无指定平台（不限定，可移植）；SHARC 隐含其子平台
+
+# platforms.yaml（平台表，数据驱动，一处声明）
+platforms:
+  Win: []
+  DSP: []              # v1 粗粒度；以后细分如 SHARC: [ADSP] 只改这张表
+
+# project.yaml
+target: dsp                      # 期望目标（可选，用于判定与警告；缺省自动）
+graph:
+  nodes:
+    - id: eq
+      component: orpheus.builtin.fir
+      params: { coefficients: "..." }
+      alters: [eq_dsp]           # 用户声明：eq 与 eq_dsp 是替代组（节点级，可选）
+    - id: eq_dsp
+      component: orpheus.builtin.pooliir_fir
+      params: { coefficients: "..." }
+```
+
+### 19.7 UI
+
+核心问题：**如何让用户声明"这两个是替代关系"而不是"两个都接到同一输入"**。
+音频连线表达"信号同时进入两个节点"（并联）；alter 表达"同一槽位，按平台二选一"。
+交互上两者必须可区分：
+
+- **建立方式**：多选 ≥2 节点 → 结构菜单「设为替代组件」；或节点上提供独立的 ⚯ 连接点，
+  从一个节点拖到另一个节点（⚯ 不是音频线）。两者都行，先做菜单方式（简单、无歧义）。
+- **呈现方式**：alter 组内成员共用同色边框/徽标（如 `⚯ 替代组`），组间用一条**中性虚线**
+  （非信号线，纯提示）连接；组内只有一个成员参与当前平台，其余置灰并标
+  「当前平台不使用」；解析后当前平台的选中成员高亮（如 `fir → glxp:pooliir`）。
+- **目标平台选择**：工程设置/工具栏（自动 / pc / dsp / …），切换目标即时重算
+  组内选中成员与整链可用性。
+- 断链/不可用：编译错误与警告列表（节点、期望平台、可用平台），画布上相关节点标红。
+
+### 19.8 实施步骤（建议顺序）
+
+1. 平台表 + schema：`platforms.yaml`（数据驱动层次）+ manifest 可选 `platforms` + 节点可选 `alters`；
+2. 解析模块 `resolve.py`：alter 组 → 每节点可达平台 → 链路交集 → 选平台/选成员 + 合规校验与错误/警告；
+3. Compiler/Generator：`compile(project, target)` 先解析再走现有流程；plan 记录 resolved component；
+4. UI：目标选择 + 「设为替代组件」+ 组徽标/虚线/置灰 + 错误列表；
+5. 为现有组件补平台属性：`device_in/out`（Win）、`embed_in/out`（dsp）、未来 pooliir 版本等；
+6. 测试：PC/DSP 双链一致性、alter 组非法接口报错、断链警告、不可用报错。
+
+### 19.9 待定
+
+- 平台表细分：`SHARC[ADSP]` 等子平台以后按需加表；
+- ⚯ 连接点是否值得做（v1 先只做菜单方式）。
 
 ### 2026-08-06（第五次讨论：经验与待办归档）
 

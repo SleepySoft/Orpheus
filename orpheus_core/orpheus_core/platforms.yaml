@@ -1,0 +1,6 @@
+# 平台表（数据驱动，一处声明）：父平台 -> 子平台列表。
+# v1 只留粗粒度：win（Windows PC）、dsp（通用 DSP）。
+# 以后要细分只改这张表（如 sharc: [adsp, ...]），解析代码不变。
+platforms:
+  win: []
+  dsp: []

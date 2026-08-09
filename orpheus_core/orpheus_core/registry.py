@@ -22,6 +22,7 @@ class ComponentInfo:
     manifest_path: Path
     root_dir: Path
     manifest: dict[str, Any] = field(repr=False)
+    platforms: list[str] = field(default_factory=list)
 
 
 class Registry:
@@ -71,6 +72,7 @@ class Registry:
             manifest_path=manifest_path,
             root_dir=manifest_path.parent,
             manifest=manifest,
+            platforms=list(manifest.get("platforms", []) or []),
         )
 
     def get(self, component_id: str) -> ComponentInfo | None:
