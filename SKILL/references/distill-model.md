@@ -68,6 +68,9 @@
 | 变化率限幅 | `orpheus.builtin.noise_slew` | `rise_rate`/`fall_rate`（/s） |
 | 电平检测 | `orpheus.builtin.level_detect` | `mode`（峰值/RMS）、`attack_ms`、`release_ms` + `level` 探针 |
 | 平方（功率/PSD） | `orpheus.builtin.square` | 无参数（逐样本 y=x²） |
+| 功率谱密度（FFT bin 功率 + 指数平滑） | `orpheus.builtin.psd` | `channels`、`smoothing` + `spectrum` 探针（音频直通） |
+| 多参考相干矩阵（交叉功率谱 EMA -> 相干平均谱） | `orpheus.builtin.coherence_matrix` | `channels`、`smoothing` + `coherence`/`history` 探针（音频直通） |
+| 查表插值（速度/标定表，一维线性） | `orpheus.builtin.interp_lut` | `x_axis`/`y_axis`（BULK）、`x` + `y`/`history` 探针（音频直通） |
 | 正弦调制（AM/颤音） | `orpheus.builtin.sine_mod` | `freq_hz`、`depth`（y=x·(1+depth·sin(2πft))） |
 | 延迟 | `orpheus.builtin.delay` | `delay_ms`、`mix` |
 | 多通道拆分/合并（并联各通道） | `orpheus.builtin.deinterleave` / `orpheus.builtin.interleave` | `channels` |

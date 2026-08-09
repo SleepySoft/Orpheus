@@ -78,6 +78,15 @@ def test_parse_flow_splits_blocks_and_respects_parens() -> None:
     assert map_block("RFFT") == "orpheus.builtin.rfft"
     assert map_block("pooliir") == "orpheus.builtin.iir_bank"
     assert map_block("Coeffs1stStage") == "orpheus.builtin.placeholder"
+    # 新增分析组件映射：相干矩阵 / 查表插值 / 功率谱
+    assert map_block("FormCoherenceMatrixGXY") == "orpheus.builtin.coherence_matrix"
+    assert map_block("SpeedBounds") == "orpheus.builtin.interp_lut"
+    assert map_block("PSD") == "orpheus.builtin.psd"
+    # 主链路由/选择 + FDP 频域系数施加：原占位 -> 已映射组件
+    assert map_block("ApplyCoefficients") == "orpheus.builtin.matrix_mul"
+    assert map_block("SelectSurroundDiscrete") == "orpheus.builtin.input_select"
+    assert map_block("AudioOut") == "orpheus.builtin.output_router"
+    assert map_block("PreqOut1") == "orpheus.builtin.output_router"
 
 
 def test_distill_baf_sas_topology_expansion() -> None:
@@ -89,9 +98,9 @@ def test_distill_baf_sas_topology_expansion() -> None:
         resp = client.post(f"/api/projects/{name}/distill", json={"yaml": text})
         assert resp.status_code == 200, resp.text
         doc = resp.json()["document"]
-        # 主音频链（TID0：8 链）+ 4 个降速率分析抽头（downrate + tap 子模块 + 分析汇）
-        assert len(doc["graph"]["nodes"]) == 22
-        assert len(doc["subcomponents"]) == 12
+        # 主音频链（TID0：8 链）+ 5 个降速率分析抽头（downrate + tap 子模块 + 分析汇）
+        assert len(doc["graph"]["nodes"]) == 25
+        assert len(doc["subcomponents"]) == 13
         assert any(n["component"].startswith("sub:") for n in doc["graph"]["nodes"])
         downrates = {
             n["id"]: n["params"].get("factor")
@@ -99,6 +108,7 @@ def test_distill_baf_sas_topology_expansion() -> None:
             if n["component"] == "orpheus.builtin.downrate"
         }
         assert downrates == {
+            "downrate_1": 2,
             "downrate_2": 4,
             "downrate_3": 64,
             "downrate_4": 256,
@@ -107,13 +117,17 @@ def test_distill_baf_sas_topology_expansion() -> None:
         # part2_fdp（TID2，÷4）不在主音频链里，而是 tap_2 抽头
         main_chain = [n["id"] for n in doc["graph"]["nodes"]]
         assert "part2_fdp" not in main_chain
-        assert "tap_2" in main_chain and "tap_5" in main_chain
+        assert "tap_1" in main_chain and "tap_2" in main_chain and "tap_5" in main_chain
         comps = [n["component"] for s in doc["subcomponents"] for n in s["graph"]["nodes"]]
         assert "orpheus.builtin.placeholder" in comps
         assert any(c.startswith("orpheus.builtin.") and c != "orpheus.builtin.placeholder" for c in comps)
+        # 分析组件已接入（原为占位）：相干矩阵 / 查表插值 / 功率谱
+        assert "orpheus.builtin.coherence_matrix" in comps
+        assert "orpheus.builtin.interp_lut" in comps
+        assert "orpheus.builtin.psd" in comps
         # model_tree 注释随展开保留，且经重载往返不丢
         got = client.get(f"/api/projects/{name}").json()
-        assert len(got["subcomponents"]) == 12
+        assert len(got["subcomponents"]) == 13
         assert got["model_tree"]["name"].startswith("Bose")
 
 

@@ -727,8 +727,19 @@ Orpheus 本身支持多速率（`scheduling.divisor` / `downrate`），但蒸馏
 
 **结构性校正**：6 个 TID 并非 6 条并行音频通路。按 §2，TID0（1500Hz）是唯一承载音频 input->output 的主路径；TID1-5 是 Audiopilot 分析侧链，逐级降采样做噪声/相干估计，产物是控制参数回灌 TID0，非另一路音频输出。理想形态应为"1 条主音频链 + 若干降速率分析抽头（divisor/downrate）+ 任务桥回灌控制"，而非 6 条并列完整链。
 
-### 14.5 演进重点
+### 14.5 演进重点与落地状态
 
-1. **build_topology 多速率建模**：按 TID 分速率域，用 `scheduling.divisor`/`downrate` 把分析侧链建成主链上的降速率抽头而非串联；保留 TID 前缀作为速率域标注。
-2. **补不可组合组件**：新建 `coherence_matrix`（复数相干矩阵）、`interp_lut`（查表插值）；FDP 自定义块视需要做一体化 `fdp` 组件或文档化组合方案。
-3. **反馈环 / 任务桥**：评估是否引入受控的"任务桥"原语，表达分析->控制->主链的回灌（当前图内禁反馈）。
+1. ✅ **build_topology 多速率建模（已落地）**：`task_flows` 结构化规范 + `build_topology` 按 TID 生成降速率分析抽头（`downrate(factor=call_interval)` -> 抽头子模块 -> 分析汇）。BAF SAS 蒸馏现已展开为 TID0 主链 + 5 抽头（÷2/4/64/256/768），主链不再串接分析侧链。
+2. ✅ **补不可组合组件（已落地）**：`coherence_matrix`（多参考相干/Schur补）、`psd`（功率谱）、`interp_lut`（查表插值）已实现并接入 `_RULES` 映射；TID3/4/5 分析侧链用真实组件展开（window->rfft->coherence_matrix->psd / interp_lut->noise_slew / mixer->coherence_matrix->square->saturation）。
+3. ⬜ **反馈环 / 任务桥（未落地）**：分析抽头止于分析汇（embed_out），分析->控制->主链的回灌仍无法在图内连线（图内禁反馈）。需引入受控"任务桥"原语才能闭环。
+4. ⬜ **FDP 自定义块（仍占位）**：ApplyCoefficients 已映射 `matrix_mul`（频域 bin × 系数矩阵）；主链路由/选择块已映射 input_select/output_router。仅余 Coeffs1stStage/Coeffs2ndStage/DetectImpulse/ReverbExtraction 仍为占位（4 处），需一体化 `fdp` 组件或文档化组合方案。
+
+### 14.6 蒸馏现状（2026-08-09 更新）
+
+`examples/baf_sas_full.yaml` 蒸馏模型现已覆盖：
+
+- **分频**：6 个 TID 速率域全部建模（task_flows），导入展开为主链 + 5 降速率抽头；
+- **分析**：TID1/3/4/5 分析侧链用真实组件（delay/coherence_matrix/psd/interp_lut/noise_slew/mixer/square/saturation）展开，FDP（TID2）频域链路用 rfft/ifft/window/psd/biquad/matrix_mul；占位块由 9 处降至 4 处
+- **未连线**：分析回灌控制（受图内禁反馈限制）；FDP 仍有 4 处自定义块占位（Coeffs1stStage/Coeffs2ndStage/DetectImpulse/ReverbExtraction）。
+
+`build_topology` 展开验证：25 主图节点 / 13 子模块 / 5 downrate 抽头；`test_distill_baf_sas_topology_expansion` 通过；全量 pytest 111 项（蒸馏/子图/平台等纯 Python 用例通过）。

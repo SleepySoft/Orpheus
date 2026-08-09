@@ -51,7 +51,7 @@ model_tree:
       rate_hz: 750
       call_interval: 2
       label: Audiopilot ref/mic 延迟缓冲
-      blocks: [BufferRef, delayBuffer, BufferMic, Buffer]
+      chains: [tid1_ref_mic_delay]
     - tid: 2
       rate_hz: 375
       call_interval: 4
@@ -61,17 +61,17 @@ model_tree:
       rate_hz: 23.4
       call_interval: 64
       label: Audiopilot FFT 噪声估计
-      blocks: [Windowing, RFFT, FormCoherenceMatrixGXY]
+      chains: [tid3_hf_noise_est]
     - tid: 4
       rate_hz: 5.86
       call_interval: 256
       label: Audiopilot LF 噪声速度界限
-      blocks: [SpeedBounds, NoiseSlew, RateTransition]
+      chains: [tid4_lf_speed_bounds]
     - tid: 5
       rate_hz: 1.95
       call_interval: 768
       label: Audiopilot 相干求和
-      blocks: [SumOfElements, 相干求和, magnitude^2, Saturation]
+      chains: [tid5_coherence_sum]
   chains:
     - id: input_select
       label: InputSelect（输入路由）
@@ -153,6 +153,22 @@ model_tree:
       pooliir: [HF_AntiAliasing(528) HF_BandpassOrLowpass(528) LF_FilterMic(96) LF_FilterRef(96)]
       fft: {size: 256, channels: 10}
       params: "LatencySamples(3 int) AntiZipperLpf(3) BassBpf(6) BassControl(9) DyneqBass(2) HfNoise(18+pooliirCoeffs) LfNoise(16+pooliirCoeffs) SpeedBounds(3) HvacTable(array) EnableRampCoef(1)"
+    - id: tid1_ref_mic_delay
+      label: TID1 ref/mic 对齐延迟（÷2）
+      flow: "Delay(ref/mic 对齐缓冲, 降速率 ÷2 域)"
+      note: "纯缓冲基础设施；分析回灌无法在图内连线，抽头止于分析汇"
+    - id: tid3_hf_noise_est
+      label: TID3 HF 噪声估计（÷64, 多参考相干）
+      flow: "Windowing(sine+cosine 窗, 10ch) -> RFFT(256点, 10ch->65bin) -> FormCoherenceMatrixGXY(多重相干, Schur补, K=16, threshold=0.88) -> PSD(噪声谱Gnn, 下限保护, 供自适应)"
+      note: "实证见 baf_sas_analysis §11.6；音乐/噪声功率分离，无需显式 H；分析回灌无法连线"
+    - id: tid4_lf_speed_bounds
+      label: TID4 LF 噪声速度界限（÷256）
+      flow: "SpeedBounds(速度轴128点查表, min/max dB SPL) -> NoiseSlew(噪声斜坡)"
+      note: "按车速查表插值，实证见 §11.7；分析回灌无法连线"
+    - id: tid5_coherence_sum
+      label: TID5 相干求和（÷768, 30ch）
+      flow: "SumOfElements(30ch 求和) -> 相干求和(Gxx/Gyy/Gyx) -> magnitude^2(功率谱) -> Saturation(饱和限幅)"
+      note: "全频带相干累积输出 NoiseLevel；分析回灌无法连线"
   pooliir_instances:
     - {name: SAS_PeripheralEq_FullRateEq, work_mem: 1104, channels: 22, stages: 13, default_coeffs: p5(484单位矩阵)}
     - {name: PostProcess_PostEQ, work_mem: 1104, default_coeffs: PostProcess_p0(OutputEQpooliirCoeffs)}

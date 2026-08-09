@@ -17,7 +17,7 @@ PLACEHOLDER_COMPONENT = "orpheus.builtin.placeholder"
 _RULES: list[tuple[re.Pattern[str], str | None, str]] = [
     # 具体块名优先于通用关键词（LevelDetect 含 pooliir、相干含窗/Saturation 等）
     (re.compile(r"leveldetect", re.I), "orpheus.builtin.level_detect", "builtin"),
-    (re.compile(r"coherence|相干", re.I), None, "missing"),
+    (re.compile(r"coherence|相干", re.I), "orpheus.builtin.coherence_matrix", "builtin"),
     (re.compile(r"sleepingbeauty", re.I), "orpheus.builtin.sleeping_beauty", "builtin"),
     (re.compile(r"pooliir", re.I), "orpheus.builtin.iir_bank", "builtin"),
     (re.compile(r"biquad", re.I), "orpheus.builtin.biquad", "builtin"),
@@ -29,17 +29,24 @@ _RULES: list[tuple[re.Pattern[str], str | None, str]] = [
     (re.compile(r"softclipper|clipper", re.I), "orpheus.builtin.soft_clipper", "builtin"),
     (re.compile(r"saturation", re.I), "orpheus.builtin.saturation", "builtin"),
     (re.compile(r"matrixmultiply|矩阵乘", re.I), "orpheus.builtin.matrix_mul", "builtin"),
+    # FDP 频域系数施加（频域 bin × 系数矩阵 -> 多路频域输出）-> 矩阵乘
+    (re.compile(r"applycoeff", re.I), "orpheus.builtin.matrix_mul", "substitute"),
     (re.compile(r"magnitude|平方|mag2|power", re.I), "orpheus.builtin.square", "builtin"),
     (re.compile(r"noiseslew", re.I), "orpheus.builtin.noise_slew", "builtin"),
-    (re.compile(r"speedbounds", re.I), None, "missing"),
-    (re.compile(r"sleepingbeauty", re.I), None, "missing"),
+    (re.compile(r"speedbounds", re.I), "orpheus.builtin.interp_lut", "substitute"),
     (re.compile(r"reverb", re.I), None, "missing"),
     (re.compile(r"switch", re.I), "orpheus.builtin.switch", "builtin"),
     (re.compile(r"spatialfader", re.I), "orpheus.builtin.fade", "substitute"),
     (re.compile(r"(?:output|input)_select|inputselect|router", re.I), "orpheus.builtin.output_router", "builtin"),
     (re.compile(r"selector", re.I), "orpheus.builtin.input_select", "substitute"),
+    # 环绕离散选择器（多路并行 select）-> 变量选择器；须在 atmos 之前匹配
+    (re.compile(r"selectsurround|selectleft|selectright|selectdiscrete", re.I), "orpheus.builtin.input_select", "substitute"),
+    # 4 路并行输出分组（LeftAtmos/LeftFdp/...）-> 输出路由
+    (re.compile(r"atmos", re.I), "orpheus.builtin.output_router", "substitute"),
     (re.compile(r"路由", re.I), "orpheus.builtin.output_router", "substitute"),
     (re.compile(r"send\d*out", re.I), "orpheus.builtin.output_router", "substitute"),
+    # 输出路由端点（PreqOut/AudioOut）-> 输出路由
+    (re.compile(r"preqout|audioout", re.I), "orpheus.builtin.output_router", "substitute"),
     (re.compile(r"inputmixer3d|downmix", re.I), "orpheus.builtin.input_mixer_3d", "builtin"),
     (re.compile(r"sumofelements|sum|求和", re.I), "orpheus.builtin.mixer", "substitute"),
     (re.compile(r"lpf|lowpass|low.?pass", re.I), "orpheus.builtin.biquad", "builtin"),
@@ -53,7 +60,7 @@ _RULES: list[tuple[re.Pattern[str], str | None, str]] = [
     (re.compile(r"midrange", re.I), "orpheus.builtin.midrange", "builtin"),
     (re.compile(r"treble", re.I), "orpheus.builtin.treble", "builtin"),
     (re.compile(r"mixer", re.I), "orpheus.builtin.mixer", "builtin"),
-    (re.compile(r"psd|smooth", re.I), None, "missing"),
+    (re.compile(r"psd", re.I), "orpheus.builtin.psd", "builtin"),
     (re.compile(r"bufferin|bufferout|块缓冲", re.I), None, "na"),
     (re.compile(r"正弦调制", re.I), "orpheus.builtin.sine_mod", "builtin"),
 ]
