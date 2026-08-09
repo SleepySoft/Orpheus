@@ -63,6 +63,15 @@ function Editor() {
   const [showParams, setShowParams] = useState(false);
   const [leftTab, setLeftTab] = useState('palette'); // 'palette' | 'tree'
   const [leftOpen, setLeftOpen] = useState(true);   // 组件库
+  const [leftWidth, setLeftWidth] = useState(() => {
+    try {
+      const v = parseInt(localStorage.getItem('orpheus.leftWidth') || '', 10);
+      if (Number.isFinite(v)) return Math.min(480, Math.max(160, v));
+    } catch (e) {
+      /* ignore */
+    }
+    return 200;
+  });
   const [rightOpen, setRightOpen] = useState(true); // 参数面板/子组件面板
   const [openMenu, setOpenMenu] = useState(null); // 'project' | 'run' | null：分组展开菜单
   const distillFileRef = useRef(null);
@@ -543,6 +552,37 @@ const { screenToFlowPosition } = useReactFlow();
 
   /** 工程树导航：打开指定视图（主图或子组件画布）。 */
   const onOpenView = useCallback((viewKey) => setActiveView(viewKey), []);
+
+  /** 左侧栏拖拽调宽：mousedown 后跟随鼠标移动，clamp 160..480，宽度持久化。 */
+  useEffect(() => {
+    try {
+      localStorage.setItem('orpheus.leftWidth', String(leftWidth));
+    } catch (e) {
+      /* ignore */
+    }
+  }, [leftWidth]);
+
+  const onLeftResizeStart = useCallback(
+    (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = leftWidth;
+      const onMove = (ev) => {
+        setLeftWidth(Math.min(480, Math.max(160, startW + (ev.clientX - startX))));
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [leftWidth]
+  );
 
   /** 参数面板：把数值数组写入实时会话的 BULK 槽（如 biquad_bank 系数）。 */
   const onWriteBulk = useCallback(
@@ -1298,7 +1338,8 @@ const { screenToFlowPosition } = useReactFlow();
           {leftOpen ? '«' : '»'}
         </button>
         {leftOpen && (
-          <div className="side-panel side-panel-left">
+          <>
+          <div className="side-panel side-panel-left" style={{ width: leftWidth }}>
             <div className="side-panel-header">
               <span>工程导航</span>
               <button className="side-collapse" onClick={() => setLeftOpen(false)} title="收起组件库">
@@ -1341,6 +1382,8 @@ const { screenToFlowPosition } = useReactFlow();
               />
             )}
           </div>
+          <div className="side-resizer" onMouseDown={onLeftResizeStart} title="拖拽调整宽度" />
+          </>
         )}
         <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
           <ReactFlow

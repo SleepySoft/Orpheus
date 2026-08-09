@@ -250,6 +250,20 @@
   border-right: 1px solid #dee2e6;
 }
 
+/* 左侧栏拖拽调宽手柄 */
+.side-resizer {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.side-resizer:hover,
+.side-resizer:active {
+  background: #4cc9f0;
+}
+
 .side-panel .palette {
   width: auto;
   border-right: none;
