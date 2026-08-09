@@ -13,6 +13,12 @@
   矩阵缩放、限幅稳态增益、软削波有界、变化率步长、电平探针——离线运行全部通过。
 - 变长 BULK（matrix/window 系数）暂不注册运行期 BULK 槽（register_slots 先于 prepare，
   数量未知），与 fir 组件一致，仅 `kind: bulk` 走参数导入导出。
+- 第二批：`square`（平方器 y=x²，功率/PSD 用）、`sine_mod`（正弦调制器，AM/颤音）。
+- 蒸馏映射修正：按「块名+原始片段」匹配（Sum/SASOutputRouter/PostEQ 等此前映射不到），
+  规则顺序调整（LevelDetect 优先于 pooliir、相干优先于窗/饱和、路由优先于 selector），
+  并过滤数据表/描述性噪声块（*Map/路径/缓冲/置零/=powf 等）——baf_sas_full 重新展开
+  占位 33 → 17，真实映射 38（第二批前为 31），剩余占位均为待调查项
+  （FFT/STFT 族、FDP 专用、相干、SpeedBounds、SleepingBeauty、ReverbExtraction 等）。
 
 ## 2026-08-08（第三十二次讨论：工具栏布局修复）
 

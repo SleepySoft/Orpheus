@@ -15,6 +15,9 @@ PLACEHOLDER_COMPONENT = "orpheus.builtin.placeholder"
 
 # 块名 → (组件 id | None, 状态)，顺序即优先级；与前端 ProjectTree 的徽章规则一致
 _RULES: list[tuple[re.Pattern[str], str | None, str]] = [
+    # 具体块名优先于通用关键词（LevelDetect 含 pooliir、相干含窗/Saturation 等）
+    (re.compile(r"leveldetect", re.I), "orpheus.builtin.level_detect", "builtin"),
+    (re.compile(r"coherence|相干", re.I), None, "missing"),
     (re.compile(r"pooliir", re.I), "orpheus.builtin.biquad_bank", "substitute"),
     (re.compile(r"biquad", re.I), "orpheus.builtin.biquad", "builtin"),
     (re.compile(r"fir", re.I), "orpheus.builtin.fir", "builtin"),
@@ -24,19 +27,19 @@ _RULES: list[tuple[re.Pattern[str], str | None, str]] = [
     (re.compile(r"softclipper|clipper", re.I), "orpheus.builtin.soft_clipper", "builtin"),
     (re.compile(r"saturation", re.I), "orpheus.builtin.saturation", "builtin"),
     (re.compile(r"matrixmultiply|矩阵乘", re.I), "orpheus.builtin.matrix_mul", "builtin"),
-    (re.compile(r"coherence|相干", re.I), None, "missing"),
+    (re.compile(r"magnitude|平方|mag2|power", re.I), "orpheus.builtin.square", "builtin"),
     (re.compile(r"noiseslew", re.I), "orpheus.builtin.noise_slew", "builtin"),
     (re.compile(r"speedbounds", re.I), None, "missing"),
-    (re.compile(r"leveldetect", re.I), "orpheus.builtin.level_detect", "builtin"),
     (re.compile(r"sleepingbeauty", re.I), None, "missing"),
     (re.compile(r"reverb", re.I), None, "missing"),
     (re.compile(r"switch", re.I), "orpheus.builtin.switch", "builtin"),
     (re.compile(r"spatialfader", re.I), "orpheus.builtin.fade", "substitute"),
+    (re.compile(r"(?:output|input)_select|inputselect|router", re.I), "orpheus.builtin.output_router", "builtin"),
     (re.compile(r"selector", re.I), "orpheus.builtin.input_select", "substitute"),
-    (re.compile(r"(?:output|input)_select|inputselect|\broster\b", re.I), "orpheus.builtin.output_router", "builtin"),
     (re.compile(r"路由", re.I), "orpheus.builtin.output_router", "substitute"),
+    (re.compile(r"send\d*out", re.I), "orpheus.builtin.output_router", "substitute"),
     (re.compile(r"downmix", re.I), "orpheus.builtin.mixer", "substitute"),
-    (re.compile(r"sumofelements|sum\(|求和", re.I), "orpheus.builtin.mixer", "substitute"),
+    (re.compile(r"sumofelements|sum|求和", re.I), "orpheus.builtin.mixer", "substitute"),
     (re.compile(r"lpf|lowpass|low.?pass", re.I), "orpheus.builtin.biquad", "builtin"),
     (re.compile(r"volume", re.I), "orpheus.builtin.gain", "substitute"),
     (re.compile(r"balance", re.I), "orpheus.builtin.balance", "builtin"),
@@ -50,14 +53,19 @@ _RULES: list[tuple[re.Pattern[str], str | None, str]] = [
     (re.compile(r"mixer", re.I), "orpheus.builtin.mixer", "builtin"),
     (re.compile(r"psd|smooth", re.I), None, "missing"),
     (re.compile(r"bufferin|bufferout|块缓冲", re.I), None, "na"),
-    (re.compile(r"正弦调制", re.I), None, "missing"),
+    (re.compile(r"正弦调制", re.I), "orpheus.builtin.sine_mod", "builtin"),
 ]
 
 
-def map_block(name: str) -> str:
-    """块名 → 组件 id；未映射返回占位组件 id。"""
+def map_block(name: str, raw: str = "") -> str:
+    """块名（附原始片段）→ 组件 id；未映射返回占位组件 id。
+
+    用 name + raw 匹配，避免 "Sum"（流程文本 "Sum(...)"）这类只有原始片段
+    才带关键字的块映射不到真实组件。
+    """
+    text = f"{name} {raw}"
     for rx, comp, _status in _RULES:
-        if rx.search(name):
+        if rx.search(text):
             return comp or PLACEHOLDER_COMPONENT
     return PLACEHOLDER_COMPONENT
 
@@ -151,6 +159,16 @@ def _sanitize_id(text: str, fallback: str) -> str:
     return out or fallback
 
 
+_NOISE_RE = re.compile(
+    r"map$|路径|缓冲|未用|置零|rampcoeff|powf|=|bufferin|bufferout", re.I
+)
+
+
+def _is_noise(block: dict[str, str]) -> bool:
+    """数据表 / 描述性片段不是可实现的块：路由映射表、延迟缓冲、置零说明等。"""
+    return bool(_NOISE_RE.search(block["name"]))
+
+
 def build_topology(
     model_tree: dict[str, Any],
     *,
@@ -174,6 +192,7 @@ def build_topology(
     for i, ch in enumerate(chains):
         sub_id = _sanitize_id(ch.get("id") or "", f"chain_{i}")
         blocks = parse_flow(ch.get("flow"))
+        blocks = [b for b in blocks if not _is_noise(b)]
         if not blocks:
             blocks = [{"name": ch.get("label") or ch.get("id") or sub_id, "params": "", "raw": ""}]
         inner_nodes: list[dict[str, Any]] = []
@@ -181,7 +200,7 @@ def build_topology(
             inner_nodes.append(
                 {
                     "id": f"b{j}",
-                    "component": map_block(b["name"]),
+                    "component": map_block(b["name"], b["raw"]),
                     "label": b["name"],
                     "params": {"note": b["params"]},
                     "position": {"x": j * 220, "y": 60},

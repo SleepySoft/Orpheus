@@ -205,3 +205,31 @@ def test_level_detect_probe_and_passthrough(client) -> None:
     assert abs(vals[0] - 0.25) < 3e-3  # 直通
     levels = [p for p in probes if p["node"] == "level_detect" and p["param"] == "level"]
     assert levels and max(p["value"] for p in levels) > 0.2
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_square_and_sine_mod(client) -> None:
+    """平方器：y=x²；正弦调制器：depth=0 直通，depth=1 幅度在 [0, 2·x] 内摆动。"""
+    nodes = _io_nodes("square", {}, ch=1)
+    vals, _ = _run(client, nodes, _chain([n["id"] for n in nodes]), [0.5, -0.5, 0.25, 0.0] * 64)
+    assert abs(vals[0] - 0.25) < 3e-3
+    assert abs(vals[1] - 0.25) < 3e-3
+    assert abs(vals[2] - 0.0625) < 3e-3
+    assert abs(vals[3]) < 3e-3
+
+    # depth=0 → 直通
+    nodes = _io_nodes("sine_mod", {"freq_hz": 1.0, "depth": 0.0}, ch=1)
+    vals, _ = _run(client, nodes, _chain([n["id"] for n in nodes]), [0.5] * 48000)
+    assert max(abs(v - 0.5) for v in vals[: int(len(vals) * 0.9)]) < 3e-3
+
+    # depth=1 → y = x·(1+sin(2π·1·t))，一个周期内从 0 摆到 1
+    nodes = _io_nodes("sine_mod", {"freq_hz": 1.0, "depth": 1.0}, ch=1)
+    vals, _ = _run(client, nodes, _chain([n["id"] for n in nodes]), [0.5] * 48000)
+    body = vals[: int(len(vals) * 0.9)]
+    assert abs(body[0] - 0.5) < 3e-3  # t=0 → sin=0
+    assert max(body) > 0.9
+    assert min(body) < 0.1

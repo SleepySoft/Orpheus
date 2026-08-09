@@ -4,6 +4,9 @@ import { isSubRef, subIdOf, subViewKey } from './graphUtils';
 /* 蒸馏分析里的块 → Orpheus 组件映射规则（顺序即优先级，先匹配先生效）。
  * status: builtin=已有组件 / substitute=可用现有组件替代 / missing=无内置需自定义 / na=结构件无需组件 */
 const BLOCK_RULES = [
+  // 具体块名优先于通用关键词（LevelDetect 含 pooliir、相干含窗/Saturation 等）
+  { re: /leveldetect/i, name: 'LevelDetect', status: 'builtin', detail: 'level_detect（峰值/RMS 探针）' },
+  { re: /coherence|相干/i, name: '相干计算', status: 'missing', detail: '无内置，需自定义' },
   { re: /pooliir/i, name: 'pooliir IIR 加速器', status: 'substitute', detail: '→ biquad_bank（N 段双二阶）' },
   { re: /biquad/i, name: 'Biquad', status: 'builtin', detail: 'biquad / biquad_bank' },
   { re: /fir/i, name: 'FIR', status: 'builtin', detail: 'fir（kind: bulk 系数）' },
@@ -13,18 +16,17 @@ const BLOCK_RULES = [
   { re: /softclipper|clipper/i, name: 'SoftClipper', status: 'builtin', detail: 'soft_clipper（tanh + drive）' },
   { re: /saturation/i, name: 'Saturation', status: 'builtin', detail: 'saturation（上限/软硬）' },
   { re: /matrixmultiply|矩阵乘/i, name: 'MatrixMultiply', status: 'builtin', detail: 'matrix_mul（BULK 矩阵）' },
-  { re: /coherence|相干/i, name: '相干计算', status: 'missing', detail: '无内置，需自定义' },
+  { re: /magnitude|平方|mag2|power/i, name: '平方', status: 'builtin', detail: 'square（y=x²）' },
   { re: /noiseslew/i, name: 'NoiseSlew', status: 'builtin', detail: 'noise_slew（rise/fall 速率）' },
   { re: /speedbounds/i, name: 'SpeedBounds', status: 'missing', detail: '无内置，需自定义' },
-  { re: /leveldetect/i, name: 'LevelDetect', status: 'builtin', detail: 'level_detect（峰值/RMS 探针）' },
   { re: /sleepingbeauty/i, name: 'SleepingBeauty', status: 'missing', detail: '无内置，近似 fade 的自定义 ramper' },
   { re: /reverb/i, name: 'ReverbExtraction', status: 'missing', detail: '无内置，需自定义' },
   { re: /switch/i, name: 'Switch', status: 'builtin', detail: 'switch（enable 直通/静音）' },
   { re: /spatialfader/i, name: 'SpatialFader', status: 'substitute', detail: '→ fade' },
+  { re: /(?:output|input)_select|inputselect|router/i, name: '路由/选择', status: 'builtin', detail: 'input_select / output_router' },
   { re: /selector/i, name: 'Selector', status: 'substitute', detail: '→ input_select / output_router' },
-  { re: /(?:output|input)_select|inputselect|\broster\b/i, name: '路由/选择', status: 'builtin', detail: 'input_select / output_router' },
   { re: /downmix/i, name: 'Downmix', status: 'substitute', detail: '→ mixer' },
-  { re: /sumofelements|sum\(|求和/i, name: 'Sum', status: 'substitute', detail: '→ mixer' },
+  { re: /sumofelements|sum|求和/i, name: 'Sum', status: 'substitute', detail: '→ mixer' },
   { re: /lpf|lowpass|low.?pass/i, name: 'LPF', status: 'builtin', detail: 'biquad type=lowpass' },
   { re: /volume/i, name: 'Volume', status: 'substitute', detail: '→ gain' },
   { re: /balance/i, name: 'Balance', status: 'builtin', detail: 'balance' },
@@ -38,7 +40,7 @@ const BLOCK_RULES = [
   { re: /mixer/i, name: 'Mixer', status: 'builtin', detail: 'mixer' },
   { re: /psd|smooth/i, name: 'PSD/平滑', status: 'missing', detail: '无内置，需自定义（单极点平滑可用 biquad 近似）' },
   { re: /bufferin|bufferout|块缓冲/i, name: '块缓冲', status: 'na', detail: '结构件，Orpheus 按 block 调度无需' },
-  { re: /正弦调制/i, name: '正弦调制', status: 'missing', detail: '无内置（signal_gen 仅测试信号源）' },
+  { re: /正弦调制/i, name: '正弦调制', status: 'builtin', detail: 'sine_mod（AM 调制器）' },
 ];
 
 const STATUS_META = {

@@ -55,6 +55,8 @@
 | 窗函数 | `orpheus.builtin.window` | `window_size` + `coefficients`（BULK，每块从头应用） |
 | 变化率限幅 | `orpheus.builtin.noise_slew` | `rise_rate`/`fall_rate`（/s） |
 | 电平检测 | `orpheus.builtin.level_detect` | `mode`（峰值/RMS）、`attack_ms`、`release_ms` + `level` 探针 |
+| 平方（功率/PSD） | `orpheus.builtin.square` | 无参数（逐样本 y=x²） |
+| 正弦调制（AM/颤音） | `orpheus.builtin.sine_mod` | `freq_hz`、`depth`（y=x·(1+depth·sin(2πft))） |
 | 延迟 | `orpheus.builtin.delay` | `delay_ms`、`mix` |
 | 多通道拆分/合并（并联各通道） | `orpheus.builtin.deinterleave` / `orpheus.builtin.interleave` | `channels` |
 | 并联求和 | `orpheus.builtin.mixer` | `gain0/gain1`（dB） |
