@@ -1,0 +1,71 @@
+id: orpheus.builtin.interp_lut
+name: 查表插值
+category: 监控工具
+description: 一维线性插值查表（x_axis/y_axis 为 BULK 表，x 输入 → y 输出 readback + 历史曲线），音频直通
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: InterpLutState
+sources:
+  - src/interp_lut.c
+headers:
+  - include/orpheus_interp_lut.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: x_axis
+    name: X 轴
+    type: string
+    default: "0, 1"
+    widget: text
+    kind: bulk
+    update_policy: restart_required
+  - id: y_axis
+    name: Y 轴
+    type: string
+    default: "0, 1"
+    widget: text
+    kind: bulk
+    update_policy: restart_required
+  - id: x
+    name: 输入值
+    type: float
+    default: 0.0
+    update_policy: immediate
+  - id: y
+    name: 输出值
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
+  - id: history
+    name: 输出历史
+    type: string
+    default: "[]"
+    readback: true
+    update_policy: immediate
+  - id: channels
+    name: 通道数
+    type: int
+    default: 1
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

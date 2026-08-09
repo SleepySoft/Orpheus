@@ -1,5 +1,26 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-09（第四十一次讨论：估计/统计组件与调试可视化——第一批）
+
+- 判断：PSD/相干/线性插值均为已知通用算法（相干公式与 SpeedBounds 插值已在
+  `baf_sas_analysis.md` §11.6/§11.7 从源码蒸馏确认），无需再跑蒸馏，直接实现通用观测组件。
+- 新组件（3 个，均音频直通 + readback 探针）：
+  - `psd`：逐块 FFT + 指数平滑，`spectrum` readback（幅度数组，与 probe_spectrum 同构，
+    复用频谱 widget）；
+  - `coherence_matrix`：通道间交叉功率谱 EMA → 平均相干矩阵（N×N）+ 相干历史；
+    readback `coherence`（{n, bins, matrix}）+ `history`（最近 64 块均值）；
+  - `interp_lut`：一维线性插值查表（x_axis/y_axis BULK，x 输入 → y 输出），
+    readback `y` + `history`（控制量历史曲线）。
+- UI：`NODE_WIDGETS` 新增热力图（相干矩阵）与时间曲线（控制历史）两种 widget，
+  psd 注册复用频谱 widget。
+- 修复：psd/coherence_matrix 的 FFT 缓冲区按 half 分配、im 别名 re 导致堆越界
+  （returncode 0xC0000374）——改为每通道 frames（2×half）独立分配。
+- 测试 `test_estimation_components.py`（3 项）：正弦峰值 bin、全同信号相干≈1、
+  查表插值数值；全量 110 passed、1 skipped。
+- 意义：这是"估计/控制"那一半的观测侧落地（design_registry §20/§21）——
+  跑 Audiopilot/ENC/RNC 蒸馏模型时，画布上可直接看功率谱/相干矩阵/控制量历史；
+  真闭环（控制端口 + 参数投递）仍待后续。
+
 ## 2026-08-09（第四十次讨论：平台集成/外部接口节点——platform_hook 原型）
 
 - 设计（design_registry §21）：把 embed_in/out 的「生成代码 + 用户填充」泛化为

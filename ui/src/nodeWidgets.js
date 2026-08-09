@@ -391,11 +391,145 @@ function SweepPlotWidget({ data, large }) {
   );
 }
 
+/**
+ * Coherence matrix heatmap: renders data.probe.coherence = {n, matrix:[n*n]}
+ * (0..1 values, blue=low red=high). Produced by coherence_matrix component.
+ */
+function HeatmapWidget({ data, large }) {
+  const coh = data.probe?.coherence;
+  const { wrapRef, w, h } = useCanvasSize(large, large ? 360 : 150, large ? 360 : 150);
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const cw = canvas.width;
+    const ch = canvas.height;
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, cw, ch);
+
+    const n = coh?.n;
+    const matrix = coh?.matrix;
+    if (!n || !Array.isArray(matrix) || matrix.length !== n * n) {
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('运行后显示相干矩阵', cw / 2, ch / 2);
+      return;
+    }
+    const cell = Math.min(cw, ch) / n;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const c = Math.max(0, Math.min(1, matrix[i * n + j]));
+        const r = Math.round(255 * c);
+        const g = Math.round(255 * (1 - c));
+        const b = Math.round(255 * (1 - c));
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(j * cell, i * cell, cell + 0.5, cell + 0.5);
+      }
+    }
+    if (large) {
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      for (let i = 0; i < n; i++) {
+        ctx.fillText(String(i), i * cell + cell / 2, 10);
+        ctx.fillText(String(i), 10, i * cell + cell / 2);
+      }
+    }
+  }, [coh, large, w, h]);
+
+  return (
+    <div className="probe-body">
+      <div ref={wrapRef} className="monitor-widget">
+        <canvas
+          ref={ref}
+          width={w}
+          height={h}
+          style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Control-value history curve: renders data.probe.history (array of recent
+ * scalar values). Produced by interp_lut / coherence_matrix history readback.
+ */
+function TimeCurveWidget({ data, large }) {
+  const hist = data.probe?.history;
+  const { wrapRef, w, h } = useCanvasSize(large, large ? 640 : 200, large ? 200 : 64);
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const cw = canvas.width;
+    const ch = canvas.height;
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, cw, ch);
+
+    if (!Array.isArray(hist) || hist.length === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('运行后显示控制值历史', cw / 2, ch / 2);
+      return;
+    }
+    let min = Math.min(...hist);
+    let max = Math.max(...hist);
+    if (max - min < 1e-6) {
+      min -= 0.5;
+      max += 0.5;
+    }
+    const xFor = (i) => (i / (hist.length - 1)) * cw;
+    const yFor = (v) => ch - 2 - ((v - min) / (max - min)) * (ch - 8);
+    ctx.strokeStyle = '#4fc3f7';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < hist.length; i++) {
+      const x = xFor(i);
+      const y = yFor(hist[i]);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    if (large) {
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(max.toFixed(3), cw - 4, 10);
+      ctx.fillText(min.toFixed(3), cw - 4, ch - 4);
+    }
+  }, [hist, large, w, h]);
+
+  return (
+    <div className="probe-body">
+      <div ref={wrapRef} className="monitor-widget">
+        <canvas
+          ref={ref}
+          width={w}
+          height={h}
+          style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export const NODE_WIDGETS = {
   'orpheus.builtin.probe_rms': ProbeRmsWidget,
   'orpheus.builtin.probe_peak': ProbePeakWidget,
   'orpheus.builtin.probe_waveform': ScopeWidget,
   'orpheus.builtin.probe_spectrum': SpectrumWidget,
+  'orpheus.builtin.psd': SpectrumWidget,
+  'orpheus.builtin.coherence_matrix': HeatmapWidget,
+  'orpheus.builtin.interp_lut': TimeCurveWidget,
   'orpheus.builtin.sweep_record': SweepPlotWidget,
   'orpheus.builtin.sweep_gen': SweepGenWidget,
 };

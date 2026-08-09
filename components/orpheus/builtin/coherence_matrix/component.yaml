@@ -1,0 +1,58 @@
+id: orpheus.builtin.coherence_matrix
+name: 相干矩阵
+category: 监控工具
+description: 多通道相干矩阵估计（逐块 FFT + 交叉功率谱 EMA，通道间相干平均谱 → N×N 矩阵 readback），音频直通
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: CoherenceMatrixState
+sources:
+  - src/coherence_matrix.c
+headers:
+  - include/orpheus_coherence_matrix.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [2, 10]
+    update_policy: restart_required
+    affects_signature: true
+  - id: smoothing
+    name: 平滑块数
+    type: int
+    default: 8
+    range: [1, 128]
+    update_policy: restart_required
+  - id: coherence
+    name: 相干矩阵
+    type: string
+    default: "{}"
+    readback: true
+    update_policy: immediate
+  - id: history
+    name: 相干历史
+    type: string
+    default: "[]"
+    readback: true
+    update_policy: immediate
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true
