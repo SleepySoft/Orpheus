@@ -1,0 +1,66 @@
+id: orpheus.builtin.gain_ramper
+name: 多通道增益斜坡器
+category: 基础算法
+description: 多通道指数增益斜坡（dB 域恒定速率），通道->ramper 映射，SleepingBeauty/Fade/Mute 共享基座
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: GainRamperState
+sources:
+  - src/gain_ramper.c
+headers:
+  - include/orpheus_gain_ramper.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: gain_db
+    name: 目标增益
+    type: float
+    default: 0.0
+    range: [-96.0, 24.0]
+    unit: dB
+    update_policy: smoothed
+  - id: ramp_ms
+    name: 斜坡时间
+    type: float
+    default: 30.0
+    range: [0.0, 5000.0]
+    unit: ms
+    update_policy: restart_required
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: num_rampers
+    name: ramper 数量
+    type: int
+    default: 1
+    range: [1, 8]
+    update_policy: restart_required
+  - id: chan_map
+    name: 通道映射
+    type: string
+    default: "0,0"
+    widget: text
+    update_policy: restart_required
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

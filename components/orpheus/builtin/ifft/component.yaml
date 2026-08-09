@@ -1,0 +1,40 @@
+id: orpheus.builtin.ifft
+name: 实数IFFT
+category: 基础算法
+description: 实数IFFT（半复数格式输入），FFT点数=块长，输出实数时域信号
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: IfftState
+sources:
+  - src/ifft.c
+headers:
+  - include/orpheus_ifft.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

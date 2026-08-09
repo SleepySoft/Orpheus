@@ -1,0 +1,59 @@
+id: orpheus.builtin.iir_bank
+name: N级IIR滤波器组
+category: 基础算法
+description: 可配置级数的级联双二阶IIR滤波器组，BULK系数直写，pooliir软件近似
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: IirBankState
+sources:
+  - src/iir_bank.c
+headers:
+  - include/orpheus_iir_bank.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: num_stages
+    name: 级数
+    type: int
+    default: 4
+    range: [1, 16]
+    update_policy: restart_required
+  - id: coefs
+    name: IIR系数
+    type: string
+    default: "1,0,0,0,0"
+    widget: text
+    kind: bulk
+    update_policy: restart_required
+bulk_slots:
+  - id: coefs
+    name: IIR系数
+    type: float
+    count: 80
+    double_bank: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

@@ -1,0 +1,70 @@
+version: "0.1.0"
+metadata:
+  name: baf_components_test
+  description: "验证全部6个蒸馏组件: gain_ramper + iir_bank + rfft + ifft + sleeping_beauty + input_mixer_3d（probe_rms 内联探针，wav_out 终端汇）"
+sample_rate: 48000
+block_size: 32
+graph:
+  nodes:
+    - id: src
+      component: orpheus.builtin.signal_gen
+      params: {type: sine, freq: 1000.0, amplitude: 0.5, channels: 4}
+      position: {x: 40, y: 100}
+    - id: ramper
+      component: orpheus.builtin.gain_ramper
+      params:
+        gain_db: -6.0
+        ramp_ms: 100.0
+        channels: 4
+        num_rampers: 2
+        chan_map: "0,1,0,1"
+      position: {x: 260, y: 100}
+    - id: iir
+      component: orpheus.builtin.iir_bank
+      params:
+        channels: 4
+        num_stages: 2
+        coefs: "1,0,0,0,0,1,0,0,0,0"
+      position: {x: 480, y: 100}
+    - id: fft
+      component: orpheus.builtin.rfft
+      params: {channels: 4}
+      position: {x: 700, y: 100}
+    - id: ifft
+      component: orpheus.builtin.ifft
+      params: {channels: 4}
+      position: {x: 920, y: 100}
+    - id: sb
+      component: orpheus.builtin.sleeping_beauty
+      params:
+        gain_index: 128.0
+        offset: 128.0
+        ramp_ms: 50.0
+        channels: 4
+        chan_map: "0,1,2,3"
+      position: {x: 1140, y: 100}
+    - id: mix
+      component: orpheus.builtin.input_mixer_3d
+      params:
+        input_channels: 4
+        output_channels: 2
+        gain_db: 0.0
+        weights: "1,0,0,0,0,1,0,0"
+      position: {x: 1360, y: 100}
+    - id: probe
+      component: orpheus.builtin.probe_rms
+      params: {channels: 2}
+      position: {x: 1580, y: 100}
+    - id: sink
+      component: orpheus.builtin.wav_out
+      params: {file_path: "baf_components_test_out.wav", channels: 2, sample_rate: 48000}
+      position: {x: 1800, y: 100}
+  connections:
+    - {from: "src:out", to: "ramper:in"}
+    - {from: "ramper:out", to: "iir:in"}
+    - {from: "iir:out", to: "fft:in"}
+    - {from: "fft:out", to: "ifft:in"}
+    - {from: "ifft:out", to: "sb:in"}
+    - {from: "sb:out", to: "mix:in"}
+    - {from: "mix:out", to: "probe:in"}
+    - {from: "probe:out", to: "sink:in"}

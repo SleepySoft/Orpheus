@@ -1,0 +1,67 @@
+id: orpheus.builtin.input_mixer_3d
+name: 3D输入混音器
+category: 基础算法
+description: 加权矩阵混音器（输入通道->输出通道），BULK权重直写，覆盖InputMixer3D/DownmixToStereo
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: InputMixer3DState
+sources:
+  - src/input_mixer_3d.c
+headers:
+  - include/orpheus_input_mixer_3d.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:input_channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:output_channels
+parameters:
+  - id: input_channels
+    name: 输入通道数
+    type: int
+    default: 8
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: output_channels
+    name: 输出通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: gain_db
+    name: 输出增益
+    type: float
+    default: 0.0
+    range: [-96.0, 24.0]
+    unit: dB
+    update_policy: smoothed
+  - id: weights
+    name: 混音权重矩阵
+    type: string
+    default: "1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0"
+    widget: text
+    kind: bulk
+    update_policy: restart_required
+bulk_slots:
+  - id: weights
+    name: 混音权重矩阵
+    type: float
+    count: 1024
+    double_bank: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

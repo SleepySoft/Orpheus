@@ -1,0 +1,82 @@
+id: orpheus.builtin.sleeping_beauty
+name: 响度补偿
+category: 音效算法
+description: Bose SleepingBeauty 响度补偿算法 - 锥度增益LUT + 非对称L/R平衡锥度 + 4路指数增益斜坡
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: SleepingBeautyState
+sources:
+  - src/sleeping_beauty.c
+headers:
+  - include/orpheus_sleeping_beauty.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: gain_index
+    name: 增益位置
+    type: float
+    default: 128.0
+    range: [0.0, 255.0]
+    update_policy: smoothed
+  - id: offset
+    name: 中心位置
+    type: float
+    default: 128.0
+    update_policy: restart_required
+  - id: mutes_bass
+    name: 极端静音低音
+    type: float
+    default: 0.0
+    range: [0.0, 1.0]
+    update_policy: restart_required
+  - id: ramp_ms
+    name: 斜坡时间
+    type: float
+    default: 30.0
+    range: [0.0, 5000.0]
+    unit: ms
+    update_policy: restart_required
+  - id: channels
+    name: 通道数
+    type: int
+    default: 4
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: chan_map
+    name: 通道映射
+    type: string
+    default: "0,1,2,3"
+    widget: text
+    update_policy: restart_required
+  - id: table_idx
+    name: 索引表
+    type: string
+    default: "0,10,31,52,74,95,116,128,138,159,180,202,223,244,255"
+    widget: text
+    update_policy: restart_required
+  - id: table_db
+    name: 增益表
+    type: string
+    default: "-40,-30,-20,-10,0,0,0,0,0,0,0,-10,-20,-30,-40"
+    widget: text
+    update_policy: restart_required
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

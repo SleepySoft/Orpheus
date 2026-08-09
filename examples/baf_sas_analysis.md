@@ -148,3 +148,520 @@ PreAmp/Selection_HCI_nonHCI_Subsystem/HCI_Content/DecRate/SAS/SAS6System/
 - `.doj` 文件：标准 ELF 可重定位目标文件（`\x7fELF`，32 位小端，机器类型 0x85=EM_ADSP/SHARC），含 .strtab/.symtab，非封闭格式
 - `Model_InterpretationEngine64`：TSP（Tunable State Parameter）参数解释引擎，x86 PC 端仿真/调参工具，非音频 DSP 本身
 - 核心 DSP 全部在静态 C（`Model_1_1.c` 905KB），非二进制封装
+
+## 10. 组件差距分析（Orpheus 导入对照）
+
+> 将 model_tree 中所有处理块与 Orpheus `components/orpheus/builtin/` 现有组件逐一对照。
+
+### 10.1 已有组件可直接映射（21 项）
+
+| 模型处理块 | Orpheus 组件 | 备注 |
+|---|---|---|
+| InputSelect（输入路由） | `input_select` | 30->32ch 路由，参数 routerOutMap |
+| MakeupGain / Volume | `gain` | 线性增益 |
+| Bass BoostCut | `bass` | 低频搁架 |
+| Midrange BoostCut | `midrange` | 中频峰值 |
+| Treble BoostCut | `treble` | 高频搁架 |
+| Balance | `balance` | L/R 平衡 + SilentExtreme |
+| LevelDetect | `level_detect` | 电平检测 |
+| TrebleDelay / 所有延迟线 | `delay` | 环形缓冲延迟 |
+| Windowing（sine+cosine 窗） | `window` | 加窗 |
+| Mixer / SumOfElements / Downmix | `mixer` | 2 输入混音（N 输入需级联） |
+| FadeControl | `fade` | 频谱前后衰减 |
+| MuteControl / MuteRamper | `mute` | 静音 |
+| Limiter | `limiter` | 限幅器 |
+| SoftClipper | `soft_clipper` | 软削波 |
+| Saturation | `saturation` | 饱和 |
+| SineMod（正弦调制） | `sine_mod` | 11 点正弦表调制 |
+| MatrixMultiply | `matrix_mul` | 矩阵乘（BULK 系数） |
+| NoiseSlew | `noise_slew` | 噪声斜坡 |
+| Switch / Selector | `switch` | 通道选择 |
+| ASDRouter / PostHoligramRouting | `output_router` | 输出路由 |
+| Interleave / Deinterleave | `interleave` / `deinterleave` | 通道交织 |
+
+### 10.2 缺失 - DSP 硬件专属（3 项，可理解）
+
+| 缺失组件 | 原因 | Orpheus 近似 |
+|---|---|---|
+| pooliir / IIR 加速器 | GLXP 硬件 IIR 加速器（13 级×22 通道，workMem 1104） | `biquad_bank` 仅 2 级，需扩展为 N 级 |
+| FIR 加速器 | GLXP 硬件 FIR 加速器（348/351/525 tap 对称低通） | `fir` 组件为软件实现，性能不同但功能可覆盖 |
+| RFFT / IFFT | 256 点实数 FFT/IFFT（rfft_process_inplace / rifft） | 无 FFT 组件，需新增 |
+
+### 10.3 缺失 - 高级可分解组件（8 项，需深入分析）
+
+| 缺失组件 | 类别 | 可分解度 |
+|---|---|---|
+| **SleepingBeauty** | 响度补偿 + 多通道增益斜坡 | ★★★ 高（LUT + ramper + 映射） |
+| **Rgainx / Rgainy** | 指数增益斜坡器（SleepingBeauty/Fade/Mute 共享基座） | ★★★ 高（gain + 指数平滑） |
+| **InputMixer3D** | 3D 输入混音（加权矩阵 + 下混） | ★★★ 高（matrix_mul + mixer） |
+| **FDP** | 频域环绕解码（STFT + 系数计算 + 混响提取 + IFFT） | ★★ 中（需 FFT 组件） |
+| **Holigram** | 空间音频重建（延迟 + IIR + 路由） | ★★ 中（delay + biquad_bank + router） |
+| **FormCoherenceMatrixGXY** | Audiopilot 相干矩阵（交叉 PSD + 高斯消元） | ★ 低（自定义信号分析） |
+| **SpeedBounds** | 速度相关噪声界限（查表 + 插值） | ★★★ 高（LUT 组件） |
+| **DetectImpulse** | 脉冲检测（能量差 + 阈值） | ★★★ 高（level_detect + switch） |
+
+---
+
+## 11. 高级组件深度分解
+
+### 11.1 Rgainx / Rgainy — 指数增益斜坡器（共享基座）
+
+> SleepingBeauty、FadeControl、MuteControl 底层都使用此组件。是 Orpheus 最应优先补齐的基础设施。
+
+**源码位置**：`blocklib/lib/preamp/rgainx.slx`、`RgainyConfig.m`、`rgainx_Mask.m`
+
+**内部状态**（每个 ramper）：
+
+```c
+struct Ramper {
+    float currentGain;   // 当前线性增益（平滑跟踪 targetGain）
+    float targetGain;    // 目标线性增益
+    float rampCoeff;     // 指数斜坡系数（1.0=无斜坡）
+    uint32_t frameCount; // 斜坡帧计数
+};
+```
+
+**算法**（源码 `Model_1_1.c:5039-5230`）：
+
+1. dB 域计算差值：`diff = |20*log10(targetGain) - 20*log10(currentGain)|`
+2. 斜坡系数：`factor = log(targetGain/currentGain) / (diff * quantumMs * sampleRateHz)`
+3. 每帧更新：`currentGain *= exp(factor)`（指数趋近 targetGain）
+4. 静音下限：`currentGain = max(currentGain, 5.01e-7)`（-126 dB，`rgain_SILENT_GAIN`）
+5. 通道映射：`ChanToRamperMap[ch]` 决定每个通道用哪个 ramper 的 currentGain 相乘
+
+**参数**：
+
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| NumRampers | int | 1 | ramper 数量 |
+| ChanToRamperMap | int[] | [1] | 通道->ramper 映射（-1=不处理） |
+| InitialLinearGains | float[] | [1.0] | 各 ramper 初始增益 |
+| ramp_db_per_second | float | 0 | RTC 斜坡速率（dB/s），0=用 rampTime |
+| ramp_milliseconds | float | - | RTC 斜坡时间（ms） |
+
+**Orpheus 分解**：新增 `gain_ramper` 组件 = `gain`（乘法）+ 指数平滑状态机 + 通道映射表。现有 `gain` 的 `update_policy: smoothed` 已有一阶平滑，但缺少 dB 域指数斜坡和多 ramper 独立状态。
+
+---
+
+### 11.2 SleepingBeauty — 响度补偿 + 多通道增益斜坡
+
+> Bose 动态范围/响度补偿算法。根据音量位置（gain_index）应用非对称 L/R 增益锥度，经 4 个指数斜坡器平滑输出。
+
+**源码位置**：`Model_1_1.c:13515-13930`（calculate_SB_gains + calculate_ramp_parameters + control）
+
+**blocklib 配置**：`SleepingBeautyConfig.m`
+
+**三层结构**：
+
+```
+gain_index (RTC) ──> [1. TaperGainLUT] ──> cut_linear
+                         │
+                         v
+                    [2. BalanceTaper] ──> targetGains[4] = {left, right, center, mono}
+                         │                   gainIdx > offset: left=center=mono=cut, right=1
+                         │                   gainIdx < offset: right=center=mono=cut, left=1
+                         │                   极端位置: 衰减侧=0, 可选 mute bass
+                         v
+                    [3. 4x Rgainy] ──> currentGain[4] (指数斜坡)
+                         │
+                         v
+                    [4. ChanToRamperMap] ──> 每通道 × currentGain[map[ch]]
+```
+
+**[1] TaperGainLUT** — 30 点锥度增益查表
+
+```c
+// TableIdx[30] + TableDb[30] 构成分段查表
+// 找到 gainIdx <= TableIdx[j] 的段:
+//   首段: cut = (gainIdx / TableIdx[0]) * 10^(TableDb[0]/20)   // 线性插值到零
+//   其他: cut = 10^(dB插值 / 20)                               // dB 域线性插值
+```
+
+默认表（`SleepingBeautyConfig.m`）：
+
+```
+TableIdx = [0, 10, 31, 52, 74, 95, 116, 128, 138, 159, 180, 202, 223, 244, 255]
+TableDb  = [-40, -30, -20, -10, 0, 0, 0, 0, 0, 0, 0, -10, -20, -30, -40]
+// 典型响度曲线：低音量提升、中音量平直、高音量衰减
+```
+
+**[2] BalanceTaper** — 非对称 L/R 锥度
+
+```c
+offset = 128;  // 中心位置
+delta = gainIdx - offset;
+if (delta > 0) {        // 左侧衰减
+    left = center = mono = cut_linear;  right = 1.0;
+    if (|delta| >= offset-1) { left = center = 0; }  // 极端=完全静音
+} else {                // 右侧衰减
+    right = center = mono = cut_linear;  left = 1.0;
+    if (|delta| >= offset-1) { right = center = 0; }
+}
+if (极端 && MutesBass) { mono = 0; }  // 可选：极端时静音低音
+```
+
+**[3] 4× Rgainy** — 见 11.1，4 个独立 ramper（left/right/center/mono）
+
+**[4] 通道映射** — `ChanToRamperMap[22]`，默认 `[1,2,1,2,3,4,-1,...]`
+
+**参数分区**（p12_b0）：
+
+| 参数 | 量 | 默认 | 说明 |
+|---|---|---|---|
+| TableDb | 30 float | 见上 | 锥度增益 dB 表 |
+| TableIdx | 30 float | 见上 | 锥度增益索引表 |
+| Offset | 1 float | 128.0 | 中心位置 |
+| MutesBass | 1 float | 0.0 | 极端时是否静音低音 |
+| RampTime | 1 float | 30.0 | 默认斜坡时间（ms） |
+| ChannelToRamperMap | 22 int | [1,2,1,2,3,4,...] | 通道->ramper 映射 |
+| PhaseAlignmentDelays | 22 uint | - | 每通道相位对齐延迟 |
+
+**Orpheus 分解**：
+
+```
+gain_index ──> [taper_lut (新)] ──> [balance_taper (新/逻辑)] ──> 4x [gain_ramper (新)] ──> [matrix_mul (通道映射)]
+```
+
+可由 3 个新组件构成：`taper_lut`（查表+dB插值）、`gain_ramper`（见 11.1）、`channel_mapper`（通道->ramper 路由）。或合并为单个 `sleeping_beauty` 组件。
+
+---
+
+### 11.3 InputMixer3D — 3D 输入混音
+
+**源码位置**：PreAmpPart1 内，`Model_1_1.c` PreAmp step
+
+**功能**：将多通道输入按权重矩阵混合为立体声 + 514 输出
+
+**处理流**：
+
+```
+InputMixer3D:
+  AddWeights_514[3] = {LFE+10dB, Lrs2Ls, Rrs2Rs}  // 3 个加权加法
+  -> DownmixToStereo:
+       Weights_L_R[8]  // 8 通道加权下混为 L/R
+  -> Send514Out        // 5.1.4 格式输出
+```
+
+**参数**：
+
+| 参数 | 量 | 说明 |
+|---|---|---|
+| InputMixer3dWeights_514 | 3 float | LFE/Lrs/Rrs 加权 |
+| InputMixer3dWeights_L_R | 8 float | 下混立体声权重 |
+
+**Orpheus 分解**：`matrix_mul`（8×N 下混矩阵）+ `mixer`（加权加法）。现有 `matrix_mul` 支持 BULK 矩阵系数，可直接覆盖。514 加权用 3 个 `mixer` 或 `matrix_mul` 的子矩阵。
+
+---
+
+### 11.4 FDP — 频域环绕解码器
+
+**源码位置**：`Model_1_1.c:10182-10900`（Fdp 子系统）
+
+**完整处理流水线**：
+
+```
+[输入] L/R 2ch (经 TrebleDelay[7928])
+  │
+  v
+[1] BufferIn: 2ch × 256 样本块（50% overlap）
+  │
+  v
+[2] Windowing: InputOverlap×sine[128] + AudioIn×cosine[128]
+  │              (sine/cosine 窗实现 overlap-add 的完美重构)
+  v
+[3] RFFT: rfft_process_inplace(256点, 2ch -> 129 复数 bin × 2)
+  │         (一次复 FFT 算两个实 FFT, SHARC+ cfftf 优化)
+  v
+[4] Coeffs1stStage (频域系数计算):
+  │    absLi=|Lin|, absRi=|Rin|, minAbs=min(|L|,|R|)
+  │    Lxk = minAbs / absLi    // 左声道串扰比例
+  │    Rxk = minAbs / absRi    // 右声道串扰比例
+  │    Lok = 1 - Lxk           // 左直接路径系数
+  │    Rok = 1 - Rxk           // 右直接路径系数
+  │    SPS = |Lx-Rx| / (|Lx|+|Rx|)  // 空间感指标
+  v
+[5] LPF 平滑: lsGain=0.90993, lsPole=0.04504
+  │              (一阶低通平滑系数，防止系数跳变)
+  v
+[6] Coeffs2ndStage: Lxks=1-Loks, Rxks=1-Roks
+  v
+[7] ApplyCoefficients (6 路频域输出):
+  │    Lo  = Lok × Lin    Ro  = Rok × Rin     // 直接路径
+  │    Lsr = Lxk × Lin    Rsr = Rxk × Rin     // 串扰路径
+  │    -> 6ch 频域 {Lo, Ro, Lsr, Rsr, ...}
+  v
+[8] PSD 平滑: FastPsdSmoothFactor + SlowPsdSmoothFactor
+  v
+[9] DetectImpulse: EnergyDifference > Threshold ? 脉冲 : 正常
+  v
+[10] ReverbExtraction (4 条延迟路径):
+  │     LeftFast  × FdpDelay[2193](delay=1161)
+  │     LeftSlow  × FdpDelay[2193]
+  │     RightFast × FdpDelay[2193](delay=1161)
+  │     RightSlow × FdpDelay[2193]
+  │     (Fast/Slow 代表不同时间常数的混响衰减)
+  v
+[11] IFFT + OverlapAdd: rifft(256点) -> 时域 -> 叠加 InputOverlap 缓冲
+  v
+[12] BufferOut: 6ch × 256 -> Selector: 4ch {0,1,2,4}
+  │
+  v
+[输出] 4ch 频域解码环绕
+```
+
+**参数分区**（p3_b0）：
+
+| 参数 | 量 | 默认 | 说明 |
+|---|---|---|---|
+| FdpCoeffs | 6 float | - | FDP 系数（增益/比例） |
+| FdpSpum | 4 float | - | SPUM（立体声程序上混）参数 |
+| DirectPathSamplesDec | 1 uint | 1161 | 直接路径延迟样本数 |
+| TrebleDelay | 1 uint | 1280 | 高频延迟样本数 |
+
+**Orpheus 分解**：
+
+```
+delay ─> window ─> [RFFT(新)] ─> [fdp_coeffs(新)] ─> biquad(LPF平滑)
+  ─> [reverb_extract(新: 4×delay+gain)] ─> [IFFT(新)] ─> [overlap_add(新)] ─> switch
+```
+
+关键缺失：`rfft`/`ifft` 组件（256 点实数 FFT）。FDP 系数计算和混响提取是自定义 MATLAB Function 块，需新建专用组件或用 `matrix_mul` + `delay` 近似。
+
+---
+
+### 11.5 Holigram — 空间音频重建
+
+**源码位置**：Part5 PostHoligram 子系统，`Model_1_1.c`
+
+**组成**：
+
+```
+[输入] ──> FullRateHoligramDelay[1760] ──> HoligramIir(pooliir, p8_b0) ──> PostHoligramRouting ──> [输出]
+                                             │
+                                             └─ GLXP IIR 加速器（可 InitReset/Shutdown）
+                                                系数: HoligramIirpooliirCoeffs(矩阵)
+                                                级数: HoligramIirPooliirNumStages(array)
+```
+
+**功能**：Bose 专有空间声场重建算法。通过延迟 + IIR 滤波 + 路由，在扬声器阵列上重建虚拟声源。
+
+**参数分区**（p8_b0）：
+
+| 参数 | 说明 |
+|---|---|
+| HoligramIirpooliirCoeffs | IIR 系数矩阵（pooliir 格式） |
+| HoligramIirPooliirNumStages | 每通道 IIR 级数数组 |
+
+**RTC 命令**：`FullRateHoligramDisable`（禁用）、`HoligramIirPoolIirGxpAccelInitReset`（初始化）、`HoligramIirShutdown`（关闭）
+
+**Orpheus 分解**：`delay` + `biquad_bank`（扩展为 N 级）+ `output_router`。IIR 部分受限于 pooliir 硬件加速器，软件近似用 `biquad_bank` 级联。
+
+---
+
+### 11.6 FormCoherenceMatrixGXY — Audiopilot 相干矩阵
+
+**源码位置**：`Model_1_1.c:17628-18130`
+
+**功能**：Audiopilot HF 噪声估计的核心。从 10 通道 RFFT 结果计算相干矩阵，区分音乐与噪声。
+
+**算法**（MATLAB Function 块）：
+
+```
+1. CrossPSD: Gxy = X * conj(Y)  (通道间交叉功率谱)
+2. AutoPSD:  Gxx = |X|^2, Gyy = |Y|^2
+3. Coherence: Cxy = |Gxy|^2 / (Gxx * Gyy)   (0~1, 1=完全相干)
+4. 相干 > 阈值 => 噪声低 => 增强该频段
+5. CoherenceModifier: 高斯消元修正相干矩阵
+```
+
+**Orpheus 分解**：高度自定义的信号分析算法，无法用基本组件组合。需新建 `coherence_matrix` 组件（复数运算 + 矩阵操作），依赖 `rfft` 输出。
+
+---
+
+### 11.7 SpeedBounds — 速度相关噪声界限
+
+**源码位置**：`Model_1_1.c:19018-19050`
+
+**算法**：
+
+```c
+if (SpeedBoundsOn > 0) {
+    // interp1: 速度轴[128] -> minDbspl/maxDbspl 查表插值
+    minBound = interp1(SpeedBoundsAxis, SpeedBoundsMinDbspl, currentSpeed);
+    maxBound = interp1(SpeedBoundsAxis, SpeedBoundsMaxDbspl, currentSpeed);
+}
+```
+
+**参数**：
+
+| 参数 | 量 | 说明 |
+|---|---|---|
+| SpeedBoundsOn | 1 float | 使能 |
+| SpeedBoundsAxis | 128 float | 速度轴 |
+| SpeedBoundsMinDbspl | 128 float | 最小 dB SPL 界限 |
+| SpeedBoundsMaxDbspl | 128 float | 最大 dB SPL 界限 |
+
+**Orpheus 分解**：查表插值组件（新 `interp_lut`）。现有无插值查表组件，但逻辑简单（线性插值），可快速实现。
+
+---
+
+### 11.8 DetectImpulse — 脉冲检测
+
+**源码位置**：`Model_1_1.c:11009`
+
+**算法**：
+
+```c
+if (EnergyDifference > DetectImpulseThreshold) {
+    // 标记为脉冲，切换到脉冲处理路径
+}
+```
+
+**Orpheus 分解**：`level_detect`（能量计算）+ `switch`（阈值判断切换路径）。可用现有组件直接组合。
+
+---
+
+## 12. 优先级建议
+
+| 优先级 | 组件 | 理由 |
+|---|---|---|
+| P0 | `gain_ramper`（Rgainx） | SleepingBeauty/Fade/Mute 共享基座，最基础设施 |
+| P0 | `rfft` / `ifft` | FDP + Audiopilot 都依赖，无 FFT 整个频域链路缺失 |
+| P1 | `sleeping_beauty` | 响度补偿核心，可由 gain_ramper + LUT 组合 |
+| P1 | `biquad_bank` 扩展为 N 级 | pooliir 软件近似，Holigram/PeripheralEq/PostEQ 都需要 |
+| P2 | `interp_lut`（查表插值） | SpeedBounds + TaperGainLUT 共用 |
+| P2 | `fdp`（频域解码） | FDP 专用，依赖 rfft/ifft |
+| P3 | `coherence_matrix` | Audiopilot 专用，高度自定义 |
+| P3 | `input_mixer_3d` | 可直接用 matrix_mul + mixer 组合 |
+
+
+## 13. 已实现组件记录
+
+> 以下组件已从 BAF SAS 源码蒸馏并在 Orpheus 中实现，可通过 `orpheus.builtin.<name>` 引用。
+
+### 13.1 gain_ramper（L0 通用原语）
+
+| 项 | 值 |
+|---|---|
+| 组件 ID | `orpheus.builtin.gain_ramper` |
+| 源码对应 | Rgainx / Rgainy blocklib 块 |
+| 用途 | 多通道指数增益斜坡器，SleepingBeauty/Fade/Mute 共享基座 |
+| 状态 | 已实现，编译通过 |
+
+**设计要点**：
+- N 个独立 ramper（1-8），每个维护 `currentGain/targetGain/rampCoeff`
+- dB 域恒定速率斜坡：`rampCoeff = ln(target/current) / numBlocks`，每块 `currentGain *= exp(rampCoeff)`
+- 通道->ramper 映射（`chan_map` 字符串，-1=bypass）
+- 静音下限 -126dB（`GR_SILENT_GAIN = 5.0118723e-7f`，与源码 `rgain_SILENT_GAIN` 一致）
+- 每块更新一次 ramper（per-frame，非 per-sample，与源码一致）
+
+### 13.2 iir_bank（L1 专用扩展）
+
+| 项 | 值 |
+|---|---|
+| 组件 ID | `orpheus.builtin.iir_bank` |
+| 源码对应 | pooliir / GLXP IIR 加速器（软件近似） |
+| 用途 | N 级级联双二阶 IIR 滤波器组，BULK 系数直写 |
+| 状态 | 已实现，编译通过 |
+
+**设计要点**：
+- 可配置级数（1-16），BULK 系数连续存储 `coefs[5*16=80]`（双缓冲）
+- 每级独立 z1/z2 状态（32 通道上限）
+- 级联：`x -> stage[0] -> stage[1] -> ... -> out`
+- 系数格式：`[b0,b1,b2,a1,a2] × numStages`，unity 默认（b0=1, rest=0）
+- 覆盖场景：Holigram IIR / PeripheralEq / PostEQ / Audiopilot 滤波器
+
+### 13.3 sleeping_beauty（L2 高级组合）
+
+| 项 | 值 |
+|---|---|
+| 组件 ID | `orpheus.builtin.sleeping_beauty` |
+| 源码对应 | `Model_1_1.c:13515-13930` FullRateSleepingBeauty |
+| 用途 | Bose 响度补偿算法 |
+| 状态 | 已实现，编译通过 |
+
+**设计要点**：
+- **TaperGainLUT**：30 点查表，首段线性插值到零、其余段 dB 域插值
+- 默认 15 点响度曲线（-40->0->-40 dB，来自 `SleepingBeautyConfig.m`）
+- **BalanceTaper**：`gainIndex - offset` 偏移时非对称 L/R 衰减
+  - delta > 0：left=center=mono=cut_linear, right=1.0
+  - delta < 0：right=center=mono=cut_linear, left=1.0
+  - 极端位置（|delta| >= offset-1）：衰减侧=0，可选 `mutes_bass` 静音低音
+- **4× ramper**：left/right/center/mono 四路独立指数斜坡（复用 gain_ramper 逻辑）
+- **通道映射**：`chan_map` 将通道映射到 4 个 ramper（-1=bypass）
+- 参数分区 p12_b0 完整覆盖
+
+### 13.4 分层架构
+
+```
+L0 通用原语    gain_ramper (指数增益斜坡基座)
+                ↓ 内部复用
+L1 专用扩展    iir_bank (N级IIR, BULK系数, pooliir近似)
+               rfft / ifft (半复数FFT, radix-2, FDP/Audiopilot)
+               input_mixer_3d (加权矩阵混音, BULK权重, 通道数可变)
+                ↓ 组合
+L2 高级组合    sleeping_beauty (LUT + balance taper + 4x ramper)
+```
+
+### 13.5 rfft（L1 专用扩展）
+
+| 项 | 值 |
+|---|---|
+| 组件 ID | `orpheus.builtin.rfft` |
+| 源码对应 | `Model_1_1.c:10182-10900` FDP `rfft_process_inplace`（256 点，2ch） |
+| 用途 | 实数 FFT，半复数格式输出；FDP 频域解码 + Audiopilot 分析核心 |
+| 状态 | 已实现，编译通过，运行时验证通过 |
+
+**设计要点**：
+- radix-2 迭代 FFT（就地位反转 + 蝶形），每通道独立
+- 半复数（half-complex）打包：N 个 float 承载 N/2+1 个复数 bin（DC + R(1..N/2-1) + Nyquist + I(N-k) 逆序）
+- twiddle 因子 prepare 阶段预计算：`W[k] = exp(-2*pi*i*k/N)`
+- FFT 点数 = block_size（须 2 的幂，4~1024），无独立 fft_size 参数；大块配合上游 `downrate`（factor=8 -> 256 点）
+- 与 `ifft` 配对完美重构（round-trip identity，已运行时验证）
+
+### 13.6 ifft（L1 专用扩展）
+
+| 项 | 值 |
+|---|---|
+| 组件 ID | `orpheus.builtin.ifft` |
+| 源码对应 | `Model_1_1.c` FDP `rifft`（256 点，6ch）+ OverlapAdd |
+| 用途 | 实数 IFFT，半复数格式输入；FDP 频域重建原语 |
+| 状态 | 已实现，编译通过，运行时验证通过 |
+
+**设计要点**：
+- 利用 `IFFT(X) = (1/N) * conj(FFT(conj(X)))`，复用正向 FFT 核（无独立逆变换代码）
+- 解包半复数 -> 完整复数（Hermitian 对称）-> conj -> fft_forward -> conj/N -> 输出实部
+- 输入须为 `rfft` 半复数输出格式
+- overlap-add 不含在本组件内（由下游 `delay`+`mixer` 组合搭建）
+- `rfft -> ifft` 恒等变换（数值精度内，已运行时验证）
+
+### 13.7 input_mixer_3d（L1 专用扩展）
+
+| 项 | 值 |
+|---|---|
+| 组件 ID | `orpheus.builtin.input_mixer_3d` |
+| 源码对应 | `Model_1_1.c` PreAmp InputMixer3D + DownmixToStereo |
+| 用途 | 加权矩阵混音器（M 输入 -> N 输出），BULK 权重双缓冲直写 |
+| 状态 | 已实现，编译通过，运行时验证通过 |
+
+**设计要点**：
+- 权重矩阵 `weights[32x32]` 行优先存储，行步长固定 `IM3D_MAX_CHANNELS=32`（BULK 边界对齐）
+- BULK 双缓冲保证权重原子切换；`weights` 字符串参数用于 prepare 期初始化
+- 矩阵混音：`out[o] = (sum_i w[o*MAX+i] * in[i]) * gain_linear`
+- 输入/输出通道数独立可配（`input_channels`/`output_channels`，均影响签名），支持通道数变化（如 8->2 下混）
+- 默认单位矩阵（直通），`gain_db` 平滑更新
+- 覆盖 InputMixer3D（5.1.4 加权）与 DownmixToStereo（8ch->L/R）两个块
+
+### 13.8 运行时验证
+
+测试工程 `examples/baf_components_test.yaml` 构建完整链路并通过运行时端到端验证：
+
+```
+signal_gen(4ch) -> gain_ramper -> iir_bank -> rfft -> ifft
+  -> sleeping_beauty -> input_mixer_3d(4->2ch) -> probe_rms -> wav_out
+```
+
+- `cli compile` 通过；plan 正确解析通道数变化（mix 节点 4->2）
+- 运行时处理 480000 帧（10s @ 48kHz）无错误，输出 wav 1.92MB
+- probe_rms 实测 RMS = 0.192（-6dB 正弦经链路，量级合理）
+- rfft->ifft round-trip 恒等验证通过
