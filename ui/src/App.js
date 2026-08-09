@@ -61,7 +61,7 @@ function Editor() {
   const [autoSave, setAutoSave] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showParams, setShowParams] = useState(false);
-  const [leftTab, setLeftTab] = useState('palette'); // 'palette' | 'tree' | 'distill'
+  const [leftTab, setLeftTab] = useState('palette'); // 'palette' | 'tree'
   const [leftOpen, setLeftOpen] = useState(true);   // 组件库
   const [rightOpen, setRightOpen] = useState(true); // 参数面板/子组件面板
   const [openMenu, setOpenMenu] = useState(null); // 'project' | 'run' | null：分组展开菜单
@@ -1320,15 +1320,6 @@ const { screenToFlowPosition } = useReactFlow();
               >
                 工程树
               </button>
-              {doc && doc.model_tree && (
-                <button
-                  className={leftTab === 'distill' ? 'active' : ''}
-                  onClick={() => setLeftTab('distill')}
-                  title="蒸馏分析树：滤波器块映射与参数（标注缺失/可替代组件）"
-                >
-                  蒸馏
-                </button>
-              )}
             </div>
             {leftTab === 'palette' && (
               <Palette
@@ -1339,13 +1330,11 @@ const { screenToFlowPosition } = useReactFlow();
                 onPromoteComponent={onPromoteComponent}
               />
             )}
-            {leftTab !== 'palette' && (
+            {leftTab === 'tree' && (
               <ProjectTree
-                mode={leftTab}
                 doc={doc}
                 views={views}
                 subsMeta={subsMeta}
-                catalogById={catalogById}
                 activeView={activeView}
                 onLocate={onLocateNode}
                 onOpenView={onOpenView}

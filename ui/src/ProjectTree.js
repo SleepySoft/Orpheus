@@ -82,13 +82,12 @@ function Blocks({ text }) {
   );
 }
 
-function DistillTree({ doc }) {
+/** 蒸馏分析内容（无外层容器，供工程树内嵌）。 */
+function DistillContent({ doc }) {
   const mt = doc?.model_tree;
   const [collapsed, setCollapsed] = useState({});
   const toggle = (key) => setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
-  if (!mt) {
-    return <div className="tree-root tree-hint">该工程没有蒸馏分析（model_tree）。</div>;
-  }
+  if (!mt) return null;
 
   const Section = ({ title, children }) => (
     <div className="chain">
@@ -124,7 +123,7 @@ function DistillTree({ doc }) {
   };
 
   return (
-    <div className="tree-root">
+    <>
       <div className="distill-header">
         <div className="distill-name">{mt.name || doc?.metadata?.name}</div>
         {mt.source && <div className="distill-meta">{mt.source}</div>}
@@ -230,17 +229,20 @@ function DistillTree({ doc }) {
           )}
         </>
       )}
-    </div>
+    </>
   );
 }
 
-function ProjectOutline({ views, subsMeta, catalogById, activeView, onLocate, onOpenView }) {
+function ProjectOutline({ doc, views, subsMeta, activeView, onLocate, onOpenView }) {
   const [query, setQuery] = useState('');
+  const [distillOpen, setDistillOpen] = useState(true);
   const [expanded, setExpanded] = useState(() => {
     const init = { main: true };
     for (const s of subsMeta || []) init[subViewKey(s.id)] = true;
     return init;
   });
+  const mt = doc?.model_tree;
+  const distillCount = mt ? (mt.children?.length ?? mt.chains?.length ?? '') : '';
 
   const outline = useMemo(() => {
     const subName = (id) => subsMeta.find((s) => s.id === id)?.name || id;
@@ -332,6 +334,24 @@ function ProjectOutline({ views, subsMeta, catalogById, activeView, onLocate, on
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
+      {mt && (
+        <div className="tree-item">
+          <div
+            className="tree-item-row"
+            onClick={() => setDistillOpen((v) => !v)}
+            title="蒸馏分析：滤波器块映射与参数（标注缺失/可替代组件）"
+          >
+            <span className="tree-caret">{distillOpen ? '▼' : '▶'}</span>
+            <span className="tree-item-label">蒸馏分析</span>
+            <span className="palette-count">{distillCount}</span>
+          </div>
+          {distillOpen && (
+            <div className="distill-inline">
+              <DistillContent doc={doc} />
+            </div>
+          )}
+        </div>
+      )}
       <div className="tree-item">
         <div
           className={`tree-item-row ${activeView === 'main' ? 'active' : ''}`}
@@ -350,16 +370,13 @@ function ProjectOutline({ views, subsMeta, catalogById, activeView, onLocate, on
   );
 }
 
-/** 左侧栏：工程树导航（mode='project'）或蒸馏分析树（mode='distill'）。 */
+/** 左侧栏：工程树导航（含可选的蒸馏分析内嵌）。 */
 export default function ProjectTree(props) {
-  if (props.mode === 'distill') {
-    return <DistillTree doc={props.doc} />;
-  }
   return (
     <ProjectOutline
+      doc={props.doc}
       views={props.views}
       subsMeta={props.subsMeta}
-      catalogById={props.catalogById}
       activeView={props.activeView}
       onLocate={props.onLocate}
       onOpenView={props.onOpenView}

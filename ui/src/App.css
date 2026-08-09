@@ -624,6 +624,12 @@
   margin-bottom: 6px;
 }
 
+.distill-inline {
+  margin: 2px 0 6px 6px;
+  padding-left: 8px;
+  border-left: 2px solid #dee2e6;
+}
+
 .distill-name {
   font-size: 13px;
   font-weight: 600;
