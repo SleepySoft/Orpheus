@@ -27,6 +27,7 @@ import OrpheusNode from './OrpheusNode';
 import ParamPanel from './ParamPanel';
 import ParamBrowser from './ParamBrowser';
 import Palette from './Palette';
+import ProjectTree from './ProjectTree';
 import SubPortsPanel from './SubPortsPanel';
 import ProjectSettings from './ProjectSettings';
 
@@ -60,6 +61,7 @@ function Editor() {
   const [autoSave, setAutoSave] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showParams, setShowParams] = useState(false);
+  const [leftTab, setLeftTab] = useState('palette'); // 'palette' | 'tree' | 'distill'
   const [leftOpen, setLeftOpen] = useState(true);   // 组件库
   const [rightOpen, setRightOpen] = useState(true); // 参数面板/子组件面板
   const [openMenu, setOpenMenu] = useState(null); // 'project' | 'run' | null：分组展开菜单
@@ -531,6 +533,16 @@ const { screenToFlowPosition } = useReactFlow();
     },
     []
   );
+
+  /** 工程树定位：切到节点所在视图并选中该节点。 */
+  const onLocateNode = useCallback((viewKey, nodeId) => {
+    setActiveView(viewKey);
+    setSelectedId(nodeId);
+    setSelectedIds([nodeId]);
+  }, []);
+
+  /** 工程树导航：打开指定视图（主图或子组件画布）。 */
+  const onOpenView = useCallback((viewKey) => setActiveView(viewKey), []);
 
   /** 参数面板：把数值数组写入实时会话的 BULK 槽（如 biquad_bank 系数）。 */
   const onWriteBulk = useCallback(
@@ -1288,18 +1300,57 @@ const { screenToFlowPosition } = useReactFlow();
         {leftOpen && (
           <div className="side-panel side-panel-left">
             <div className="side-panel-header">
-              <span>组件库</span>
+              <span>工程导航</span>
               <button className="side-collapse" onClick={() => setLeftOpen(false)} title="收起组件库">
                 « 收起
               </button>
             </div>
-            <Palette
-              components={catalog}
-              subsMeta={subsMeta}
-              onDeleteSub={deleteSub}
-              onDeleteComponent={onDeleteComponent}
-              onPromoteComponent={onPromoteComponent}
-            />
+            <div className="side-tabs">
+              <button
+                className={leftTab === 'palette' ? 'active' : ''}
+                onClick={() => setLeftTab('palette')}
+                title="全局组件库与工程子组件"
+              >
+                组件库
+              </button>
+              <button
+                className={leftTab === 'tree' ? 'active' : ''}
+                onClick={() => setLeftTab('tree')}
+                title="工程结构树：按层级浏览/定位节点"
+              >
+                工程树
+              </button>
+              {doc && doc.model_tree && (
+                <button
+                  className={leftTab === 'distill' ? 'active' : ''}
+                  onClick={() => setLeftTab('distill')}
+                  title="蒸馏分析树：滤波器块映射与参数（标注缺失/可替代组件）"
+                >
+                  蒸馏
+                </button>
+              )}
+            </div>
+            {leftTab === 'palette' && (
+              <Palette
+                components={catalog}
+                subsMeta={subsMeta}
+                onDeleteSub={deleteSub}
+                onDeleteComponent={onDeleteComponent}
+                onPromoteComponent={onPromoteComponent}
+              />
+            )}
+            {leftTab !== 'palette' && (
+              <ProjectTree
+                mode={leftTab}
+                doc={doc}
+                views={views}
+                subsMeta={subsMeta}
+                catalogById={catalogById}
+                activeView={activeView}
+                onLocate={onLocateNode}
+                onOpenView={onOpenView}
+              />
+            )}
           </div>
         )}
         <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
