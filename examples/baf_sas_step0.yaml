@@ -656,113 +656,172 @@ subcomponents:
   ports:
   - id: buffer1
     direction: input
-    maps_to: mix1:in0
+    maps_to: buf_split:in
   - id: buffer2
     direction: input
-    maps_to: buf2_gain:in
+    maps_to: mic_ld:in
   - id: mono
     direction: input
-    maps_to: mono_gain:in
+    maps_to: mono_ld:in
   - id: fdp_lo_ro
     direction: input
-    maps_to: fdp_gain:in
+    maps_to: fdp_ld:in
   - id: out
     direction: output
-    maps_to: mix3:out
+    maps_to: wide_gain:out
   graph:
     nodes:
-    - id: mono_gain
-      component: orpheus.builtin.gain
-      params:
-        gain_db: -96.0
-        channels: 1
-      position:
-        x: 60
-        y: 180
-    - id: fdp_gain
-      component: orpheus.builtin.gain
-      params:
-        gain_db: -96.0
-        channels: 4
-      position:
-        x: 60
-        y: 260
-    - id: mono_expand
+    - id: buf_split
       component: orpheus.builtin.output_router
       params:
-        channels_in: 1
+        channels_in: 10
         channels_out: 10
         matrix: identity
       position:
-        x: 200
-        y: 180
-    - id: fdp_expand
-      component: orpheus.builtin.output_router
+        x: 40
+        y: 90
+    - id: bpf
+      component: orpheus.builtin.iir_bank
       params:
-        channels_in: 4
-        channels_out: 10
-        matrix: identity
-      position:
-        x: 200
-        y: 260
-    - id: mix1
-      component: orpheus.builtin.mixer
-      params:
-        gain0: 0.0
-        gain1: -96.0
         channels: 10
+        num_stages: 2
+        coefs_mode: per_channel
+        coefs: 1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0
+      position:
+        x: 200
+        y: 40
+    - id: lpf
+      component: orpheus.builtin.iir_bank
+      params:
+        channels: 10
+        num_stages: 4
+        coefs_mode: per_channel
+        coefs: 1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0
+      position:
+        x: 200
+        y: 140
+    - id: bpf_gain
+      component: orpheus.builtin.gain_ramper
+      params:
+        gain_db: 0.0
+        ramp_ms: 50.0
+        channels: 10
+        num_rampers: 1
+        chan_map: 0,0,0,0,0,0,0,0,0,0
       position:
         x: 380
-        y: 100
-    - id: mix2
+        y: 40
+    - id: lpf_gain
+      component: orpheus.builtin.gain_ramper
+      params:
+        gain_db: 0.0
+        ramp_ms: 50.0
+        channels: 10
+        num_rampers: 1
+        chan_map: 0,0,0,0,0,0,0,0,0,0
+      position:
+        x: 380
+        y: 140
+    - id: bpf_delay
+      component: orpheus.builtin.delay_line
+      params:
+        channels: 10
+        max_delay_samples: 64
+        delays_samples: 0,0,0,0,0,0,0,0,0,0
+      position:
+        x: 560
+        y: 40
+    - id: sum
       component: orpheus.builtin.mixer
       params:
         gain0: 0.0
-        gain1: -96.0
+        gain1: 0.0
         channels: 10
       position:
-        x: 520
-        y: 100
-    - id: buf2_gain
-      component: orpheus.builtin.gain
+        x: 740
+        y: 90
+    - id: wide_gain
+      component: orpheus.builtin.gain_ramper
       params:
-        gain_db: -96.0
+        gain_db: 0.0
+        ramp_ms: 50.0
+        channels: 10
+        num_rampers: 1
+        chan_map: 0,0,0,0,0,0,0,0,0,0
+      position:
+        x: 920
+        y: 90
+    - id: mic_ld
+      component: orpheus.builtin.level_detect
+      params:
+        mode: 1
+        attack_ms: 10.0
+        release_ms: 100.0
         channels: 1
       position:
-        x: 60
-        y: 340
-    - id: buf2_expand
-      component: orpheus.builtin.output_router
+        x: 200
+        y: 260
+    - id: mono_ld
+      component: orpheus.builtin.level_detect
       params:
-        channels_in: 1
-        channels_out: 10
-        matrix: identity
+        mode: 1
+        attack_ms: 10.0
+        release_ms: 100.0
+        channels: 1
       position:
         x: 200
         y: 340
-    - id: mix3
-      component: orpheus.builtin.mixer
+    - id: fdp_ld
+      component: orpheus.builtin.level_detect
       params:
-        gain0: 0.0
-        gain1: -96.0
-        channels: 10
+        mode: 1
+        attack_ms: 10.0
+        release_ms: 100.0
+        channels: 4
       position:
-        x: 660
-        y: 100
+        x: 200
+        y: 420
+    - id: mic_sink
+      component: orpheus.builtin.null_sink
+      params:
+        channels: 1
+      position:
+        x: 380
+        y: 260
+    - id: mono_sink
+      component: orpheus.builtin.null_sink
+      params:
+        channels: 1
+      position:
+        x: 380
+        y: 340
+    - id: fdp_sink
+      component: orpheus.builtin.null_sink
+      params:
+        channels: 4
+      position:
+        x: 380
+        y: 420
     connections:
-    - from: mono_gain:out
-      to: mono_expand:in
-    - from: fdp_gain:out
-      to: fdp_expand:in
-    - from: buf2_gain:out
-      to: buf2_expand:in
-    - from: mono_expand:out
-      to: mix1:in1
-    - from: mix1:out
-      to: mix2:in0
-    - from: fdp_expand:out
-      to: mix2:in1
-    - from: mix2:out
-      to: mix3:in0
-    - from: buf2_expand:out
-      to: mix3:in1
+    - from: buf_split:out
+      to: bpf:in
+    - from: buf_split:out
+      to: lpf:in
+    - from: bpf:out
+      to: bpf_gain:in
+    - from: lpf:out
+      to: lpf_gain:in
+    - from: bpf_gain:out
+      to: bpf_delay:in
+    - from: bpf_delay:out
+      to: sum:in0
+    - from: lpf_gain:out
+      to: sum:in1
+    - from: sum:out
+      to: wide_gain:in
+    - from: mic_ld:out
+      to: mic_sink:in
+    - from: mono_ld:out
+      to: mono_sink:in
+    - from: fdp_ld:out
+      to: fdp_sink:in
