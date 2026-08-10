@@ -231,7 +231,7 @@ subcomponents:
     maps_to: buf_expand:in
   - id: treble_surround
     direction: input
-    maps_to: ts_expand:in
+    maps_to: ts_delay:in
   - id: out
     direction: output
     maps_to: merge2:out
@@ -246,6 +246,15 @@ subcomponents:
       position:
         x: 80
         y: 60
+    - id: ts_delay
+      component: orpheus.builtin.delay_line
+      params:
+        channels: 7
+        max_delay_samples: 30436
+        delays_samples: 1664,1664,1664,1664,1664,1664,1664
+      position:
+        x: 80
+        y: 180
     - id: ts_expand
       component: orpheus.builtin.output_router
       params:
@@ -367,6 +376,8 @@ subcomponents:
     connections:
     - from: buf_expand:out
       to: concat:in0
+    - from: ts_delay:out
+      to: ts_expand:in
     - from: ts_expand:out
       to: concat:in1
     - from: concat:out
