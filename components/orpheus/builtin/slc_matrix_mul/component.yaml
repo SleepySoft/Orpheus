@@ -1,0 +1,89 @@
+id: orpheus.builtin.slc_matrix_mul
+name: N表插值斜坡混音矩阵
+category: 基础算法
+description: N 表插值 + 一阶 IIR 斜坡 + 矩阵乘一体化；out[rows] = active(rows*cols) * in[cols]，active 由 N 张增益表按 interp_index 插值后经 IIR 渐变
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: SlcMatrixMulState
+sources:
+  - src/slc_matrix_mul.c
+headers:
+  - include/orpheus_slc_matrix_mul.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:cols
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:rows
+parameters:
+  - id: rows
+    name: 输出行数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: cols
+    name: 输入列数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: num_tables
+    name: 插值表数量
+    type: int
+    default: 1
+    range: [1, 8]
+    update_policy: restart_required
+  - id: tables
+    name: 增益表
+    type: string
+    default: "1, 0, 0, 1"
+    widget: text
+    kind: bulk
+    update_policy: restart_required
+  - id: interp_x
+    name: 插值断点
+    type: string
+    default: "0"
+    widget: text
+    update_policy: restart_required
+  - id: interp_index
+    name: 插值位置
+    type: float
+    default: 0.0
+    update_policy: immediate
+  - id: interp_method
+    name: 插值方法
+    type: int
+    default: 0
+    range: [0, 1]
+    update_policy: restart_required
+  - id: ramp_coeff
+    name: IIR斜坡系数
+    type: float
+    default: 0.0
+    range: [0.0, 1.0]
+    update_policy: restart_required
+  - id: freeze
+    name: 冻结
+    type: int
+    default: 0
+    range: [0, 1]
+    update_policy: immediate
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

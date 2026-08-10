@@ -92,7 +92,7 @@ model_tree:
         - LevelDetectPreEmpFilterpooliirCoeffs(50 float = 10stages×5) NumStages(10 uint)
         - LevelDetect(FastDecay HoldMargin HoldTime MaxVol MinVol SlowDecay ×2=12 float)
     - id: part2_fdp
-      label: Part2 FDP 频域环绕解码
+      label: Part2 FDP 频域环绕解码（2ch->6ch, 全系统->22ch）
       flow: >
         TrebleDelay[7928](2ch) -> BufferIn(2ch×256) ->
         Windowing(InputOverlap×sine[128] + AudioIn×cosine[128]) ->
@@ -103,7 +103,7 @@ model_tree:
         ApplyCoefficients(Lo=Lok×Lin Ro=Rok×Rin Lsr=Lxk×Lin Rsr=Rxk×Rin -> 6路频域) ->
         PSD平滑(FastPsdSmoothFactor SlowPsdSmoothFactor) -> DetectImpulse ->
         ReverbExtraction(LeftFast/LeftSlow/RightFast/RightSlow 4条延迟[2193]) ->
-        IFFT+overlapAdd -> BufferOut(6ch×256) -> Selector(4ch:{0,1,2,4})
+        IFFT+overlapAdd -> BufferOut(6ch×256, 2ch->6ch解码) -> Part3 LeftFdp(3)/RightFdp(3) -> 装配 22ch 系统输出
       delays: [TrebleDelay(2ch,7928), SASFdpLeftFast(2193), SASFdpLeftSlow(2193), SASFdpRightFast(2193), SASFdpRightSlow(2193)]
       fft: {size: 256, bins: 129, channels_in: 2, channels_out: 6, window: sine+cosine 128+128, overlap_add: yes}
       params: "FdpCoeffs(6 float) FdpSpum(4 float) DirectPathSamplesDec(1 uint,1161) TrebleDelay(1 uint,1280)"
@@ -114,12 +114,13 @@ model_tree:
         SelectSurroundDiscrete/SelectLeftSurroundAtmos/SelectRightSurroundAtmos ->
         SumOfElements(LtfLtb+surround) -> 路由(b={0,2,3} c={1,4,5} d={7,9,10} e={8,11,12}) ->
         LeftAtmos/LeftFdp/RightAtmos/RightFdp(各3ch×32)
+        MixingMatrix(13ch->22ch: Cs 13x2=26gains->Merge[0:1], Left 7x10=70gains->Merge[2:11], Right 7x10=70gains->Merge[12:21], 166gains total, one-pole ramp g=(1-c)*target+c*g, FastSequence trigger) ->
       delays: [TrebleSurroundDelay(7ch,30436,stateLen4348)]
-      params: "MixEqpooliirCoeffs(484 float) RampCoeff(1,0.995842) NumStages(13 uint,各10) TrebleSurroundDelay(1 uint,1664)"
+      params: "MixEqpooliirCoeffs(484 float) RampCoeff(1,0.995842) NumStages(13 uint,各10) TrebleSurroundDelay(1 uint,1664) CsTargetGains[26]+LeftTargetGains[70]+RightTargetGains[70](166 mixing gains, PingPong N00S1_2_D1_1_F3)"
     - id: part4_peripheral_eq
       label: Part4 外围 EQ
       flow: >
-        Switch(enable/disable) -> Selector1(22ch从32ch: {0,1,2,3,4,5,12,13,14,15,6,7,16,17,8,18,9,19,10,20,11,21}) ->
+        Switch(enable/disable) -> Selector1(22ch重排序22->22, 32为帧长非通道数: tmp[22]={0,1,2,3,4,5,12,13,14,15,6,7,16,17,8,18,9,19,10,20,11,21}) ->
         pooliir(iir_accelerator_process, 22ch×32, GLXP IIR, workMem 1104, 13stages×10, RmdlShutdown时输出零) ->
         ChannelDelay(dsp.Delay, 22ch, W1_IC_BUFF circBuf 254)
       pooliir: {instance: PeripheralEq_FullRateEq, work_memory: 1104, channels: 22, stages: 13}

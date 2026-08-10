@@ -51,15 +51,18 @@ BAF（音频框架）SAS 空间音频系统，用于车载多通道音频处理�
 - 参数（p3_b0）：FdpCoeffs（6 float）、FdpSpum（4 float）、DirectPathSamplesDec（1 uint, 1161）、TrebleDelay（1 uint, 1280）
 
 ### 3.4 Part3 全速率混合
-- TrebleSurroundDelay[30436]（7ch, stateLen 4348, delay 1664）→ SelectSurroundDiscrete / SelectLeftSurroundAtmos / SelectRightSurroundAtmos → SumOfElements（LtfLtb+surround）→ 路由（b={0,2,3} c={1,4,5} d={7,9,10} e={8,11,12}）→ LeftAtmos/LeftFdp/RightAtmos/RightFdp（各 3ch×32）
+- TrebleSurroundDelay[30436]（7ch, stateLen 4348, delay 1664）-> SelectSurroundDiscrete / SelectLeftSurroundAtmos / SelectRightSurroundAtmos -> SumOfElements（LtfLtb+surround）-> 路由（b={0,2,3} c={1,4,5} d={7,9,10} e={8,11,12}）-> LeftAtmos/LeftFdp/RightAtmos/RightFdp（各 3ch x 32）
+- **13ch->22ch 混音矩阵**（Model_1_1.c:12689-12960）：InputOrganizer 装配 Left(7ch)/Right(7ch)/Cs(13ch) 三子总线，各经一组斜坡渐变混音矩阵展开为 22ch Merge 总线：
+  - Cs mix: CsInput(13ch) x gains[13x2=26] -> Merge[0:1]（2ch）
+  - Left mix: LeftInput(7ch) x gains[7x10=70] -> Merge[2:11]（10ch）
+  - Right mix: RightInput(7ch) x gains[7x10=70] -> Merge[12:21]（10ch）
+  - 共 166 增益（PingPongStruct.xml 实证：CsTargetGains[26]/LeftTargetGains[70]/RightTargetGains[70]），一阶 IIR 斜坡 g=(1-c)*target+c*g，FastSequence 触发，增益下限 5.01e-7
 - 延迟：TrebleSurroundDelay（7ch, 30436, stateLen 4348）
-- 参数（p5_b0）：MixEqpooliirCoeffs（484 float，默认单位矩阵）、RampCoeff（1, 0.995842）、NumStages（13 uint, 各 10）、TrebleSurroundDelay（1 uint, 1664）
-
+- 参数（p5_b0）：MixEqpooliirCoeffs（484 float，默认单位矩阵）、RampCoeff（1, 0.995842）、NumStages（13 uint, 各 10）、TrebleSurroundDelay（1 uint, 1664）、**CsTargetGains[26] + LeftTargetGains[70] + RightTargetGains[70]**（166 混音增益，PingPong N00S1_2_D1_1_F3）
 ### 3.5 Part4 外围 EQ
-- Switch（enable/disable）→ Selector1（22ch 从 32ch: {0,1,2,3,4,5,12,13,14,15,6,7,16,17,8,18,9,19,10,20,11,21}）→ pooliir（iir_accelerator_process, 22ch×32, GLXP IIR, workMem 1104, 13stages×10, RmdlShutdown 时输出零）→ ChannelDelay（dsp.Delay, 22ch, W1_IC_BUFF circBuf 254）
+- Switch（enable/disable）-> Selector1（**22ch->22ch 重排序**，32 为帧长非通道数: tmp[22]={0,1,2,3,4,5,12,13,14,15,6,7,16,17,8,18,9,19,10,20,11,21}，把 Merge 总线按 L/R 对交错重排，Model_1_1.c:13215）-> pooliir（iir_accelerator_process, 22ch x 32, GLXP IIR, workMem 1104, 13stages x 10, RmdlShutdown 时输出零）-> ChannelDelay（dsp.Delay, 22ch, W1_IC_BUFF circBuf 254）
 - pooliir：SAS_PeripheralEq_FullRateEq, 工作内存 1104, 22ch, 13 stages
-- 参数（p5_b0）：pooliirCoeffs（484 默认单位矩阵）、NumStages（13）
-
+- 参数（p5_b0）：pooliirCoeffs（484默认单位矩阵） NumStages（13）
 ### 3.6 Part5 全息后处理
 - SleepingBeauty（4 ramper: currentGain/targetGain/rampCoeff/frameCount, rampCoeffMultipliers=powf(rampCoeff,1:32)）→ channelToRamperMap[22] 映射 → gain×rampCoeffMultipliers 施加到映射通道 → 未用通道置零 → PostHoligramRoutingMap[22] 路由 → FadeControl（2 ramper）→ MuteControl
 - 参数（p12_b0）：ChannelToRamperMap（22）、TableDb（30）、TableIdx（30）、Offset（1, 128.0）、RampTime（1, 30.0）、MutesBass（1, 0.0）、PhaseAlignmentDelays（22 uint）
@@ -353,79 +356,90 @@ InputMixer3D:
 
 ---
 
-### 11.4 FDP — 频域环绕解码器
+### 11.4 FDP - 频域环绕解码器（Medusa 核心）
 
-**源码位置**：`Model_1_1.c:10182-10900`（Fdp 子系统）
+**源码位置**：`Model_1_1.c:10489-11854`（`Model_1_1_Fdp_Init` / `Model_1_1_Fdp`，子系统 `MedusaFdpFullRate/Fdp`）；DeciRate 版在 `Model_1_2.c`（延迟线 774，FullRate 2193）。
 
-**完整处理流水线**：
+**是什么**：FDP（Frequency Domain Processing）是 Medusa 的频域核心——把立体声 L/R 经 STFT 变到频域，按"直接路径 / 串扰过量"分解出多路环绕成分，再提取混响并 IFFT 重建。它是"立体声上混成环绕声"的频域解码器，也是整个 2->22 上混链路的频域算法核心。
+
+**声道流（已修正）**：输入 2ch（L/R，经 TrebleDelay[7928] 对齐）-> 频域解码 -> IFFT 输出 **6ch**（`rifft_process(...,256,6,128)`，`:11754`；BufferOut 环形缓冲 1536=256x6，`:11986`），**不是 4ch**。6ch 在 Part3 按 `LeftFdp={1,3,4}`、`RightFdp={2,5,6}` 分组（`:12486`），与 Atmos/延迟混合后装配成系统 **22ch** 扬声器输出。即：FDP 自身 2->6，全系统 ->22。
+
+**完整流水线**（带源码行号）：
 
 ```
-[输入] L/R 2ch (经 TrebleDelay[7928])
-  │
+[输入] L/R 2ch (TrebleDelay[7928] 对齐)
+  |  :10634  Windowing: 2chx256, 50% overlap, InputOverlapxsine[128] + AudioInxcosine[128]
+  v           (sine/cosine 窗实现 overlap-add 完美重构)
+[2] :10664  RFFT: Model_1_1_MATLABFunction1, 一次复 FFT 算两个实 FFT -> 129 复数 bin x 2
+  v           (MatrixConcatenate[0..128]=L, [129..257]=R)
+[3] :10670  Coeffs1stStage (频域系数计算, 逐 bin):
+  |    absLi=|Lin|+eps, absRi=|Rin|+eps, minAbs=min(absLi,absRi)
+  |    Lxk = minAbs/absLi   // 左串扰/过量系数 (excess)
+  |    Rxk = minAbs/absRi   // 右串扰/过量系数
+  |    Lok = 1 - Lxk        // 左直接路径系数 (far left)
+  |    Rok = 1 - Rxk        // 右直接路径系数 (far right)
+  |    Lx = Lin*Lxk, Rx = Rin*Rxk
+  |    SPS = |Lx-Rx|/(|Lx|+|Rx|+eps)   // Surround Phase Selectivity 空间感指标
   v
-[1] BufferIn: 2ch × 256 样本块（50% overlap）
-  │
+[4] :10747  LPF 平滑: Model_1_1_MATLABFunction_m(lsGain=0.90993, lsPole=0.04504) 一阶低通, 防系数跳变
   v
-[2] Windowing: InputOverlap×sine[128] + AudioIn×cosine[128]
-  │              (sine/cosine 窗实现 overlap-add 的完美重构)
+[5] :10851  Coeffs2ndStage: Lxks=1-Loks, Rxks=1-Roks (更新单声道/过量系数)
   v
-[3] RFFT: rfft_process_inplace(256点, 2ch -> 129 复数 bin × 2)
-  │         (一次复 FFT 算两个实 FFT, SHARC+ cfftf 优化)
+[6] :10855  ApplyCoefficients (FullRate 变体, :10866 注释):
+  |    Lo  = Lok*Lin    // 远左直接
+  |    Ro  = Rok*Rin    // 远右直接
+  |    Lsr = Lxk*Lin    // 左环绕残差 (excess)
+  |    Rsr = Rxk*Rin    // 右环绕残差
+  |    CompsOut = [Lo, Ro]  // FullRate 不单独出 Left/Right Surround, 残差走混响
   v
-[4] Coeffs1stStage (频域系数计算):
-  │    absLi=|Lin|, absRi=|Rin|, minAbs=min(|L|,|R|)
-  │    Lxk = minAbs / absLi    // 左声道串扰比例
-  │    Rxk = minAbs / absRi    // 右声道串扰比例
-  │    Lok = 1 - Lxk           // 左直接路径系数
-  │    Rok = 1 - Rxk           // 右直接路径系数
-  │    SPS = |Lx-Rx| / (|Lx|+|Rx|)  // 空间感指标
+[7] PSD 平滑: FastPsdSmoothFactor + SlowPsdSmoothFactor (两套时间常数)
   v
-[5] LPF 平滑: lsGain=0.90993, lsPole=0.04504
-  │              (一阶低通平滑系数，防止系数跳变)
+[8] :11009  DetectImpulse (两路, S1080/S1095):
+  |    if (EnergyDifference > DetectImpulseThreshold) isImpulsive=1, counter=0
+  |    elseif (counter < MaxValueOfCounterForDetectingImpulse) && state==1: isImpulsive=1, counter++
+  |    else isImpulsive=0;  state=isImpulsive
+  |    (带保持计数器的瞬态检测, 控制 reverb fast/slow 路径切换 :11223)
   v
-[6] Coeffs2ndStage: Lxks=1-Loks, Rxks=1-Roks
+[9] ReverbExtraction (4 条延迟路径, :11201):
+  |    LeftFast/LeftSlow/RightFast/RightSlow x Delay[2193] (FullRate)
+  |    各路乘 DecayRate(MedusaPart1Bands_DecayRate) + LsSmoothFactor, fast/slow 不同时间常数
+  |    isImpulsive 时切换到 fast 衰减路径
   v
-[7] ApplyCoefficients (6 路频域输出):
-  │    Lo  = Lok × Lin    Ro  = Rok × Rin     // 直接路径
-  │    Lsr = Lxk × Lin    Rsr = Rxk × Rin     // 串扰路径
-  │    -> 6ch 频域 {Lo, Ro, Lsr, Rsr, ...}
+[10] :11747  IFFT + OverlapAdd: rifft_process(256点, 6ch, overlap128) -> 时域, 叠加 outputOverlap[768=128x6]
   v
-[8] PSD 平滑: FastPsdSmoothFactor + SlowPsdSmoothFactor
+[11] BufferOut: 6chx256 -> Part3 LeftFdp(3)/RightFdp(3)
   v
-[9] DetectImpulse: EnergyDifference > Threshold ? 脉冲 : 正常
-  v
-[10] ReverbExtraction (4 条延迟路径):
-  │     LeftFast  × FdpDelay[2193](delay=1161)
-  │     LeftSlow  × FdpDelay[2193]
-  │     RightFast × FdpDelay[2193](delay=1161)
-  │     RightSlow × FdpDelay[2193]
-  │     (Fast/Slow 代表不同时间常数的混响衰减)
-  v
-[11] IFFT + OverlapAdd: rifft(256点) -> 时域 -> 叠加 InputOverlap 缓冲
-  v
-[12] BufferOut: 6ch × 256 -> Selector: 4ch {0,1,2,4}
-  │
-  v
-[输出] 4ch 频域解码环绕
+[输出] 6ch 频域解码环绕 -> Part3 混合 -> 22ch
 ```
 
-**参数分区**（p3_b0）：
+**计算名词详解**：
 
-| 参数 | 量 | 默认 | 说明 |
+- **Lok / Rok**（far left / far right 系数）：直接路径系数 = `1 - 串扰比`。L、R 高度相关（单声道/居中声像）时 min(|L|,|R|) 约等于 |L|，Lxk 约等于 1，Lok 约等于 0 -> 直接路径弱；L、R 差异大（立体声/侧向）时 Lok 大 -> 直接路径强。
+- **Lxk / Rxk**（excess / 过量系数）：串扰比 = `min(|L|,|R|)/|L|`。代表"被对侧共享"的能量比例，即多余的、可抽作环绕的成分。
+- **Lo / Ro**：直接路径输出 = `Lok*Lin` / `Rok*Rin`（频域相乘 = 时域滤波）。
+- **Lsr / Rsr**：环绕残差 = `Lxk*Lin` / `Rxk*Rin`，即"过量"部分，送入混响提取产生环绕声。
+- **SPS**（Surround Phase Selectivity）：`|Lx-Rx|/(|Lx|+|Rx|+eps)`，空间感指标，衡量左右串扰成分的幅度差异，用于加权环绕系数。
+- **SPUM**（Stereo Program Up-Mix）：`MedusaFullRateFdpSpum*` 参数族——`FastPsdSmoothFactor`/`SlowPsdSmoothFactor`（PSD 双时间常数平滑）、`LsSmoothFactor`（混响平滑）、`DirectPathSamplesDec`(1161，直接路径延迟)、`DecayRate`(来自 Part1)、`Overwrite`（强制覆写系数）。
+
+**参数分区**（p3_b0）：FdpCoeffs(6) / FdpSpum(4) / DirectPathSamplesDec(1,uint,1161) / TrebleDelay(1,uint,1280)。
+
+**Orpheus 蒸馏与组件缺口**：
+
+| FDP 块 | 源码 | 蒸馏映射 | 缺口 |
 |---|---|---|---|
-| FdpCoeffs | 6 float | - | FDP 系数（增益/比例） |
-| FdpSpum | 4 float | - | SPUM（立体声程序上混）参数 |
-| DirectPathSamplesDec | 1 uint | 1161 | 直接路径延迟样本数 |
-| TrebleDelay | 1 uint | 1280 | 高频延迟样本数 |
+| Windowing | :10634 | `window` | 已映射 |
+| RFFT | :10664 | `rfft` | 已映射 |
+| Coeffs1stStage | :10670 | 占位 | 需 abs/min/除法 算术原语（Orpheus 仅有乘法 gain/matrix_mul、平方 square） |
+| LPF 平滑 | :10747 | `biquad` | 已映射 |
+| Coeffs2ndStage | :10851 | 占位 | 需 减法/1-x 原语 |
+| ApplyCoefficients | :10855 | `matrix_mul`（频域 binx系数） | 已映射（近似） |
+| PSD 平滑 | - | `psd` | 已映射 |
+| DetectImpulse | :11009 | 占位 | 可组合 level_detect+switch，但保持计数器需自定义 hold 元件 |
+| ReverbExtraction | :11201 | 占位 | 可组合 4xdelay+gain+mixer |
+| IFFT+overlapAdd | :11747 | `ifft`（overlap-add 需 delay+mixer 手搭） | 部分映射 |
+| BufferOut | - | 结构缓冲（不列入） | - |
 
-**Orpheus 分解**：
-
-```
-delay ─> window ─> [RFFT(新)] ─> [fdp_coeffs(新)] ─> biquad(LPF平滑)
-  ─> [reverb_extract(新: 4×delay+gain)] ─> [IFFT(新)] ─> [overlap_add(新)] ─> switch
-```
-
-关键缺失：`rfft`/`ifft` 组件（256 点实数 FFT）。FDP 系数计算和混响提取是自定义 MATLAB Function 块，需新建专用组件或用 `matrix_mul` + `delay` 近似。
+**结论**：FDP 的频域骨架（window/rfft/ifft/psd/biquad/matrix_mul）已可蒸馏；4 个占位块中，ReverbExtraction 可用 4xdelay+gain+mixer 拆解，DetectImpulse 缺 hold 计数器元件，Coeffs1stStage/2ndStage 缺 abs/min/除法/减法 等标量算术原语。要忠实复刻需新增算术原语组件或一体化 `fdp_coeffs` 组件。
 
 ---
 

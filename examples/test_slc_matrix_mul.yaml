@@ -1,0 +1,53 @@
+version: "0.1.0"
+metadata:
+  name: test_slc_matrix_mul
+  description: "N表插值斜坡混音矩阵测试：3表(2x2)，interp_index控制插值，ramp_coeff控制IIR渐变"
+sample_rate: 48000
+block_size: 32
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 32
+    priority: 0
+graph:
+  nodes:
+    - id: sig
+      component: orpheus.builtin.signal_gen
+      task: default
+      params:
+        channels: 2
+        frequency: 440.0
+        amplitude: 0.5
+      position:
+        x: 100
+        y: 100
+    - id: mixer
+      component: orpheus.builtin.slc_matrix_mul
+      task: default
+      params:
+        rows: 2
+        cols: 2
+        num_tables: 3
+        tables: "1, 0, 0, 1, 0.7, 0.3, 0.3, 0.7, 0.5, 0.5, 0.5, 0.5"
+        interp_x: "0, 128, 255"
+        interp_index: 0.0
+        interp_method: 0
+        ramp_coeff: 0.0
+        freeze: 0
+      position:
+        x: 300
+        y: 100
+    - id: probe
+      component: orpheus.builtin.probe_waveform
+      task: default
+      params:
+        channels: 2
+      position:
+        x: 500
+        y: 100
+  connections:
+    - from: sig:out
+      to: mixer:in
+    - from: mixer:out
+      to: probe:in
