@@ -930,7 +930,6 @@ subcomponents:
         channels: 10
         num_stages: 2
         coefs_mode: per_channel
-        coefs: 1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0
       position:
         x: 200
         y: 40
@@ -940,7 +939,6 @@ subcomponents:
         channels: 10
         num_stages: 4
         coefs_mode: per_channel
-        coefs: 1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0
       position:
         x: 200
         y: 140
@@ -995,6 +993,114 @@ subcomponents:
       position:
         x: 920
         y: 90
+    - id: sine_mod
+      component: orpheus.builtin.sine_mod
+      params:
+        freq_hz: 1.0
+        depth: 0.0
+        channels: 10
+      position:
+        x: 200
+        y: 260
+    - id: mod_matrix
+      component: orpheus.builtin.matrix_mul
+      params:
+        rows: 10
+        cols: 10
+        matrix: identity
+      position:
+        x: 380
+        y: 260
+    - id: pooliir_buf
+      component: orpheus.builtin.output_router
+      params:
+        channels_in: 10
+        channels_out: 10
+        matrix: identity
+      position:
+        x: 560
+        y: 260
+    - id: pooliir_sink
+      component: orpheus.builtin.null_sink
+      params:
+        channels: 10
+      position:
+        x: 740
+        y: 260
+    - id: hf_est
+      component: orpheus.builtin.coherence_matrix
+      params:
+        channels: 10
+      position:
+        x: 200
+        y: 360
+    - id: hf_psd
+      component: orpheus.builtin.psd
+      params:
+        channels: 10
+      position:
+        x: 380
+        y: 360
+    - id: hf_sink
+      component: orpheus.builtin.null_sink
+      params:
+        channels: 10
+      position:
+        x: 560
+        y: 360
+    - id: ref_delay
+      component: orpheus.builtin.delay_line
+      params:
+        channels: 1
+        max_delay_samples: 4800
+        delays_samples: 0
+      position:
+        x: 200
+        y: 460
+    - id: ref_sink
+      component: orpheus.builtin.null_sink
+      params:
+        channels: 1
+      position:
+        x: 380
+        y: 460
+    - id: lf_interp
+      component: orpheus.builtin.interp_lut
+      params:
+        channels: 1
+      position:
+        x: 200
+        y: 560
+    - id: lf_sink
+      component: orpheus.builtin.null_sink
+      params:
+        channels: 1
+      position:
+        x: 380
+        y: 560
+    - id: coh_power
+      component: orpheus.builtin.square
+      params:
+        channels: 4
+      position:
+        x: 200
+        y: 660
+    - id: coh_sat
+      component: orpheus.builtin.saturation
+      params:
+        limit: 0.5
+        soft: 0.0
+        channels: 4
+      position:
+        x: 380
+        y: 660
+    - id: coh_sink
+      component: orpheus.builtin.null_sink
+      params:
+        channels: 4
+      position:
+        x: 560
+        y: 660
     - id: mic_ld
       component: orpheus.builtin.level_detect
       params:
@@ -1003,8 +1109,8 @@ subcomponents:
         release_ms: 100.0
         channels: 1
       position:
-        x: 200
-        y: 260
+        x: 40
+        y: 460
     - id: mono_ld
       component: orpheus.builtin.level_detect
       params:
@@ -1013,8 +1119,8 @@ subcomponents:
         release_ms: 100.0
         channels: 1
       position:
-        x: 200
-        y: 340
+        x: 40
+        y: 560
     - id: fdp_ld
       component: orpheus.builtin.level_detect
       params:
@@ -1023,34 +1129,38 @@ subcomponents:
         release_ms: 100.0
         channels: 4
       position:
-        x: 200
-        y: 420
+        x: 40
+        y: 660
     - id: mic_sink
       component: orpheus.builtin.null_sink
       params:
         channels: 1
       position:
-        x: 380
-        y: 260
+        x: 200
+        y: 760
     - id: mono_sink
       component: orpheus.builtin.null_sink
       params:
         channels: 1
       position:
         x: 380
-        y: 340
+        y: 760
     - id: fdp_sink
       component: orpheus.builtin.null_sink
       params:
         channels: 4
       position:
-        x: 380
-        y: 420
+        x: 560
+        y: 760
     connections:
     - from: buf_split:out
       to: bpf:in
     - from: buf_split:out
       to: lpf:in
+    - from: buf_split:out
+      to: sine_mod:in
+    - from: buf_split:out
+      to: hf_est:in
     - from: bpf:out
       to: bpf_gain:in
     - from: lpf:out
@@ -1063,12 +1173,36 @@ subcomponents:
       to: sum:in1
     - from: sum:out
       to: wide_gain:in
+    - from: sine_mod:out
+      to: mod_matrix:in
+    - from: mod_matrix:out
+      to: pooliir_buf:in
+    - from: pooliir_buf:out
+      to: pooliir_sink:in
+    - from: hf_est:out
+      to: hf_psd:in
+    - from: hf_psd:out
+      to: hf_sink:in
+    - from: mic_ld:out
+      to: ref_delay:in
     - from: mic_ld:out
       to: mic_sink:in
+    - from: ref_delay:out
+      to: ref_sink:in
+    - from: mono_ld:out
+      to: lf_interp:in
     - from: mono_ld:out
       to: mono_sink:in
+    - from: lf_interp:out
+      to: lf_sink:in
+    - from: fdp_ld:out
+      to: coh_power:in
     - from: fdp_ld:out
       to: fdp_sink:in
+    - from: coh_power:out
+      to: coh_sat:in
+    - from: coh_sat:out
+      to: coh_sink:in
 
 # 从 baf_sas_full.yaml 迁移的完整 model_tree（结构/参数量/分区/TID 任务）
 model_tree:
