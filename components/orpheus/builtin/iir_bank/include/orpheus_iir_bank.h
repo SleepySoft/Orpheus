@@ -10,18 +10,23 @@ extern "C" {
 #define IIR_BANK_MAX_STAGES    16
 #define IIR_BANK_MAX_CHANNELS  32
 
-/* 每级仅保存状态（z1/z2），系数从连续 coefs[] 数组读取 */
+/* 每通道每级保存状态（z1/z2） */
 typedef struct {
-    float z1[IIR_BANK_MAX_CHANNELS];
-    float z2[IIR_BANK_MAX_CHANNELS];
-} IirStageState;
+    float z1[IIR_BANK_MAX_STAGES];
+    float z2[IIR_BANK_MAX_STAGES];
+} IirChannelState;
 
 typedef struct {
-    /* BULK 直写目标：连续系数 [b0,b1,b2,a1,a2] x numStages，共 5x16=80 float */
-    float coefs[5 * IIR_BANK_MAX_STAGES];
-    IirStageState stages[IIR_BANK_MAX_STAGES];
+    /*
+     * BULK 直写目标。
+     * shared 模式：只使用前 5*MAX_STAGES 个（80 float）。
+     * per_channel 模式：按 [channel][stage*5+k] 展开，共 channels*5*MAX_STAGES 个。
+     */
+    float coefs[IIR_BANK_MAX_CHANNELS][5 * IIR_BANK_MAX_STAGES];
+    IirChannelState channelStates[IIR_BANK_MAX_CHANNELS];
     uint32_t numStages;
     uint32_t channels;
+    uint32_t coefs_mode;  /* 0=shared, 1=per_channel */
 } IirBankState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);

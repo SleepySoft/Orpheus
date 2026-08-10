@@ -1,15 +1,15 @@
-id: orpheus.builtin.iir_bank
-name: N级IIR滤波器组
+id: orpheus.builtin.delay_line
+name: 多通道独立延迟线
 category: 基础算法
-description: 可配置级数的级联双二阶IIR滤波器组，BULK系数直写，pooliir软件近似
+description: 每通道独立延迟样本数，支持 BULK 写入每通道延迟
 version: 1.0.0
 abi_version: 1
 package_type: source
-state_type: IirBankState
+state_type: DelayLineState
 sources:
-  - src/iir_bank.c
+  - src/delay_line.c
 headers:
-  - include/orpheus_iir_bank.h
+  - include/orpheus_delay_line.h
 ports:
   - id: in
     direction: input
@@ -29,37 +29,24 @@ parameters:
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: num_stages
-    name: 级数
+  - id: max_delay_samples
+    name: 最大延迟样本数
     type: int
-    default: 4
-    range: [1, 16]
+    default: 4800
+    range: [1, 192000]
     update_policy: restart_required
-  - id: coefs_mode
-    name: 系数模式
+  - id: delays_samples
+    name: 每通道延迟样本数
     type: string
-    default: shared
-    widget: select
-    options: [shared, per_channel]
-    update_policy: restart_required
-    affects_signature: true
-  - id: coefs
-    name: IIR系数
-    type: string
-    default: "1,0,0,0,0"
+    default: "0,0"
     widget: text
     kind: bulk
     update_policy: restart_required
 bulk_slots:
-  - id: coefs
-    name: IIR共享系数
+  - id: delays_samples
+    name: 每通道延迟样本数
     type: float
-    count: 80
-    double_bank: true
-  - id: coefs_per_channel
-    name: IIR每通道系数
-    type: float
-    count: 2560
+    count: 32
     double_bank: true
 memory:
   state_size: 0

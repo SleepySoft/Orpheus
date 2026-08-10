@@ -1,5 +1,27 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-10（第四十三次讨论：BAF SAS step0 骨架 + per-channel IIR/delay_line）
+
+- **iir_bank 支持 per-channel 系数**
+  - `component.yaml` 新增 `coefs_mode: shared | per_channel` 与 `coefs_per_channel` BULK 槽。
+  - `iir_bank.c`：per-channel 模式下按「通道 → 级 → 5 元组」解析字符串/BULK，
+    写入每通道独立的 `coefs[cc][5*i+k]` 槽位（保留 `MAX_STAGES` 填充，与 BULK 内存布局一致）。
+  - 新增 `test_per_channel_components.py`：验证 per-channel 增益不同、shared 向后兼容。
+- **delay_line 多通道独立延迟线**
+  - 补齐 `CMakeLists.txt`；修正 C 描述符中不存在的 widget/kind 常量。
+  - 缓冲区容量改为 `max_delay + block_size + 1`；`prepare` 解析 `delays_samples` 字符串默认值。
+  - 新增测试验证每通道不同延迟。
+- **BAF PostProcess 骨架**
+  - 新增 `examples/baf_postprocess.yaml`：32ch -> 22ch 主输出，覆盖
+    input_select/gain_ramper/limiter/iir_bank/soft_clipper/output_router/delay_line/probe/wav_out。
+  - 离线运行通过，主输出 RMS > 0.01。
+- **BAF SAS step0 完整骨架**
+  - 新增 `examples/baf_sas_step0.yaml`：Medusa 链 -> 1 块延迟反馈 -> MusicIn ->
+    InputSelect/PreAmp/PostProcess/Audiopilot，使用子组件层级结构。
+  - 子组件占位实现：`medusa_chain`、`input_select`、`pre_amp`、`post_process`、`audiopilot`，
+    内部用 input_select/output_router/mixer/gain/delay_line 保持通道数转换。
+  - 新增 `test_baf_step0.py`：编译/运行 end-to-end 验证；全量测试 117 passed、1 skipped。
+
 ## 2026-08-10（第四十二次讨论：FDP 架构修正 + slc_matrix_mul 接入 + UI 参数面板）
 
 - **FDP 架构修正（核心变更）**：源码实证发现 FDP（TID2）不是分析侧链，而是主链内联多速率组件。
@@ -818,3 +840,35 @@
 - 预充阈值固定为容量 1/3（未开放配置）；如需更小延迟可调小 buffer_size。
 - 预充仅在异步桥模式生效（duplex 单设备同时钟无需预充）。
 
+
+## 2026-08-10 BAF SAS step0 结构继续展开
+
+### 完成项
+1. `post_process` 子组件已在 `examples/baf_sas_step0.yaml` 中替换为真实 PostProcess 链路：pre_ramp → limiter → post_eq → soft_clipper → mute_ramp → calibration → freq_comp → output_delay。
+2. Medusa Part3 矩阵混音展开为 3 个 `slc_matrix_mul`（Cs 13→2 / Left 13→10 / Right 13→10）+ output_router 合入 22ch Merge 总线，保留 IIR 斜坡能力（ramp_coeff=0.995842）。
+3. Part4 / PostProcess 中的 IIR 实例统一改为 13 级 per-channel 占位（`num_stages: 13`，`coefs_mode: per_channel`，系数全部为单位 IIR），与 Model_1_1.c 中 pooliir 13 级结构对齐。
+4. Part4 22ch 重排序已按 Model_1_1.c:13215 的 tmp[] 表实现（1-based 索引）。
+
+### 验证
+- `python -m orpheus_core.cli compile examples/baf_sas_step0.yaml` 通过。
+- `python -m pytest orpheus_core/tests/test_baf_step0.py -q`：4 passed。
+- `python -m pytest orpheus_core/tests/ -q`：117 passed, 1 skipped。
+
+### 遗留 / 待下一步
+- 真实 IIR 系数（PostEQ/FreqComp/FullRateEq/MixEq）需要从 `Model_1_1.c` 提取；当前文件不在仓库内，需用户提供路径。
+- Part3 的 `slc_matrix_mul` 当前使用 identity 占位表；真实 `CsTargetGains[26]` / `LeftTargetGains[70]` / `RightTargetGains[70]` 同样需从 Model_1_1.c / PingPongStruct.xml 获取。
+- `limiter` 组件仍为单共享包络，BAF 需要每通道 attack/decay/k1/maxAttack，待扩展组件。
+- Part6→MusicIn 反馈当前为 identity 22→30 扩展，需按 BAF 反馈索引表精确映射。
+- Audiopilot 子组件仍为占位，需进一步展开 HF/LF 噪声滤波与增益计算。
+
+## 2026-08-10 从 Model_1_1.c 校正 IIR 级数
+
+- 已定位 `C:\D\Work\Project\EREV\cart-cicd-erev\components\baf\src\out\baremetalgxp\slx\code\Model_1_1_ert_shrlib_rtw\Model_1_1.c`。
+- 从对应 TOP 文件确认默认 IIR 级数：
+  - PostProcess `PostEQ` / `FreqComp`：`NumStages = [1]*22`
+  - Medusa Part4 `FullRateEq`：复用 p8 `MedusaFullRateHoligramIirPooliirNumStages = [8]*22`
+  - Medusa Part3 `MixEq`：`MedusaFullRateMixEqPooliirNumStages = [10]*13`
+- 已按上述级数更新 `examples/baf_sas_step0.yaml` 中 `post_eq`、`freq_comp`、`full_rate_eq`、`mix_eq`，系数仍用单位 IIR 占位（默认调音数据未提供具体双二阶系数）。
+- 验证：`python -m pytest orpheus_core/tests/ -q` → **117 passed, 1 skipped**。
+
+> 注：TOP 文件中 pooliir 系数数组为单位矩阵形式，与 `iir_bank` 的 `[b0,b1,b2,a1,a2]` 双二阶格式需进一步映射；当前示例保持可运行占位，待真实调音系数确定后再精确填充。
