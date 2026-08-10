@@ -872,3 +872,25 @@
 - 验证：`python -m pytest orpheus_core/tests/ -q` → **117 passed, 1 skipped**。
 
 > 注：TOP 文件中 pooliir 系数数组为单位矩阵形式，与 `iir_bank` 的 `[b0,b1,b2,a1,a2]` 双二阶格式需进一步映射；当前示例保持可运行占位，待真实调音系数确定后再精确填充。
+
+## 2026-08-10 limiter 扩展为每通道参数
+
+### 完成项
+1. `components/orpheus/builtin/limiter` 升级至 v1.1.0：
+   - 新增 `mode: shared|per_channel`。
+   - `shared` 模式保持原 `threshold_db/attack_ms/release_ms` 行为，完全向后兼容。
+   - `per_channel` 模式支持 `attack_coeffs`、`release_coeffs`、`k1`、`max_attack` 四个逗号分隔浮点数组（长度 ≥ channels）。
+   - 每通道独立包络，增益计算：`g = max(k1[c] * threshold/env[c], max_attack[c])`。
+2. 从 `Model_1_1_PostProcess_p0_b0_TOP.c` 提取 BAF PostProcess 限幅器默认值：
+   - `attack = 0.0236999`（22ch）
+   - `decay = 1.00023985`（22ch）
+   - `k1 = 0.0118499501`（22ch）
+   - `maxAttack = 0.316227764`（22ch）
+3. `examples/baf_sas_step0.yaml` 中 `post_process/limiter` 已切换为 `per_channel` 并填入上述 22 通道数组。
+
+### 验证
+- `python -m orpheus_core.cli build` 通过。
+- `python -m pytest orpheus_core/tests/ -q` → **117 passed, 1 skipped**。
+
+### 遗留
+- BAF 限幅器实际有 high/low 双带参数（`_low` 后缀），当前 `limiter` 只实现单带；如需完全对齐，后续可扩展为 `band_count` 或增加 low 带系数组。

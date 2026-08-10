@@ -1,8 +1,8 @@
 id: orpheus.builtin.limiter
 name: 峰值限幅
 category: 音效算法
-description: 峰值限幅器（阈值以下透明，超阈值按包络压缩，attack/release 平滑）
-version: 1.0.0
+description: 峰值限幅器（共享或每通道 attack/decay/k1/maxAttack）
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: LimiterState
@@ -22,11 +22,18 @@ ports:
     sample_format: f32
     channels: param:channels
 parameters:
+  - id: mode
+    name: 模式
+    type: string
+    default: shared
+    widget: select
+    options: [shared, per_channel]
+    update_policy: restart_required
   - id: threshold_db
     name: 阈值
     type: float
     default: -6.0
-    range: [-60.0, 0.0]
+    range: [-96.0, 24.0]
     unit: dB
     update_policy: smoothed
   - id: attack_ms
@@ -43,6 +50,30 @@ parameters:
     range: [1.0, 5000.0]
     unit: ms
     update_policy: smoothed
+  - id: attack_coeffs
+    name: 每通道启动系数
+    type: string
+    default: "0.0237"
+    widget: text
+    update_policy: restart_required
+  - id: release_coeffs
+    name: 每通道释放系数
+    type: string
+    default: "1.00024"
+    widget: text
+    update_policy: restart_required
+  - id: k1
+    name: 每通道 k1
+    type: string
+    default: "0.01185"
+    widget: text
+    update_policy: restart_required
+  - id: max_attack
+    name: 每通道最大衰减
+    type: string
+    default: "0.31623"
+    widget: text
+    update_policy: restart_required
   - id: channels
     name: 通道数
     type: int
