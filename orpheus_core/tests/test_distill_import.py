@@ -90,10 +90,36 @@ def test_parse_flow_splits_blocks_and_respects_parens() -> None:
 
 
 def test_distill_baf_sas_topology_expansion() -> None:
-    """baf_sas_full 的 model_tree.chains 在导入时展开为拓扑：
-    主图含全部链子模块，未映射块用占位组件 id（UI 标红「组件缺失」），注释保留。"""
+    """baf_sas_step0 的 model_tree.chains 在导入时展开为拓扑：
+    主图含全部链子模块，未映射块用占位组件 id（UI 标红「组件缺失」），注释保留。
+
+    baf_sas_step0.yaml 本身已是可执行工程（20 节点），蒸馏端点只会在骨架图（<=3 节点）
+    上展开 model_tree；因此测试时把 graph 替换为最小骨架，验证 model_tree 展开能力。"""
+    import yaml
+
     name = _new_name()
-    text = (ROOT / "examples" / "baf_sas_full.yaml").read_text(encoding="utf-8")
+    data = yaml.safe_load(
+        (ROOT / "examples" / "baf_sas_step0.yaml").read_text(encoding="utf-8")
+    )
+    # 蒸馏端点只在骨架图上展开 model_tree
+    data["graph"] = {
+        "nodes": [
+            {
+                "id": "sys_in",
+                "component": "orpheus.builtin.embed_in",
+                "params": {"channels": 22, "sample_rate": 48000},
+                "position": {"x": 40, "y": 200},
+            },
+            {
+                "id": "sys_out",
+                "component": "orpheus.builtin.embed_out",
+                "params": {"channels": 22, "sample_rate": 48000},
+                "position": {"x": 560, "y": 200},
+            },
+        ],
+        "connections": [{"from": "sys_in:out", "to": "sys_out:in"}],
+    }
+    text = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
     with TestClient(create_app(ROOT)) as client:
         resp = client.post(f"/api/projects/{name}/distill", json={"yaml": text})
         assert resp.status_code == 200, resp.text

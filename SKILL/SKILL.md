@@ -61,7 +61,7 @@ cd ui; npm run build               # 前端改动后必须重新构建，serve �
 - 产物 2：可直接导入的工程 YAML（`graph` + 嵌套 `subcomponents`，三层嵌套示例见 `examples/dsp_model_reference.yaml`）。
 - 多速率：模型有多 TID/分频时，`model_tree.task_flows` 必须结构化输出（主链 `chains` + 分析侧链
   `chains`/`blocks`，`call_interval`=分频比），导入器会按 TID 生成 `downrate` 抽头（规范见
-  `references/distill-model.md` §4.1）；示例见 `examples/baf_sas_full.yaml`。
+  `references/distill-model.md` §4.1）；示例见 `examples/baf_sas_step0.yaml（内含 `model_tree`）`。
 - 一键导入：UI 工具栏「⤵ 导入模型」，或 `POST /api/projects/{name}/distill`（body `{"yaml": "..."}`）。
 - 验证：`python scripts/parameter_layout.py <project.yaml>` 打印数据 layout 并回写校验；`cli compile` 通过；可跑的图再跑一次 e2e。
 

@@ -2,7 +2,7 @@
 
 > 源码：`Model_1_1.c` v7.736（905KB / 20642 行静态 C，Simulink Coder R2022b，ert_shrlib 目标）
 > 目标 DSP：ADI SHARC+ GLXP | 基础块率：1500Hz（48kHz / 32 样本块）
-> 可导入工程：`examples/baf_sas_full.yaml`（含 `model_tree`）
+> 可导入工程：`examples/baf_sas_step0.yaml`（含 `model_tree`）
 
 ## 1. 系统概述
 
@@ -774,7 +774,7 @@ Orpheus 本身支持多速率（`scheduling.divisor` / `downrate`），但蒸馏
 
 ### 14.6 蒸馏现状（2026-08-09 更新）
 
-`examples/baf_sas_full.yaml` 蒸馏模型现已覆盖：
+`examples/baf_sas_step0.yaml` 的 `model_tree` 蒸馏模型现已覆盖：
 
 - **分频**：6 个 TID 速率域全部建模（task_flows），导入展开为 TID0 主链（含 FDP 内联）+ 4 降速率分析抽头（TID1/3/4/5）；TID2（FDP）mode:inline 并入主链；
 - **分析**：TID1/3/4/5 分析侧链用真实组件（delay/coherence_matrix/psd/interp_lut/noise_slew/mixer/square/saturation）展开，FDP（TID2）频域链路用 rfft/ifft/window/psd/biquad/matrix_mul；占位块 4 处（Coeffs1stStage/Coeffs2ndStage/DetectImpulse/ReverbExtraction）；

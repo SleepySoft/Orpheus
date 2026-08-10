@@ -302,7 +302,7 @@ GainCalculation:
 
 ---
 
-## 5. 与当前 `baf_sas_full.yaml` 蒸馏的对照
+## 5. 与当前 `baf_sas_step0.yaml` 中 `model_tree` 的对照
 
 当前蒸馏展开后主链：
 
@@ -378,7 +378,7 @@ post_process -> audiopilot -> sys_out
    - 移除/收紧 `_NOISE_RE`，保留 buffer/delay/rate-transition。
    - 支持并行分支、反馈环、多 TID 子图。
    - 支持 `task_flows` 中显式多速率节点。
-4. **重写 `baf_sas_full.yaml`**：
+4. **完善 `baf_sas_step0.yaml` 的 `model_tree`**：
    - 按真实调用顺序排列子系统。
    - 为每个子系统添加内部展开链，不省略中间 buffer/delay。
    - 添加 FDP/Audiopilot 多速率 tap。
