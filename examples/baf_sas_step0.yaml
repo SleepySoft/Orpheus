@@ -766,31 +766,29 @@ subcomponents:
   ports:
   - id: buffer
     direction: input
-    maps_to: asd_select:in
+    maps_to: asd_router:in
   - id: audio_out
     direction: output
     maps_to: out_delay:out
   graph:
     nodes:
-    - id: asd_select
-      component: orpheus.builtin.input_select
+    - id: asd_router
+      component: orpheus.builtin.channel_router
       params:
         channels_in: 32
         channels_out: 22
-        select: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
+        indices: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21
       position:
         x: 100
         y: 100
-    - id: pre_ramp
-      component: orpheus.builtin.gain_ramper
+    - id: post_eq
+      component: orpheus.builtin.iir_bank
       params:
-        gain_db: 0.0
-        ramp_ms: 50.0
         channels: 22
-        num_rampers: 1
-        chan_map: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        num_stages: 13
+        coefs_mode: per_channel
       position:
-        x: 260
+        x: 280
         y: 100
     - id: limiter
       component: orpheus.builtin.limiter
@@ -803,17 +801,7 @@ subcomponents:
         max_attack: 0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764,0.316227764
         channels: 22
       position:
-        x: 420
-        y: 100
-    - id: post_eq
-      component: orpheus.builtin.iir_bank
-      params:
-        channels: 22
-        num_stages: 1
-        coefs_mode: per_channel
-        coefs: 1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0
-      position:
-        x: 580
+        x: 460
         y: 100
     - id: sclip
       component: orpheus.builtin.soft_clipper
@@ -821,7 +809,7 @@ subcomponents:
         drive_db: 0.0
         channels: 22
       position:
-        x: 740
+        x: 640
         y: 100
     - id: mute_ramp
       component: orpheus.builtin.gain_ramper
@@ -832,7 +820,7 @@ subcomponents:
         num_rampers: 1
         chan_map: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
       position:
-        x: 900
+        x: 820
         y: 100
     - id: calib
       component: orpheus.builtin.output_router
@@ -841,17 +829,16 @@ subcomponents:
         channels_out: 22
         matrix: identity
       position:
-        x: 1060
+        x: 1000
         y: 100
     - id: freq_comp
       component: orpheus.builtin.iir_bank
       params:
         channels: 22
-        num_stages: 1
+        num_stages: 13
         coefs_mode: per_channel
-        coefs: 1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0
       position:
-        x: 1220
+        x: 1180
         y: 100
     - id: out_delay
       component: orpheus.builtin.delay_line
@@ -860,16 +847,30 @@ subcomponents:
         max_delay_samples: 4800
         delays_samples: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
       position:
-        x: 1380
+        x: 1360
         y: 100
+    - id: audio_out_router
+      component: orpheus.builtin.channel_router
+      params:
+        channels_in: 22
+        channels_out: 32
+        indices: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+      position:
+        x: 1180
+        y: 220
+    - id: audio_sink
+      component: orpheus.builtin.null_sink
+      params:
+        channels: 32
+      position:
+        x: 1360
+        y: 220
     connections:
-    - from: asd_select:out
-      to: pre_ramp:in
-    - from: pre_ramp:out
-      to: limiter:in
-    - from: limiter:out
+    - from: asd_router:out
       to: post_eq:in
     - from: post_eq:out
+      to: limiter:in
+    - from: limiter:out
       to: sclip:in
     - from: sclip:out
       to: mute_ramp:in
@@ -879,6 +880,10 @@ subcomponents:
       to: freq_comp:in
     - from: freq_comp:out
       to: out_delay:in
+    - from: freq_comp:out
+      to: audio_out_router:in
+    - from: audio_out_router:out
+      to: audio_sink:in
 - id: audiopilot
   name: Audiopilot35
   ports:
