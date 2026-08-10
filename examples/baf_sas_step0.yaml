@@ -207,22 +207,33 @@ subcomponents:
   ports:
   - id: treble_lr
     direction: input
-    maps_to: fdp_expand:in
+    maps_to: treble_delay:in
   - id: buffer_out
     direction: output
-    maps_to: fdp_expand:out
+    maps_to: fdp_matrix:out
   graph:
     nodes:
-    - id: fdp_expand
-      component: orpheus.builtin.output_router
+    - id: treble_delay
+      component: orpheus.builtin.delay_line
       params:
-        channels_in: 2
-        channels_out: 6
-        matrix: identity
+        channels: 2
+        max_delay_samples: 7928
+        delays_samples: 1280,1280
       position:
-        x: 100
+        x: 80
         y: 100
-    connections: []
+    - id: fdp_matrix
+      component: orpheus.builtin.matrix_mul
+      params:
+        rows: 6
+        cols: 2
+        matrix: 1,0,0,1,0,0,0,0,0,0,0,0
+      position:
+        x: 260
+        y: 100
+    connections:
+    - from: treble_delay:out
+      to: fdp_matrix:in
 - id: part3_mixing
   name: Medusa Part3 全速率混音
   ports:
