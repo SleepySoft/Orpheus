@@ -46,7 +46,7 @@ model_tree:
       rate_hz: 1500
       call_interval: 1
       label: 主音频链
-      chains: [input_select, preamp_part1, part3_mixing, part4_peripheral_eq, part5_post_holigram, part6_summation, post_process, audiopilot]
+      chains: [input_select, preamp_part1, part2_fdp, part3_mixing, part4_peripheral_eq, part5_post_holigram, part6_summation, post_process, audiopilot]
     - tid: 1
       rate_hz: 750
       call_interval: 2
@@ -55,8 +55,10 @@ model_tree:
     - tid: 2
       rate_hz: 375
       call_interval: 4
-      label: FDP 频域处理
-      chains: [part2_fdp]
+      mode: inline
+      label: FDP 频域处理（内联：TID0全速率I/O + TID2 FFT核心÷4）
+      chains: []
+      note: "FDP双速率：TID0(1500Hz) BufferIn写32样本/块+BufferOut读32样本/块+Selector(6ch->4ch:{0,1,2,4})；TID2(375Hz) BufferIn读128样本->Model_1_1_Fdp(256点STFT)->BufferOut写128样本。hop=128, FFT=256, 4块/帧, 50%重叠"
     - tid: 3
       rate_hz: 23.4
       call_interval: 64
@@ -92,7 +94,7 @@ model_tree:
         - LevelDetectPreEmpFilterpooliirCoeffs(50 float = 10stages×5) NumStages(10 uint)
         - LevelDetect(FastDecay HoldMargin HoldTime MaxVol MinVol SlowDecay ×2=12 float)
     - id: part2_fdp
-      label: Part2 FDP 频域环绕解码（2ch->6ch, 全系统->22ch）
+      label: Part2 FDP 频域环绕解码（2ch->6ch, 全系统->22ch, 双速率内联）
       flow: >
         TrebleDelay[7928](2ch) -> BufferIn(2ch×256) ->
         Windowing(InputOverlap×sine[128] + AudioIn×cosine[128]) ->
@@ -106,6 +108,7 @@ model_tree:
         IFFT+overlapAdd -> BufferOut(6ch×256, 2ch->6ch解码) -> Part3 LeftFdp(3)/RightFdp(3) -> 装配 22ch 系统输出
       delays: [TrebleDelay(2ch,7928), SASFdpLeftFast(2193), SASFdpLeftSlow(2193), SASFdpRightFast(2193), SASFdpRightSlow(2193)]
       fft: {size: 256, bins: 129, channels_in: 2, channels_out: 6, window: sine+cosine 128+128, overlap_add: yes}
+      dual_rate: "TID0(1500Hz): TrebleDelay+BufferIn写(32/块)+BufferOut读(32/块)+Selector(6ch->4ch:{0,1,2,4}); TID2(375Hz): BufferIn读(128)+Model_1_1_Fdp(256点STFT核心)+BufferOut写(128); hop=128, FFT=256, 50%重叠, 4块/帧"
       params: "FdpCoeffs(6 float) FdpSpum(4 float) DirectPathSamplesDec(1 uint,1161) TrebleDelay(1 uint,1280)"
     - id: part3_mixing
       label: Part3 全速率混合
@@ -114,9 +117,10 @@ model_tree:
         SelectSurroundDiscrete/SelectLeftSurroundAtmos/SelectRightSurroundAtmos ->
         SumOfElements(LtfLtb+surround) -> 路由(b={0,2,3} c={1,4,5} d={7,9,10} e={8,11,12}) ->
         LeftAtmos/LeftFdp/RightAtmos/RightFdp(各3ch×32)
-        MixingMatrix(13ch->22ch: Cs 13x2=26gains->Merge[0:1], Left 7x10=70gains->Merge[2:11], Right 7x10=70gains->Merge[12:21], 166gains total, one-pole ramp g=(1-c)*target+c*g, FastSequence trigger) ->
+        SlcMatrixMul(Cs 13x2=26gains->Merge[0:1], Left 7x10=70gains->Merge[2:11], Right 7x10=70gains->Merge[12:21], 166gains, N表插值+一阶IIR斜坡 g=(1-c)*target+c*g, FastSequence触发) ->
       delays: [TrebleSurroundDelay(7ch,30436,stateLen4348)]
       params: "MixEqpooliirCoeffs(484 float) RampCoeff(1,0.995842) NumStages(13 uint,各10) TrebleSurroundDelay(1 uint,1664) CsTargetGains[26]+LeftTargetGains[70]+RightTargetGains[70](166 mixing gains, PingPong N00S1_2_D1_1_F3)"
+      component: "3x slc_matrix_mul (Cs 13x2 + Left 7x10 + Right 7x10)"
     - id: part4_peripheral_eq
       label: Part4 外围 EQ
       flow: >

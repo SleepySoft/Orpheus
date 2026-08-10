@@ -98,8 +98,8 @@ def test_distill_baf_sas_topology_expansion() -> None:
         resp = client.post(f"/api/projects/{name}/distill", json={"yaml": text})
         assert resp.status_code == 200, resp.text
         doc = resp.json()["document"]
-        # 主音频链（TID0：8 链）+ 5 个降速率分析抽头（downrate + tap 子模块 + 分析汇）
-        assert len(doc["graph"]["nodes"]) == 25
+        # 主音频链（TID0：9 链，含 FDP 内联）+ 4 个降速率分析抽头（TID2 inline 不生成抽头）
+        assert len(doc["graph"]["nodes"]) == 23
         assert len(doc["subcomponents"]) == 13
         assert any(n["component"].startswith("sub:") for n in doc["graph"]["nodes"])
         downrates = {
@@ -109,15 +109,14 @@ def test_distill_baf_sas_topology_expansion() -> None:
         }
         assert downrates == {
             "downrate_1": 2,
-            "downrate_2": 4,
             "downrate_3": 64,
             "downrate_4": 256,
             "downrate_5": 768,
         }
-        # part2_fdp（TID2，÷4）不在主音频链里，而是 tap_2 抽头
+        # part2_fdp（TID2，mode=inline）在主音频链里，不是 tap 抽头
         main_chain = [n["id"] for n in doc["graph"]["nodes"]]
-        assert "part2_fdp" not in main_chain
-        assert "tap_1" in main_chain and "tap_2" in main_chain and "tap_5" in main_chain
+        assert "part2_fdp" in main_chain
+        assert "tap_1" in main_chain and "tap_2" not in main_chain and "tap_5" in main_chain
         comps = [n["component"] for s in doc["subcomponents"] for n in s["graph"]["nodes"]]
         assert "orpheus.builtin.placeholder" in comps
         assert any(c.startswith("orpheus.builtin.") and c != "orpheus.builtin.placeholder" for c in comps)

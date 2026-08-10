@@ -25,6 +25,12 @@ BAF（音频框架）SAS 空间音频系统，用于车载多通道音频处理�
 | 4 | 5.86Hz | 170.7ms | 256 | Audiopilot LF 噪声速度界限（128 点速度轴 + noise slew） |
 | 5 | 1.95Hz | 512ms | 768 | Audiopilot 30ch 相干求和（Gxx/Gyy/Gyx、magnitude²、saturation） |
 
+> **TID 分类修正（源码实证 Model_1_1.c:15599-15606, :17505-17511）**：
+> - TID0 是唯一主音频链；
+> - **TID2（FDP）是主链内联多速率组件**（双速率：TID0 全速率 I/O + TID2 FFT 核心 ÷4），6ch 输出直接馈入 Part3，**不是分析侧链**；
+> - 仅 TID1/3/4/5 是 Audiopilot 分析侧链（控制回灌，图内死路）。
+> - 之前将 TID2 归入分析侧链有误，现已修正：蒸馏模型 TID2 标记 mode:inline，chains 并入 TID0 主链。
+
 ## 3. 音频处理链（9 条，完整滤波器编排）
 
 ### 3.1 InputSelect（输入路由）
@@ -50,6 +56,21 @@ BAF（音频框架）SAS 空间音频系统，用于车载多通道音频处理�
 - FFT：256 点，129 bin，2ch 入 6ch 出，sine+cosine 窗 128+128，overlap-add
 - 参数（p3_b0）：FdpCoeffs（6 float）、FdpSpum（4 float）、DirectPathSamplesDec（1 uint, 1161）、TrebleDelay（1 uint, 1280）
 
+
+**双速率架构（源码实证 Model_1_1.c:12003-12145, :15599-15606, :17505-17511）**：
+
+FDP 是主音频链的**内联组件**，不是独立分析侧链。通过 256 样本环形缓冲实现 TID0/TID2 速率转换：
+
+| 速率 | 函数 | 行号 | 职责 |
+|------|------|------|------|
+| TID0 (1500Hz) | MedusaPart2FullRateFdpTID0() | :12003-12070 | TrebleDelay -> BufferIn写(32样本/块) -> BufferOut读(32样本/块) -> Selector(6ch->4ch: {0,1,2,4}) |
+| TID2 (375Hz) | MedusaPart2FullRateFdpTID2() | :12073-12145 | BufferIn读(128样本) -> Model_1_1_Fdp()(256点STFT核心) -> BufferOut写(128样本) |
+
+- **step0（TID0）第一个调用**就是 FDP（:15600），紧跟 MedusaPart3FullRateMixing()（:15606），FDP 输出直接喂 Part3。
+- **速率转换**：TID0 每 32 样本写入输入环形缓冲；TID2 每 4 块读 128 样本做 256 点 FFT（50% 重叠，hop=128），输出 128 样本写回；TID0 再每 32 样本读出。block=32, hop=128, FFT=256, 4块/帧。
+- **step2（TID2）**：Model_1_1_MedusaPart2FdpFullRateTID2()（:17508）只调 MedusaPart2FullRateFdpTID2()，即 FFT 核心。
+- **结论**：FDP 6ch 输出经 Part3 InputOrganizer（:12486-12563）提取 LeftFdp(3ch)/RightFdp(3ch)，与 Atmos 装配 13ch -> 混音矩阵 -> 22ch。FDP 是主链内联，不是死路抽头。
+
 ### 3.4 Part3 全速率混合
 - TrebleSurroundDelay[30436]（7ch, stateLen 4348, delay 1664）-> SelectSurroundDiscrete / SelectLeftSurroundAtmos / SelectRightSurroundAtmos -> SumOfElements（LtfLtb+surround）-> 路由（b={0,2,3} c={1,4,5} d={7,9,10} e={8,11,12}）-> LeftAtmos/LeftFdp/RightAtmos/RightFdp（各 3ch x 32）
 - **13ch->22ch 混音矩阵**（Model_1_1.c:12689-12960）：InputOrganizer 装配 Left(7ch)/Right(7ch)/Cs(13ch) 三子总线，各经一组斜坡渐变混音矩阵展开为 22ch Merge 总线：
@@ -59,6 +80,8 @@ BAF（音频框架）SAS 空间音频系统，用于车载多通道音频处理�
   - 共 166 增益（PingPongStruct.xml 实证：CsTargetGains[26]/LeftTargetGains[70]/RightTargetGains[70]），一阶 IIR 斜坡 g=(1-c)*target+c*g，FastSequence 触发，增益下限 5.01e-7
 - 延迟：TrebleSurroundDelay（7ch, 30436, stateLen 4348）
 - 参数（p5_b0）：MixEqpooliirCoeffs（484 float，默认单位矩阵）、RampCoeff（1, 0.995842）、NumStages（13 uint, 各 10）、TrebleSurroundDelay（1 uint, 1664）、**CsTargetGains[26] + LeftTargetGains[70] + RightTargetGains[70]**（166 混音增益，PingPong N00S1_2_D1_1_F3）
+- **Orpheus 组件映射**：3x slc_matrix_mul（Cs 13x2 + Left 7x10 + Right 7x10），支持 N 表插值 + 一阶 IIR 斜坡，已实现并接入蒸馏模型（components/orpheus/builtin/slc_matrix_mul/）。
+
 ### 3.5 Part4 外围 EQ
 - Switch（enable/disable）-> Selector1（**22ch->22ch 重排序**，32 为帧长非通道数: tmp[22]={0,1,2,3,4,5,12,13,14,15,6,7,16,17,8,18,9,19,10,20,11,21}，把 Merge 总线按 L/R 对交错重排，Model_1_1.c:13215）-> pooliir（iir_accelerator_process, 22ch x 32, GLXP IIR, workMem 1104, 13stages x 10, RmdlShutdown 时输出零）-> ChannelDelay（dsp.Delay, 22ch, W1_IC_BUFF circBuf 254）
 - pooliir：SAS_PeripheralEq_FullRateEq, 工作内存 1104, 22ch, 13 stages
@@ -739,21 +762,23 @@ Orpheus 本身支持多速率（`scheduling.divisor` / `downrate`），但蒸馏
 - `:191`/`:231`/`:232` 链间串联：`sys_in -> chain0 -> chain1 -> ... -> chainN -> sys_out`，链与链是串联非并联；
 - `parse_flow` 用 `re.sub(r"^TID\d+\s*:\s*", "", piece)` 剥掉 TID 前缀，建节点不赋 `scheduling.divisor`、不插 `downrate` -> 6 个速率域（1500/750/375/23.4/5.86/1.95Hz）全部坍缩到基础速率。
 
-**结构性校正**：6 个 TID 并非 6 条并行音频通路。按 §2，TID0（1500Hz）是唯一承载音频 input->output 的主路径；TID1-5 是 Audiopilot 分析侧链，逐级降采样做噪声/相干估计，产物是控制参数回灌 TID0，非另一路音频输出。理想形态应为"1 条主音频链 + 若干降速率分析抽头（divisor/downrate）+ 任务桥回灌控制"，而非 6 条并列完整链。
+**结构性校正（已修正 2026-08-10）**：6 个 TID 并非 6 条并行音频通路。TID0（1500Hz）是唯一承载音频 input->output 的主路径；**TID2（FDP）是主链内联多速率组件**（双速率：TID0 I/O + TID2 FFT 核心 ÷4，源码实证 :15599-15606/:17508），6ch 输出直接馈入 Part3，**不是分析侧链**；TID1/3/4/5 是 Audiopilot 分析侧链，逐级降采样做噪声/相干估计，产物是控制参数回灌 TID0。蒸馏模型已修正：TID2 标记 mode:inline，chains 并入 TID0 主链，不生成死路抽头；仅 TID1/3/4/5 生成 4 个分析抽头。
 
 ### 14.5 演进重点与落地状态
 
-1. ✅ **build_topology 多速率建模（已落地）**：`task_flows` 结构化规范 + `build_topology` 按 TID 生成降速率分析抽头（`downrate(factor=call_interval)` -> 抽头子模块 -> 分析汇）。BAF SAS 蒸馏现已展开为 TID0 主链 + 5 抽头（÷2/4/64/256/768），主链不再串接分析侧链。
+1. ✅ **build_topology 多速率建模（已落地）**：`task_flows` 结构化规范 + `build_topology` 按 TID 生成降速率分析抽头（`downrate(factor=call_interval)` -> 抽头子模块 -> 分析抽头终点）。BAF SAS 蒸馏现已展开为 TID0 主链（含 FDP 内联）+ 4 分析抽头（TID1÷2/TID3÷64/TID4÷256/TID5÷768）；TID2（FDP）标记 mode:inline 并入主链，不生成死路抽头。
 2. ✅ **补不可组合组件（已落地）**：`coherence_matrix`（多参考相干/Schur补）、`psd`（功率谱）、`interp_lut`（查表插值）已实现并接入 `_RULES` 映射；TID3/4/5 分析侧链用真实组件展开（window->rfft->coherence_matrix->psd / interp_lut->noise_slew / mixer->coherence_matrix->square->saturation）。
-3. ⬜ **反馈环 / 任务桥（未落地）**：分析抽头止于分析汇（embed_out），分析->控制->主链的回灌仍无法在图内连线（图内禁反馈）。需引入受控"任务桥"原语才能闭环。
-4. ⬜ **FDP 自定义块（仍占位）**：ApplyCoefficients 已映射 `matrix_mul`（频域 bin × 系数矩阵）；主链路由/选择块已映射 input_select/output_router。仅余 Coeffs1stStage/Coeffs2ndStage/DetectImpulse/ReverbExtraction 仍为占位（4 处），需一体化 `fdp` 组件或文档化组合方案。
+3. ⬜ **反馈环 / 任务桥（未落地）**：分析抽头止于分析抽头终点（embed_out，原称分析抽头终点已改名），分析->控制->主链的回灌仍无法在图内连线（图内禁反馈）。需引入受控"任务桥"原语才能闭环。
+4. ✅ **FDP 架构修正（已落地 2026-08-10）**：FDP 从 ÷4 死路抽头修正为主链内联多速率（mode:inline）。TID0 I/O（BufferIn/Out 32样本/块 + Selector 6ch->4ch）+ TID2 FFT 核心（256点STFT）双速率结构已文档化。ApplyCoefficients 映射 matrix_mul；Coeffs1stStage/Coeffs2ndStage/DetectImpulse/ReverbExtraction 仍为占位（4 处），需一体化 fdp 组件。
+5. ✅ **slc_matrix_mul 组件（已落地）**：Part3 混音矩阵从 flow 注释替换为 slc_matrix_mul 组件映射（N 表插值 + 一阶 IIR 斜坡），支持 Cs 13x2 / Left 7x10 / Right 7x10。
 
 ### 14.6 蒸馏现状（2026-08-09 更新）
 
 `examples/baf_sas_full.yaml` 蒸馏模型现已覆盖：
 
-- **分频**：6 个 TID 速率域全部建模（task_flows），导入展开为主链 + 5 降速率抽头；
-- **分析**：TID1/3/4/5 分析侧链用真实组件（delay/coherence_matrix/psd/interp_lut/noise_slew/mixer/square/saturation）展开，FDP（TID2）频域链路用 rfft/ifft/window/psd/biquad/matrix_mul；占位块由 9 处降至 4 处
-- **未连线**：分析回灌控制（受图内禁反馈限制）；FDP 仍有 4 处自定义块占位（Coeffs1stStage/Coeffs2ndStage/DetectImpulse/ReverbExtraction）。
+- **分频**：6 个 TID 速率域全部建模（task_flows），导入展开为 TID0 主链（含 FDP 内联）+ 4 降速率分析抽头（TID1/3/4/5）；TID2（FDP）mode:inline 并入主链；
+- **分析**：TID1/3/4/5 分析侧链用真实组件（delay/coherence_matrix/psd/interp_lut/noise_slew/mixer/square/saturation）展开，FDP（TID2）频域链路用 rfft/ifft/window/psd/biquad/matrix_mul；占位块 4 处（Coeffs1stStage/Coeffs2ndStage/DetectImpulse/ReverbExtraction）；
+- **混音矩阵**：Part3 用 3x slc_matrix_mul（N 表插值 + 一阶 IIR 斜坡）替换 flow 注释；
+- **未连线**：分析回灌控制（受图内禁反馈限制）；FDP 仍有 4 处自定义块占位需一体化组件。
 
-`build_topology` 展开验证：25 主图节点 / 13 子模块 / 5 downrate 抽头；`test_distill_baf_sas_topology_expansion` 通过；全量 pytest 111 项（蒸馏/子图/平台等纯 Python 用例通过）。
+`build_topology` 展开验证：TID0 主链（含 FDP 内联）+ 4 downrate 抽头（TID2 不再生成死路抽头）；`test_distill_baf_sas_topology_expansion` 通过；全量 pytest 111 项（蒸馏/子图/平台等纯 Python 用例通过）。

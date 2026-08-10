@@ -29,6 +29,8 @@ _RULES: list[tuple[re.Pattern[str], str | None, str]] = [
     (re.compile(r"softclipper|clipper", re.I), "orpheus.builtin.soft_clipper", "builtin"),
     (re.compile(r"saturation", re.I), "orpheus.builtin.saturation", "builtin"),
     (re.compile(r"matrixmultiply|矩阵乘", re.I), "orpheus.builtin.matrix_mul", "builtin"),
+    # 斜坡渐变混音矩阵（N表插值 + 一阶IIR斜坡）-> slc_matrix_mul
+    (re.compile(r"slcmatrixmul", re.I), "orpheus.builtin.slc_matrix_mul", "builtin"),
     # FDP 频域系数施加（频域 bin × 系数矩阵 -> 多路频域输出）-> 矩阵乘
     (re.compile(r"applycoeff", re.I), "orpheus.builtin.matrix_mul", "substitute"),
     (re.compile(r"magnitude|平方|mag2|power", re.I), "orpheus.builtin.square", "builtin"),
@@ -227,7 +229,9 @@ def build_topology(
     task_flows 带结构化 chains/blocks 时：
     - call_interval=1 的 task（TID0）= 主音频链（基础速率，串接 sys_in..sys_out）；
     - call_interval>1 的 task = 降速率分析抽头：主图插入 downrate(factor=call_interval)
-      从 sys_in 抽头 → 抽头子模块 → 分析汇（embed_out），体现多速率域。
+      从 sys_in 抽头 → 抽头子模块 → 分析抽头终点（embed_out），体现多速率域。
+
+    - mode=inline 的 task（如 FDP）= 内联多速率：chains 并入主链，不生成死路抽头。
     旧格式（task_flows 无 chains/blocks）回退为全部链串接一条主链。
     """
     chains_by_id = {c.get("id"): c for c in model_tree.get("chains") or [] if c.get("id")}
@@ -252,7 +256,7 @@ def build_topology(
     taps: list[tuple[int, int, str, list[dict[str, str]]]] = []
     for t in task_flows:
         call_interval = int(t.get("call_interval") or 1)
-        if call_interval <= 1:
+        if call_interval <= 1 or t.get("mode") == "inline":
             for cid in t.get("chains") or []:
                 if cid in chains_by_id:
                     main_chain_ids.append(cid)
@@ -285,7 +289,7 @@ def build_topology(
         main_edges.append({"from": f"{prev}:out", "to": f"{sub_id}:in"})
         prev = sub_id
 
-    # 降速率分析抽头：downrate(factor=call_interval) -> tap 子模块 -> 分析汇
+    # 降速率分析抽头：downrate(factor=call_interval) -> tap 子模块 -> 分析抽头终点
     for k, (tid, call_interval, label, blocks) in enumerate(taps):
         tap_id = f"tap_{tid}"
         dr_id = f"downrate_{tid}"
@@ -312,7 +316,7 @@ def build_topology(
             {
                 "id": sink_id,
                 "component": "orpheus.builtin.embed_out",
-                "label": f"分析汇 TID{tid}",
+                "label": f"分析抽头终点 TID{tid}",
                 "params": {"channels": channels, "sample_rate": sample_rate},
                 "position": {"x": x + 360, "y": 560},
             }
