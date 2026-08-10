@@ -481,7 +481,7 @@ subcomponents:
   ports:
   - id: ent
     direction: input
-    maps_to: through:in
+    maps_to: makeup:in
   - id: buffer
     direction: output
     maps_to: buf_router:out
@@ -493,7 +493,7 @@ subcomponents:
     maps_to: buf2_sel:out
   graph:
     nodes:
-    - id: through
+    - id: makeup
       component: orpheus.builtin.gain
       params:
         gain_db: 0.0
@@ -501,15 +501,99 @@ subcomponents:
       position:
         x: 60
         y: 100
+    - id: input_mixer
+      component: orpheus.builtin.input_mixer_3d
+      params:
+        input_channels: 12
+        output_channels: 12
+        weights: 1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+      position:
+        x: 220
+        y: 100
+    - id: downmix
+      component: orpheus.builtin.input_mixer_3d
+      params:
+        input_channels: 12
+        output_channels: 2
+        weights: 1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0
+      position:
+        x: 400
+        y: 100
+    - id: bass
+      component: orpheus.builtin.bass
+      params:
+        gain_db: 0.0
+        channels: 2
+      position:
+        x: 560
+        y: 60
+    - id: midrange
+      component: orpheus.builtin.midrange
+      params:
+        gain_db: 0.0
+        channels: 2
+      position:
+        x: 720
+        y: 60
+    - id: treble
+      component: orpheus.builtin.treble
+      params:
+        gain_db: 0.0
+        channels: 2
+      position:
+        x: 880
+        y: 60
+    - id: balance
+      component: orpheus.builtin.balance
+      params:
+        balance: 0.0
+        channels: 2
+      position:
+        x: 1040
+        y: 60
+    - id: volume
+      component: orpheus.builtin.gain_ramper
+      params:
+        gain_db: 0.0
+        channels: 2
+        num_rampers: 1
+        chan_map: 0,0
+      position:
+        x: 1200
+        y: 60
+    - id: preemp
+      component: orpheus.builtin.iir_bank
+      params:
+        channels: 2
+        num_stages: 10
+        coefs_mode: per_channel
+      position:
+        x: 1360
+        y: 60
+    - id: level_detect
+      component: orpheus.builtin.level_detect
+      params:
+        mode: 1
+        channels: 2
+      position:
+        x: 1520
+        y: 60
+    - id: ld_sink
+      component: orpheus.builtin.null_sink
+      params:
+        channels: 2
+      position:
+        x: 1680
+        y: 60
     - id: buf_router
-      component: orpheus.builtin.output_router
+      component: orpheus.builtin.channel_router
       params:
         channels_in: 12
         channels_out: 32
-        matrix: identity
+        indices: 0,1,2,3,4,5,6,7,8,9,10,11,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
       position:
-        x: 220
-        y: 60
+        x: 400
+        y: 200
     - id: buf1_sel
       component: orpheus.builtin.input_select
       params:
@@ -517,8 +601,8 @@ subcomponents:
         channels_out: 10
         select: 1,2,3,4,5,6,7,8,9,10
       position:
-        x: 220
-        y: 160
+        x: 400
+        y: 280
     - id: buf2_sel
       component: orpheus.builtin.input_select
       params:
@@ -526,15 +610,35 @@ subcomponents:
         channels_out: 1
         select: '11'
       position:
-        x: 220
-        y: 260
+        x: 400
+        y: 360
     connections:
-    - from: through:out
+    - from: makeup:out
+      to: input_mixer:in
+    - from: input_mixer:out
       to: buf_router:in
-    - from: through:out
+    - from: input_mixer:out
       to: buf1_sel:in
-    - from: through:out
+    - from: input_mixer:out
       to: buf2_sel:in
+    - from: input_mixer:out
+      to: downmix:in
+    - from: downmix:out
+      to: bass:in
+    - from: bass:out
+      to: midrange:in
+    - from: midrange:out
+      to: treble:in
+    - from: treble:out
+      to: balance:in
+    - from: balance:out
+      to: volume:in
+    - from: volume:out
+      to: preemp:in
+    - from: preemp:out
+      to: level_detect:in
+    - from: level_detect:out
+      to: ld_sink:in
 - id: post_process
   name: 后处理
   ports:
