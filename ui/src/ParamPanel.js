@@ -28,7 +28,9 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode, onRename
       <div className="sidebar">
         <h3>参数面板</h3>
         <p className="node-ref">
-          <strong>{node.id}</strong>
+          <span className="muted">{node.id}</span>
+          <br />
+          <strong>{node.data.label || node.id}</strong>
           <button className="rename-btn" onClick={() => onRenameNode(node.id)} title="重命名节点（显示名）">
             重命名
           </button>
@@ -63,7 +65,9 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode, onRename
     <div className="sidebar">
       <h3>参数面板</h3>
       <p className="node-ref">
-        <strong>{node.id}</strong>
+        <span className="muted">{node.id}</span>
+        <br />
+        <strong>{node.data.label || node.id}</strong>
         <button className="rename-btn" onClick={() => onRenameNode(node.id)} title="重命名节点（显示名）">
           重命名
         </button>

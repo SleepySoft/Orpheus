@@ -161,7 +161,7 @@ model_tree:
     - id: tid1_ref_mic_delay
       label: TID1 ref/mic 对齐延迟（÷2）
       flow: "Delay(ref/mic 对齐缓冲, 降速率 ÷2 域)"
-      note: "纯缓冲基础设施；分析回灌无法在图内连线，抽头止于分析汇"
+      note: "纯缓冲基础设施；分析回灌无法在图内连线，抽头止于分析抽头终点"
     - id: tid3_hf_noise_est
       label: TID3 HF 噪声估计（÷64, 多参考相干）
       flow: "Windowing(sine+cosine 窗, 10ch) -> RFFT(256点, 10ch->65bin) -> FormCoherenceMatrixGXY(多重相干, Schur补, K=16, threshold=0.88) -> PSD(噪声谱Gnn, 下限保护, 供自适应)"

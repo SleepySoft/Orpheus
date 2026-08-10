@@ -1,5 +1,27 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-10（第四十二次讨论：FDP 架构修正 + slc_matrix_mul 接入 + UI 参数面板）
+
+- **FDP 架构修正（核心变更）**：源码实证发现 FDP（TID2）不是分析侧链，而是主链内联多速率组件。
+  `step0`（TID0, 1500Hz）第一个调用即 `MedusaPart2FdpFullRateTID0()`（:15600），紧跟 `MedusaPart3FullRateMixing()`（:15606），
+  FDP 6ch 输出直接喂 Part3。TID2（375Hz）只是 FFT 核心降速率处理，非独立分析抽头。
+  双速率机制：TID0 写/读 32 样本/块的 256 样本环形缓冲，TID2 每 4 块读 128 样本做 256 点 STFT（50% 重叠，hop=128）。
+  - `baf_sas_full.yaml`：TID0 chains 加入 `part2_fdp`（Part3 之前）；TID2 改 `mode: inline`、`chains: []`、加双速率 note。
+  - `distill_topology.py`：新增 `mode == "inline"` 判断（:258），inline 的 task chains 并入主链，不生成死路抽头。
+  - 测试断言更新：节点数 25->23、downrate 5->4（无 TID2）、part2_fdp 在主链、tap_2 不在主链。
+- **slc_matrix_mul 接入**：Part3 混音矩阵从 flow 注释 `MixingMatrix` 替换为 `SlcMatrixMul` 组件映射；
+  `distill_topology.py` `_RULES` 新增 `slcmatrixmul -> slc_matrix_mul`（:33）。
+- **"分析汇"改名**：`distill_topology.py` 中 `embed_out` 死路终点 label 从"分析汇 TIDn"改为"分析抽头终点 TIDn"（3 处）；
+  全仓库扫描替换残留引用（`baf_sas_full.yaml`、`baf_sas_analysis.md`、`implementation_log.md`、`SKILL/references/distill-model.md`）。
+- **SKILL/references/distill-model.md 更新**：§3 映射表加 `slc_matrix_mul` 行；§4.1 示例 FDP 改 `mode: inline`；
+  规则加 inline 模式说明（区别于分析侧链）；"分析汇"->"分析抽头终点"。
+- **baf_sas_analysis.md 更新**：§2 加 TID 分类修正；§3.3 加 FDP 双速率架构（含源码行号表）；
+  §3.4 加 SlcMatrixMul 组件映射；§14.4/14.5/14.6 全面修正（5 抽头->4、FDP ✅、slc_matrix_mul ✅）。
+- **Obsidian MDS6/03 更新**：新增 §2.5"双速率架构与主链内联"（速率转换表 + [!important] callout）；
+  Part3 加 [!note] slc_matrix_mul 组件说明；§2.1 补 §2.5 引用。
+- **UI ParamPanel.js**：参数面板头部布局修正--`node.id`（灰色参考）在上，`node.data.label`（粗体）配重命名按钮在中，
+  `component`（灰色）在下。重命名按钮现在紧挨它实际修改的 label 而非 id。
+- 测试：`test_distill_import.py` 5 项通过；拓扑展开验证 23 节点 / 13 子模块 / 4 downrate 抽头 / part2_fdp 在主链 / slc_matrix_mul 已映射。
 ## 2026-08-09（第四十一次讨论：估计/统计组件与调试可视化——第一批）
 
 - 判断：PSD/相干/线性插值均为已知通用算法（相干公式与 SpeedBounds 插值已在
@@ -48,12 +70,12 @@
   - 映射表补充 iir_bank / rfft / ifft / input_mixer_3d / sleeping_beauty / gain_ramper；
   - 校验清单加 task_flows 完整性条目。
 - `build_topology` 消费结构化 task_flows：interval=1 的链串接为主音频链（sys_in..sys_out）；
-  interval>1 的 task 生成 `downrate(factor=call_interval)` 抽头 + 抽头子模块 + 分析汇（embed_out），
+  interval>1 的 task 生成 `downrate(factor=call_interval)` 抽头 + 抽头子模块 + 分析抽头终点（embed_out），
   从 sys_in 抽头；旧格式（无 chains/blocks）回退为全部链串接。
 - `examples/baf_sas_full.yaml` 重构：task_flows 结构化（TID0 主链 8 链，TID2 含 part2_fdp，
   TID1/3/4/5 为 Audiopilot 分析侧链）；audiopilot 链收敛为 TID0 正弦调制部分；
   噪声过滤补充 BufferRef/delayBuffer/RateTransition 等结构块。
-- 结果：重新展开 22 主图节点（8 主链 + 4 downrate 抽头 + 4 分析汇）、12 子模块；
+- 结果：重新展开 22 主图节点（8 主链 + 4 downrate 抽头 + 4 分析抽头终点）、12 子模块；
   占位 13、真实映射 43（tap_5 的 magnitude²/saturation 从括号文本中拆出）。
 - 测试：蒸馏导入断言更新（downrate factor 2/4/64/256/768 检查、part2_fdp 不在主链）；
   全量 104 passed、1 skipped。

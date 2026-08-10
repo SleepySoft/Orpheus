@@ -64,6 +64,7 @@
 | 软削波 | `orpheus.builtin.soft_clipper` | `drive_db`（tanh 归一化） |
 | 饱和限幅 | `orpheus.builtin.saturation` | `limit`、`soft`（0=硬 1=软） |
 | 矩阵乘法 | `orpheus.builtin.matrix_mul` | `rows`/`cols` + `matrix`（BULK，行主序） |
+| 斜坡渐变混音矩阵（N表插值+IIR斜坡） | `orpheus.builtin.slc_matrix_mul` | `rows`/`cols`/`num_tables`/`tables`(BULK)/`interp_x`/`interp_index`/`ramp_coeff`/`freeze` |
 | 窗函数 | `orpheus.builtin.window` | `window_size` + `coefficients`（BULK，每块从头应用） |
 | 变化率限幅 | `orpheus.builtin.noise_slew` | `rise_rate`/`fall_rate`（/s） |
 | 电平检测 | `orpheus.builtin.level_detect` | `mode`（峰值/RMS）、`attack_ms`、`release_ms` + `level` 探针 |
@@ -134,8 +135,9 @@ model_tree:
     - tid: 2
       rate_hz: 375
       call_interval: 4
+      mode: inline               # 内联多速率：chains 并入主链，不生成死路抽头
       label: FDP 频域处理
-      chains: [part2_fdp]        # 降速率链：导入时生成 downrate(÷4) 抽头
+      chains: []                 # FDP 已在 TID0 主链（part2_fdp），TID2 仅 FFT 核心
     - tid: 3
       rate_hz: 23.4
       call_interval: 64
@@ -146,10 +148,13 @@ model_tree:
 规则：
 
 - `call_interval × rate_hz = 基块率`；主音频链只能有一条（interval=1，承载 input→output）；
-- 分析侧链（interval>1）用 `chains` 或 `blocks` 显式列出，**不要串进主链**；
+- 分析侧链（interval>1 且 mode!=inline）用 `chains` 或 `blocks` 显式列出，**不要串进主链**；
+- **内联多速率**（`mode: inline`，如 FDP）：chains 并入主链，不生成死路抽头；
+  用于输出馈回主链的降速率组件（FDP 的 6ch 输出直接喂 Part3），区别于分析侧链（产物是控制参数，图内死路）；
 - 纯缓冲/结构块（BufferRef、delayBuffer、RateTransition 等）不列入 `blocks`，
   Orpheus 按 block 调度无需显式缓冲组件；
-- 导入时 interval>1 的 task 自动生成 `downrate(factor=call_interval)` 抽头 + 抽头子模块 + 分析汇。
+- 导入时 interval>1 且 mode!=inline 的 task 自动生成 `downrate(factor=call_interval)` 抽头 + 抽头子模块 + 分析抽头终点（embed_out 死路终点）；
+  `mode: inline` 的 task 不生成抽头，chains 并入 TID0 主链。
 
 ## 5. 校验清单（提交前逐项过）
 
@@ -175,7 +180,7 @@ model_tree:
   未映射块用占位组件 id（`orpheus.builtin.placeholder`，UI 显示「组件缺失」红标），原始括号参数写入
   节点 `note` 便于查看。此时工程以浏览拓扑为主，替换占位组件前不可编译运行。
 - **多速率展开**：`task_flows` 中 `call_interval>1` 的 task 导入为
-  `downrate(factor=call_interval)` 抽头 + 抽头子模块 + 分析汇，主音频链保持基础速率；
+  `downrate(factor=call_interval)` 抽头 + 抽头子模块 + 分析抽头终点，主音频链保持基础速率；
   旧格式（task_flows 无 `chains`/`blocks`）回退为全部链串接一条主链。
 
 ## 7. 红线与坑
