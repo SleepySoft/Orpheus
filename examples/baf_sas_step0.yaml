@@ -460,21 +460,123 @@ subcomponents:
   ports:
   - id: in
     direction: input
-    maps_to: through:in
+    maps_to: split:in
   - id: out
     direction: output
-    maps_to: through:out
+    maps_to: spatial_fader:out
   graph:
     nodes:
-    - id: through
-      component: orpheus.builtin.gain
+    - id: split
+      component: orpheus.builtin.channel_router
+      params:
+        channels_in: 22
+        channels_out: 22
+        indices: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21
+      position:
+        x: 60
+        y: 100
+    - id: sleeping
+      component: orpheus.builtin.sleeping_beauty
+      params:
+        channels: 22
+        chan_map: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+      position:
+        x: 240
+        y: 60
+    - id: post_holo_route
+      component: orpheus.builtin.channel_router
+      params:
+        channels_in: 22
+        channels_out: 22
+        indices: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21
+      position:
+        x: 420
+        y: 60
+    - id: fade_ctrl
+      component: orpheus.builtin.gain_ramper
       params:
         gain_db: 0.0
         channels: 22
+        num_rampers: 1
+        chan_map: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
       position:
-        x: 100
+        x: 600
+        y: 60
+    - id: mute_ctrl
+      component: orpheus.builtin.mute
+      params:
+        mute: 0.0
+        channels: 22
+      position:
+        x: 780
+        y: 60
+    - id: sum
+      component: orpheus.builtin.mixer
+      params:
+        gain0: 0.0
+        gain1: 0.0
+        channels: 22
+      position:
+        x: 960
         y: 100
-    connections: []
+    - id: speaker_delay
+      component: orpheus.builtin.delay_line
+      params:
+        channels: 22
+        max_delay_samples: 32384
+        delays_samples: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+      position:
+        x: 1140
+        y: 100
+    - id: sas_router
+      component: orpheus.builtin.channel_router
+      params:
+        channels_in: 22
+        channels_out: 22
+        indices: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21
+      position:
+        x: 1320
+        y: 100
+    - id: fade_ramper
+      component: orpheus.builtin.gain_ramper
+      params:
+        gain_db: 0.0
+        channels: 22
+        num_rampers: 1
+        chan_map: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+      position:
+        x: 1500
+        y: 100
+    - id: spatial_fader
+      component: orpheus.builtin.fade
+      params:
+        fade: 0.0
+        channels: 22
+        front_channels: 11
+      position:
+        x: 1680
+        y: 100
+    connections:
+    - from: split:out
+      to: sleeping:in
+    - from: split:out
+      to: sum:in0
+    - from: sleeping:out
+      to: post_holo_route:in
+    - from: post_holo_route:out
+      to: fade_ctrl:in
+    - from: fade_ctrl:out
+      to: mute_ctrl:in
+    - from: mute_ctrl:out
+      to: sum:in1
+    - from: sum:out
+      to: speaker_delay:in
+    - from: speaker_delay:out
+      to: sas_router:in
+    - from: sas_router:out
+      to: fade_ramper:in
+    - from: fade_ramper:out
+      to: spatial_fader:in
 - id: input_select
   name: 输入选择
   ports:
