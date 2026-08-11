@@ -38,7 +38,6 @@ class Node:
     params: dict[str, Any] = field(default_factory=dict)
     position: dict[str, float] = field(default_factory=dict)
     alters: list[str] = field(default_factory=list)  # 用户声明的替代组（同图节点 id）
-    notes: str = ""  # 用户对该节点在工程中的注释/笔记
 
 
 @dataclass
@@ -118,7 +117,6 @@ def _parse_graph(graph_data: dict[str, Any]) -> Graph:
             params=n.get("params", {}),
             position=n.get("position", {}),
             alters=list(n.get("alters", []) or []),
-            notes=str(n.get("notes", "") or ""),
         )
         graph.nodes[node.id] = node
     for c in graph_data.get("connections", []):
@@ -143,7 +141,6 @@ def _graph_to_dict(graph: Graph) -> dict[str, Any]:
                 "params": n.params,
                 "position": n.position,
                 **({"alters": n.alters} if n.alters else {}),
-                **({"notes": n.notes} if n.notes else {}),
             }
             for n in graph.nodes.values()
         ],

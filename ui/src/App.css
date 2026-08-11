@@ -1701,12 +1701,6 @@ pre {
   color: #4cc9f0;
 }
 
-.note-badge {
-  font-size: 11px;
-  margin-left: 4px;
-  cursor: default;
-}
-
 .node-notes-section {
   margin-top: 12px;
   font-size: 12px;
@@ -1719,24 +1713,101 @@ pre {
   user-select: none;
 }
 
-.node-notes-textarea {
-  width: 100%;
-  box-sizing: border-box;
+.node-notes-hint {
   margin-top: 6px;
   padding: 8px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+}
+
+.node-notes-hint p {
+  margin: 4px 0;
+}
+
+.node-notes-example {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  background: #f1f3f5;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.node-notes-example code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.notes-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  width: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.notes-toolbar {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.notes-toolbar button {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.notes-toolbar button.active {
+  background: #4cc9f0;
+  color: white;
+  border-color: #4cc9f0;
+}
+
+.notes-toolbar button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.notes-status {
+  font-size: 11px;
+  color: #2f9e44;
+  flex-shrink: 0;
+}
+
+.notes-editor {
+  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 200px;
+  padding: 10px;
   border: 1px solid #ced4da;
   border-radius: 4px;
   font-size: 12px;
   line-height: 1.5;
   resize: vertical;
-  min-height: 80px;
-  font-family: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-.node-notes-textarea:focus {
+.notes-editor:focus {
   outline: none;
   border-color: #4cc9f0;
   box-shadow: 0 0 0 2px rgba(76, 201, 240, 0.2);
+}
+
+.notes-preview {
+  flex: 1;
+  min-height: 200px;
+  padding: 10px;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  background: white;
+  overflow-y: auto;
 }
 
 .readme-modal {

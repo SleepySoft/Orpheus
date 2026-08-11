@@ -32,6 +32,7 @@ import SubPortsPanel from './SubPortsPanel';
 import ProjectSettings from './ProjectSettings';
 import { NodeActionsContext } from './NodeActionsContext';
 import ReactMarkdown from 'react-markdown';
+import NotesPanel from './NotesPanel';
 
 const nodeTypes = { orpheus: OrpheusNode };
 const AUTOSAVE_DELAY_MS = 1500;
@@ -66,7 +67,7 @@ function Editor() {
   const [readmeComponentId, setReadmeComponentId] = useState(null);
   const [readmeContent, setReadmeContent] = useState('');
   const [readmeError, setReadmeError] = useState(null);
-  const [leftTab, setLeftTab] = useState('palette'); // 'palette' | 'tree'
+  const [leftTab, setLeftTab] = useState('palette'); // 'palette' | 'tree' | 'notes'
   const [leftOpen, setLeftOpen] = useState(true);   // 组件库
   const [leftWidth, setLeftWidth] = useState(() => {
     try {
@@ -520,20 +521,6 @@ const { screenToFlowPosition } = useReactFlow();
       }
     },
     [catalogById]
-  );
-
-  /** 更新当前视图中某节点的内联注释。 */
-  const handleNodeNotesChange = useCallback(
-    (nodeId, notes) => {
-      updateView(activeView, (v) => ({
-        ...v,
-        nodes: v.nodes.map((nd) =>
-          nd.id === nodeId ? { ...nd, data: { ...nd.data, notes } } : nd
-        ),
-      }));
-      setDirty(true);
-    },
-    [activeView, updateView]
   );
 
   /** 参数面板导入：把值写回各视图节点参数（含 Bulk 数组回写字符串），并在实时会话中推送非重启参数。 */
@@ -1407,6 +1394,13 @@ const { screenToFlowPosition } = useReactFlow();
               >
                 工程树
               </button>
+              <button
+                className={leftTab === 'notes' ? 'active' : ''}
+                onClick={() => setLeftTab('notes')}
+                title="工程笔记（workspace/<工程>/notes.md）"
+              >
+                笔记
+              </button>
             </div>
             {leftTab === 'palette' && (
               <Palette
@@ -1427,6 +1421,7 @@ const { screenToFlowPosition } = useReactFlow();
                 onOpenView={onOpenView}
               />
             )}
+            {leftTab === 'notes' && <NotesPanel projectName={current} />}
           </div>
           <div className="side-resizer" onMouseDown={onLeftResizeStart} title="拖拽调整宽度" />
           </>
@@ -1482,7 +1477,6 @@ const { screenToFlowPosition } = useReactFlow();
             <ParamPanel
               node={selectedNode}
               onParamChange={onParamChange}
-              onNotesChange={handleNodeNotesChange}
               onDeleteNode={onDeleteNode}
               onRenameNode={onRenameNode}
               ctx={paramCtx}

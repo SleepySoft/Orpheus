@@ -111,6 +111,10 @@ class DistillImportRequest(BaseModel):
     yaml: str
 
 
+class ProjectNotesRequest(BaseModel):
+    content: str
+
+
 def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
     m = info.manifest
     return {
@@ -413,6 +417,29 @@ def create_app(project_root: Path) -> FastAPI:
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return {"status": "saved", "name": name}
+
+    @app.get("/api/projects/{name}/notes")
+    def get_project_notes(name: str) -> dict[str, Any]:
+        """读取工程侧车笔记 notes.md（与 project.yaml 并置）。"""
+        try:
+            rec = manager.get(name)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        notes_path = rec.path.with_name("notes.md")
+        if not notes_path.is_file():
+            raise HTTPException(status_code=404, detail="工程笔记不存在")
+        return {"content": notes_path.read_text(encoding="utf-8")}
+
+    @app.put("/api/projects/{name}/notes")
+    def put_project_notes(name: str, req: ProjectNotesRequest) -> dict[str, Any]:
+        """保存工程侧车笔记 notes.md。"""
+        try:
+            rec = manager.get(name)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        notes_path = rec.path.with_name("notes.md")
+        notes_path.write_text(req.content, encoding="utf-8")
+        return {"status": "saved", "path": str(notes_path)}
 
     @app.delete("/api/projects/{name}")
     def delete_project(name: str) -> dict[str, Any]:
