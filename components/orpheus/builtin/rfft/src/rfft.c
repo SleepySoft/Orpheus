@@ -6,6 +6,26 @@
 
 #define PI_F 3.14159265358979f
 
+static float read_float(const OrpheusConfig* config, const char* id, float fallback) {
+    for (uint32_t i = 0; i < config->param_count; ++i) {
+        if (config->param_ids[i] && strcmp(config->param_ids[i], id) == 0) {
+            if (config->param_values[i].type == ORPHEUS_VALUE_FLOAT) return config->param_values[i].value.f32;
+            if (config->param_values[i].type == ORPHEUS_VALUE_INT) return (float)config->param_values[i].value.i32;
+        }
+    }
+    return fallback;
+}
+
+static const char* read_string(const OrpheusConfig* config, const char* id, const char* fallback) {
+    for (uint32_t i = 0; i < config->param_count; ++i) {
+        if (config->param_ids[i] && strcmp(config->param_ids[i], id) == 0 &&
+            config->param_values[i].type == ORPHEUS_VALUE_STRING) {
+            return config->param_values[i].value.str ? config->param_values[i].value.str : fallback;
+        }
+    }
+    return fallback;
+}
+
 /* ---- radix-2 迭代 FFT ---- */
 
 static void bit_reverse(float* re, float* im, uint32_t n) {
@@ -51,7 +71,16 @@ static const OrpheusParameter rfft_params[] = {
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
       .min_i32 = 1, .max_i32 = 32,
       .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
-      .readback = true, .persistent = true, .affects_signature = true }
+      .readback = true, .persistent = true, .affects_signature = true },
+    { .id = "fft_size", .name = "FFT 点数", .type = ORPHEUS_VALUE_INT,
+      .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 0 },
+      .min_i32 = 0, .max_i32 = 1024,
+      .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+      .readback = true, .persistent = true, .affects_signature = true },
+    { .id = "output_mode", .name = "输出模式", .type = ORPHEUS_VALUE_STRING,
+      .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "halfcomplex" },
+      .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+      .readback = true, .persistent = true, .affects_signature = false }
 };
 
 static const OrpheusPort rfft_ports[] = {
@@ -65,7 +94,7 @@ static const OrpheusPort rfft_ports[] = {
 
 static const OrpheusComponentDescriptor rfft_descriptor = {
     .id = "orpheus.builtin.rfft", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = rfft_ports, .port_count = 2, .params = rfft_params, .param_count = 1,
+    .ports = rfft_ports, .port_count = 2, .params = rfft_params, .param_count = 3,
     .state_size = sizeof(RfftState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
 };
@@ -88,13 +117,20 @@ static int rfft_destroy(void* state) { (void)state; return ORPHEUS_OK; }
 static int rfft_prepare(void* state, const OrpheusConfig* config) {
     RfftState* s = (RfftState*)state;
     s->channels = config->channels > 0 ? config->channels : 2;
-    s->fftSize  = config->block_size > 0 ? config->block_size : 256;
+    s->frameSize = (uint32_t)read_float(config, "fft_size", 0.0f);
+    if (s->frameSize == 0) s->frameSize = config->block_size > 0 ? config->block_size : 256;
+    s->fftSize = s->frameSize;
 
     /* 验证 2 的幂且在范围内 */
     uint32_t n = s->fftSize;
     if (n < 4 || n > RFFT_MAX_SIZE || (n & (n - 1)) != 0) {
         return ORPHEUS_ERR_INVALID_ARG;
     }
+
+    const char* mode_str = read_string(config, "output_mode", "halfcomplex");
+    s->outputMode = 0;
+    if (mode_str && strcmp(mode_str, "magnitude") == 0) s->outputMode = 1;
+    else if (mode_str && strcmp(mode_str, "power") == 0) s->outputMode = 2;
 
     /* 预计算 twiddle 因子: W[k] = exp(-2*pi*i*k/N) */
     for (uint32_t k = 0; k < n / 2; ++k) {
@@ -117,34 +153,62 @@ static int rfft_process(void* state, const OrpheusProcessContext* ctx) {
 
     uint32_t n = s->fftSize;
     uint32_t ch = s->channels;
+    uint32_t frameSize = s->frameSize;
+    uint32_t mode = s->outputMode;
     const float* in_data = (const float*)in->data;
     float* out_data = (float*)out->data;
+    uint32_t frames = ctx->frame_count;
 
-    for (uint32_t c = 0; c < ch; ++c) {
-        /* 复制实数输入到暂存，虚部清零 */
-        for (uint32_t k = 0; k < n; ++k) {
-            s->scratchR[k] = in_data[k * ch + c];
-            s->scratchI[k] = 0.0f;
-        }
-
-        /* 正向 FFT */
-        fft_forward(s->scratchR, s->scratchI, n, s->twiddleCos, s->twiddleSin);
-
-        /* 打包为半复数格式:
-           hc[0]     = R(0)        [DC]
-           hc[1..N/2-1] = R(k)
-           hc[N/2]   = R(N/2)      [Nyquist]
-           hc[N/2+1..N-1] = I(N-k)  [虚部逆序] */
-        out_data[0 * ch + c] = s->scratchR[0];
-        for (uint32_t k = 1; k < n / 2; ++k) {
-            out_data[k * ch + c] = s->scratchR[k];
-        }
-        out_data[(n / 2) * ch + c] = s->scratchR[n / 2];
-        for (uint32_t k = 1; k < n / 2; ++k) {
-            out_data[(n - k) * ch + c] = s->scratchI[k];
+    if (frameSize == 0 || frameSize > RFFT_MAX_SIZE) frameSize = n;
+    uint32_t num_frames = 1;
+    if (frameSize != frames) {
+        if (frameSize > 0 && (frames % frameSize) == 0) {
+            num_frames = frames / frameSize;
+        } else {
+            /* 块长不是 frame_size 整数倍时退化为单帧处理整个块 */
+            frameSize = frames;
+            num_frames = 1;
         }
     }
-    out->frame_count = n;
+
+    for (uint32_t frame = 0; frame < num_frames; ++frame) {
+        uint32_t in_offset = frame * frameSize;
+        uint32_t out_offset = frame * frameSize;
+        for (uint32_t c = 0; c < ch; ++c) {
+            /* 复制实数输入到暂存，虚部清零 */
+            for (uint32_t k = 0; k < n; ++k) {
+                s->scratchR[k] = in_data[(in_offset + k) * ch + c];
+                s->scratchI[k] = 0.0f;
+            }
+
+            /* 正向 FFT */
+            fft_forward(s->scratchR, s->scratchI, n, s->twiddleCos, s->twiddleSin);
+
+            float* dst = out_data + out_offset * ch + c;
+            if (mode == 0) {
+                /* 半复数格式 */
+                dst[0 * ch] = s->scratchR[0];
+                for (uint32_t k = 1; k < n / 2; ++k) {
+                    dst[k * ch] = s->scratchR[k];
+                }
+                dst[(n / 2) * ch] = s->scratchR[n / 2];
+                for (uint32_t k = 1; k < n / 2; ++k) {
+                    dst[(n - k) * ch] = s->scratchI[k];
+                }
+            } else {
+                /* magnitude / power：输出非冗余 bin 的对称展开，便于后续 spectral_reduce */
+                for (uint32_t k = 0; k < n; ++k) {
+                    uint32_t idx = k <= n / 2 ? k : n - k;
+                    float r = s->scratchR[idx];
+                    float im = (idx == 0 || idx == n / 2) ? 0.0f : s->scratchI[idx];
+                    float v = r * r + im * im;
+                    if (mode == 1) v = sqrtf(v);
+                    dst[k * ch] = v;
+                }
+            }
+        }
+    }
+    out->frame_count = frames;
     return ORPHEUS_OK;
 }
 
@@ -160,6 +224,14 @@ static int rfft_get_parameter(void* state, const char* param_id, OrpheusValue* v
     if (strcmp(param_id, "channels") == 0) {
         value->type = ORPHEUS_VALUE_INT; value->value.i32 = (int32_t)s->channels; return ORPHEUS_OK;
     }
+    if (strcmp(param_id, "fft_size") == 0) {
+        value->type = ORPHEUS_VALUE_INT; value->value.i32 = (int32_t)s->frameSize; return ORPHEUS_OK;
+    }
+    if (strcmp(param_id, "output_mode") == 0) {
+        value->type = ORPHEUS_VALUE_STRING;
+        value->value.str = s->outputMode == 2 ? "power" : (s->outputMode == 1 ? "magnitude" : "halfcomplex");
+        return ORPHEUS_OK;
+    }
     return ORPHEUS_ERR_NOT_FOUND;
 }
 
@@ -172,6 +244,15 @@ static int rfft_register_slots(void* state, const OrpheusRegistry* reg) {
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, frameSize, ORPHEUS_SLOT_SETTING, "fft_size", "FFT 点数",
+                     ORPHEUS_VALUE_INT, .min_i32=0, .max_i32=1024,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, outputMode, ORPHEUS_SLOT_SETTING, "output_mode", "输出模式",
+                     ORPHEUS_VALUE_STRING,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     return ORPHEUS_OK;
 }
 

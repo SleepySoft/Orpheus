@@ -1,7 +1,7 @@
 id: orpheus.builtin.window
 name: 窗函数
 category: 基础算法
-description: 按系数数组逐样本加权（每块从头应用，超窗长部分直通），系数为 BULK
+description: 按系数数组逐样本加权（每块从头应用，超窗长部分直通；repeat 模式按 window_size 周期重复），系数为 BULK
 version: 1.0.0
 abi_version: 1
 package_type: source
@@ -42,6 +42,12 @@ parameters:
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
+  - id: mode
+    name: 模式
+    type: string
+    default: "single"
+    allowed: ["single", "repeat"]
+    update_policy: restart_required
 memory:
   state_size: 0
   scratch_size: 0

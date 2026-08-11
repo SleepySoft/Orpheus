@@ -1,15 +1,15 @@
-id: orpheus.builtin.rfft
-name: 实数FFT
+id: orpheus.builtin.spectral_reduce
+name: 谱减聚合
 category: 基础算法
-description: 实数FFT（半复数格式输出），默认 FFT 点数=块长。可设置 fft_size 将输入块拆分为多帧处理，并选择输出为 magnitude/power。
+description: 对每通道 STFT 功率/幅度谱做帧内/块内聚合，输出每通道单一标量并广播到整个输出块。支持 sum/mean/min/max。
 version: 1.0.0
 abi_version: 1
 package_type: source
-state_type: RfftState
+state_type: SpectralReduceState
 sources:
-  - src/rfft.c
+  - src/spectral_reduce.c
 headers:
-  - include/orpheus_rfft.h
+  - include/orpheus_spectral_reduce.h
 ports:
   - id: in
     direction: input
@@ -26,21 +26,34 @@ parameters:
     name: 通道数
     type: int
     default: 2
-    range: [1, 32]
+    range: [1, 64]
     update_policy: restart_required
     affects_signature: true
   - id: fft_size
     name: FFT 点数
     type: int
-    default: 0
-    range: [0, 1024]
+    default: 128
+    range: [2, 4096]
     update_policy: restart_required
     affects_signature: true
-  - id: output_mode
-    name: 输出模式
+  - id: num_frames
+    name: 每块帧数
+    type: int
+    default: 12
+    range: [1, 256]
+    update_policy: restart_required
+    affects_signature: true
+  - id: bin_count
+    name: 参与运算的 bin 数
+    type: int
+    default: 0
+    range: [0, 4096]
+    update_policy: restart_required
+  - id: operation
+    name: 运算
     type: string
-    default: "halfcomplex"
-    allowed: ["halfcomplex", "magnitude", "power"]
+    default: "mean"
+    allowed: ["sum", "mean", "min", "max"]
     update_policy: restart_required
 memory:
   state_size: 0

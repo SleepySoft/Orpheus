@@ -164,19 +164,22 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 
 注意：
 - 当前 `accel_select`/`roof_select` 用的是前 N 路占位索引，真实语义需对照 `ActiveAccelChannelsMap`、`ActiveRoofMicsMap`、`DdSelectedRoofMics` 回填。
-- `downrate` 只是简单分频，源模型用的是带 50% 重叠的循环缓冲 + STFT；后续需用 `buffer`/`fft` 组件替换。
-- 两条链的输出目前只接到子组件内部的 `probe_rms`/`gain`，没有真正闭环控制 `rnc_gain`/`ehc_gain`。
+- TID5/TID6 已实现 `circular_buffer → window → rfft → spectral_reduce` 的 STFT 功率谱路径：
+  - `rnc_noise_floor`：12 路加速度计 → 128 点 FFT → 每通道取最小功率 → `nf_est`。
+  - `rnc_divergence_detector`：4 路车顶麦克风 → 256 点 FFT → 每通道平均功率 → 与扬声器耦合信号混合。
+- 受现有任务块长约束，当前 `circular_buffer` 的 `hop_size = frame_size`（无重叠）。`circular_buffer` 组件本身支持重叠（`hop_size < frame_size`），但要启用 50% 重叠需新增中间任务（例如 768 样本）或调整任务表。
+- 两条链的输出目前只接到子组件内部的 `probe_rms`/`null_sink`，没有真正闭环控制 `rnc_gain`/`ehc_gain`。
 
 ### 5.5 下一步工作
 
-1. **新增可复用原子组件**：
-   - `circular_buffer`：支持 50% 重叠的循环缓冲/滑窗读出。
-   - `window` / `fft`：窗函数 + FFT。
-   - `stft`：封装“缓冲 → 加窗 → FFT → 取模平方”的完整短时傅里叶变换。
-   - 这些原子组件是通用能力，可被多个工程复用。
-2. **用原子组件拼出项目子图**：
-   - 在 `rnc_noise_floor` 内部用 `circular_buffer` + `stft` + `spectral_min` 等替换当前 `downrate` + `probe_rms` 占位。
-   - 在 `rnc_divergence_detector` 内部同样用 `stft` + 平滑/概率检测组件替换占位。
+1. **~~新增可复用原子组件~~** ✅：
+   - `orpheus.builtin.circular_buffer`：支持重叠的循环缓冲/滑窗分帧。
+   - `orpheus.builtin.window`：新增 `repeat` 模式，可对多帧连续加窗。
+   - `orpheus.builtin.rfft`：新增 `fft_size` 与 `output_mode`（magnitude/power），支持一帧内处理多个 FFT 帧。
+   - `orpheus.builtin.spectral_reduce`：对 STFT 功率谱做 sum/mean/min/max 聚合。
+2. **用原子组件拼出项目子图** ✅：
+   - `rnc_noise_floor` 已用 `circular_buffer → window → rfft → spectral_reduce` 替换 `probe_rms` 占位。
+   - `rnc_divergence_detector` 已用同样链路替换车顶麦克风探针。
 3. **提取 TOP 系数**：从 `Model_Target_Ehc_p0_b*.c`、`Model_Target_Rnc_p15_b*.c`、`Model_Target_Sys_p2_b0.c` 中把表写入对应组件参数。
 4. **明确通道语义**：25ch `asm_in` 中哪些是 RPM、扭矩、车速、加速度计、麦克风；22ch `audio_in` 中哪些是座椅/车顶麦克风。
 5. **实现真实子图**：`ehc_core`、`ehc_blade`、`rnc_nlms`、`rnc_control_filter`、`rnc_noise_floor`、`rnc_divergence_detector`。
@@ -188,8 +191,9 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 ## 6. 调试建议
 
 - 先编译：`python -m orpheus_core.cli compile examples/baf_asm_ehc_rnc.yaml`
-- 再运行：`python -m orpheus_core.cli run examples/baf_asm_ehc_rnc.yaml`
+- 再运行：`build/orpheus_runtime.exe examples/baf_asm_ehc_rnc.plan.json build/components`
 - 检查 WAV：`outputs/baf_asm_audio_out.wav`（24ch）和 `outputs/baf_asm_ref_out.wav`（18ch）。
+- 注意：当前 step0 占位工程在运行时会因 `ehc_sub` 的 AutoStabilizer 支路（与本次改动无关）发生访问冲突，属于已知问题；编译和 STFT 链路单元测试已通过。
 - 任务 rate 验证：查看 plan.json 中各节点所属 task 与预期 TID 是否一致。
 - 探针：关注 `ehc_sub/autostab_probe`、`rnc_sub/nlms_probe`、`rnc_sub/slow_probe` 是否随输入变化。
 

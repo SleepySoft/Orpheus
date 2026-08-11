@@ -12,6 +12,7 @@ extern "C" {
 typedef struct {
     uint32_t window_size;
     uint32_t channels;
+    uint32_t mode;                /* 0=single, 1=repeat */
     float coeffs[ORPHEUS_WINDOW_MAX];
 } WindowState;
 

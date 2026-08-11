@@ -891,7 +891,7 @@ subcomponents:
 
   - id: rnc_noise_floor
     name: RNC Noise Floor
-    description: RNC 噪声底估计占位子图（TID5，31.25 Hz）：12 路加速度计 STFT → 噪声底/故障通道/冻结计数
+    description: RNC 噪声底估计占位子图（TID5，31.25 Hz）：12 路加速度计 STFT → 每通道最小功率 → nf_est
     ports:
       - id: accel_in
         direction: input
@@ -917,13 +917,49 @@ subcomponents:
           position:
             x: 60
             y: 60
-        - id: psd_probe
-          component: orpheus.builtin.probe_rms
+        - id: cb
+          component: orpheus.builtin.circular_buffer
           task: tid5
           params:
             channels: 12
+            frame_size: 128
+            hop_size: 128
+            num_frames: 12
           position:
-            x: 240
+            x: 220
+            y: 40
+        - id: win
+          component: orpheus.builtin.window
+          task: tid5
+          params:
+            channels: 12
+            window_size: 128
+            mode: repeat
+            coefficients: "1.0"
+          position:
+            x: 360
+            y: 40
+        - id: fft
+          component: orpheus.builtin.rfft
+          task: tid5
+          params:
+            channels: 12
+            fft_size: 128
+            output_mode: power
+          position:
+            x: 480
+            y: 40
+        - id: sr
+          component: orpheus.builtin.spectral_reduce
+          task: tid5
+          params:
+            channels: 12
+            fft_size: 128
+            num_frames: 12
+            bin_count: 65
+            operation: min
+          position:
+            x: 600
             y: 40
         - id: nf_router
           component: orpheus.builtin.channel_router
@@ -933,8 +969,16 @@ subcomponents:
             channels_out: 12
             indices: 0,1,2,3,4,5,6,7,8,9,10,11
           position:
-            x: 420
+            x: 760
             y: 40
+        - id: nf_probe
+          component: orpheus.builtin.probe_rms
+          task: tid5
+          params:
+            channels: 12
+          position:
+            x: 600
+            y: 120
         - id: faulty_gen
           component: orpheus.builtin.gain
           task: tid5
@@ -943,7 +987,7 @@ subcomponents:
             channels: 12
           position:
             x: 240
-            y: 120
+            y: 220
         - id: faulty_router
           component: orpheus.builtin.channel_router
           task: tid5
@@ -953,7 +997,7 @@ subcomponents:
             indices: 0,1,2,3,4,5,6,7,8,9,10,11
           position:
             x: 420
-            y: 120
+            y: 220
         - id: freeze_select
           component: orpheus.builtin.input_select
           task: tid5
@@ -963,7 +1007,7 @@ subcomponents:
             select: '1'
           position:
             x: 240
-            y: 200
+            y: 300
         - id: freeze_gain
           component: orpheus.builtin.gain
           task: tid5
@@ -972,7 +1016,7 @@ subcomponents:
             channels: 1
           position:
             x: 360
-            y: 200
+            y: 300
         - id: freeze_router
           component: orpheus.builtin.channel_router
           task: tid5
@@ -982,25 +1026,63 @@ subcomponents:
             indices: '0'
           position:
             x: 480
-            y: 200
+            y: 300
+        - id: nf_sink
+          component: orpheus.builtin.null_sink
+          task: tid5
+          params:
+            channels: 12
+          position:
+            x: 760
+            y: 120
+        - id: faulty_sink
+          component: orpheus.builtin.null_sink
+          task: tid5
+          params:
+            channels: 12
+          position:
+            x: 560
+            y: 220
+        - id: freeze_sink
+          component: orpheus.builtin.null_sink
+          task: tid5
+          params:
+            channels: 1
+          position:
+            x: 560
+            y: 300
       connections:
         - from: input_router:out
-          to: psd_probe:in
+          to: cb:in
+        - from: cb:out
+          to: win:in
+        - from: win:out
+          to: fft:in
+        - from: fft:out
+          to: sr:in
+        - from: sr:out
+          to: nf_router:in
+        - from: nf_router:out
+          to: nf_probe:in
+        - from: nf_router:out
+          to: nf_sink:in
         - from: input_router:out
           to: faulty_gen:in
         - from: input_router:out
           to: freeze_select:in
-        - from: psd_probe:out
-          to: nf_router:in
         - from: faulty_gen:out
           to: faulty_router:in
+        - from: faulty_router:out
+          to: faulty_sink:in
         - from: freeze_select:out
           to: freeze_gain:in
         - from: freeze_gain:out
           to: freeze_router:in
+        - from: freeze_router:out
+          to: freeze_sink:in
   - id: rnc_divergence_detector
     name: RNC Divergence Detector
-    description: RNC 发散检测占位子图（TID6，7.8125 Hz）：车顶麦克风 + 扬声器参考 → 发散标志/步长修正/重要性因子
+    description: RNC 发散检测占位子图（TID6，7.8125 Hz）：车顶麦克风 STFT + 扬声器参考耦合 → 发散标志/步长修正/重要性因子
     ports:
       - id: roof_in
         direction: input
@@ -1039,13 +1121,49 @@ subcomponents:
           position:
             x: 60
             y: 180
-        - id: roof_probe
-          component: orpheus.builtin.probe_rms
+        - id: cb
+          component: orpheus.builtin.circular_buffer
           task: tid6
           params:
             channels: 4
+            frame_size: 256
+            hop_size: 256
+            num_frames: 24
           position:
-            x: 240
+            x: 220
+            y: 60
+        - id: win
+          component: orpheus.builtin.window
+          task: tid6
+          params:
+            channels: 4
+            window_size: 256
+            mode: repeat
+            coefficients: "1.0"
+          position:
+            x: 340
+            y: 60
+        - id: fft
+          component: orpheus.builtin.rfft
+          task: tid6
+          params:
+            channels: 4
+            fft_size: 256
+            output_mode: power
+          position:
+            x: 460
+            y: 60
+        - id: sr
+          component: orpheus.builtin.spectral_reduce
+          task: tid6
+          params:
+            channels: 4
+            fft_size: 256
+            num_frames: 24
+            bin_count: 129
+            operation: mean
+          position:
+            x: 580
             y: 60
         - id: spkr_probe
           component: orpheus.builtin.probe_rms
@@ -1064,7 +1182,7 @@ subcomponents:
             matrix: 0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125
           position:
             x: 420
-            y: 120
+            y: 180
         - id: error_mix
           component: orpheus.builtin.mixer
           task: tid6
@@ -1073,7 +1191,7 @@ subcomponents:
             gain1: 0.0
             channels: 4
           position:
-            x: 600
+            x: 760
             y: 120
         - id: flag_reduce
           component: orpheus.builtin.matrix_mul
@@ -1083,7 +1201,7 @@ subcomponents:
             cols: 4
             matrix: 0.25,0.25,0.25,0.25
           position:
-            x: 600
+            x: 760
             y: 60
         - id: flag_router
           component: orpheus.builtin.channel_router
@@ -1093,7 +1211,7 @@ subcomponents:
             channels_out: 1
             indices: '0'
           position:
-            x: 760
+            x: 920
             y: 60
         - id: step_select
           component: orpheus.builtin.input_select
@@ -1104,7 +1222,7 @@ subcomponents:
             select: '1'
           position:
             x: 420
-            y: 260
+            y: 320
         - id: step_gain
           component: orpheus.builtin.gain
           task: tid6
@@ -1113,7 +1231,7 @@ subcomponents:
             channels: 1
           position:
             x: 540
-            y: 260
+            y: 320
         - id: step_router
           component: orpheus.builtin.channel_router
           task: tid6
@@ -1123,7 +1241,7 @@ subcomponents:
             indices: '0'
           position:
             x: 660
-            y: 260
+            y: 320
         - id: importance_gain
           component: orpheus.builtin.gain
           task: tid6
@@ -1132,7 +1250,7 @@ subcomponents:
             channels: 8
           position:
             x: 420
-            y: 340
+            y: 400
         - id: importance_router
           component: orpheus.builtin.channel_router
           task: tid6
@@ -1142,15 +1260,45 @@ subcomponents:
             indices: 0,1,2,3,4,5,6,7
           position:
             x: 600
-            y: 340
+            y: 400
+        - id: flag_sink
+          component: orpheus.builtin.null_sink
+          task: tid6
+          params:
+            channels: 1
+          position:
+            x: 920
+            y: 120
+        - id: step_sink
+          component: orpheus.builtin.null_sink
+          task: tid6
+          params:
+            channels: 1
+          position:
+            x: 660
+            y: 360
+        - id: importance_sink
+          component: orpheus.builtin.null_sink
+          task: tid6
+          params:
+            channels: 8
+          position:
+            x: 600
+            y: 460
       connections:
         - from: roof_router:out
-          to: roof_probe:in
+          to: cb:in
+        - from: cb:out
+          to: win:in
+        - from: win:out
+          to: fft:in
+        - from: fft:out
+          to: sr:in
         - from: spkr_router:out
           to: coupling_matrix:in
         - from: spkr_router:out
           to: spkr_probe:in
-        - from: roof_probe:out
+        - from: sr:out
           to: error_mix:in0
         - from: coupling_matrix:out
           to: error_mix:in1
@@ -1158,16 +1306,22 @@ subcomponents:
           to: flag_reduce:in
         - from: flag_reduce:out
           to: flag_router:in
+        - from: flag_router:out
+          to: flag_sink:in
         - from: spkr_router:out
           to: step_select:in
         - from: step_select:out
           to: step_gain:in
         - from: step_gain:out
           to: step_router:in
+        - from: step_router:out
+          to: step_sink:in
         - from: spkr_router:out
           to: importance_gain:in
         - from: importance_gain:out
           to: importance_router:in
+        - from: importance_router:out
+          to: importance_sink:in
 model_tree:
   name: BAF ASM EHC/RNC 蒸馏（step0）
   source: cart-cicd-erev-asm/components/baf/Model_Target*.c
