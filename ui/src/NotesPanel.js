@@ -91,13 +91,17 @@ export default function NotesPanel({ projectName, views, nodeNotes, onNodeNoteCh
     );
   }
 
-  const nodeIds = Object.keys(nodeNotes || {}).sort();
-  const allNodes = Object.values(views || {})
-    .flatMap((v) => v.nodes || [])
-    .reduce((acc, n) => {
-      acc[n.id] = n;
-      return acc;
-    }, {});
+  // Build a stable (viewKey, nodeId) -> note key map, matching App.js logic.
+  const allNodes = [];
+  for (const [viewKey, v] of Object.entries(views || {})) {
+    for (const n of v.nodes || []) {
+      const key = viewKey === 'main' ? n.id : `${viewKey}/${n.id}`;
+      allNodes.push({ viewKey, nodeId: n.id, label: n.data?.label || n.id, key });
+    }
+  }
+  const nodeEntries = allNodes
+    .filter((n) => nodeNotes?.[n.key])
+    .sort((a, b) => a.key.localeCompare(b.key));
 
   return (
     <div className="sidebar notes-panel">
@@ -144,27 +148,25 @@ export default function NotesPanel({ projectName, views, nodeNotes, onNodeNoteCh
       )}
 
       <details className="node-notes-rollup">
-        <summary>节点笔记汇总（{nodeIds.length} 条）</summary>
+        <summary>节点笔记汇总（{nodeEntries.length} 条）</summary>
         <div className="node-notes-list">
-          {nodeIds.length === 0 && (
+          {nodeEntries.length === 0 && (
             <p className="muted">暂无节点笔记。选中节点，在参数面板里添加。</p>
           )}
-          {nodeIds.map((id) => {
-            const label = allNodes[id]?.data?.label || id;
-            return (
-              <div key={id} className="node-note-item">
-                <div className="node-note-item-title" title={id}>
-                  {label}
-                </div>
-                <textarea
-                  className="node-notes-textarea"
-                  rows={3}
-                  value={nodeNotes[id] || ''}
-                  onChange={(e) => onNodeNoteChange(id, e.target.value)}
-                />
+          {nodeEntries.map((n) => (
+            <div key={n.key} className="node-note-item">
+              <div className="node-note-item-title" title={n.key}>
+                {n.viewKey === 'main' ? '' : `${n.viewKey}/`}
+                {n.label}
               </div>
-            );
-          })}
+              <textarea
+                className="node-notes-textarea"
+                rows={3}
+                value={nodeNotes[n.key] || ''}
+                onChange={(e) => onNodeNoteChange(n.viewKey, n.nodeId, e.target.value)}
+              />
+            </div>
+          ))}
         </div>
       </details>
     </div>

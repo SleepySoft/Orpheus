@@ -12,6 +12,7 @@ const isDisplayOnly = (p) => Boolean(p.readback) && !p.affects_signature && !p.p
 /** Right-hand panel: edit the selected node's parameters per its manifest schema. */
 export default function ParamPanel({
   node,
+  viewKey,
   onParamChange,
   onNodeNoteChange,
   nodeNotes,
@@ -29,7 +30,8 @@ export default function ParamPanel({
   }
 
   const { component, params, parameters } = node.data;
-  const nodeNote = nodeNotes?.[node.id] || '';
+  const noteKey = viewKey === 'main' ? node.id : `${viewKey}/${node.id}`;
+  const nodeNote = nodeNotes?.[noteKey] || '';
 
   // Subcomponent instance: no promoted parameters in v1; edit by opening it.
   if (component?.startsWith('sub:')) {
@@ -47,6 +49,7 @@ export default function ParamPanel({
           <span className="muted">子组件 {component}</span>
         </p>
         <NodeNoteSection
+          viewKey={viewKey}
           nodeId={node.id}
           note={nodeNote}
           onChange={onNodeNoteChange}
@@ -98,6 +101,7 @@ export default function ParamPanel({
       {specific.length > 0 && universal.length > 0 && <div className="param-section">组件参数</div>}
       {specific.map(renderField)}
       <NodeNoteSection
+        viewKey={viewKey}
         nodeId={node.id}
         note={nodeNote}
         onChange={onNodeNoteChange}
@@ -119,7 +123,7 @@ export default function ParamPanel({
 }
 
 /** Editable note for a single node instance; persisted in node-notes.json, not project.yaml. */
-function NodeNoteSection({ nodeId, note, onChange }) {
+function NodeNoteSection({ viewKey, nodeId, note, onChange }) {
   return (
     <details className="node-notes-section" open={!!note}>
       <summary>节点笔记 {note ? '(已填写)' : ''}</summary>
@@ -127,7 +131,7 @@ function NodeNoteSection({ nodeId, note, onChange }) {
         className="node-notes-textarea"
         placeholder={`记录 ${nodeId} 在此工程中的作用、参数讲究等…`}
         value={note}
-        onChange={(e) => onChange(nodeId, e.target.value)}
+        onChange={(e) => onChange(viewKey, nodeId, e.target.value)}
         rows={4}
       />
       <p className="muted" style={{ fontSize: 11, margin: '4px 0 0' }}>

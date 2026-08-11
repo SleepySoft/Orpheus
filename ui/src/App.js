@@ -132,6 +132,12 @@ const { screenToFlowPosition } = useReactFlow();
   const activeSubId = activeView === 'main' ? null : subIdOf(activeView);
   const activeSub = activeSubId ? subsMeta.find((s) => s.id === activeSubId) : null;
 
+  // Stable key for per-node notes: main graph uses node id; subcomponent views
+  // use "sub:<subId>/<nodeId>" to avoid collisions when the same id appears in
+  // multiple subgraphs.
+  const nodeNoteKey = (viewKey, nodeId) =>
+    viewKey === 'main' ? nodeId : `${viewKey}/${nodeId}`;
+
   const updateView = useCallback((key, updater) => {
     setViews((prev) => ({ ...prev, [key]: updater(prev[key] || EMPTY_VIEW) }));
   }, []);
@@ -241,7 +247,7 @@ const { screenToFlowPosition } = useReactFlow();
       let changed = false;
       for (const [key, v] of Object.entries(prev)) {
         const nodes = v.nodes.map((nd) => {
-          const hasNote = !!nodeNotes[nd.id];
+          const hasNote = !!nodeNotes[nodeNoteKey(key, nd.id)];
           if (nd.data?.hasNote === hasNote) return nd;
           changed = true;
           return { ...nd, data: { ...nd.data, hasNote } };
@@ -250,7 +256,7 @@ const { screenToFlowPosition } = useReactFlow();
       }
       return changed ? next : prev;
     });
-  }, [nodeNotes]);
+  }, [nodeNotes, nodeNoteKey]);
 
   // poll realtime session status (logs + probe values) while it is running
   useEffect(() => {
@@ -579,19 +585,20 @@ const { screenToFlowPosition } = useReactFlow();
 
   /** 更新某个节点的实例笔记（保存在 node-notes.json，不写入 project.yaml）。 */
   const handleNodeNoteChange = useCallback(
-    (nodeId, text) => {
+    (viewKey, nodeId, text) => {
+      const key = nodeNoteKey(viewKey, nodeId);
       setNodeNotes((prev) => {
         const next = { ...prev };
         if (text && text.trim()) {
-          next[nodeId] = text;
+          next[key] = text;
         } else {
-          delete next[nodeId];
+          delete next[key];
         }
         return next;
       });
       setNodeNotesDirty(true);
     },
-    []
+    [nodeNoteKey]
   );
 
   /** 参数面板导入：把值写回各视图节点参数（含 Bulk 数组回写字符串），并在实时会话中推送非重启参数。 */
@@ -1554,6 +1561,7 @@ const { screenToFlowPosition } = useReactFlow();
             )}
             <ParamPanel
               node={selectedNode}
+              viewKey={activeView}
               onParamChange={onParamChange}
               onNodeNoteChange={handleNodeNoteChange}
               nodeNotes={nodeNotes}

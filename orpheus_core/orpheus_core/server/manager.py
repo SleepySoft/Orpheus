@@ -154,6 +154,11 @@ class ProjectManager:
         if not src.exists():
             raise ProjectNotFoundError(f"example not found: {example}")
         project = self._loader.load(src)
+        # Copy optional documentation sidecars from the example directory.
+        for sidecar_name in (f"{example}.notes.md", f"{example}.node-notes.json"):
+            sidecar_src = self.project_root / "examples" / sidecar_name
+            if sidecar_src.is_file():
+                shutil.copy2(sidecar_src, pdir / sidecar_name.replace(f"{example}.", ""))
         # Rewrite file_path params to project-relative paths. A node with an
         # incoming connection but no outgoing one is a sink: its file is an
         # output and goes to outputs/. Other existing files are inputs and get
