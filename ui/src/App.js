@@ -30,6 +30,8 @@ import Palette from './Palette';
 import ProjectTree from './ProjectTree';
 import SubPortsPanel from './SubPortsPanel';
 import ProjectSettings from './ProjectSettings';
+import { NodeActionsContext } from './NodeActionsContext';
+import ReactMarkdown from 'react-markdown';
 
 const nodeTypes = { orpheus: OrpheusNode };
 const AUTOSAVE_DELAY_MS = 1500;
@@ -61,6 +63,9 @@ function Editor() {
   const [autoSave, setAutoSave] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showParams, setShowParams] = useState(false);
+  const [readmeComponentId, setReadmeComponentId] = useState(null);
+  const [readmeContent, setReadmeContent] = useState('');
+  const [readmeError, setReadmeError] = useState(null);
   const [leftTab, setLeftTab] = useState('palette'); // 'palette' | 'tree'
   const [leftOpen, setLeftOpen] = useState(true);   // 组件库
   const [leftWidth, setLeftWidth] = useState(() => {
@@ -488,6 +493,47 @@ const { screenToFlowPosition } = useReactFlow();
       setDirty(true);
     },
     [views, current, updateView, catalogById]
+  );
+
+  /** 打开组件 README 弹窗；若组件没有 README 则回退显示 description。 */
+  const handleShowReadme = useCallback(
+    async (componentId) => {
+      const comp = catalogById[componentId];
+      const fallback = comp?.description
+        ? `${comp.description}\n\n> 该组件暂无 README。`
+        : '该组件暂无 README。';
+      try {
+        const md = await api.getComponentReadme(componentId);
+        setReadmeComponentId(componentId);
+        setReadmeContent(md || fallback);
+        setReadmeError(null);
+      } catch (e) {
+        if (e?.response?.status === 404) {
+          setReadmeComponentId(componentId);
+          setReadmeContent(fallback);
+          setReadmeError(null);
+        } else {
+          setReadmeComponentId(componentId);
+          setReadmeContent(fallback);
+          setReadmeError(`读取 README 失败: ${api.errorDetail(e)}`);
+        }
+      }
+    },
+    [catalogById]
+  );
+
+  /** 更新当前视图中某节点的内联注释。 */
+  const handleNodeNotesChange = useCallback(
+    (nodeId, notes) => {
+      updateView(activeView, (v) => ({
+        ...v,
+        nodes: v.nodes.map((nd) =>
+          nd.id === nodeId ? { ...nd, data: { ...nd.data, notes } } : nd
+        ),
+      }));
+      setDirty(true);
+    },
+    [activeView, updateView]
   );
 
   /** 参数面板导入：把值写回各视图节点参数（含 Bulk 数组回写字符串），并在实时会话中推送非重启参数。 */
@@ -1386,7 +1432,8 @@ const { screenToFlowPosition } = useReactFlow();
           </>
         )}
         <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
-          <ReactFlow
+          <NodeActionsContext.Provider value={{ showReadme: handleShowReadme }}>
+            <ReactFlow
             nodes={view.nodes}
             edges={view.edges}
             onNodesChange={onNodesChange}
@@ -1413,6 +1460,7 @@ const { screenToFlowPosition } = useReactFlow();
             <Controls />
             <MiniMap />
           </ReactFlow>
+          </NodeActionsContext.Provider>
         </div>
         {rightOpen && (
           <div className="rightbar">
@@ -1434,6 +1482,7 @@ const { screenToFlowPosition } = useReactFlow();
             <ParamPanel
               node={selectedNode}
               onParamChange={onParamChange}
+              onNotesChange={handleNodeNotesChange}
               onDeleteNode={onDeleteNode}
               onRenameNode={onRenameNode}
               ctx={paramCtx}
@@ -1478,6 +1527,22 @@ const { screenToFlowPosition } = useReactFlow();
           onLocate={onLocateParam}
           onClose={() => setShowParams(false)}
         />
+      )}
+      {readmeComponentId && (
+        <div className="modal-backdrop" onClick={() => setReadmeComponentId(null)}>
+          <div className="modal readme-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="readme-modal-header">
+              <h4>{catalogById[readmeComponentId]?.name || readmeComponentId}</h4>
+              <button onClick={() => setReadmeComponentId(null)} title="关闭">
+                ×
+              </button>
+            </div>
+            <div className="readme-content">
+              {readmeError && <div className="readme-error">{readmeError}</div>}
+              <ReactMarkdown>{readmeContent}</ReactMarkdown>
+            </div>
+          </div>
+        </div>
       )}
       {(log || outputs.length > 0 || generatedInfo || rt.logs.length > 0 || rt.running) && (
         <div className={`bottombar ${logCollapsed ? 'collapsed' : ''}`}>

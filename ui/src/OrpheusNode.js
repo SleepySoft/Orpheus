@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Handle, Position, NodeResizer } from 'reactflow';
 import { resolveExprValue } from './graphUtils';
 import { NODE_WIDGETS } from './nodeWidgets';
+import { NodeActionsContext } from './NodeActionsContext';
 
 /** Custom React Flow node: ports come from the component manifest (resolved). */
 export default function OrpheusNode({ data, selected }) {
@@ -28,6 +29,8 @@ export default function OrpheusNode({ data, selected }) {
   };
 
   const BodyWidget = NODE_WIDGETS[data.component];
+  const { showReadme } = React.useContext(NodeActionsContext);
+  const hasNotes = !!(data.notes || '').trim();
 
   // compiled rate badge, e.g. "48kHz" or "24kHz ÷2" (visible time tree)
   // 时钟源（信号/扫频/设备/wav 输入）显示 ⏱ 徽标：图采样率以它为准
@@ -88,6 +91,11 @@ export default function OrpheusNode({ data, selected }) {
             </span>
           )}
           {rateBadge}
+          {hasNotes && (
+            <span className="note-badge" title="该节点有注释">
+              📝
+            </span>
+          )}
         </div>
         <div className="node-subtitle">{shortName}</div>
         {data.missing && data.params && data.params.note ? (
@@ -95,18 +103,32 @@ export default function OrpheusNode({ data, selected }) {
             {data.params.note}
           </div>
         ) : null}
-        {BodyWidget && (
-          <button
-            className="monitor-enlarge"
-            title="放大监控界面"
-            onClick={(e) => {
-              e.stopPropagation();
-              setEnlarged(true);
-            }}
-          >
-            ⤢
-          </button>
-        )}
+        <div className="node-actions">
+          {!data.missing && !isSub && (
+            <button
+              className="node-info-btn"
+              title="查看组件说明"
+              onClick={(e) => {
+                e.stopPropagation();
+                showReadme(data.component);
+              }}
+            >
+              ℹ
+            </button>
+          )}
+          {BodyWidget && (
+            <button
+              className="monitor-enlarge"
+              title="放大监控界面"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEnlarged(true);
+              }}
+            >
+              ⤢
+            </button>
+          )}
+        </div>
       </div>
       <div className="node-body">
         <div className="node-ports inputs">{inputs.map((p) => renderRow(p, true))}</div>

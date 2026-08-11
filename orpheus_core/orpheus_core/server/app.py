@@ -250,6 +250,17 @@ def create_app(project_root: Path) -> FastAPI:
     def list_components() -> list[dict[str, Any]]:
         return [_component_to_dict(i) for i in registry.list_components()]
 
+    @app.get("/api/components/{component_id}/readme")
+    def get_component_readme(component_id: str) -> FileResponse:
+        """返回组件目录下的 README.md；不存在则 404。"""
+        info = registry.get(component_id)
+        if info is None:
+            raise HTTPException(status_code=404, detail=f"组件不存在: {component_id}")
+        readme_path = info.root_dir / "README.md"
+        if not readme_path.is_file():
+            raise HTTPException(status_code=404, detail=f"组件暂无 README: {component_id}")
+        return FileResponse(readme_path, media_type="text/markdown; charset=utf-8")
+
     @app.post("/api/components/rescan")
     def rescan_components() -> dict[str, Any]:
         registry.scan()

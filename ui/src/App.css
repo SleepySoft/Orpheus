@@ -1159,6 +1159,7 @@ button.danger {
 }
 
 .node-header {
+  position: relative;
   padding: 8px 12px;
   background: #e9ecef;
   border-radius: 8px 8px 0 0;
@@ -1670,4 +1671,172 @@ pre {
   border-radius: 4px;
   padding: 1px 5px;
   white-space: nowrap;
+}
+
+/* ---------------------------------------------------------- readme + notes */
+
+.node-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+}
+
+.node-info-btn,
+.monitor-enlarge {
+  border: none;
+  background: transparent;
+  color: #868e96;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.node-info-btn:hover,
+.monitor-enlarge:hover {
+  background: rgba(76, 201, 240, 0.15);
+  color: #4cc9f0;
+}
+
+.note-badge {
+  font-size: 11px;
+  margin-left: 4px;
+  cursor: default;
+}
+
+.node-notes-section {
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.node-notes-section summary {
+  cursor: pointer;
+  color: #495057;
+  font-weight: 600;
+  user-select: none;
+}
+
+.node-notes-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+}
+
+.node-notes-textarea:focus {
+  outline: none;
+  border-color: #4cc9f0;
+  box-shadow: 0 0 0 2px rgba(76, 201, 240, 0.2);
+}
+
+.readme-modal {
+  width: min(720px, 92vw);
+  max-height: 82vh;
+  padding: 0;
+  overflow: hidden;
+}
+
+.readme-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #e9ecef;
+  border-radius: 8px 8px 0 0;
+  flex-shrink: 0;
+}
+
+.readme-modal-header h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.readme-modal-header button {
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 8px;
+}
+
+.readme-content {
+  padding: 14px 18px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #212529;
+}
+
+.readme-content h1,
+.readme-content h2,
+.readme-content h3,
+.readme-content h4 {
+  margin-top: 18px;
+  margin-bottom: 8px;
+  color: #1a1a2e;
+}
+
+.readme-content h1 { font-size: 18px; }
+.readme-content h2 { font-size: 16px; border-bottom: 1px solid #dee2e6; padding-bottom: 4px; }
+.readme-content h3 { font-size: 14px; }
+.readme-content p { margin: 8px 0; }
+
+.readme-content ul,
+.readme-content ol {
+  padding-left: 22px;
+  margin: 8px 0;
+}
+
+.readme-content li {
+  margin: 3px 0;
+}
+
+.readme-content code {
+  background: #f1f3f5;
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.readme-content pre {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+
+.readme-content pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.readme-content blockquote {
+  margin: 10px 0;
+  padding: 6px 12px;
+  border-left: 3px solid #4cc9f0;
+  background: #f1f3f5;
+  color: #495057;
+}
+
+.readme-error {
+  background: #fff3bf;
+  color: #9a6700;
+  padding: 8px 10px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  font-size: 12px;
 }

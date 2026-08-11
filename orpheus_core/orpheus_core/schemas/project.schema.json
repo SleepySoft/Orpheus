@@ -99,7 +99,8 @@
                   "x": { "type": "number" },
                   "y": { "type": "number" }
                 }
-              }
+              },
+              "notes": { "type": "string", "description": "用户对该节点在工程中的注释/笔记" }
             }
           }
         },

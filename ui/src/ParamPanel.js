@@ -10,7 +10,14 @@ const isUniversalParam = (p) => p.affects_signature || UNIVERSAL_IDS.has(p.id);
 const isDisplayOnly = (p) => Boolean(p.readback) && !p.affects_signature && !p.persistent;
 
 /** Right-hand panel: edit the selected node's parameters per its manifest schema. */
-export default function ParamPanel({ node, onParamChange, onDeleteNode, onRenameNode, ctx }) {
+export default function ParamPanel({
+  node,
+  onParamChange,
+  onNotesChange,
+  onDeleteNode,
+  onRenameNode,
+  ctx,
+}) {
   if (!node) {
     return (
       <div className="sidebar">
@@ -20,7 +27,7 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode, onRename
     );
   }
 
-  const { component, params, parameters } = node.data;
+  const { component, params, parameters, notes } = node.data;
 
   // Subcomponent instance: no promoted parameters in v1; edit by opening it.
   if (component?.startsWith('sub:')) {
@@ -38,6 +45,16 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode, onRename
           <span className="muted">子组件 {component}</span>
         </p>
         <p className="muted">子组件实例没有可提升参数（v1）。双击节点打开子组件，在独立视图中编辑内部图。</p>
+        <details className="node-notes-section">
+          <summary>节点注释 {node.data.notes ? '(已填写)' : ''}</summary>
+          <textarea
+            className="node-notes-textarea"
+            placeholder="记录该子组件实例在此工程中的作用…"
+            value={node.data.notes || ''}
+            onChange={(e) => onNotesChange(node.id, e.target.value)}
+            rows={5}
+          />
+        </details>
         <button className="danger" onClick={() => onDeleteNode(node.id)}>
           删除节点
         </button>
@@ -83,6 +100,16 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode, onRename
       )}
       {specific.length > 0 && universal.length > 0 && <div className="param-section">组件参数</div>}
       {specific.map(renderField)}
+      <details className="node-notes-section">
+        <summary>节点注释 {notes ? '(已填写)' : ''}</summary>
+        <textarea
+          className="node-notes-textarea"
+          placeholder="记录该节点在此工程中的作用、参数讲究等…"
+          value={notes || ''}
+          onChange={(e) => onNotesChange(node.id, e.target.value)}
+          rows={5}
+        />
+      </details>
       {extraKeys.map((key) => (
         <ParamField
           key={key}
