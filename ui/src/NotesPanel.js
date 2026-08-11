@@ -4,12 +4,13 @@ import * as api from './api';
 
 /** Left-panel project notes editor.
  *
- * Notes are stored in a sidecar file `workspace/<project>/notes.md`,
- * completely separate from `project.yaml`. The file is free-form Markdown;
- * a recommended convention is to use `## 节点: <node_id>` sections for
- * per-node commentary.
+ * Stores two pieces of sidecar data alongside project.yaml:
+ * 1. `workspace/<project>/notes.md`      — free-form project-level notes/design log.
+ * 2. `workspace/<project>/node-notes.json` — per-node instance notes (auto-sliced).
+ *
+ * Both are independent from project.yaml, keeping the project document clean.
  */
-export default function NotesPanel({ projectName }) {
+export default function NotesPanel({ projectName, views, nodeNotes, onNodeNoteChange }) {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -37,7 +38,7 @@ export default function NotesPanel({ projectName }) {
         if (cancelled) return;
         if (e?.response?.status === 404) {
           setContent(
-            `# 工程笔记\n\n在这里记录整个工程的设计思路、调参记录、读图学习笔记等。\n\n## 节点: <node_id>\n示例：说明某个节点为什么放在这里、参数有什么讲究。\n`
+            `# 工程笔记\n\n在这里记录整个工程的设计思路、调参记录、读图学习笔记等。\n\n左侧“参数面板”里也可以为单个节点写笔记，它们会被自动汇总到 <code>node-notes.json</code>。\n`
           );
         } else {
           setContent('');
@@ -90,11 +91,19 @@ export default function NotesPanel({ projectName }) {
     );
   }
 
+  const nodeIds = Object.keys(nodeNotes || {}).sort();
+  const allNodes = Object.values(views || {})
+    .flatMap((v) => v.nodes || [])
+    .reduce((acc, n) => {
+      acc[n.id] = n;
+      return acc;
+    }, {});
+
   return (
     <div className="sidebar notes-panel">
       <h3>工程笔记</h3>
       <p className="muted">
-        保存在 <code>workspace/{projectName}/notes.md</code>，不混入 <code>project.yaml</code>。
+        保存在 <code>workspace/{projectName}/notes.md</code> 与 <code>node-notes.json</code>，不混入 <code>project.yaml</code>。
       </p>
       <div className="notes-toolbar">
         <button
@@ -133,6 +142,31 @@ export default function NotesPanel({ projectName }) {
           <ReactMarkdown>{content}</ReactMarkdown>
         </div>
       )}
+
+      <details className="node-notes-rollup">
+        <summary>节点笔记汇总（{nodeIds.length} 条）</summary>
+        <div className="node-notes-list">
+          {nodeIds.length === 0 && (
+            <p className="muted">暂无节点笔记。选中节点，在参数面板里添加。</p>
+          )}
+          {nodeIds.map((id) => {
+            const label = allNodes[id]?.data?.label || id;
+            return (
+              <div key={id} className="node-note-item">
+                <div className="node-note-item-title" title={id}>
+                  {label}
+                </div>
+                <textarea
+                  className="node-notes-textarea"
+                  rows={3}
+                  value={nodeNotes[id] || ''}
+                  onChange={(e) => onNodeNoteChange(id, e.target.value)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </details>
     </div>
   );
 }

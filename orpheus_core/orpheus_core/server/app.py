@@ -115,6 +115,10 @@ class ProjectNotesRequest(BaseModel):
     content: str
 
 
+class NodeNotesRequest(BaseModel):
+    notes: dict[str, str]
+
+
 def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
     m = info.manifest
     return {
@@ -439,6 +443,36 @@ def create_app(project_root: Path) -> FastAPI:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         notes_path = rec.path.with_name("notes.md")
         notes_path.write_text(req.content, encoding="utf-8")
+        return {"status": "saved", "path": str(notes_path)}
+
+    @app.get("/api/projects/{name}/node_notes")
+    def get_node_notes(name: str) -> dict[str, Any]:
+        """读取工程节点笔记 sidecar（node-notes.json）。"""
+        try:
+            rec = manager.get(name)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        notes_path = rec.path.with_name("node-notes.json")
+        if not notes_path.is_file():
+            return {"notes": {}}
+        try:
+            notes = json.loads(notes_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=500, detail=f"node-notes.json 解析失败: {exc}") from exc
+        return {"notes": notes}
+
+    @app.put("/api/projects/{name}/node_notes")
+    def put_node_notes(name: str, req: NodeNotesRequest) -> dict[str, Any]:
+        """保存工程节点笔记 sidecar（node-notes.json）。"""
+        try:
+            rec = manager.get(name)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        notes_path = rec.path.with_name("node-notes.json")
+        notes_path.write_text(
+            json.dumps(req.notes, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         return {"status": "saved", "path": str(notes_path)}
 
     @app.delete("/api/projects/{name}")

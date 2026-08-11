@@ -10,7 +10,15 @@ const isUniversalParam = (p) => p.affects_signature || UNIVERSAL_IDS.has(p.id);
 const isDisplayOnly = (p) => Boolean(p.readback) && !p.affects_signature && !p.persistent;
 
 /** Right-hand panel: edit the selected node's parameters per its manifest schema. */
-export default function ParamPanel({ node, onParamChange, onDeleteNode, onRenameNode, ctx }) {
+export default function ParamPanel({
+  node,
+  onParamChange,
+  onNodeNoteChange,
+  nodeNotes,
+  onDeleteNode,
+  onRenameNode,
+  ctx,
+}) {
   if (!node) {
     return (
       <div className="sidebar">
@@ -21,6 +29,7 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode, onRename
   }
 
   const { component, params, parameters } = node.data;
+  const nodeNote = nodeNotes?.[node.id] || '';
 
   // Subcomponent instance: no promoted parameters in v1; edit by opening it.
   if (component?.startsWith('sub:')) {
@@ -37,7 +46,11 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode, onRename
           <br />
           <span className="muted">子组件 {component}</span>
         </p>
-        <ProjectNotesHint nodeId={node.id} projectName={ctx?.projectName} />
+        <NodeNoteSection
+          nodeId={node.id}
+          note={nodeNote}
+          onChange={onNodeNoteChange}
+        />
         <p className="muted">子组件实例没有可提升参数（v1）。双击节点打开子组件，在独立视图中编辑内部图。</p>
         <button className="danger" onClick={() => onDeleteNode(node.id)}>
           删除节点
@@ -84,7 +97,11 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode, onRename
       )}
       {specific.length > 0 && universal.length > 0 && <div className="param-section">组件参数</div>}
       {specific.map(renderField)}
-      <ProjectNotesHint nodeId={node.id} projectName={ctx?.projectName} />
+      <NodeNoteSection
+        nodeId={node.id}
+        note={nodeNote}
+        onChange={onNodeNoteChange}
+      />
       {extraKeys.map((key) => (
         <ParamField
           key={key}
@@ -101,23 +118,21 @@ export default function ParamPanel({ node, onParamChange, onDeleteNode, onRename
   );
 }
 
-/** Small helper reminding users that instance-specific notes live in the sidecar notes.md. */
-function ProjectNotesHint({ nodeId, projectName }) {
+/** Editable note for a single node instance; persisted in node-notes.json, not project.yaml. */
+function NodeNoteSection({ nodeId, note, onChange }) {
   return (
-    <details className="node-notes-section">
-      <summary>节点笔记</summary>
-      <div className="node-notes-hint">
-        <p className="muted">
-          工程笔记保存在侧车文件 <code>workspace/{projectName || '<工程>'}/notes.md</code> 中，
-          不混入 <code>project.yaml</code>。
-        </p>
-        <p className="muted">
-          建议用二级标题记录该节点：
-        </p>
-        <pre className="node-notes-example">
-          <code>{`## 节点: ${nodeId}\n这里写该节点的作用、参数讲究等…`}</code>
-        </pre>
-      </div>
+    <details className="node-notes-section" open={!!note}>
+      <summary>节点笔记 {note ? '(已填写)' : ''}</summary>
+      <textarea
+        className="node-notes-textarea"
+        placeholder={`记录 ${nodeId} 在此工程中的作用、参数讲究等…`}
+        value={note}
+        onChange={(e) => onChange(nodeId, e.target.value)}
+        rows={4}
+      />
+      <p className="muted" style={{ fontSize: 11, margin: '4px 0 0' }}>
+        保存在 <code>node-notes.json</code>，不写入 <code>project.yaml</code>。
+      </p>
     </details>
   );
 }

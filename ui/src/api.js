@@ -27,6 +27,9 @@ export const saveProject = (name, doc) => unwrap(api.put(`/projects/${name}`, do
 export const getProjectNotes = (name) => unwrap(api.get(`/projects/${name}/notes`));
 export const saveProjectNotes = (name, content) =>
   unwrap(api.put(`/projects/${name}/notes`, { content }));
+export const getNodeNotes = (name) => unwrap(api.get(`/projects/${name}/node_notes`));
+export const saveNodeNotes = (name, notes) =>
+  unwrap(api.put(`/projects/${name}/node_notes`, { notes }));
 export const deleteProject = (name) => unwrap(api.delete(`/projects/${name}`));
 export const compileProject = (name) => unwrap(api.post(`/projects/${name}/compile`));
 export const runProject = (name, pace) =>

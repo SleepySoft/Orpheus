@@ -1737,6 +1737,32 @@ pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.note-badge {
+  font-size: 11px;
+  margin-left: 4px;
+  cursor: default;
+}
+
+.node-notes-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+}
+
+.node-notes-textarea:focus {
+  outline: none;
+  border-color: #4cc9f0;
+  box-shadow: 0 0 0 2px rgba(76, 201, 240, 0.2);
+}
+
 .notes-panel {
   display: flex;
   flex-direction: column;
@@ -1910,4 +1936,46 @@ pre {
   border-radius: 4px;
   margin-bottom: 10px;
   font-size: 12px;
+}
+
+.node-notes-rollup {
+  margin-top: 8px;
+  font-size: 12px;
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.node-notes-rollup summary {
+  cursor: pointer;
+  color: #495057;
+  font-weight: 600;
+  padding: 6px 0;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.node-notes-list {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.node-note-item {
+  margin-bottom: 10px;
+  padding: 8px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+}
+
+.node-note-item-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: #1a1a2e;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

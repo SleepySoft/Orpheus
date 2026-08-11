@@ -67,6 +67,8 @@ function Editor() {
   const [readmeComponentId, setReadmeComponentId] = useState(null);
   const [readmeContent, setReadmeContent] = useState('');
   const [readmeError, setReadmeError] = useState(null);
+  const [nodeNotes, setNodeNotes] = useState({});
+  const [nodeNotesDirty, setNodeNotesDirty] = useState(false);
   const [leftTab, setLeftTab] = useState('palette'); // 'palette' | 'tree' | 'notes'
   const [leftOpen, setLeftOpen] = useState(true);   // 组件库
   const [leftWidth, setLeftWidth] = useState(() => {
@@ -212,6 +214,44 @@ const { screenToFlowPosition } = useReactFlow();
     })();
   }, [loadDocument]);
 
+  // load per-node notes sidecar whenever the current project changes
+  useEffect(() => {
+    if (!current) {
+      setNodeNotes({});
+      return undefined;
+    }
+    let cancelled = false;
+    api
+      .getNodeNotes(current)
+      .then((r) => {
+        if (!cancelled) setNodeNotes(r.notes || {});
+      })
+      .catch(() => {
+        if (!cancelled) setNodeNotes({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [current]);
+
+  // reflect note presence on React Flow nodes (used for the 📝 badge)
+  useEffect(() => {
+    setViews((prev) => {
+      const next = {};
+      let changed = false;
+      for (const [key, v] of Object.entries(prev)) {
+        const nodes = v.nodes.map((nd) => {
+          const hasNote = !!nodeNotes[nd.id];
+          if (nd.data?.hasNote === hasNote) return nd;
+          changed = true;
+          return { ...nd, data: { ...nd.data, hasNote } };
+        });
+        next[key] = { ...v, nodes };
+      }
+      return changed ? next : prev;
+    });
+  }, [nodeNotes]);
+
   // poll realtime session status (logs + probe values) while it is running
   useEffect(() => {
     if (!rt.running || !current) return undefined;
@@ -308,6 +348,20 @@ const { screenToFlowPosition } = useReactFlow();
     const timer = setTimeout(doSave, AUTOSAVE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [dirty, autoSave, current, views, subsMeta, doSave]);
+
+  // debounced auto-save for per-node notes sidecar
+  useEffect(() => {
+    if (!nodeNotesDirty || !current) return undefined;
+    const timer = setTimeout(async () => {
+      try {
+        await api.saveNodeNotes(current, nodeNotes);
+        setNodeNotesDirty(false);
+      } catch (e) {
+        setStatus(`节点笔记保存失败: ${api.errorDetail(e)}`);
+      }
+    }, AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [nodeNotesDirty, current, nodeNotes]);
 
   // Ctrl+S
   useEffect(() => {
@@ -521,6 +575,23 @@ const { screenToFlowPosition } = useReactFlow();
       }
     },
     [catalogById]
+  );
+
+  /** 更新某个节点的实例笔记（保存在 node-notes.json，不写入 project.yaml）。 */
+  const handleNodeNoteChange = useCallback(
+    (nodeId, text) => {
+      setNodeNotes((prev) => {
+        const next = { ...prev };
+        if (text && text.trim()) {
+          next[nodeId] = text;
+        } else {
+          delete next[nodeId];
+        }
+        return next;
+      });
+      setNodeNotesDirty(true);
+    },
+    []
   );
 
   /** 参数面板导入：把值写回各视图节点参数（含 Bulk 数组回写字符串），并在实时会话中推送非重启参数。 */
@@ -1421,7 +1492,14 @@ const { screenToFlowPosition } = useReactFlow();
                 onOpenView={onOpenView}
               />
             )}
-            {leftTab === 'notes' && <NotesPanel projectName={current} />}
+            {leftTab === 'notes' && (
+              <NotesPanel
+                projectName={current}
+                views={views}
+                nodeNotes={nodeNotes}
+                onNodeNoteChange={handleNodeNoteChange}
+              />
+            )}
           </div>
           <div className="side-resizer" onMouseDown={onLeftResizeStart} title="拖拽调整宽度" />
           </>
@@ -1477,6 +1555,8 @@ const { screenToFlowPosition } = useReactFlow();
             <ParamPanel
               node={selectedNode}
               onParamChange={onParamChange}
+              onNodeNoteChange={handleNodeNoteChange}
+              nodeNotes={nodeNotes}
               onDeleteNode={onDeleteNode}
               onRenameNode={onRenameNode}
               ctx={paramCtx}

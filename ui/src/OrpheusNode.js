@@ -90,6 +90,11 @@ export default function OrpheusNode({ data, selected }) {
             </span>
           )}
           {rateBadge}
+          {data.hasNote && (
+            <span className="note-badge" title="该节点有笔记">
+              📝
+            </span>
+          )}
         </div>
         <div className="node-subtitle">{shortName}</div>
         {data.missing && data.params && data.params.note ? (
