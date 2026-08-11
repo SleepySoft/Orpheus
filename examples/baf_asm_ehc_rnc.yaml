@@ -1,0 +1,738 @@
+# ============================================================================
+# BAF ASM EHC/RNC step0 占位模型
+# ----------------------------------------------------------------------------
+# 名称：BAF ASM EHC/RNC step0
+# 来源：C:\D\Work\Project\EREV\cart-cicd-erev-asm\components\baf
+#        中的 Model_Target / AsmBlock / EhcSub / RncSub / OutputProcessing
+# 目标：对齐 BAF ASM（Active Sound Management）中 EHC（Engine Harmonic
+#        Cancellation）与 RNC（Road Noise Cancellation）的拓扑、任务率、
+#        通道数和参数分区；算法与系数全部使用 Orpheus 内置组件占位。
+#
+# step0 占位策略：
+#   - 输入：25ch asm_in / 22ch audio_in 使用 signal_gen 占位，后续替换为
+#     wav_in / device_in。
+#   - EHC Core：sine_mod + gain + mixer 近似谐波振荡器/FxLMS。
+#   - EHC Blade：iir_bank + gain 近似窄带误差麦克风处理。
+#   - EHC AutoStabilizer：downrate -> gain -> probe_rms -> null_sink，
+#     落在 TID3（250Hz）。
+#   - RNC 输入处理：channel_router + iir_bank + gain 占位。
+#   - RNC NLMS：gain + mixer + probe_rms + null_sink 占位。
+#   - RNC ControlFilter：fir + matrix_mul 占位。
+#   - RNC 慢速控制：downrate -> gain -> probe_rms -> null_sink，落在 TID4。
+#   - 输出处理：mixer 合并 EHC/RNC/娱乐音，limiter + soft_clipper 保护，
+#     output_router / channel_router 产生 24ch audio_out 与 18ch ref_out。
+#
+# 当前通道数为示意值，后续需根据源模型 FD 路由表与物理语义回填。
+# ============================================================================
+
+version: 0.1.0
+metadata:
+  name: baf_asm_ehc_rnc
+  description: BAF ASM EHC/RNC step0 骨架：拓扑/任务/参数分区对齐源模型，算法用内置组件占位
+  distilled_from: cart-cicd-erev-asm/components/baf/Model_Target*.c
+sample_rate: 48000
+block_size: 24
+target: auto
+
+tasks:
+  - id: tid0
+    name: TID0 6kHz
+    sample_rate: 48000
+    block_size: 8
+  - id: tid1
+    name: TID1 2kHz
+    sample_rate: 48000
+    block_size: 24
+  - id: tid2
+    name: TID2 1.5kHz
+    sample_rate: 48000
+    block_size: 32
+  - id: tid3
+    name: TID3 250Hz
+    sample_rate: 48000
+    block_size: 192
+  - id: tid4
+    name: TID4 200Hz
+    sample_rate: 48000
+    block_size: 240
+  - id: tid5
+    name: TID5 31.25Hz
+    sample_rate: 48000
+    block_size: 1536
+  - id: tid6
+    name: TID6 7.8125Hz
+    sample_rate: 48000
+    block_size: 6144
+
+graph:
+  nodes:
+    - id: asm_in
+      component: orpheus.builtin.signal_gen
+      task: tid1
+      params:
+        sample_rate: 48000
+        frequency: 150.0
+        amplitude: 0.1
+        channels: 25
+      position:
+        x: 40
+        y: 40
+    - id: audio_in
+      component: orpheus.builtin.signal_gen
+      task: tid2
+      params:
+        sample_rate: 48000
+        frequency: 250.0
+        amplitude: 0.1
+        channels: 22
+      position:
+        x: 40
+        y: 320
+    - id: ehc_sub
+      component: sub:ehc_sub
+      task: tid1
+      position:
+        x: 320
+        y: 40
+    - id: rnc_sub
+      component: sub:rnc_sub
+      task: tid1
+      position:
+        x: 320
+        y: 200
+    - id: output_processing
+      component: sub:output_processing
+      task: tid1
+      position:
+        x: 620
+        y: 120
+    - id: audio_out
+      component: orpheus.builtin.wav_out
+      task: tid1
+      params:
+        channels: 24
+        sample_rate: 48000
+        file_path: outputs/baf_asm_audio_out.wav
+      position:
+        x: 920
+        y: 40
+    - id: ref_out
+      component: orpheus.builtin.wav_out
+      task: tid2
+      params:
+        channels: 18
+        sample_rate: 48000
+        file_path: outputs/baf_asm_ref_out.wav
+      position:
+        x: 920
+        y: 320
+  connections:
+    - from: asm_in:out
+      to: ehc_sub:asm_in
+    - from: asm_in:out
+      to: rnc_sub:audio_in
+    - from: asm_in:out
+      to: output_processing:ent_in
+    - from: audio_in:out
+      to: output_processing:ref_in
+    - from: ehc_sub:out
+      to: output_processing:ehc_in
+    - from: rnc_sub:out
+      to: output_processing:rnc_in
+    - from: output_processing:audio_out
+      to: audio_out:in
+    - from: output_processing:ref_out
+      to: ref_out:in
+
+subcomponents:
+  - id: ehc_sub
+    name: EHC 子系统
+    description: Engine Harmonic Cancellation step0 占位
+    ports:
+      - id: asm_in
+        direction: input
+        maps_to: input_router:in
+      - id: out
+        direction: output
+        maps_to: output_router:out
+    graph:
+      nodes:
+        - id: input_router
+          component: orpheus.builtin.channel_router
+          task: tid1
+          params:
+            channels_in: 25
+            channels_out: 8
+            # 来源：Ehc_p0_b0.PassthroughIndicesSelector = [1,2,3,4,1,2,3,4]（1-based）
+            indices: 0,1,2,3,0,1,2,3
+          position:
+            x: 60
+            y: 60
+        - id: sine_mod
+          component: orpheus.builtin.sine_mod
+          task: tid1
+          params:
+            # EHC OnOff=0，谐波源关闭；depth=0 时输出等于输入
+            freq_hz: 0.0
+            depth: 0.0
+            channels: 8
+          position:
+            x: 260
+            y: 20
+        - id: core_gain
+          component: orpheus.builtin.gain
+          task: tid1
+          params:
+            gain_db: -6.0
+            channels: 8
+          position:
+            x: 420
+            y: 20
+        - id: core_mix
+          component: orpheus.builtin.mixer
+          task: tid1
+          params:
+            gain0: 0.0
+            gain1: 0.0
+            channels: 8
+          position:
+            x: 580
+            y: 60
+        - id: blade_iir
+          component: orpheus.builtin.iir_bank
+          task: tid1
+          params:
+            channels: 8
+            num_stages: 1
+            coefs_mode: shared
+            coefs: 1,0,0,0,0
+          position:
+            x: 260
+            y: 140
+        - id: blade_gain
+          component: orpheus.builtin.gain
+          task: tid1
+          params:
+            # 来源：Ehc_p0_b0.BladeMicMuMuliplierLimitLow = 0.1 (-20 dB)
+            gain_db: -20.0
+            channels: 8
+          position:
+            x: 420
+            y: 140
+        - id: output_mix
+          component: orpheus.builtin.mixer
+          task: tid1
+          params:
+            gain0: 0.0
+            gain1: 0.0
+            channels: 8
+          position:
+            x: 740
+            y: 60
+        - id: output_router
+          component: orpheus.builtin.channel_router
+          task: tid1
+          params:
+            channels_in: 8
+            channels_out: 8
+            indices: 0,1,2,3,4,5,6,7
+          position:
+            x: 900
+            y: 60
+        - id: downrate_to_tid3
+          component: orpheus.builtin.downrate
+          task: tid1
+          params:
+            factor: 8
+            channels: 8
+          position:
+            x: 580
+            y: 220
+        - id: autostab_gain
+          component: orpheus.builtin.gain
+          task: tid3
+          params:
+            gain_db: 0.0
+            channels: 8
+          position:
+            x: 740
+            y: 220
+        - id: autostab_probe
+          component: orpheus.builtin.probe_rms
+          task: tid3
+          params:
+            channels: 8
+          position:
+            x: 900
+            y: 220
+        - id: autostab_sink
+          component: orpheus.builtin.null_sink
+          task: tid3
+          params:
+            channels: 8
+          position:
+            x: 1060
+            y: 220
+      connections:
+        - from: input_router:out
+          to: sine_mod:in
+        - from: input_router:out
+          to: core_mix:in1
+        - from: input_router:out
+          to: blade_iir:in
+        - from: sine_mod:out
+          to: core_gain:in
+        - from: core_gain:out
+          to: core_mix:in0
+        - from: core_mix:out
+          to: output_mix:in0
+        - from: core_mix:out
+          to: downrate_to_tid3:in
+        - from: blade_iir:out
+          to: blade_gain:in
+        - from: blade_gain:out
+          to: output_mix:in1
+        - from: output_mix:out
+          to: output_router:in
+        - from: downrate_to_tid3:out
+          to: autostab_gain:in
+        - from: autostab_gain:out
+          to: autostab_probe:in
+        - from: autostab_probe:out
+          to: autostab_sink:in
+
+  - id: rnc_sub
+    name: RNC 子系统
+    description: Road Noise Cancellation step0 占位
+    ports:
+      - id: audio_in
+        direction: input
+        maps_to: input_router:in
+      - id: out
+        direction: output
+        maps_to: output_router:out
+    graph:
+      nodes:
+        - id: input_router
+          component: orpheus.builtin.channel_router
+          task: tid1
+          params:
+            channels_in: 25
+            channels_out: 8
+            # 来源：Rnc_p15_b0.PassthroughIndicesSelector = [1,2,3,4,5,6,1,2]（1-based）
+            indices: 0,1,2,3,4,5,0,1
+          position:
+            x: 60
+            y: 60
+        - id: anti_alias_iir
+          component: orpheus.builtin.iir_bank
+          task: tid1
+          params:
+            channels: 8
+            num_stages: 1
+            coefs_mode: shared
+            coefs: 1,0,0,0,0
+          position:
+            x: 240
+            y: 60
+        - id: rnc_gain
+          component: orpheus.builtin.gain
+          task: tid1
+          params:
+            # 来源：Sys_p2_b0.RncCombineSignalGain = 1.0 (0 dB)
+            gain_db: 0.0
+            channels: 8
+          position:
+            x: 400
+            y: 60
+        - id: nlms_gain
+          component: orpheus.builtin.gain
+          task: tid1
+          params:
+            # 来源：Rnc_p15_b2.NlmsStepSize 全部为 0，等价于关闭自适应更新
+            gain_db: -96.0
+            channels: 8
+          position:
+            x: 240
+            y: 180
+        - id: nlms_mix
+          component: orpheus.builtin.mixer
+          task: tid1
+          params:
+            gain0: 0.0
+            gain1: 0.0
+            channels: 8
+          position:
+            x: 400
+            y: 180
+        - id: nlms_probe
+          component: orpheus.builtin.probe_rms
+          task: tid1
+          params:
+            channels: 8
+          position:
+            x: 560
+            y: 180
+        - id: nlms_sink
+          component: orpheus.builtin.null_sink
+          task: tid1
+          params:
+            channels: 8
+          position:
+            x: 720
+            y: 180
+        - id: control_fir
+          component: orpheus.builtin.fir
+          task: tid1
+          params:
+            channels: 8
+            taps: 2
+            coefficients: 1.0,0.0
+          position:
+            x: 240
+            y: 300
+        - id: control_matrix
+          component: orpheus.builtin.matrix_mul
+          task: tid1
+          params:
+            rows: 8
+            cols: 8
+          position:
+            x: 400
+            y: 300
+        - id: output_mix
+          component: orpheus.builtin.mixer
+          task: tid1
+          params:
+            gain0: 0.0
+            gain1: 0.0
+            channels: 8
+          position:
+            x: 560
+            y: 300
+        - id: output_router
+          component: orpheus.builtin.channel_router
+          task: tid1
+          params:
+            channels_in: 8
+            channels_out: 8
+            indices: 0,1,2,3,4,5,6,7
+          position:
+            x: 720
+            y: 300
+        - id: downrate_to_tid4
+          component: orpheus.builtin.downrate
+          task: tid1
+          params:
+            factor: 10
+            channels: 8
+          position:
+            x: 400
+            y: 420
+        - id: slow_gain
+          component: orpheus.builtin.gain
+          task: tid4
+          params:
+            gain_db: 0.0
+            channels: 8
+          position:
+            x: 560
+            y: 420
+        - id: slow_probe
+          component: orpheus.builtin.probe_rms
+          task: tid4
+          params:
+            channels: 8
+          position:
+            x: 720
+            y: 420
+        - id: slow_sink
+          component: orpheus.builtin.null_sink
+          task: tid4
+          params:
+            channels: 8
+          position:
+            x: 880
+            y: 420
+      connections:
+        - from: input_router:out
+          to: anti_alias_iir:in
+        - from: input_router:out
+          to: nlms_mix:in1
+        - from: input_router:out
+          to: control_fir:in
+        - from: anti_alias_iir:out
+          to: rnc_gain:in
+        - from: rnc_gain:out
+          to: nlms_gain:in
+        - from: rnc_gain:out
+          to: output_mix:in0
+        - from: nlms_gain:out
+          to: nlms_mix:in0
+        - from: nlms_mix:out
+          to: nlms_probe:in
+        - from: nlms_probe:out
+          to: nlms_sink:in
+        - from: control_fir:out
+          to: control_matrix:in
+        - from: control_matrix:out
+          to: output_mix:in1
+        - from: output_mix:out
+          to: output_router:in
+        - from: rnc_gain:out
+          to: downrate_to_tid4:in
+        - from: downrate_to_tid4:out
+          to: slow_gain:in
+        - from: slow_gain:out
+          to: slow_probe:in
+        - from: slow_probe:out
+          to: slow_sink:in
+
+  - id: output_processing
+    name: 输出处理
+    description: EHC/RNC 反噪声 + 娱乐音混合，输出保护与路由
+    ports:
+      - id: ehc_in
+        direction: input
+        maps_to: ehc_gain:in
+      - id: rnc_in
+        direction: input
+        maps_to: rnc_gain:in
+      - id: ent_in
+        direction: input
+        maps_to: ent_sel:in
+      - id: ref_in
+        direction: input
+        maps_to: ref_gain:in
+      - id: audio_out
+        direction: output
+        maps_to: final_router:out
+      - id: ref_out
+        direction: output
+        maps_to: ref_router:out
+    graph:
+      nodes:
+        - id: ehc_gain
+          component: orpheus.builtin.gain
+          task: tid1
+          params:
+            # 来源：Sys_p2_b0.EhcEntMixGain = 1.0 (0 dB)
+            gain_db: 0.0
+            channels: 8
+          position:
+            x: 40
+            y: 40
+        - id: rnc_gain
+          component: orpheus.builtin.gain
+          task: tid1
+          params:
+            # 来源：Sys_p2_b0.RncCombineSignalGain = 1.0 (0 dB)
+            gain_db: 0.0
+            channels: 8
+          position:
+            x: 40
+            y: 120
+        - id: ent_sel
+          component: orpheus.builtin.input_select
+          task: tid1
+          params:
+            channels_in: 25
+            channels_out: 8
+            # 来源：Sys_p2_b0.EhcEntMixChannelSelect = [1,2,3,4,5,6,13,14]（1-based）
+            select: 1,2,3,4,5,6,13,14
+          position:
+            x: 40
+            y: 200
+        - id: mix1
+          component: orpheus.builtin.mixer
+          task: tid1
+          params:
+            gain0: 0.0
+            gain1: 0.0
+            channels: 8
+          position:
+            x: 220
+            y: 80
+        - id: mix2
+          component: orpheus.builtin.mixer
+          task: tid1
+          params:
+            gain0: 0.0
+            gain1: 0.0
+            channels: 8
+          position:
+            x: 380
+            y: 120
+        - id: limiter
+          component: orpheus.builtin.limiter
+          task: tid1
+          params:
+            channels: 8
+            mode: shared
+            # 来源：Rnc_p15_b2.SsSpeakerOutputLim = 2.0 线性 ≈ 6.02 dB
+            threshold_db: 6.0
+          position:
+            x: 540
+            y: 120
+        - id: soft_clipper
+          component: orpheus.builtin.soft_clipper
+          task: tid1
+          params:
+            drive_db: 0.0
+            channels: 8
+          position:
+            x: 700
+            y: 120
+        - id: final_router
+          component: orpheus.builtin.output_router
+          task: tid1
+          params:
+            channels_in: 8
+            channels_out: 24
+            matrix: identity
+          position:
+            x: 860
+            y: 120
+        - id: ref_gain
+          component: orpheus.builtin.gain
+          task: tid2
+          params:
+            gain_db: 0.0
+            channels: 22
+          position:
+            x: 40
+            y: 340
+        - id: ref_router
+          component: orpheus.builtin.channel_router
+          task: tid2
+          params:
+            channels_in: 22
+            channels_out: 18
+            indices: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+          position:
+            x: 220
+            y: 340
+      connections:
+        - from: ehc_gain:out
+          to: mix1:in0
+        - from: rnc_gain:out
+          to: mix1:in1
+        - from: mix1:out
+          to: mix2:in0
+        - from: ent_sel:out
+          to: mix2:in1
+        - from: mix2:out
+          to: limiter:in
+        - from: limiter:out
+          to: soft_clipper:in
+        - from: soft_clipper:out
+          to: final_router:in
+        - from: ref_gain:out
+          to: ref_router:in
+
+model_tree:
+  name: BAF ASM EHC/RNC 蒸馏（step0）
+  source: cart-cicd-erev-asm/components/baf/Model_Target*.c
+  base_rate: 6000
+  task_flows:
+    - tid: 0
+      rate_hz: 6000
+      block_size: 8
+      label: 最快基础步
+      chains: [asm_in_fast, ehc_fast_pre, rnc_fast_pre]
+    - tid: 1
+      rate_hz: 2000
+      block_size: 24
+      label: EHC/RNC 主链 + AudioOut
+      chains: [ehc_core, ehc_blade, rnc_nlms, rnc_control_filter, output_audio]
+    - tid: 2
+      rate_hz: 1500
+      block_size: 32
+      label: AudioIn / Ref_out
+      chains: [audio_in, output_ref]
+    - tid: 3
+      rate_hz: 250
+      block_size: 192
+      label: EHC 慢速控制
+      chains: [ehc_autostabilizer_monitor]
+    - tid: 4
+      rate_hz: 200
+      block_size: 240
+      label: RNC 慢速控制
+      chains: [rnc_slow_monitor]
+    - tid: 5
+      rate_hz: 31.25
+      block_size: 1536
+      label: RNC 状态机 / 发散检测
+      chains: [rnc_state_machine]
+    - tid: 6
+      rate_hz: 7.8125
+      block_size: 6144
+      label: RNC 噪声底 / 长期监控
+      chains: [rnc_noise_floor]
+  parameter_partitions:
+    - name: Model_Target_Ehc_p0_b0
+      size: 0
+      target: Ehc
+      bank: 0
+      description: 开关、谐波使能、麦克风/扬声器校准增益、FD 路由表、覆盖开关、Blade/Core 参数
+    - name: Model_Target_Ehc_p0_b1
+      size: 0
+      target: Ehc
+      bank: 1
+      description: Core Hmu / leakage 频率查找表
+    - name: Model_Target_Ehc_p0_b2
+      size: 0
+      target: Ehc
+      bank: 2
+      description: Core 投影表 W3/W4
+    - name: Model_Target_Ehc_p0_b3
+      size: 0
+      target: Ehc
+      bank: 3
+      description: Core 投影表 W1/W2
+    - name: Model_Target_Ehc_p0_b4
+      size: 0
+      target: Ehc
+      bank: 4
+      description: AutoStabilizer 训练/监控阈值
+    - name: Model_Target_Rnc_p15_b0
+      size: 0
+      target: Rnc
+      bank: 0
+      description: 传感器映射、加速度计/麦克风校准、FD 路由、开关、直通
+    - name: Model_Target_Rnc_p15_b1
+      size: 0
+      target: Rnc
+      bank: 1
+      description: 各监控器阈值/增益
+    - name: Model_Target_Rnc_p15_b2
+      size: 0
+      target: Rnc
+      bank: 2
+      description: NLMS 步长、收敛/发散计数器、智能饱和参数
+    - name: Model_Target_Rnc_p15_b3
+      size: 0
+      target: Rnc
+      bank: 3
+      description: NLMS 扬声器-扬声器 Wiener 滤波系数
+    - name: Model_Target_Rnc_p15_b4
+      size: 0
+      target: Rnc
+      bank: 4
+      description: NLMS 麦克风-扬声器 Wiener 滤波系数
+    - name: Model_Target_Rnc_p15_b5
+      size: 0
+      target: Rnc
+      bank: 5
+      description: NLMS 自适应滤波初始系数
+    - name: Model_Target_RncInputSelect_p9_b6
+      size: 0
+      target: RncInputSelect
+      bank: 6
+      description: 保留调参变量
+    - name: Model_Target_Sys_p2_b0
+      size: 0
+      target: Sys
+      bank: 0
+      description: EHC/ENT 混合增益、RncCombine 增益/软削波、输出延迟
