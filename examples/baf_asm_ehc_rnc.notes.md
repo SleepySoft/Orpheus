@@ -115,7 +115,7 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 | `sub:output_processing/limiter` | `threshold_db` | `Rnc_p15_b2.SsSpeakerOutputLim` | 2.0 线性 → 6 dB |
 | `sub:ehc_sub/sine_mod` | `freq_hz/depth` | `Ehc_p0_b0.OnOff=0` | EHC 关闭，freq=0、depth=0 时输出直通 |
 | `sub:ehc_sub/blade_gain` | `gain_db` | `Ehc_p0_b0.BladeMicMuMuliplierLimitLow` | 0.1 线性 → -20 dB |
-| `sub:rnc_sub/nlms_gain` | `gain_db` | `Rnc_p15_b2.NlmsStepSize` | 全部为 0 → -96 dB（自适应关闭） |
+| `sub:rnc_sub/rnc_nlms` | `step_size` | `Rnc_p15_b2.NlmsStepSize` | 0.01 占位，后续按源模型标定量回填 |
 | `sub:rnc_sub/anti_alias_iir` | `coefs` | `Rnc_p15_b0.ReconFilterpooliirCoeffs` | 8ch×6stages pooliir → SOS，经 `scripts/pooliir2sos.py` 转换 |
 
 ### 5.2 子图化占位组件
@@ -123,7 +123,7 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 为了尽量不新增专用组件，先把三个核心算法展开为子组件（subcomponent），内部仍用 Orpheus 内置组件占位：
 
 - **`ehc_core`**：封装 `input_router → sine_mod → core_gain → leakage_lpf → harmonic_mix → output_router`。后续把真正的谐波生成/FxLMS 逻辑填进去即可，不必替换为新的原子组件。
-- **`rnc_nlms`**：封装 `ref_gain + err_gain → nlms_mix → output_router`。两个输入口对应参考信号与误差信号，输出口接监控。
+- **`rnc_nlms`**：已替换为 `orpheus.builtin.nlms` 原子组件，直接接收 `ref`（参考信号）和 `err`（误差信号），输出 `out` 供监控。保留 `rnc_nlms` 节点 id 以维持现有连接。
 - **`rnc_control_filter`**：封装 `fir → matrix_mul → output_router`。后续把 Wiener/自适应 FIR 系数灌入即可。
 
 `ehc_sub` 与 `rnc_sub` 中原来的零散节点已替换为这三个子组件节点。
@@ -147,7 +147,7 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 | EHC Blade | `iir_bank` + `gain` | 实现窄带误差处理组件 |
 | EHC AutoStabilizer | `downrate` + `probe_rms` + `null_sink` | 实现监控/训练逻辑 |
 | RNC Downsample | `downrate` + `iir_bank` | 实现多相/抽取滤波 |
-| RNC NLMS | `rnc_nlms` 子图 | 在子图内实现 NLMS |
+| RNC NLMS | `orpheus.builtin.nlms` | ✅ 已实现为可复用原子组件 |
 | RNC ControlFilter | `rnc_control_filter` 子图 | 在子图内实现自适应 FIR + 扬声器映射 |
 | RNC SmartSaturation | `limiter` + `soft_clipper` | 实现智能饱和组件 |
 | RNC NoiseFloor | `rnc_noise_floor` 子图 | 在子图内实现 STFT + 噪声底估计 |
@@ -167,7 +167,7 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 - TID5/TID6 已实现 `circular_buffer → window → rfft → spectral_reduce` 的 STFT 功率谱路径：
   - `rnc_noise_floor`：12 路加速度计 → 128 点 FFT → 每通道取最小功率 → `nf_est`。
   - `rnc_divergence_detector`：4 路车顶麦克风 → 256 点 FFT → 每通道平均功率 → 与扬声器耦合信号混合。
-- 受现有任务块长约束，当前 `circular_buffer` 的 `hop_size = frame_size`（无重叠）。`circular_buffer` 组件本身支持重叠（`hop_size < frame_size`），但要启用 50% 重叠需新增中间任务（例如 768 样本）或调整任务表。
+- 已启用 50% 重叠 Hann 窗：`rnc_noise_floor`（128 点 FFT，hop=64，num_frames=24）和 `rnc_divergence_detector`（256 点 FFT，hop=128，num_frames=48）。`circular_buffer` 的 `hop_size < frame_size` 与 `window` 的 `repeat` 模式配合实现滑窗加窗。
 - 两条链的输出目前只接到子组件内部的 `probe_rms`/`null_sink`，没有真正闭环控制 `rnc_gain`/`ehc_gain`。
 
 ### 5.5 下一步工作
@@ -182,7 +182,7 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
    - `rnc_divergence_detector` 已用同样链路替换车顶麦克风探针。
 3. **提取 TOP 系数**：从 `Model_Target_Ehc_p0_b*.c`、`Model_Target_Rnc_p15_b*.c`、`Model_Target_Sys_p2_b0.c` 中把表写入对应组件参数。
 4. **明确通道语义**：25ch `asm_in` 中哪些是 RPM、扭矩、车速、加速度计、麦克风；22ch `audio_in` 中哪些是座椅/车顶麦克风。
-5. **实现真实子图**：`ehc_core`、`ehc_blade`、`rnc_nlms`、`rnc_control_filter`、`rnc_noise_floor`、`rnc_divergence_detector`。
+5. **实现真实子图**：`ehc_core`、`ehc_blade`、`rnc_control_filter`、`rnc_noise_floor`、`rnc_divergence_detector`；`rnc_nlms` 已完成。
 6. **控制闭环**：让 `rnc_noise_floor` 的 `nf_est`、`rnc_divergence_detector` 的 `divergence_flag` 等能够调制 `rnc_gain`/`ehc_gain`。
 7. **一致性验证**：与源模型参考输出逐样本对比。
 
@@ -208,3 +208,4 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 | `components/orpheus/builtin/sine_mod/README.md` | EHC 谐波占位组件说明 |
 | `components/orpheus/builtin/fir/README.md` | RNC ControlFilter 占位组件说明 |
 | `components/orpheus/builtin/limiter/README.md` | 输出保护组件说明 |
+| `components/orpheus/builtin/nlms/README.md` | NLMS 自适应滤波组件说明 |

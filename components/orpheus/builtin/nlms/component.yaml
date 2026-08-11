@@ -1,0 +1,73 @@
+id: orpheus.builtin.nlms
+name: 归一化最小均方
+category: 基础算法
+description: 归一化最小均方（NLMS）自适应滤波器，逐样本用参考信号 ref 逼近误差信号 err，输出 y = w^T x。支持泄漏更新与逐通道独立系数。
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: NlmsState
+sources:
+  - src/nlms.c
+headers:
+  - include/orpheus_nlms.h
+ports:
+  - id: ref
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: err
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 64]
+    update_policy: restart_required
+    affects_signature: true
+  - id: filter_length
+    name: 滤波器长度
+    type: int
+    default: 32
+    range: [1, 4096]
+    update_policy: restart_required
+    affects_signature: true
+  - id: step_size
+    name: 步长
+    type: float
+    default: 0.01
+    range: [0.0, 2.0]
+    update_policy: restart_required
+    affects_signature: false
+  - id: leakage
+    name: 泄漏因子
+    type: float
+    default: 1.0
+    range: [0.0, 1.0]
+    update_policy: restart_required
+    affects_signature: false
+  - id: eps
+    name: 正则化
+    type: float
+    default: 0.000001
+    range: [0.000000000001, 1.0]
+    update_policy: restart_required
+    affects_signature: false
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true
