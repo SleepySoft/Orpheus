@@ -338,6 +338,54 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         }
     }
 
+    // 为悬空输出端口分配丢弃缓冲区，使组件 process 永远看不到 NULL 输出。
+    // 块长优先使用 compiler 解析后的端口 block_size；未记录则回退到节点输入块长。
+    for (auto& kv : instances_) {
+        Instance& inst = *kv.second;
+        const NodeConfig& cfg = plan_.node_configs[inst.node_id];
+        const OrpheusComponentDescriptor* desc = inst.interface_->get_descriptor();
+        for (size_t i = 0; i < cfg.output_ports.size(); ++i) {
+            if (inst.outputs[i] != nullptr) continue;
+            const std::string& port_id = cfg.output_ports[i];
+            uint32_t block_size = cfg.frames > 0 ? cfg.frames : plan_.block_size;
+            auto bs_it = cfg.output_port_block_sizes.find(port_id);
+            if (bs_it != cfg.output_port_block_sizes.end()) {
+                block_size = bs_it->second;
+            }
+            uint32_t channels = 1;
+            if (desc != nullptr) {
+                for (uint32_t pi = 0; pi < desc->port_count; ++pi) {
+                    const OrpheusPort* p = &desc->ports[pi];
+                    if (p->id == nullptr || port_id != p->id) continue;
+                    if (p->channels > 0) {
+                        channels = p->channels;
+                    } else if (p->is_variable && p->channels_param != nullptr) {
+                        auto pit = cfg.params.find(p->channels_param);
+                        if (pit != cfg.params.end()) {
+                            try {
+                                channels = static_cast<uint32_t>(std::stoul(pit->second));
+                            } catch (...) {
+                                channels = 1;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+            auto discard = std::unique_ptr<OrpheusBuffer>(new OrpheusBuffer());
+            discard->format = ORPHEUS_FORMAT_F32;
+            discard->channels = channels;
+            discard->frame_capacity = block_size;
+            discard->frame_count = block_size;
+            discard->interleaved = true;
+            size_t n = static_cast<size_t>(channels) * block_size;
+            discard_memory_.resize(discard_memory_.size() + n, 0.0f);
+            discard->data = discard_memory_.data() + discard_memory_.size() - n;
+            inst.outputs[i] = discard.get();
+            discard_buffers_.push_back(std::move(discard));
+        }
+    }
+
     // BULK 双 bank（可选）：仅对「生效」的槽分配影子区（工程 auto/on/off × 组件声明）
     std::map<std::string, bool> db_enabled;
     for (const auto& e : plan_.id_map) {

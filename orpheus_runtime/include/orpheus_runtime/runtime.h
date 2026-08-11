@@ -113,6 +113,8 @@ private:
     std::map<std::string, std::unique_ptr<Instance>> instances_;
     std::map<std::string, std::unique_ptr<OrpheusBuffer>> buffers_;
     std::vector<float> buffer_memory_;
+    std::vector<std::unique_ptr<OrpheusBuffer>> discard_buffers_;
+    std::vector<float> discard_memory_;
     std::vector<uint8_t> state_arena_;   // v2：统一内存拼接（每实例一块连续切片）
     std::map<uint32_t, const IdMapEntry*> id_index_;   // 数据 ID → plan.id_map 条目
     std::map<std::string, uint32_t> key_to_id_;        // "node\x1fkey" → 数据 ID

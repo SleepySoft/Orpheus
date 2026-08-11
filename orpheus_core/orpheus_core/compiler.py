@@ -26,6 +26,7 @@ class ResolvedPort:
     channels: int
     sample_rate: int
     block_size: int
+    block_size_explicit: bool = False
 
 
 @dataclass
@@ -150,6 +151,7 @@ def _resolve_port_signature(
 
     block_size_expr = port_manifest.get("block_size", "task:block_size")
     block_size = _resolve_value(block_size_expr, node, task)
+    block_size_explicit = port_manifest.get("block_size") is not None
     if block_size is None:
         block_size = task.block_size
 
@@ -162,6 +164,7 @@ def _resolve_port_signature(
         channels=int(channels),
         sample_rate=int(sample_rate),
         block_size=int(block_size),
+        block_size_explicit=block_size_explicit,
     )
 
 
@@ -362,6 +365,7 @@ class GraphCompiler:
                 if rp is not None:
                     node_rate = rp.sample_rate
                     break
+            out_ports = [p for p in port_manifests if p["direction"] == "output"]
             plan.node_configs[node.id] = {
                 "component": node.component,
                 "version": comp.version if comp else "",
@@ -372,7 +376,11 @@ class GraphCompiler:
                 "sample_rate": node_rate,
                 # ordered port ids: runtime binds buffers by port id, not order
                 "input_ports": [p["id"] for p in port_manifests if p["direction"] == "input"],
-                "output_ports": [p["id"] for p in port_manifests if p["direction"] == "output"],
+                "output_ports": [p["id"] for p in out_ports],
+                "output_port_block_sizes": {
+                    p["id"]: resolved_ports[f"{node.id}:{p['id']}"].block_size
+                    for p in out_ports
+                },
             }
 
         # 离线运行时长：无文件输入时，宿主按纯时钟源（扫频发生器/记录）的时长跑，

@@ -5,6 +5,7 @@
 #include "json.hpp"
 
 #include <fstream>
+#include <iostream>
 
 using json = nlohmann::json;
 
@@ -32,6 +33,7 @@ Plan Plan::load_from_file(const std::string& path) {
 
     auto node_configs = j.value("node_configs", json::object());
     for (auto it = node_configs.begin(); it != node_configs.end(); ++it) {
+        try {
         NodeConfig cfg;
         cfg.id = it.key();
         cfg.component = it.value().value("component", "");
@@ -51,9 +53,20 @@ Plan Plan::load_from_file(const std::string& path) {
         for (const auto& pid : it.value().value("output_ports", json::array())) {
             cfg.output_ports.push_back(pid.get<std::string>());
         }
+        {
+            auto obs = it.value().value("output_port_block_sizes", json::object());
+            for (auto oit = obs.begin(); oit != obs.end(); ++oit) {
+                cfg.output_port_block_sizes[oit.key()] = static_cast<uint32_t>(oit.value().get<int>());
+            }
+        }
         cfg.divisor = it.value().value("divisor", 1u);
         cfg.frames = it.value().value("frames", 0u);
         p.node_configs[it.key()] = cfg;
+        } catch (const std::exception& e) {
+            std::cerr << "[Plan] parse node config failed: " << it.key()
+                      << " json=" << it.value().dump() << " error=" << e.what() << "\n";
+            throw;
+        }
     }
 
     auto buffers = j.value("buffers", json::object());

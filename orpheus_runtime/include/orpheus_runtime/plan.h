@@ -16,6 +16,7 @@ struct NodeConfig {
     std::map<std::string, std::string> params; // all params as strings
     std::vector<std::string> input_ports;      // ordered port ids for buffer binding
     std::vector<std::string> output_ports;
+    std::map<std::string, uint32_t> output_port_block_sizes;  // per-output-port resolved block size
     uint32_t divisor = 1;   // rate divisor: node runs when (block_counter+1) % divisor == 0
     uint32_t frames = 0;    // processing quantum per firing (0 = plan block_size)
 };
