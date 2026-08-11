@@ -139,27 +139,41 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 
 这些大表需要专用组件（或脚本转换 pooliir → SOS）才能注入；step0 仍用 identity/占位。
 
-### 5.2 当前占位
+### 5.3 当前占位
 
 | 源算法 | step0 占位 | 后续方向 |
 |---|---|---|
-| EHC Core 谐波振荡器 + FxLMS | `sine_mod` + `gain` + `mixer` | 实现专用 `ehc_core` 组件或扩展子图 |
+| EHC Core 谐波振荡器 + FxLMS | `ehc_core` 子图 | 在子图内实现谐波生成/FxLMS |
 | EHC Blade | `iir_bank` + `gain` | 实现窄带误差处理组件 |
 | EHC AutoStabilizer | `downrate` + `probe_rms` + `null_sink` | 实现监控/训练逻辑 |
 | RNC Downsample | `downrate` + `iir_bank` | 实现多相/抽取滤波 |
-| RNC NLMS | `gain` + `mixer` + `probe_rms` | 实现 `nlms` 自适应组件 |
-| RNC ControlFilter | `fir` + `matrix_mul` | 实现自适应 FIR + 扬声器映射 |
+| RNC NLMS | `rnc_nlms` 子图 | 在子图内实现 NLMS |
+| RNC ControlFilter | `rnc_control_filter` 子图 | 在子图内实现自适应 FIR + 扬声器映射 |
 | RNC SmartSaturation | `limiter` + `soft_clipper` | 实现智能饱和组件 |
-| RNC StateMachine | 未显式建模 | 增加多速率监控子图 |
+| RNC NoiseFloor | `rnc_noise_floor` 子图 | 在子图内实现 STFT + 噪声底估计 |
+| RNC DivergenceDetector | `rnc_divergence_detector` 子图 | 在子图内实现发散检测 |
 
-### 5.3 下一步工作
+### 5.4 RNC 状态机/噪声底/发散检测路径（TID5/TID6）
+
+已在顶层补全两条慢速分析链：
+
+| 链 | 任务 | 输入 | 当前占位输出 | 源模型对应 |
+|---|---|---|---|---|
+| `rnc_noise_floor` | TID5 31.25 Hz | `asm_in` 前 12 路 → `accel_select` → `nfd_downrate` (÷64) | `nf_est`(12ch)、`faulty`(12ch)、`freeze_counter`(1ch) | `RncSubTID5` 中的 `NoiseFloorEstimation`：12 路加速度计 STFT → 噪声底估计/故障检测 |
+| `rnc_divergence_detector` | TID6 7.8125 Hz | `audio_in` 前 4 路 → `roof_select` → 二级降采样 (÷64÷4)；`rnc_sub:out` → 二级降采样 (÷64÷4) | `divergence_flag`(1ch)、`step_size_modifier`(1ch)、`importance_factor`(8ch) | `RncSubTID6` 中的 `DivergenceDetector`：车顶麦克风 + 扬声器参考 → 发散检测 |
+
+注意：
+- 当前 `accel_select`/`roof_select` 用的是前 N 路占位索引，真实语义需对照 `ActiveAccelChannelsMap`、`ActiveRoofMicsMap`、`DdSelectedRoofMics` 回填。
+- `downrate` 只是简单分频，源模型用的是带 50% 重叠的循环缓冲 + STFT；后续需用 `buffer`/`fft` 组件替换。
+- 两条链的输出目前只接到子组件内部的 `probe_rms`/`gain`，没有真正闭环控制 `rnc_gain`/`ehc_gain`。
+
+### 5.5 下一步工作
 
 1. **提取 TOP 系数**：从 `Model_Target_Ehc_p0_b*.c`、`Model_Target_Rnc_p15_b*.c`、`Model_Target_Sys_p2_b0.c` 中把表写入对应组件参数。
 2. **明确通道语义**：25ch `asm_in` 中哪些是 RPM、扭矩、车速、加速度计、麦克风；22ch `audio_in` 中哪些是座椅/车顶麦克风。
-3. **实现真实组件**：`ehc_core`、`ehc_blade`、`rnc_nlms`、`rnc_control_filter` 等。
-4. **接入多速率**：TID5/TID6 的 RNC 状态机目前未在图中显式建模，需增加 `downrate` 子图。
-5. **控制闭环**：RNC 分析结果目前只能读探针，需让结果能写回 `rnc_gain`/`ehc_gain`。
-6. **一致性验证**：与源模型参考输出逐样本对比。
+3. **实现真实子图**：`ehc_core`、`ehc_blade`、`rnc_nlms`、`rnc_control_filter`、`rnc_noise_floor`、`rnc_divergence_detector`。
+4. **控制闭环**：让 `rnc_noise_floor` 的 `nf_est`、`rnc_divergence_detector` 的 `divergence_flag` 等能够调制 `rnc_gain`/`ehc_gain`。
+5. **一致性验证**：与源模型参考输出逐样本对比。
 
 ---
 
