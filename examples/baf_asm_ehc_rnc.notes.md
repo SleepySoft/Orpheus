@@ -169,11 +169,19 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 
 ### 5.5 下一步工作
 
-1. **提取 TOP 系数**：从 `Model_Target_Ehc_p0_b*.c`、`Model_Target_Rnc_p15_b*.c`、`Model_Target_Sys_p2_b0.c` 中把表写入对应组件参数。
-2. **明确通道语义**：25ch `asm_in` 中哪些是 RPM、扭矩、车速、加速度计、麦克风；22ch `audio_in` 中哪些是座椅/车顶麦克风。
-3. **实现真实子图**：`ehc_core`、`ehc_blade`、`rnc_nlms`、`rnc_control_filter`、`rnc_noise_floor`、`rnc_divergence_detector`。
-4. **控制闭环**：让 `rnc_noise_floor` 的 `nf_est`、`rnc_divergence_detector` 的 `divergence_flag` 等能够调制 `rnc_gain`/`ehc_gain`。
-5. **一致性验证**：与源模型参考输出逐样本对比。
+1. **新增可复用原子组件**：
+   - `circular_buffer`：支持 50% 重叠的循环缓冲/滑窗读出。
+   - `window` / `fft`：窗函数 + FFT。
+   - `stft`：封装“缓冲 → 加窗 → FFT → 取模平方”的完整短时傅里叶变换。
+   - 这些原子组件是通用能力，可被多个工程复用。
+2. **用原子组件拼出项目子图**：
+   - 在 `rnc_noise_floor` 内部用 `circular_buffer` + `stft` + `spectral_min` 等替换当前 `downrate` + `probe_rms` 占位。
+   - 在 `rnc_divergence_detector` 内部同样用 `stft` + 平滑/概率检测组件替换占位。
+3. **提取 TOP 系数**：从 `Model_Target_Ehc_p0_b*.c`、`Model_Target_Rnc_p15_b*.c`、`Model_Target_Sys_p2_b0.c` 中把表写入对应组件参数。
+4. **明确通道语义**：25ch `asm_in` 中哪些是 RPM、扭矩、车速、加速度计、麦克风；22ch `audio_in` 中哪些是座椅/车顶麦克风。
+5. **实现真实子图**：`ehc_core`、`ehc_blade`、`rnc_nlms`、`rnc_control_filter`、`rnc_noise_floor`、`rnc_divergence_detector`。
+6. **控制闭环**：让 `rnc_noise_floor` 的 `nf_est`、`rnc_divergence_detector` 的 `divergence_flag` 等能够调制 `rnc_gain`/`ehc_gain`。
+7. **一致性验证**：与源模型参考输出逐样本对比。
 
 ---
 
