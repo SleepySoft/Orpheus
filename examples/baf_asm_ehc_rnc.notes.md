@@ -116,6 +116,17 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 | `sub:ehc_sub/sine_mod` | `freq_hz/depth` | `Ehc_p0_b0.OnOff=0` | EHC 关闭，freq=0、depth=0 时输出直通 |
 | `sub:ehc_sub/blade_gain` | `gain_db` | `Ehc_p0_b0.BladeMicMuMuliplierLimitLow` | 0.1 线性 → -20 dB |
 | `sub:rnc_sub/nlms_gain` | `gain_db` | `Rnc_p15_b2.NlmsStepSize` | 全部为 0 → -96 dB（自适应关闭） |
+| `sub:rnc_sub/anti_alias_iir` | `coefs` | `Rnc_p15_b0.ReconFilterpooliirCoeffs` | 8ch×6stages pooliir → SOS，经 `scripts/pooliir2sos.py` 转换 |
+
+### 5.2 子图化占位组件
+
+为了尽量不新增专用组件，先把三个核心算法展开为子组件（subcomponent），内部仍用 Orpheus 内置组件占位：
+
+- **`ehc_core`**：封装 `input_router → sine_mod → core_gain → leakage_lpf → harmonic_mix → output_router`。后续把真正的谐波生成/FxLMS 逻辑填进去即可，不必替换为新的原子组件。
+- **`rnc_nlms`**：封装 `ref_gain + err_gain → nlms_mix → output_router`。两个输入口对应参考信号与误差信号，输出口接监控。
+- **`rnc_control_filter`**：封装 `fir → matrix_mul → output_router`。后续把 Wiener/自适应 FIR 系数灌入即可。
+
+`ehc_sub` 与 `rnc_sub` 中原来的零散节点已替换为这三个子组件节点。
 
 尚未回填的大系数表：
 

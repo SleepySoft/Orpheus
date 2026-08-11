@@ -145,6 +145,200 @@ graph:
       to: ref_out:in
 
 subcomponents:
+  - id: ehc_core
+    name: EHC Core
+    description: EHC 谐波生成 + FxLMS 占位子图（step0）
+    ports:
+      - id: ref_in
+        direction: input
+        maps_to: input_router:in
+      - id: out
+        direction: output
+        maps_to: output_router:out
+    graph:
+      nodes:
+        - id: input_router
+          component: orpheus.builtin.channel_router
+          task: tid1
+          params:
+            channels_in: 8
+            channels_out: 8
+            indices: 0,1,2,3,4,5,6,7
+          position:
+            x: 60
+            y: 60
+        - id: sine_mod
+          component: orpheus.builtin.sine_mod
+          task: tid1
+          params:
+            freq_hz: 0.0
+            depth: 0.0
+            channels: 8
+          position:
+            x: 260
+            y: 20
+        - id: core_gain
+          component: orpheus.builtin.gain
+          task: tid1
+          params:
+            gain_db: 0.0
+            channels: 8
+          position:
+            x: 420
+            y: 20
+        - id: leakage_lpf
+          component: orpheus.builtin.iir_bank
+          task: tid1
+          params:
+            channels: 8
+            num_stages: 1
+            coefs_mode: shared
+            coefs: 1,0,0,0,0
+          position:
+            x: 580
+            y: 20
+        - id: harmonic_mix
+          component: orpheus.builtin.mixer
+          task: tid1
+          params:
+            gain0: 0.0
+            gain1: 0.0
+            channels: 8
+          position:
+            x: 740
+            y: 60
+        - id: output_router
+          component: orpheus.builtin.channel_router
+          task: tid1
+          params:
+            channels_in: 8
+            channels_out: 8
+            indices: 0,1,2,3,4,5,6,7
+          position:
+            x: 900
+            y: 60
+      connections:
+        - from: input_router:out
+          to: sine_mod:in
+        - from: input_router:out
+          to: harmonic_mix:in1
+        - from: sine_mod:out
+          to: core_gain:in
+        - from: core_gain:out
+          to: leakage_lpf:in
+        - from: leakage_lpf:out
+          to: harmonic_mix:in0
+        - from: harmonic_mix:out
+          to: output_router:in
+  - id: rnc_nlms
+    name: RNC NLMS
+    description: RNC NLMS 系数更新占位子图（step0）
+    ports:
+      - id: ref_in
+        direction: input
+        maps_to: ref_gain:in
+      - id: err_in
+        direction: input
+        maps_to: err_gain:in
+      - id: out
+        direction: output
+        maps_to: output_router:out
+    graph:
+      nodes:
+        - id: ref_gain
+          component: orpheus.builtin.gain
+          task: tid1
+          params:
+            gain_db: -96.0
+            channels: 8
+          position:
+            x: 60
+            y: 60
+        - id: err_gain
+          component: orpheus.builtin.gain
+          task: tid1
+          params:
+            gain_db: 0.0
+            channels: 8
+          position:
+            x: 60
+            y: 180
+        - id: nlms_mix
+          component: orpheus.builtin.mixer
+          task: tid1
+          params:
+            gain0: 0.0
+            gain1: 0.0
+            channels: 8
+          position:
+            x: 240
+            y: 120
+        - id: output_router
+          component: orpheus.builtin.channel_router
+          task: tid1
+          params:
+            channels_in: 8
+            channels_out: 8
+            indices: 0,1,2,3,4,5,6,7
+          position:
+            x: 420
+            y: 120
+      connections:
+        - from: ref_gain:out
+          to: nlms_mix:in0
+        - from: err_gain:out
+          to: nlms_mix:in1
+        - from: nlms_mix:out
+          to: output_router:in
+  - id: rnc_control_filter
+    name: RNC ControlFilter
+    description: RNC 控制滤波器占位子图（step0）
+    ports:
+      - id: ref_in
+        direction: input
+        maps_to: fir:in
+      - id: out
+        direction: output
+        maps_to: output_router:out
+    graph:
+      nodes:
+        - id: fir
+          component: orpheus.builtin.fir
+          task: tid1
+          params:
+            channels: 8
+            taps: 2
+            coefficients: 1.0,0.0
+          position:
+            x: 60
+            y: 60
+        - id: matrix_mul
+          component: orpheus.builtin.matrix_mul
+          task: tid1
+          params:
+            rows: 8
+            cols: 8
+            matrix: 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+              0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+              0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1
+          position:
+            x: 240
+            y: 60
+        - id: output_router
+          component: orpheus.builtin.channel_router
+          task: tid1
+          params:
+            channels_in: 8
+            channels_out: 8
+            indices: 0,1,2,3,4,5,6,7
+          position:
+            x: 460
+            y: 60
+      connections:
+        - from: fir:out
+          to: matrix_mul:in
+        - from: matrix_mul:out
+          to: output_router:in
   - id: ehc_sub
     name: EHC 子系统
     description: Engine Harmonic Cancellation step0 占位
@@ -168,35 +362,12 @@ subcomponents:
           position:
             x: 60
             y: 60
-        - id: sine_mod
-          component: orpheus.builtin.sine_mod
+        - id: ehc_core
+          component: sub:ehc_core
           task: tid1
-          params:
-            # EHC OnOff=0，谐波源关闭；depth=0 时输出等于输入
-            freq_hz: 0.0
-            depth: 0.0
-            channels: 8
+          params: {}
           position:
             x: 260
-            y: 20
-        - id: core_gain
-          component: orpheus.builtin.gain
-          task: tid1
-          params:
-            gain_db: -6.0
-            channels: 8
-          position:
-            x: 420
-            y: 20
-        - id: core_mix
-          component: orpheus.builtin.mixer
-          task: tid1
-          params:
-            gain0: 0.0
-            gain1: 0.0
-            channels: 8
-          position:
-            x: 580
             y: 60
         - id: blade_iir
           component: orpheus.builtin.iir_bank
@@ -275,19 +446,7 @@ subcomponents:
             y: 220
       connections:
         - from: input_router:out
-          to: sine_mod:in
-        - from: input_router:out
-          to: core_mix:in1
-        - from: input_router:out
           to: blade_iir:in
-        - from: sine_mod:out
-          to: core_gain:in
-        - from: core_gain:out
-          to: core_mix:in0
-        - from: core_mix:out
-          to: output_mix:in0
-        - from: core_mix:out
-          to: downrate_to_tid3:in
         - from: blade_iir:out
           to: blade_gain:in
         - from: blade_gain:out
@@ -301,6 +460,12 @@ subcomponents:
         - from: autostab_probe:out
           to: autostab_sink:in
 
+        - from: input_router:out
+          to: ehc_core:ref_in
+        - from: ehc_core:out
+          to: output_mix:in0
+        - from: ehc_core:out
+          to: downrate_to_tid3:in
   - id: rnc_sub
     name: RNC 子系统
     description: Road Noise Cancellation step0 占位
@@ -329,9 +494,33 @@ subcomponents:
           task: tid1
           params:
             channels: 8
-            num_stages: 1
-            coefs_mode: shared
-            coefs: 1,0,0,0,0
+            num_stages: 6
+            coefs_mode: per_channel
+            coefs: "0.1847713092,-0.3633804952,0.1847713092,-1.96658325,0.987975\n\
+              0.1847713092,-0.3626303421,0.1847713092,-1.94094265,0.961092174\n0.1847713092,-0.3604449872,0.1847713092,-1.90811133,0.925899684\n\
+              0.1847713092,-0.3537142525,0.1847713092,-1.86662424,0.88100481\n0.1847713092,-0.3186516793,0.1847713092,-1.82571948,0.836584747\n\
+              0.1847713092,0.1847713092,0,-0.903714716,0\n0.1847713092,-0.3633804952,0.1847713092,-1.96658325,0.987975\n\
+              0.1847713092,-0.3626303421,0.1847713092,-1.94094265,0.961092174\n0.1847713092,-0.3604449872,0.1847713092,-1.90811133,0.925899684\n\
+              0.1847713092,-0.3537142525,0.1847713092,-1.86662424,0.88100481\n0.1847713092,-0.3186516793,0.1847713092,-1.82571948,0.836584747\n\
+              0.1847713092,0.1847713092,0,-0.903714716,0\n0.1847713092,-0.3633804952,0.1847713092,-1.96658325,0.987975\n\
+              0.1847713092,-0.3626303421,0.1847713092,-1.94094265,0.961092174\n0.1847713092,-0.3604449872,0.1847713092,-1.90811133,0.925899684\n\
+              0.1847713092,-0.3537142525,0.1847713092,-1.86662424,0.88100481\n0.1847713092,-0.3186516793,0.1847713092,-1.82571948,0.836584747\n\
+              0.1847713092,0.1847713092,0,-0.903714716,0\n0.1847713092,-0.3633804952,0.1847713092,-1.96658325,0.987975\n\
+              0.1847713092,-0.3626303421,0.1847713092,-1.94094265,0.961092174\n0.1847713092,-0.3604449872,0.1847713092,-1.90811133,0.925899684\n\
+              0.1847713092,-0.3537142525,0.1847713092,-1.86662424,0.88100481\n0.1847713092,-0.3186516793,0.1847713092,-1.82571948,0.836584747\n\
+              0.1847713092,0.1847713092,0,-0.903714716,0\n0.1847713092,-0.3633804952,0.1847713092,-1.96658325,0.987975\n\
+              0.1847713092,-0.3626303421,0.1847713092,-1.94094265,0.961092174\n0.1847713092,-0.3604449872,0.1847713092,-1.90811133,0.925899684\n\
+              0.1847713092,-0.3537142525,0.1847713092,-1.86662424,0.88100481\n0.1847713092,-0.3186516793,0.1847713092,-1.82571948,0.836584747\n\
+              0.1847713092,0.1847713092,0,-0.903714716,0\n0.1847713092,-0.3633804952,0.1847713092,-1.96658325,0.987975\n\
+              0.1847713092,-0.3626303421,0.1847713092,-1.94094265,0.961092174\n0.1847713092,-0.3604449872,0.1847713092,-1.90811133,0.925899684\n\
+              0.1847713092,-0.3537142525,0.1847713092,-1.86662424,0.88100481\n0.1847713092,-0.3186516793,0.1847713092,-1.82571948,0.836584747\n\
+              0.1847713092,0.1847713092,0,-0.903714716,0\n0.1847713092,-0.3633804952,0.1847713092,-1.96658325,0.987975\n\
+              0.1847713092,-0.3626303421,0.1847713092,-1.94094265,0.961092174\n0.1847713092,-0.3604449872,0.1847713092,-1.90811133,0.925899684\n\
+              0.1847713092,-0.3537142525,0.1847713092,-1.86662424,0.88100481\n0.1847713092,-0.3186516793,0.1847713092,-1.82571948,0.836584747\n\
+              0.1847713092,0.1847713092,0,-0.903714716,0\n0.1847713092,-0.3633804952,0.1847713092,-1.96658325,0.987975\n\
+              0.1847713092,-0.3626303421,0.1847713092,-1.94094265,0.961092174\n0.1847713092,-0.3604449872,0.1847713092,-1.90811133,0.925899684\n\
+              0.1847713092,-0.3537142525,0.1847713092,-1.86662424,0.88100481\n0.1847713092,-0.3186516793,0.1847713092,-1.82571948,0.836584747\n\
+              0.1847713092,0.1847713092,0,-0.903714716,0"
           position:
             x: 240
             y: 60
@@ -345,25 +534,12 @@ subcomponents:
           position:
             x: 400
             y: 60
-        - id: nlms_gain
-          component: orpheus.builtin.gain
+        - id: rnc_nlms
+          component: sub:rnc_nlms
           task: tid1
-          params:
-            # 来源：Rnc_p15_b2.NlmsStepSize 全部为 0，等价于关闭自适应更新
-            gain_db: -96.0
-            channels: 8
+          params: {}
           position:
             x: 240
-            y: 180
-        - id: nlms_mix
-          component: orpheus.builtin.mixer
-          task: tid1
-          params:
-            gain0: 0.0
-            gain1: 0.0
-            channels: 8
-          position:
-            x: 400
             y: 180
         - id: nlms_probe
           component: orpheus.builtin.probe_rms
@@ -381,25 +557,6 @@ subcomponents:
           position:
             x: 720
             y: 180
-        - id: control_fir
-          component: orpheus.builtin.fir
-          task: tid1
-          params:
-            channels: 8
-            taps: 2
-            coefficients: 1.0,0.0
-          position:
-            x: 240
-            y: 300
-        - id: control_matrix
-          component: orpheus.builtin.matrix_mul
-          task: tid1
-          params:
-            rows: 8
-            cols: 8
-          position:
-            x: 400
-            y: 300
         - id: output_mix
           component: orpheus.builtin.mixer
           task: tid1
@@ -409,6 +566,13 @@ subcomponents:
             channels: 8
           position:
             x: 560
+            y: 300
+        - id: rnc_control_filter
+          component: sub:rnc_control_filter
+          task: tid1
+          params: {}
+          position:
+            x: 240
             y: 300
         - id: output_router
           component: orpheus.builtin.channel_router
@@ -457,26 +621,12 @@ subcomponents:
       connections:
         - from: input_router:out
           to: anti_alias_iir:in
-        - from: input_router:out
-          to: nlms_mix:in1
-        - from: input_router:out
-          to: control_fir:in
         - from: anti_alias_iir:out
           to: rnc_gain:in
         - from: rnc_gain:out
-          to: nlms_gain:in
-        - from: rnc_gain:out
           to: output_mix:in0
-        - from: nlms_gain:out
-          to: nlms_mix:in0
-        - from: nlms_mix:out
-          to: nlms_probe:in
         - from: nlms_probe:out
           to: nlms_sink:in
-        - from: control_fir:out
-          to: control_matrix:in
-        - from: control_matrix:out
-          to: output_mix:in1
         - from: output_mix:out
           to: output_router:in
         - from: rnc_gain:out
@@ -488,6 +638,16 @@ subcomponents:
         - from: slow_probe:out
           to: slow_sink:in
 
+        - from: rnc_gain:out
+          to: rnc_nlms:ref_in
+        - from: input_router:out
+          to: rnc_nlms:err_in
+        - from: rnc_nlms:out
+          to: nlms_probe:in
+        - from: input_router:out
+          to: rnc_control_filter:ref_in
+        - from: rnc_control_filter:out
+          to: output_mix:in1
   - id: output_processing
     name: 输出处理
     description: EHC/RNC 反噪声 + 娱乐音混合，输出保护与路由
