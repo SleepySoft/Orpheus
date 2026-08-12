@@ -36,7 +36,7 @@ ports:
     direction: input             # input | output
     type: audio                  # audio | control | bulk | debug
     sample_format: f32
-    channels: param:channels     # 整数，或表达式 param:<参数id> / task:sample_rate / task:block_size
+    channels: param:channels     # 整数，或表达式 param:<参数id> / task:sample_rate / task:block_size / in:block_size
     count: param:channels        # 可选：可变引脚，展开为 in0..inN-1
 parameters:
   - id: gain_db

@@ -389,6 +389,10 @@ class CodeGenerator:
             params = cfg.get("params", {})
             channels = int(float(params.get("channels", 2)))
             lines.append(f'    config.channels = {channels};')
+            node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
+            node_bs = cfg.get("frames", 0) or plan.block_size
+            lines.append(f'    config.sample_rate = {node_sr};')
+            lines.append(f'    config.block_size = {node_bs};')
             if params:
                 lines.append(f'    config.param_ids = g_param_ids_{s};')
                 lines.append(f'    config.param_values = g_param_vals_{s};')
@@ -459,6 +463,8 @@ class CodeGenerator:
                 lines.append(f'    if ((g_block_counter + 1) % {divisor} == 0) {{')
             indent = '        ' if divisor > 1 else '    '
             lines.append(f'{indent}ctx.state = g_state_{s};')
+            node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
+            lines.append(f'{indent}ctx.sample_rate = {node_sr};')
             lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
             lines.append(f'{indent}ctx.inputs = (const OrpheusBuffer* const*){in_name};')
             lines.append(f'{indent}ctx.outputs = {out_name};')

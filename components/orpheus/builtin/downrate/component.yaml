@@ -23,7 +23,7 @@ ports:
     type: audio
     sample_format: f32
     channels: param:channels
-    block_size: task:block_size*param:factor
+    block_size: in:block_size*param:factor
 parameters:
   - id: factor
     name: 分频比

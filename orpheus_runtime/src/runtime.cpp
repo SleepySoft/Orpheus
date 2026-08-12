@@ -214,8 +214,8 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
 
         // Prepare config
         OrpheusConfig config;
-        config.sample_rate = plan_.sample_rate;
-        config.block_size = plan_.block_size;
+        config.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : plan_.sample_rate;
+        config.block_size = cfg.frames > 0 ? cfg.frames : plan_.block_size;
         config.channels = 2; // default, will be overridden by param if needed
         config.param_count = 0;
         config.param_ids = nullptr;
@@ -353,7 +353,10 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
                 block_size = bs_it->second;
             }
             uint32_t channels = 1;
-            if (desc != nullptr) {
+            auto ch_it = cfg.output_port_channels.find(port_id);
+            if (ch_it != cfg.output_port_channels.end()) {
+                channels = ch_it->second;
+            } else if (desc != nullptr) {
                 for (uint32_t pi = 0; pi < desc->port_count; ++pi) {
                     const OrpheusPort* p = &desc->ports[pi];
                     if (p->id == nullptr || port_id != p->id) continue;
@@ -474,8 +477,8 @@ int Runtime::prepare_instance(Instance& inst, const NodeConfig& cfg) {
     }
 
     OrpheusConfig config;
-    config.sample_rate = plan_.sample_rate;
-    config.block_size = plan_.block_size;
+    config.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : plan_.sample_rate;
+    config.block_size = cfg.frames > 0 ? cfg.frames : plan_.block_size;
     config.channels = channels;
     config.state_block = inst.state;
     config.param_ids = param_ids.empty() ? nullptr : param_ids.data();
@@ -943,7 +946,7 @@ int Runtime::process_block(uint32_t frame_count) {
         ctx.outputs = inst.outputs.empty() ? nullptr : inst.outputs.data();
         ctx.input_count = static_cast<uint32_t>(inst.inputs.size());
         ctx.output_count = static_cast<uint32_t>(inst.outputs.size());
-        ctx.sample_rate = plan_.sample_rate;
+        ctx.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : plan_.sample_rate;
 
         int result = inst.interface_->process(inst.state, &ctx);
         if (result != ORPHEUS_OK) {

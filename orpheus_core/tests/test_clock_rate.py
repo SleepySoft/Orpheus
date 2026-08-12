@@ -144,6 +144,39 @@ def test_downrate_superblock(compiler):
     assert plan.node_configs["m"]["sample_rate"] == 48000  # rate unchanged
 
 
+
+def test_downrate_block_size_auto_aligned(compiler):
+    """downrate output block = input block x factor (auto-discovered via in:block_size).
+
+    Cascaded downrates enlarge the super-block step by step from the actual
+    input, never from the global task block_size; a passthrough (gain) after a
+    rate change inherits the super-block automatically.
+    """
+    project = make_project(
+        [
+            sig("sig"),
+            Node(id="d1", component="orpheus.builtin.downrate",
+                 params={"factor": 2, "channels": 1}),
+            Node(id="d2", component="orpheus.builtin.downrate",
+                 params={"factor": 3, "channels": 1}),
+            Node(id="g", component="orpheus.builtin.gain",
+                 params={"gain_db": 0.0, "channels": 1}),
+        ],
+        [conn("sig:out", "d1:in"), conn("d1:out", "d2:in"), conn("d2:out", "g:in")],
+    )
+    plan = compiler.compile(project)
+    base = plan.block_size
+    # d1: output = input(base) x 2, derived from the input port, not task*factor
+    assert plan.node_configs["d1"]["output_port_block_sizes"]["out"] == base * 2
+    # d2: output = input(256) x 3 = 768, cascaded from d1, NOT task*3 (384)
+    assert plan.node_configs["d2"]["output_port_block_sizes"]["out"] == base * 2 * 3
+    # passthrough gain inherits the super-block; fires every 6 blocks (2 x 3)
+    assert plan.node_configs["g"]["frames"] == base * 2 * 3
+    assert plan.node_configs["g"]["output_port_block_sizes"]["out"] == base * 2 * 3
+    assert plan.node_configs["g"]["divisor"] == 6
+
+
+
 def test_divisor_merge_mismatch_rejected(compiler):
     project = make_project(
         [
@@ -219,6 +252,68 @@ def test_resample_offline_run_and_generated_match():
             assert out_wav.read_bytes() == dynamic_bytes
         finally:
             client.delete(f"/api/projects/{name}")
+
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components" / "liborpheus_builtin_downrate.dll").exists(),
+    reason="runtime and components not built",
+)
+def test_downrate_offline_run_and_generated_match():
+    """wav_in -> downrate(4) -> gain -> wav_out: dynamic vs generated identical.
+
+    Regression: a passthrough (gain) after a rate-change component must inherit
+    the super-block size; buffers are sized per-port, not from the global task.
+    """
+    import shutil
+
+    from fastapi.testclient import TestClient
+
+    from orpheus_core.server.app import create_app
+
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    with TestClient(create_app(ROOT)) as client:
+        try:
+            assert client.post("/api/projects", json={"name": name}).status_code == 201
+            pdir = ROOT / "workspace" / name
+            shutil.copy2(ROOT / "examples" / "test_input.wav", pdir / "test_input.wav")
+            doc = client.get(f"/api/projects/{name}").json()
+            doc["graph"] = {
+                "nodes": [
+                    {"id": "wav_in", "component": "orpheus.builtin.wav_in",
+                     "params": {"file_path": "test_input.wav", "channels": 2},
+                     "position": {"x": 0, "y": 0}},
+                    {"id": "dr", "component": "orpheus.builtin.downrate",
+                     "params": {"factor": 4, "channels": 2},
+                     "position": {"x": 200, "y": 0}},
+                    {"id": "gain1", "component": "orpheus.builtin.gain",
+                     "params": {"gain_db": "0.0", "channels": 2},
+                     "position": {"x": 350, "y": 0}},
+                    {"id": "wav_out", "component": "orpheus.builtin.wav_out",
+                     "params": {"file_path": "outputs/out.wav", "channels": 2,
+                                "sample_rate": 48000},
+                     "position": {"x": 500, "y": 0}},
+                ],
+                "connections": [
+                    {"from": "wav_in:out", "to": "dr:in"},
+                    {"from": "dr:out", "to": "gain1:in"},
+                    {"from": "gain1:out", "to": "wav_out:in"},
+                ],
+            }
+            assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+
+            resp = client.post(f"/api/projects/{name}/run")
+            assert resp.json()["status"] == "ok", resp.json()
+            dynamic_bytes = (pdir / "outputs" / "out.wav").read_bytes()
+
+            resp = client.post(f"/api/projects/{name}/run_generated")
+            result = resp.json()
+            assert result["status"] == "ok", result["stderr"]
+            assert (pdir / "outputs" / "out.wav").read_bytes() == dynamic_bytes
+        finally:
+            client.delete(f"/api/projects/{name}")
+
 
 
 def test_generator_sanitized_node_id():

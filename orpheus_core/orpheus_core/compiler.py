@@ -55,6 +55,10 @@ def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
         return task.sample_rate
     if expr == "task:block_size":
         return task.block_size
+    # in:block_size / in:sample_rate reference this node's input port values;
+    # resolved during block-size propagation (initial resolve returns None -> task default).
+    if isinstance(expr, str) and expr.startswith("in:"):
+        return None
     return expr
 
 
@@ -210,8 +214,14 @@ class GraphCompiler:
         resolved, _resolution = resolve_project(project, self.registry, target)
         project = resolved
         graph = project.graph
-        task = project.get_default_task()
-        task = self._resolve_source_rate(project, task)
+        default_task = project.get_default_task()
+        resolved_task = self._resolve_source_rate(project, default_task)
+        # 时钟源采样率覆盖所有 task，保证跨任务端口解析时 sample_rate 一致
+        for t in project.tasks.values():
+            t.sample_rate = resolved_task.sample_rate
+
+        def node_task(node: Node) -> Task:
+            return project.tasks.get(node.task, resolved_task)
 
         # 声明式平台节点（execution.none，如 platform_hook）：不参与执行计划，
         # 仅作为声明进入 plan.declarations，生成器据此产出用户钩子（不连线）。
@@ -242,13 +252,14 @@ class GraphCompiler:
             comp = self.registry.get(node.component)
             if comp is None:
                 raise CompileError(f"component not found: {node.component} (node {node.id})")
-            port_manifests = _expand_port_manifests(node, comp, task)
+            nt = node_task(node)
+            port_manifests = _expand_port_manifests(node, comp, nt)
             expanded_ports[node.id] = port_manifests
             for port_manifest in port_manifests:
                 if port_manifest["direction"] != "output":
                     continue
                 key = f"{node.id}:{port_manifest['id']}"
-                resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, task)
+                resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, nt)
         for conn in graph.connections:
             to_node = graph.nodes.get(conn.to_ref.node_id)
             if to_node is None or to_node.component != "orpheus.builtin.wav_out":
@@ -280,11 +291,12 @@ class GraphCompiler:
         # 1. Resolve remaining ports (inputs; variable-count expansion already done)
         for node in graph.nodes.values():
             comp = self.registry.get(node.component)
+            nt = node_task(node)
             for port_manifest in expanded_ports[node.id]:
                 key = f"{node.id}:{port_manifest['id']}"
                 if key in resolved_ports:
                     continue
-                resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, task)
+                resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, nt)
 
         # 2. Validate connections
         driven_inputs: set[str] = set()
@@ -328,15 +340,15 @@ class GraphCompiler:
         execution_order = self._topological_sort(graph)
 
         # 3.5 Rate divisor propagation (multi-rate scheduling)
-        node_divisor = self._propagate_rate_divisors(graph, expanded_ports, execution_order, task)
+        node_divisor = self._propagate_rate_divisors(graph, expanded_ports, execution_order, resolved_task)
 
         # 4. Build execution plan
         plan = ExecutionPlan(
             abi_version=1,
-            sample_rate=task.sample_rate,
-            block_size=task.block_size,
+            sample_rate=resolved_task.sample_rate,
+            block_size=resolved_task.block_size,
             buffer_size=project.buffer_size,
-            task_id=task.id,
+            task_id=resolved_task.id,
             nodes=list(graph.nodes.keys()),
             execution_order=execution_order,
         )
@@ -344,22 +356,62 @@ class GraphCompiler:
 
         # per-node processing quantum: the producer buffer's frame count
         # (differs from task block size in rate-shifted domains)
-        in_frames: dict[str, int] = {}
-        for conn in graph.connections:
-            from_port = resolved_ports[str(conn.from_ref)]
-            to_node = conn.to_ref.node_id
-            if to_node in in_frames and in_frames[to_node] != from_port.block_size:
-                raise CompileError(
-                    f"block size mismatch at node {to_node}: inputs differ "
-                    f"({in_frames[to_node]} vs {from_port.block_size})"
-                )
-            in_frames[to_node] = from_port.block_size
+        def _compute_in_frames(strict: bool = False) -> dict[str, int]:
+            frames: dict[str, int] = {}
+            for conn in graph.connections:
+                to_node = conn.to_ref.node_id
+                bs = resolved_ports[str(conn.from_ref)].block_size
+                if strict and to_node in frames and frames[to_node] != bs:
+                    raise CompileError(
+                        f"block size mismatch at node {to_node}: inputs differ "
+                        f"({frames[to_node]} vs {bs})"
+                    )
+                frames[to_node] = bs
+            return frames
+
+        in_frames = _compute_in_frames()
+
+        # 未显式声明 block_size 的输出端口继承本节点输入块长，
+        # 并在拓扑序上迭代传播，直到链路上所有直通端口块长收敛。
+        # 这样 gain/mixer/channel_router/window 等组件无需在每个端口手动声明 block_size。
+        for _ in range(len(execution_order) + 1):
+            changed = False
+            for node_id in execution_order:
+                node = graph.nodes[node_id]
+                nt = node_task(node)
+                node_in_frames = in_frames.get(node_id, nt.block_size)
+                for pm in expanded_ports[node_id]:
+                    if pm["direction"] != "output":
+                        continue
+                    key = f"{node_id}:{pm['id']}"
+                    rp = resolved_ports[key]
+                    bs_expr = pm.get("block_size")
+                    if isinstance(bs_expr, str) and "in:block_size" in bs_expr:
+                        # rate-change component (e.g. downrate): out block = in block x factor,
+                        # auto-discovered from input, not the global task block_size.
+                        resolved_bs = _resolve_value(
+                            bs_expr.replace("in:block_size", str(node_in_frames)), node, nt)
+                        if resolved_bs is not None and int(resolved_bs) != rp.block_size:
+                            resolved_ports[key] = replace(rp, block_size=int(resolved_bs))
+                            changed = True
+                    elif rp.block_size_explicit:
+                        continue
+                    elif rp.block_size != node_in_frames:
+                        resolved_ports[key] = replace(rp, block_size=node_in_frames)
+                        changed = True
+            if not changed:
+                break
+            in_frames = _compute_in_frames()
+
+        # Converged: validate that no node merges two different block sizes.
+        in_frames = _compute_in_frames(strict=True)
 
         for node in graph.nodes.values():
             comp = self.registry.get(node.component)
+            nt = node_task(node)
             port_manifests = expanded_ports[node.id]
             # effective sample rate: from any resolved port of this node
-            node_rate = task.sample_rate
+            node_rate = nt.sample_rate
             for pm in port_manifests:
                 rp = resolved_ports.get(f"{node.id}:{pm['id']}")
                 if rp is not None:
@@ -372,13 +424,17 @@ class GraphCompiler:
                 "params": dict(node.params),
                 "task": node.task,
                 "divisor": node_divisor[node.id],
-                "frames": in_frames.get(node.id, task.block_size),
+                "frames": in_frames.get(node.id, nt.block_size),
                 "sample_rate": node_rate,
                 # ordered port ids: runtime binds buffers by port id, not order
                 "input_ports": [p["id"] for p in port_manifests if p["direction"] == "input"],
                 "output_ports": [p["id"] for p in out_ports],
                 "output_port_block_sizes": {
                     p["id"]: resolved_ports[f"{node.id}:{p['id']}"].block_size
+                    for p in out_ports
+                },
+                "output_port_channels": {
+                    p["id"]: resolved_ports[f"{node.id}:{p['id']}"].channels
                     for p in out_ports
                 },
             }
@@ -395,7 +451,7 @@ class GraphCompiler:
                 if d > max_dur:
                     max_dur = d
         if max_dur > 0.0:
-            plan.duration_frames = int(max_dur * task.sample_rate + 0.5)
+            plan.duration_frames = int(max_dur * resolved_task.sample_rate + 0.5)
 
 
         # 分配 buffer id：每个连接一个 buffer
