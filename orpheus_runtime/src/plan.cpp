@@ -64,6 +64,7 @@ Plan Plan::load_from_file(const std::string& path) {
             }
         }
         cfg.divisor = it.value().value("divisor", 1u);
+        cfg.block_size = it.value().value("block_size", 0u);
         cfg.frames = it.value().value("frames", 0u);
         cfg.sample_rate = it.value().value("sample_rate", 0u);
         p.node_configs[it.key()] = cfg;

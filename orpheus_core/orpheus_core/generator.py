@@ -390,7 +390,7 @@ class CodeGenerator:
             channels = int(float(params.get("channels", 2)))
             lines.append(f'    config.channels = {channels};')
             node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
-            node_bs = cfg.get("frames", 0) or plan.block_size
+            node_bs = cfg.get("block_size", 0) or cfg.get("frames", 0) or plan.block_size
             lines.append(f'    config.sample_rate = {node_sr};')
             lines.append(f'    config.block_size = {node_bs};')
             if params:

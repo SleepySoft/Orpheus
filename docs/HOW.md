@@ -766,7 +766,7 @@ orpheus_platform_memory_section_bind(...);
 
 - **时钟源打标**：组件 manifest 声明 `clock_source: true` + `clock_domain`（device/file）。task 不显式建模——时钟源组件即时钟域的根。
 - **编译期校验**：无时钟源的图走隐式宿主时钟（旧行为）；有时钟源时，任何不含时钟源的连通流报错（"算法流没有时钟驱动，无法启动"）；同一连通流混入两个强时钟域（非 file）报错并提示异步桥。
-- **速率调整**：组件可声明 `scheduling.divisor: <expr>`——节点本身每块都跑，其输出域（及下游）每 N 块触发一次。表达式求值支持整数乘除链（`task:block_size*param:factor`、`task:sample_rate/param:factor`）。
+- **速率调整**：组件可声明 `scheduling.divisor: <expr>`——节点本身每块都跑，其输出域（及下游）每 N 块触发一次。表达式求值支持整数乘除链（`in:block_size*param:factor`、`task:sample_rate/param:factor`）；速率变换组件（downrate/resample）的输出块长从实际输入推导（`in:block_size`），不是全局 task 块长。）。
 - **新组件**：`downrate`（分频/重缓冲，超块 N×块长，速率不变，供控制速率算法）、`resample`（整数倍降采样 N:1，滑动平均抗混叠，输出速率=task/N）。
 - **Runtime/生成器**：plan 每节点携带 `divisor` 与 `frames`（处理量子=上游 buffer 帧数）；执行时块计数相位触发（`(counter+1)%divisor==0`）。动态/生成两路径一致（逐字节一致性测试覆盖重采样链）。
 - **时间树可视化**：编译响应携带每节点 `node_rates`（采样率/分频比/帧量子），UI 节点头部显示速率徽标（如 `24kHz ÷2`）。逻辑速率编译期可知；物理设备协商速率运行时由 rt_host 日志给出。

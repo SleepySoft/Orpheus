@@ -215,7 +215,7 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         // Prepare config
         OrpheusConfig config;
         config.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : plan_.sample_rate;
-        config.block_size = cfg.frames > 0 ? cfg.frames : plan_.block_size;
+        config.block_size = cfg.block_size > 0 ? cfg.block_size : (cfg.frames > 0 ? cfg.frames : plan_.block_size);
         config.channels = 2; // default, will be overridden by param if needed
         config.param_count = 0;
         config.param_ids = nullptr;
@@ -347,7 +347,7 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         for (size_t i = 0; i < cfg.output_ports.size(); ++i) {
             if (inst.outputs[i] != nullptr) continue;
             const std::string& port_id = cfg.output_ports[i];
-            uint32_t block_size = cfg.frames > 0 ? cfg.frames : plan_.block_size;
+            uint32_t block_size = cfg.block_size > 0 ? cfg.block_size : (cfg.frames > 0 ? cfg.frames : plan_.block_size);
             auto bs_it = cfg.output_port_block_sizes.find(port_id);
             if (bs_it != cfg.output_port_block_sizes.end()) {
                 block_size = bs_it->second;
@@ -478,7 +478,7 @@ int Runtime::prepare_instance(Instance& inst, const NodeConfig& cfg) {
 
     OrpheusConfig config;
     config.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : plan_.sample_rate;
-    config.block_size = cfg.frames > 0 ? cfg.frames : plan_.block_size;
+    config.block_size = cfg.block_size > 0 ? cfg.block_size : (cfg.frames > 0 ? cfg.frames : plan_.block_size);
     config.channels = channels;
     config.state_block = inst.state;
     config.param_ids = param_ids.empty() ? nullptr : param_ids.data();

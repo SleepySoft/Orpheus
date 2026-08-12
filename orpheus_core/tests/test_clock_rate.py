@@ -7,9 +7,10 @@ import wave
 from pathlib import Path
 
 import pytest
+import yaml
 
 from orpheus_core.compiler import CompileError, GraphCompiler
-from orpheus_core.project import Connection, Graph, Node, PortRef, Project
+from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import Registry
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -417,3 +418,95 @@ def test_gain_float_param_dynamic_generated_match():
             assert (pdir / "outputs" / "out.wav").read_bytes() == dynamic_bytes
         finally:
             client.delete(f"/api/projects/{name}")
+
+def test_per_task_block_size_is_not_global(compiler):
+    """block_size 是每个速率域（来源 Task）的属性，不是工程全局值。
+
+    源节点挂在非默认 Task（block 512）上，default task 为 128；源及其直通下游
+    必须以源 Task 的块长 512 处理，绝不回退到全局/默认任务的 128。
+    """
+    from orpheus_core.project import Task
+
+    proj = Project(metadata={"name": "t"})
+    proj.sample_rate = 48000
+    proj.block_size = 128
+    proj.tasks["default"] = Task(id="default", name="D", sample_rate=48000, block_size=128)
+    proj.tasks["slow"] = Task(id="slow", name="S", sample_rate=48000, block_size=512)
+    proj.graph = Graph(
+        nodes={
+            "sig": Node(id="sig", component="orpheus.builtin.signal_gen",
+                        params={"frequency": 440.0, "amplitude": 0.5, "channels": 1},
+                        task="slow"),
+            "g": Node(id="g", component="orpheus.builtin.gain",
+                      params={"gain_db": 0.0, "channels": 1}, task="slow"),
+        },
+        connections=[conn("sig:out", "g:in")],
+    )
+    plan = compiler.compile(proj)
+    # 源与直通下游都按源 Task 的 512 帧处理，不是默认任务的 128
+    for nid in ("sig", "g"):
+        assert plan.node_configs[nid]["frames"] == 512, nid
+        assert plan.node_configs[nid]["output_port_block_sizes"]["out"] == 512, nid
+    # 连接缓冲按源端口块长 512 分配
+    assert all(b["frame_count"] == 512 for b in plan.buffers.values())
+
+
+def test_distilled_downrate_import_runs_dynamic_generated():
+    """蒸馏导入的含 downrate 的模型端到端运行：动态 vs 生成逐字节一致。
+
+    wav_in -> downrate(4) -> gain -> wav_out；经 /distill 导入（保留 model_tree），
+    验证多速率（block_size 超块）在两条执行路径上数值一致。
+    """
+    import shutil
+
+    from fastapi.testclient import TestClient
+
+    from orpheus_core.server.app import create_app
+
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    yaml_text = f"""
+version: "0.1.0"
+metadata:
+  name: {name}
+  distilled_from: synthetic multi-rate model
+model_tree:
+  name: multi-rate
+  chains:
+    - name: main
+      flow: "WavIn -> Downsample(4) -> Gain -> WavOut"
+sample_rate: 48000
+block_size: 128
+graph:
+  nodes:
+    - {{id: wav_in, component: orpheus.builtin.wav_in,
+       params: {{file_path: test_input.wav, channels: 2}}, position: {{x: 0, y: 0}}}}
+    - {{id: dr, component: orpheus.builtin.downrate,
+       params: {{factor: 4, channels: 2}}, position: {{x: 180, y: 0}}}}
+    - {{id: gain1, component: orpheus.builtin.gain,
+       params: {{gain_db: "-3.0", channels: 2}}, position: {{x: 320, y: 0}}}}
+    - {{id: wav_out, component: orpheus.builtin.wav_out,
+       params: {{file_path: outputs/out.wav, channels: 2, sample_rate: 48000}}, position: {{x: 480, y: 0}}}}
+  connections:
+    - {{from: "wav_in:out", to: "dr:in"}}
+    - {{from: "dr:out", to: "gain1:in"}}
+    - {{from: "gain1:out", to: "wav_out:in"}}
+"""
+    with TestClient(create_app(ROOT)) as client:
+        try:
+            resp = client.post(f"/api/projects/{name}/distill", json={"yaml": yaml_text})
+            assert resp.status_code == 200, resp.text
+            pdir = ROOT / "workspace" / name
+            shutil.copy2(ROOT / "examples" / "test_input.wav", pdir / "test_input.wav")
+
+            resp = client.post(f"/api/projects/{name}/run")
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["status"] == "ok", resp.json()
+            dynamic_bytes = (pdir / "outputs" / "out.wav").read_bytes()
+
+            resp = client.post(f"/api/projects/{name}/run_generated")
+            result = resp.json()
+            assert result["status"] == "ok", result["stderr"]
+            assert (pdir / "outputs" / "out.wav").read_bytes() == dynamic_bytes
+        finally:
+            client.delete(f"/api/projects/{name}")
+

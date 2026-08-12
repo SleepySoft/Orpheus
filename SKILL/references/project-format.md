@@ -30,7 +30,7 @@ graph:
 
 校验：`orpheus_core/schemas/project.schema.json`（jsonschema draft-07）。解析入口 `ProjectLoader`。
 
-工程级全局参数：`sample_rate`/`block_size` 为图形编译期采样率与调度量子（整图单一，由 task 决定）；`buffer_size` 为实时异步环形缓冲容量（帧，0=自动约 100ms）。device_in/device_out 可在节点 params 声明 `sample_rate`（0=继承工程默认）覆盖工程采样率——编译期采用为图形采样率，运行时 rt_host 按设备 nativeDataFormats 校验（不支持报错、需转换告警）。block_size 不按源配置（设备周期已与 block_size 解耦）。UI「⚙ 设置」编辑这三项。
+工程级全局参数：`sample_rate`/`block_size` 为图形编译期采样率与调度量子（整图单一，由 task 决定）；`buffer_size` 为实时异步环形缓冲容量（帧，0=自动约 100ms）。device_in/device_out 可在节点 params 声明 `sample_rate`（0=继承工程默认）覆盖工程采样率——编译期采用为图形采样率，运行时 rt_host 按设备 nativeDataFormats 校验（不支持报错、需转换告警）。block_size 为每个速率域的调度量子：编译期按节点所属 task 的块长解析，下游经 downrate/resample 等分频组件后按其实际输入超级块长展开，plan 逐节点落盘 block_size/frames（非整图单一值；工程级 block_size 仅是默认/宿主导入回退）。设备周期已与 block_size 解耦。UI「⚙ 设置」编辑这三项。
 
 ## 子组件（subcomponents）
 

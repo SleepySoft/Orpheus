@@ -418,13 +418,18 @@ class GraphCompiler:
                     node_rate = rp.sample_rate
                     break
             out_ports = [p for p in port_manifests if p["direction"] == "output"]
+            # 每个节点的速率域调度量子（block_size）：源=其 Task 块长，下游=输入超级块长。
+            # 显式落盘到 plan，运行/生成两路按其自身值取 config.block_size，
+            # 不依赖工程全局 block_size（后者仅是宿主导入默认/旧版回退）。
+            node_quantum = in_frames.get(node.id, nt.block_size)
             plan.node_configs[node.id] = {
                 "component": node.component,
                 "version": comp.version if comp else "",
                 "params": dict(node.params),
                 "task": node.task,
                 "divisor": node_divisor[node.id],
-                "frames": in_frames.get(node.id, nt.block_size),
+                "block_size": node_quantum,
+                "frames": node_quantum,
                 "sample_rate": node_rate,
                 # ordered port ids: runtime binds buffers by port id, not order
                 "input_ports": [p["id"] for p in port_manifests if p["direction"] == "input"],
