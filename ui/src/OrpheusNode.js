@@ -28,6 +28,42 @@ export default function OrpheusNode({ data, selected }) {
     return typeof ch === 'number' && ch > 0 ? <span className="ch-badge">{ch}ch</span> : null;
   };
 
+
+/**
+ * Noise-detector node status: inspect last readback probes and map to a
+ * visual alert state. Pure observation - this component never processes
+ * audio itself, so "coloring" is the only UI feedback the user asked for.
+ */
+function noiseStatusClass(data) {
+  const probe = data.probe;
+  if (!probe) return '';
+  const comp = data.component || '';
+  if (comp === 'orpheus.builtin.noise_detector_ab') {
+    const thd = probe.thd_n_db;
+    const ratio = probe.noise_ratio ?? 0;
+    const clicks = probe.clicks ?? 0;
+    let level = 0;
+    if (clicks > 0) level = Math.max(level, 2);
+    if (ratio > 0.15) level = Math.max(level, 2);
+    else if (ratio > 0.03) level = Math.max(level, 1);
+    if (typeof thd === 'number') {
+      if (thd > -30) level = Math.max(level, 2);
+      else if (thd > -50) level = Math.max(level, 1);
+    }
+    return level >= 2 ? 'node-alert-danger' : level === 1 ? 'node-alert-warn' : '';
+  }
+  if (comp === 'orpheus.builtin.noise_detector') {
+    const flat = probe.flatness ?? 0;
+    const clicks = probe.clicks ?? 0;
+    let level = 0;
+    if (clicks > 0) level = Math.max(level, 2);
+    if (flat > 0.55) level = Math.max(level, 2);
+    else if (flat > 0.3) level = Math.max(level, 1);
+    return level >= 2 ? 'node-alert-danger' : level === 1 ? 'node-alert-warn' : '';
+  }
+  return '';
+}
+
   const BodyWidget = NODE_WIDGETS[data.component];
   const { showReadme } = React.useContext(NodeActionsContext);
 
@@ -80,7 +116,7 @@ export default function OrpheusNode({ data, selected }) {
           color="#4cc9f0"
         />
       )}
-      <div className={`orpheus-node ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${data.missing ? 'missing' : ''}`}>
+      <div className={`orpheus-node ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${data.missing ? 'missing' : ''} ${noiseStatusClass(data)}`}>
       <div className="node-header">
         <div className="node-title">
           {data.label}
@@ -97,6 +133,9 @@ export default function OrpheusNode({ data, selected }) {
           )}
         </div>
         <div className="node-subtitle">{shortName}</div>
+        {noiseStatusClass(data) && (
+          <span className="node-alert-dot" title="??????" />
+        )}
         {data.missing && data.params && data.params.note ? (
           <div className="node-note" title={data.params.note}>
             {data.params.note}

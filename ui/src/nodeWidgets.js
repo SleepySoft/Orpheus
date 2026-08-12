@@ -522,6 +522,62 @@ function TimeCurveWidget({ data, large }) {
   );
 }
 
+
+/** Noise detector (single-ended): show flatness / noise floor / clicks / clip. */
+function NoiseDetectorWidget({ data, large }) {
+  const p = data.probe || {};
+  const rows = [
+    ['?????', p.flatness, 'flatness', 0],
+    ['???(dB)', p.noise_floor_db, 'floor', 1],
+    ['????', p.clicks, 'clicks', 0],
+    ['????', p.clip_pct, 'clip', 1],
+  ];
+  return (
+    <div className="probe-body">
+      {rows.map(([label, v, key, isDb]) => {
+        const present = v !== undefined;
+        let text = present ? (isDb ? (v > 0 ? v.toFixed(1) : '-inf') : v.toFixed(2)) : '?';
+        if (key === 'clicks' && present) text = String(v);
+        if (key === 'clip' && present) text = `${(v * 100).toFixed(1)}%`;
+        return (
+          <div className="probe-stat" key={key}>
+            <span className="muted">{label}</span>
+            <span className={isDb && v > -30 ? 'stat-hot' : ''}>{text}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Noise detector (dual-ended A/B): show THD+N, noise ratio, frames, clicks. */
+function NoiseDetectorAbWidget({ data, large }) {
+  const p = data.probe || {};
+  const rows = [
+    ['THD+N(dB)', p.thd_n_db, 'thd', 1],
+    ['????', p.noise_ratio, 'ratio', 0],
+    ['????', p.noise_frames, 'frames', 0],
+    ['????', p.clicks, 'clicks', 0],
+  ];
+  return (
+    <div className="probe-body">
+      {rows.map(([label, v, key, isDb]) => {
+        const present = v !== undefined;
+        let text = present ? (isDb ? (v > 0 ? v.toFixed(1) : '-inf') : v.toFixed(2)) : '?';
+        if (key === 'frames' && present) text = String(v);
+        if (key === 'clicks' && present) text = String(v);
+        if (key === 'ratio' && present) text = `${(v * 100).toFixed(1)}%`;
+        return (
+          <div className="probe-stat" key={key}>
+            <span className="muted">{label}</span>
+            <span className={isDb && v > -30 ? 'stat-hot' : ''}>{text}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export const NODE_WIDGETS = {
   'orpheus.builtin.probe_rms': ProbeRmsWidget,
   'orpheus.builtin.probe_peak': ProbePeakWidget,
@@ -532,4 +588,6 @@ export const NODE_WIDGETS = {
   'orpheus.builtin.interp_lut': TimeCurveWidget,
   'orpheus.builtin.sweep_record': SweepPlotWidget,
   'orpheus.builtin.sweep_gen': SweepGenWidget,
+  'orpheus.builtin.noise_detector': NoiseDetectorWidget,
+  'orpheus.builtin.noise_detector_ab': NoiseDetectorAbWidget,
 };

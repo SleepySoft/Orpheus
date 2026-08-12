@@ -1,0 +1,83 @@
+id: orpheus.builtin.noise_detector
+name: 噪声检测(单端)
+category: 监测工具
+description: 单端输入：频谱平坦度(噪声类/类音) + 宽带噪声底 + 时域突刺计数 + 削波占比；直通输出，readback 上报 flatness/noise_floor_db/clicks/clip_pct
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: NoiseDetectorState
+sources:
+  - src/noise_detector.c
+headers:
+  - include/orpheus_noise_detector.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: clip_level
+    name: 削波阈值
+    type: float
+    default: 0.999
+    range: [0.0, 1.0]
+    update_policy: restart_required
+  - id: click_thres
+    name: 突刺阈值
+    type: float
+    default: 0.3
+    range: [0.0, 1.0]
+    update_policy: restart_required
+  - id: flatness
+    name: 频谱平坦度
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
+  - id: noise_floor_db
+    name: 噪声底
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
+  - id: clicks
+    name: 突刺计数
+    type: int
+    default: 0
+    readback: true
+    update_policy: immediate
+  - id: clip_pct
+    name: 削波占比
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
+  - id: detail
+    name: 明细
+    type: string
+    default: "{}"
+    readback: true
+    update_policy: immediate
+bulk_slots: []
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true
