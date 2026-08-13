@@ -1,0 +1,106 @@
+id: orpheus.builtin.anc_fxlms
+name: 主动降噪(FxLMS)
+category: 自适应算法
+description: 前馈 FxLMS（Filtered-x最小均方）主动降噪：外部参考麦 x + 误差麦 d 进，输出反相抵消信号 -y；自适应滤波器学习期望消除的反相信号，报告 noise_reduction_db。
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: AncFxLmsState
+sources:
+  - src/anc_fxlms.c
+headers:
+  - include/orpheus_anc_fxlms.h
+ports:
+  - id: x
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: d
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 8]
+    update_policy: restart_required
+    affects_signature: true
+  - id: filter_length
+    name: 滤波器阶数
+    type: int
+    default: 128
+    range: [1, 1024]
+    update_policy: restart_required
+  - id: step_size
+    name: 步长
+    type: float
+    default: 0.05
+    range: [0.0, 2.0]
+    update_policy: restart_required
+  - id: leakage
+    name: 泄漏因子
+    type: float
+    default: 1.0
+    range: [0.0, 1.0]
+    update_policy: restart_required
+  - id: eps
+    name: 正则化
+    type: float
+    default: 0.000001
+    range: [0.000000000001, 1.0]
+    update_policy: restart_required
+  - id: secondary_gain
+    name: 次路徔益
+    type: float
+    default: 1.0
+    range: [0.0, 10.0]
+    update_policy: restart_required
+  - id: secondary_delay
+    name: 次路延迟(采样点)
+    type: float
+    default: 3.0
+    range: [0.0, 512.0]
+    update_policy: restart_required
+  - id: noise_reduction_db
+    name: 降噪量(dB)
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
+  - id: power_d
+    name: 残差麦克风功率
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
+  - id: power_e
+    name: 消除后功率
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
+  - id: detail
+    name: 明细
+    type: string
+    default: "{}"
+    readback: true
+    update_policy: immediate
+bulk_slots: []
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

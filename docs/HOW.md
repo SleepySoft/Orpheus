@@ -912,3 +912,14 @@ orpheus_platform_memory_section_bind(...);
 - **纯单端**（没有参考信号）→ 只能用 `noise_detector`：用频谱平坦度判断“噪声为主 vs 乐音集中”。
 - **有参考 `ref`、想评估“与参考的相关性”** → AB 相干残差：对非线性路径也能报告，但会把“回声”和“噪声”归为一类。
 - **希望尽可能消除线性回蕴、留下明确的线性残差** → NLMS：需要调好 `filter_length` / `step_size`，并给足收敛时间（本组件测试在约 1 秒音频上收敛到低残差）。
+
+---
+
+## 31. 主动降噪（ANC）FxLMS 组件（已实现）
+- **`orpheus.builtin.anc_fxlms`**：前馈 Filtered-x LMS 主动噪声控制。
+  外部参考麦 `x` + 误差麦 `d` 输入，输出反相抵消信号 \(-y\)。
+  次级路径模型用简化的 `secondary_gain` + `secondary_delay`，
+  对参考信号先滤波得 filtered-x 再更新。
+- **学习文档**：`components/orpheus/builtin/anc_fxlms/README.md`（原理、数学、参数、用法）。
+  示例工程：`examples/anc_fxlms_demo.yaml`。
+

@@ -1,0 +1,50 @@
+version: "0.1.0"
+metadata:
+  name: anc_fxlms_demo
+  description: "前馈主动降噪 FxLMS 示例：两份噪声 wav 分别接 x 与 d，输出反相抵消信号。"
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: wx
+      component: orpheus.builtin.wav_in
+      task: default
+      params:
+        file_path: noise_x.wav
+        channels: 1
+      position: {x: 40, y: 80}
+    - id: wd
+      component: orpheus.builtin.wav_in
+      task: default
+      params:
+        file_path: noise_d.wav
+        channels: 1
+      position: {x: 40, y: 240}
+    - id: anc
+      component: orpheus.builtin.anc_fxlms
+      task: default
+      params:
+        channels: 1
+        filter_length: 256
+        step_size: 0.05
+        secondary_gain: 1.0
+        secondary_delay: 3.0
+      position: {x: 220, y: 140}
+    - id: out
+      component: orpheus.builtin.wav_out
+      task: default
+      params:
+        file_path: outputs/anc_out.wav
+        channels: 1
+        sample_rate: 48000
+      position: {x: 420, y: 140}
+  connections:
+    - {from: "wx:out", to: "anc:x"}
+    - {from: "wd:out", to: "anc:d"}
+    - {from: "anc:out", to: "out:in"}
