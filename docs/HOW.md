@@ -923,3 +923,11 @@ orpheus_platform_memory_section_bind(...);
 - **学习文档**：`components/orpheus/builtin/anc_fxlms/README.md`（原理、数学、参数、用法）。
   示例工程：`examples/anc_fxlms_demo.yaml`。
 
+
+## 32. FxLMS 主动降噪的可分解版（已实现）
+- 用复合组件（subcomponent）把 FxLMS 拆成可见原子链，见 `examples/anc_fxlms_decomposed.yaml`。
+- 新增通用原子：`orpheus.builtin.adaptive_fir`（FxLMS 核心：x 读出 + filtered-x 更新 + 内部算 e=d-g*y 以避免数据流环）、`orpheus.builtin.negate`（取反相 -y）。
+- 链路：`x -> gain_src -> [sdelay + sgain](=S(z)) -> adaptive_fir(deriv) -> neg -> -y`；`d -> adaptive_fir(err)`。
+- 数据流环原因：误差 e=d-g*y 依赖同样本输出 y，将该环闭在“有状态”的 adaptive_fir 原子内；外层只接独立输入。
+  学习文档：`components/orpheus/builtin/adaptive_fir/README.md`；测试：`test_anc_decomposed.py`。
+

@@ -1,0 +1,72 @@
+version: "0.1.0"
+metadata:
+  name: anc_fxlms_decomposed
+  description: "分解的前馈主动降噪：用 delay_line+gain 组成次级路径，adaptive_fir 做自适应核心，negate 取反相。可展开查看整条链路。"
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+subcomponents:
+  - id: anc_fxlms
+    name: FxLMS 主动降噪（分解）
+    ports:
+      - {id: x, direction: input, maps_to: gain_src:in}
+      - {id: d, direction: input, maps_to: core:err}
+      - {id: out, direction: output, maps_to: neg:out}
+    graph:
+      nodes:
+        - id: gain_src
+          component: orpheus.builtin.gain
+          params: {gain_db: "0", channels: 1}
+          position: {x: 40, y: 100}
+        - id: sdelay
+          component: orpheus.builtin.delay_line
+          params: {channels: 1, max_delay_samples: 512, delays_samples: "3"}
+          position: {x: 220, y: 40}
+        - id: sgain
+          component: orpheus.builtin.gain
+          params: {gain_db: "0", channels: 1}
+          position: {x: 220, y: 200}
+        - id: core
+          component: orpheus.builtin.adaptive_fir
+          params: {channels: 1, filter_length: 256, step_size: 0.05, secondary_gain: 1.0}
+          position: {x: 420, y: 100}
+        - id: neg
+          component: orpheus.builtin.negate
+          params: {channels: 1}
+          position: {x: 620, y: 100}
+      connections:
+        - {from: "gain_src:out", to: "sdelay:in"}
+        - {from: "gain_src:out", to: "core:x"}
+        - {from: "sdelay:out", to: "sgain:in"}
+        - {from: "sgain:out", to: "core:deriv"}
+        - {from: "core:out", to: "neg:in"}
+graph:
+  nodes:
+    - id: wx
+      component: orpheus.builtin.wav_in
+      task: default
+      params: {file_path: noise_x.wav, channels: 1}
+      position: {x: 40, y: 120}
+    - id: wd
+      component: orpheus.builtin.wav_in
+      task: default
+      params: {file_path: noise_d.wav, channels: 1}
+      position: {x: 40, y: 280}
+    - id: anc
+      component: sub:anc_fxlms
+      task: default
+      position: {x: 240, y: 180}
+    - id: out
+      component: orpheus.builtin.wav_out
+      task: default
+      params: {file_path: outputs/anc_out.wav, channels: 1, sample_rate: 48000}
+      position: {x: 460, y: 180}
+  connections:
+    - {from: "wx:out", to: "anc:x"}
+    - {from: "wd:out", to: "anc:d"}
+    - {from: "anc:out", to: "out:in"}

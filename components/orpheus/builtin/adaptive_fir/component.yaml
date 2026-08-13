@@ -1,0 +1,93 @@
+id: orpheus.builtin.adaptive_fir
+name: 自适应FIR(FxLMS核心)
+category: 自适应算法
+description: 自适应 FIR 核心：x 读取输出原始参考、deriv 供 filtered-x 更新、err 为误差。组合 delay/gain 即构成前馈 FxLMS 主动降噪。
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: AdaptiveFirState
+sources:
+  - src/adaptive_fir.c
+headers:
+  - include/orpheus_adaptive_fir.h
+ports:
+  - id: x
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: deriv
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: err
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 1
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: filter_length
+    name: 阶数
+    type: int
+    default: 128
+    range: [1, 1024]
+    update_policy: restart_required
+  - id: step_size
+    name: 步长
+    type: float
+    default: 0.05
+    range: [0.0, 2.0]
+    update_policy: restart_required
+  - id: leakage
+    name: 泄漏因子
+    type: float
+    default: 1.0
+    range: [0.0, 1.0]
+    update_policy: restart_required
+  - id: eps
+    name: 正则化
+    type: float
+    default: 0.000001
+    range: [0.000000000001, 1.0]
+    update_policy: restart_required
+  - id: secondary_gain
+    name: 次级路径市益
+    type: float
+    default: 1.0
+    range: [0.0, 10.0]
+    update_policy: restart_required
+  - id: conv_metric
+    name: 收敛指标
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
+  - id: detail
+    name: 明细
+    type: string
+    default: "{}"
+    readback: true
+    update_policy: immediate
+bulk_slots: []
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

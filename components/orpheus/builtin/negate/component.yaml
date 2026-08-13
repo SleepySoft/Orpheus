@@ -1,0 +1,41 @@
+id: orpheus.builtin.negate
+name: 变号
+category: 基础算法
+description: 反相：out = -in。用于主动降噪等需要取反相抵消信号的场景。
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: NegateState
+sources:
+  - src/negate.c
+headers:
+  - include/orpheus_negate.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 1
+    range: [1, 64]
+    update_policy: restart_required
+    affects_signature: true
+bulk_slots: []
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true
