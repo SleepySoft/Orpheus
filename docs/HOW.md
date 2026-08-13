@@ -913,6 +913,11 @@ orpheus_platform_memory_section_bind(...);
 - **有参考 `ref`、想评估“与参考的相关性”** → AB 相干残差：对非线性路径也能报告，但会把“回声”和“噪声”归为一类。
 - **希望尽可能消除线性回蕴、留下明确的线性残差** → NLMS：需要调好 `filter_length` / `step_size`，并给足收敛时间（本组件测试在约 1 秒音频上收敛到低残差）。
 
+### 30.5 用法与实例
+- 各组件 README（原理、端口、参数、接线、实例）：`components/orpheus/builtin/noise_detector/README.md`、`components/orpheus/builtin/noise_detector_ab/README.md`、`components/orpheus/builtin/noise_detector_nlms/README.md`。
+- 对应测试：`orpheus_core/tests/test_noise_detectors.py`（含单端 / 双端 A/B / NLMS 接线与 readback 验证）。
+
+
 ---
 
 ## 31. 主动降噪（ANC）FxLMS 组件（已实现）
@@ -930,4 +935,11 @@ orpheus_platform_memory_section_bind(...);
 - 链路：`x -> gain_src -> [sdelay + sgain](=S(z)) -> adaptive_fir(deriv) -> neg -> -y`；`d -> adaptive_fir(err)`。
 - 数据流环原因：误差 e=d-g*y 依赖同样本输出 y，将该环闭在“有状态”的 adaptive_fir 原子内；外层只接独立输入。
   学习文档：`components/orpheus/builtin/adaptive_fir/README.md`；测试：`test_anc_decomposed.py`。
+
+---
+
+## 33. 电脑耳机音乐播放器工程（已实现）
+- 工程：`examples/headphone_music_player.yaml`。用法：在第一个“框架执行”大卡的“库/工程导入”勾选导入该 YAML，然后“▶ 运行”即可直接听到系统声音经本链路的效果。
+- 实例链路：`device_in(loopback 2ch) → eq_shelf(biquad) → bass → midrange → treble → saturation → channel_router → delay(7ms/22%) → sleeping_beauty(响度补偿) → soft_clipper → limiter(净空保护) → device_out(phones)`；前后各接 `probe_rms` / `probe_peak` 观测。
+- 说明：该工程是《电脑耳机音乐播放》的参考级链路，可作为“元组件组合”的参考模板；只改参数、不改结构即可适应不同耳机偏好。
 

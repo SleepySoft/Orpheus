@@ -45,6 +45,23 @@
 - `core.filter_length` / `core.step_size` / `core.secondary_gain`：与黑箱版相同，见 `anc_fxlms/README.md` 。
 - `sdelay.delays_samples` 与 `sgain.gain_db`：分别对应次级路径模型的延迟与徔益（在这里可以直接抽出调整，更直观）。
 
+## 用法（端口怎么接）
+`adaptive_fir` 是 FxLMS 的核心原子，三个输入一个输出：
+- `x`：外部参考麦的“原始”信号（用作读取延迟向量）。
+- `deriv`：经次级路径模型滤波后的“filtered-x”信号（用作更新）
+- `err`：误差麦 `d`（目标）。本原子内部算 `e = d - g*y`。
+- `out`：自适应滤波器输出 `y = wᵀ x`（通常再接 `negate` 取反相后接扬声器）。
+
+在分解版工程 `examples/anc_fxlms_decomposed.yaml` 中，`core` 节点的接线为：
+```yaml
+connections:
+  - {from: gain_src:out,   to: core:x}      # 原始 x
+  - {from: sgain:out,      to: core:deriv}  # filtered-x x′ = S(z)·x
+  - {from: d_in:out,       to: core:err}    # 误差麦 d
+  - {from: core:out,       to: neg:in}      # y → 取反 -y
+```
+readback：`conv_metric`（收敛指标，趋零表示正常收敛）与 `detail` JSON。
+
 ## 验证
 
 - `orpheus_core/tests/test_anc_decomposed.py`：验证子组件被展开为可见原子链（flatten），且运行后核心收敛（conv_metric 趋零）。
