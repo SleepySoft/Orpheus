@@ -38,33 +38,35 @@ function noiseStatusClass(data) {
   const probe = data.probe;
   if (!probe) return '';
   const comp = data.component || '';
+  let level = 0;
+  const clicks = probe.clicks ?? 0;
+  if (clicks > 0) level = Math.max(level, 2);
+  const inc = (lv) => { level = Math.max(level, lv); };
+
   if (comp === 'orpheus.builtin.noise_detector_ab') {
     const thd = probe.thd_n_db;
     const ratio = probe.noise_ratio ?? 0;
-    const clicks = probe.clicks ?? 0;
-    let level = 0;
-    if (clicks > 0) level = Math.max(level, 2);
-    if (ratio > 0.15) level = Math.max(level, 2);
-    else if (ratio > 0.03) level = Math.max(level, 1);
+    if (ratio > 0.15) inc(2); else if (ratio > 0.03) inc(1);
     if (typeof thd === 'number') {
-      if (thd > -30) level = Math.max(level, 2);
-      else if (thd > -50) level = Math.max(level, 1);
+      if (thd > -30) inc(2); else if (thd > -50) inc(1);
     }
-    return level >= 2 ? 'node-alert-danger' : level === 1 ? 'node-alert-warn' : '';
-  }
-  if (comp === 'orpheus.builtin.noise_detector') {
+  } else if (comp === 'orpheus.builtin.noise_detector') {
     const flat = probe.flatness ?? 0;
-    const clicks = probe.clicks ?? 0;
-    let level = 0;
-    if (clicks > 0) level = Math.max(level, 2);
-    if (flat > 0.55) level = Math.max(level, 2);
-    else if (flat > 0.3) level = Math.max(level, 1);
-    return level >= 2 ? 'node-alert-danger' : level === 1 ? 'node-alert-warn' : '';
+    if (flat > 0.55) inc(2); else if (flat > 0.3) inc(1);
+  } else if (comp === 'orpheus.builtin.noise_detector_nlms') {
+    const res = probe.residue_db;
+    const ratio = probe.noise_ratio ?? 0;
+    if (ratio > 0.15) inc(2); else if (ratio > 0.03) inc(1);
+    if (typeof res === 'number') {
+      if (res > -15) inc(2); else if (res > -35) inc(1);
+    }
+  } else {
+    return '';
   }
-  return '';
+  return level >= 2 ? 'node-alert-danger' : level === 1 ? 'node-alert-warn' : '';
 }
 
-  const BodyWidget = NODE_WIDGETS[data.component];
+const BodyWidget = NODE_WIDGETS[data.component];
   const { showReadme } = React.useContext(NodeActionsContext);
 
   // compiled rate badge, e.g. "48kHz" or "24kHz ÷2" (visible time tree)

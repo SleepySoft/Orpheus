@@ -883,3 +883,32 @@ orpheus_platform_memory_section_bind(...);
   req→resp；resp==NULL 为 notification；HANDLED/CONTINUE 决定是否回落默认语义）。
 - `custom_handles` 声明进 id_map（CUSTOM 类），二进制 MSG 协议直接 CALL/NOTIFY 到组件 hook；
   演示组件 `orpheus.builtin.my_effect`。
+
+---
+
+## 30. 噪声检测组件（单端 / 双端 A/B、线性相干 / NLMS）——已实现
+> 三个“纯观测（非处理）”组件：不做任何自动去噪/滤波，只做 readback 报告，并依阈值给 UI 节点加黄/红预警色。定位链路支持“变换后监测”：把检测组件插在被测处理节点（如 EQ / 软限幅 / 调色）的输出之后，逐级定位杂音来源。
+
+### 30.1 `orpheus.builtin.noise_detector`（单端）
+- **原理**：频谱平坦度 + 宽带噪声底 + 时域突刺/削波统计。
+  - 平坦度：逐通道分块 FFT 后求“几何平均 ÷ 算术平均”的功率谱平坦度；纯音能量集中在少数 bin → 平坦度趋近 0，白噪全频平铺 → 趋近 1。
+  - 噪声底：由信号能量均值与峰值换算 dB 底。
+  - 突刺 / 削波：时域相邻样本差分超阈值、幅值超削波阈值的样本计数与占比。
+- **读取**：`flatness` / `noise_floor_db` / `clicks` / `clip_pct` + `detail` JSON。
+
+### 30.2 `orpheus.builtin.noise_detector_ab`（双端、互功率谱 + 相干残差）
+- **原理**：参考 `ref` 与被测 `in` 同步分帧 FFT，逐 bin 维护自功率谱 Sxx / Syy 与互功率谱 Sxy，计算相干 `γ²=|Sxy|²/(Sxx·Syy)`。
+  - 相干衡量“线性路径能解释的部分”：总能量里 `(1−γ²)` 的部分就是与 `ref` 非线性相关的残余（非源同步噪声 + 非线性失真）。
+  - 汇总为 THD+N（dB）、超过 `threshold_db` 的帧数/占比，以及时域残差峰值/突刺计数。
+- **读取**：`thd_n_db` / `noise_frames` / `noise_ratio` / `clicks` / `residue_pk` + `detail`（含低频/中频/高频分带相干）。
+
+### 30.3 `orpheus.builtin.noise_detector_nlms`（双端、NLMS 残差，本版本新增）
+- **原理**：用“归一化最小均方（NLMS）自适应滤波器”学习 `ref → in` 的线性冲击响应；残差 `e = in − wᵀx`（x 为 ref 的延迟信号向量）就是“线性路径无法解释的部分”：非线性失真 + 添加噪声 + 突发杂音。
+  - 更新规则：`w ← leak·w + μ·e·x / (‖x‖² + ε)`，逐样本、逐通道独立。
+  - 输出指标：`residue_db` = 残差/被测能量比（dB，越小越干净）；`erle_db` = 被测能量/残差能量（越大越干净）；`noise_frames` / `noise_ratio` / 突刺计数。
+- **读取**：`residue_db` / `erle_db` / `noise_frames` / `noise_ratio` / `clicks` / `residue_pk` + `detail`。
+
+### 30.4 三种对比、怎么选
+- **纯单端**（没有参考信号）→ 只能用 `noise_detector`：用频谱平坦度判断“噪声为主 vs 乐音集中”。
+- **有参考 `ref`、想评估“与参考的相关性”** → AB 相干残差：对非线性路径也能报告，但会把“回声”和“噪声”归为一类。
+- **希望尽可能消除线性回蕴、留下明确的线性残差** → NLMS：需要调好 `filter_length` / `step_size`，并给足收敛时间（本组件测试在约 1 秒音频上收敛到低残差）。

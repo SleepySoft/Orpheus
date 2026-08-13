@@ -182,7 +182,8 @@ def test_noise_detector_ab_identical_low_thd(client) -> None:
 def test_noise_detector_ab_noisy_upstream_raises(client) -> None:
     """被测路注引无关白噪—>THD+N 与噪声占比显著升高。"""
     ref_s = _sine(1000.0, 4800)
-    in_s = [0.5 * ref_s[i] + 0.3 * _white(4800, seed=7)[i] for i in range(len(ref_s))]
+    wn = _white(4800, seed=7)
+    in_s = [0.5 * ref_s[i] + 0.3 * wn[i] for i in range(len(ref_s))]
     probes = _run_ab(client, {}, ref_s, in_s)
     thd = [p for p in probes if p["node"] == "ab" and p["param"] == "thd_n_db"]
     ratio = [p for p in probes if p["node"] == "ab" and p["param"] == "noise_ratio"]
@@ -190,3 +191,77 @@ def test_noise_detector_ab_noisy_upstream_raises(client) -> None:
     assert ratio, "noise_ratio probe missing"
     assert thd[-1]["value"] > -20, f"noisy upstream should raise THD, got {thd[-1]['value']}"
     assert ratio[-1]["value"] > 0.1
+
+
+def _run_nlms(client, params: dict, ref_samples: list[float], in_samples: list[float], ch: int = 1) -> list[dict]:
+    """NLMS 双端：两个 wav_in 接 ref / in，直通输出到 wav_out。"""
+    name = f"ndnl_{uuid.uuid4().hex[:8]}"
+    _CREATED.append(name)
+    assert client.post("/api/projects", json={"name": name}).status_code == 201
+    pdir = ROOT / "workspace" / name
+    _write_wav(pdir, "ref.wav", ref_samples, ch)
+    _write_wav(pdir, "in.wav", in_samples, ch)
+    doc = client.get(f"/api/projects/{name}").json()
+    doc["sample_rate"] = 48000
+    doc["block_size"] = 128
+    doc["graph"] = {
+        "nodes": [
+            {"id": "wr", "component": "orpheus.builtin.wav_in", "params": {"file_path": "ref.wav", "channels": ch}, "position": {"x": 0, "y": 0}},
+            {"id": "wi", "component": "orpheus.builtin.wav_in", "params": {"file_path": "in.wav", "channels": ch}, "position": {"x": 0, "y": 80}},
+            {"id": "nl", "component": "orpheus.builtin.noise_detector_nlms", "params": {**params, "channels": ch}, "position": {"x": 200, "y": 0}},
+            {"id": "out", "component": "orpheus.builtin.wav_out", "params": {"file_path": "outputs/out.wav", "channels": ch, "sample_rate": 48000}, "position": {"x": 400, "y": 0}},
+        ],
+        "connections": [
+            {"from": "wr:out", "to": "nl:ref"},
+            {"from": "wi:out", "to": "nl:in"},
+            {"from": "nl:out", "to": "out:in"},
+        ],
+    }
+    assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+    resp = client.post(f"/api/projects/{name}/run")
+    assert resp.status_code == 200, resp.text
+    result = resp.json()
+    assert result["status"] == "ok", result["stderr"]
+    return result.get("probes", [])
+
+
+# ---------- NLMS 残差双端 ----------
+
+
+@_RT_BUILT
+def test_noise_detector_nlms_identical_low_residue(client) -> None:
+    """参考与被测完全相同—>残差预算很低，占比趋近 0。"""
+    s = _sine(1000.0, 48000)
+    probes = _run_nlms(client, {"filter_length": 64, "step_size": 0.1}, s, s)
+    res = [p for p in probes if p["node"] == "nl" and p["param"] == "residue_db"]
+    ratio = [p for p in probes if p["node"] == "nl" and p["param"] == "noise_ratio"]
+    assert res, "residue_db probe missing"
+    assert ratio, "noise_ratio probe missing"
+    assert res[-1]["value"] < -40, f"identical should have very low residue, got {res[-1]['value']}"
+    assert ratio[-1]["value"] < 0.1
+
+
+@_RT_BUILT
+def test_noise_detector_nlms_additive_noise_raises_residue(client) -> None:
+    """被测路引入无关白噪—>残差能量与噪声占比显著升高。"""
+    ref_s = _sine(1000.0, 48000)
+    wn = _white(48000, seed=11)
+    in_s = [0.5 * ref_s[i] + 0.3 * wn[i] for i in range(len(ref_s))]
+    probes = _run_nlms(client, {"filter_length": 64, "step_size": 0.1}, ref_s, in_s)
+    res = [p for p in probes if p["node"] == "nl" and p["param"] == "residue_db"]
+    ratio = [p for p in probes if p["node"] == "nl" and p["param"] == "noise_ratio"]
+    assert res, "residue_db probe missing"
+    assert ratio, "noise_ratio probe missing"
+    assert res[-1]["value"] > -15, f"additive noise should raise residue, got {res[-1]['value']}"
+    assert ratio[-1]["value"] > 0.1
+
+
+@_RT_BUILT
+def test_noise_detector_nlms_nonlinear_distortion_raises(client) -> None:
+    """一路引入非线性失真（幅值三次拟合）—>非线性残差被 NLMS 捕获。"""
+    ref_s = _sine(1000.0, 48000, amp=0.8)
+    in_s = [x - 0.4 * (x ** 3) for x in ref_s]
+    probes = _run_nlms(client, {"filter_length": 256, "step_size": 0.05}, ref_s, in_s)
+    res = [p for p in probes if p["node"] == "nl" and p["param"] == "residue_db"]
+    assert res, "residue_db probe missing"
+    assert res[-1]["value"] > -30, f"nonlinear distortion should raise residue, got {res[-1]['value']}"

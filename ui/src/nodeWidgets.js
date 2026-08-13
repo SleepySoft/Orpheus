@@ -578,6 +578,36 @@ function NoiseDetectorAbWidget({ data, large }) {
   );
 }
 
+
+/** Noise detector (NLMS residual): show residue budget / ERLE / ratio / frames. */
+function NoiseDetectorNlmsWidget({ data, large }) {
+  const pN = data.probe || {};
+  const rows = [
+    ['????(dB)', pN.residue_db, 'res', 0],
+    ['ERLE(dB)', pN.erle_db, 'erle', 1],
+    ['????', pN.noise_ratio, 'ratio', 0],
+    ['????', pN.noise_frames, 'frames', 0],
+    ['????', pN.clicks, 'clicks', 0],
+  ];
+  return (
+    <div className="probe-body">
+      {rows.map(([label, v, key, isDb]) => {
+        const present = v !== undefined;
+        let text = present ? (isDb ? (v > 0 ? v.toFixed(1) : '-inf') : v.toFixed(2)) : '?';
+        if (key === 'frames' && present) text = String(v);
+        if (key === 'clicks' && present) text = String(v);
+        if (key === 'ratio' && present) text = `${(v * 100).toFixed(1)}%`;
+        return (
+          <div className="probe-stat" key={key}>
+            <span className="muted">{label}</span>
+            <span className={key === 'res' && v > -15 ? 'stat-hot' : ''}>{text}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export const NODE_WIDGETS = {
   'orpheus.builtin.probe_rms': ProbeRmsWidget,
   'orpheus.builtin.probe_peak': ProbePeakWidget,
@@ -590,4 +620,5 @@ export const NODE_WIDGETS = {
   'orpheus.builtin.sweep_gen': SweepGenWidget,
   'orpheus.builtin.noise_detector': NoiseDetectorWidget,
   'orpheus.builtin.noise_detector_ab': NoiseDetectorAbWidget,
+  'orpheus.builtin.noise_detector_nlms': NoiseDetectorNlmsWidget,
 };
