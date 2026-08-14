@@ -1,0 +1,62 @@
+id: orpheus.builtin.n_way_mux
+name: N路选择
+category: 通道路由
+description: N 路输入选择一路输出（in0..inN-1 可变引脚）；select 为小数时在相邻输入间交叉淡化，避免切换咔哒声
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: NWayMuxState
+sources:
+  - src/n_way_mux.c
+headers:
+  - include/orpheus_n_way_mux.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+    count: param:inputs
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: inputs
+    name: 输入路数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: select
+    name: 选择输入
+    type: float
+    default: 0.0
+    range: [0.0, 31.0]
+    update_policy: smoothed
+    widget: slider
+  - id: ramp_ms
+    name: 交叉淡化
+    type: float
+    default: 20.0
+    range: [0.0, 1000.0]
+    unit: ms
+    update_policy: restart_required
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

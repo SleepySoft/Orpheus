@@ -1,0 +1,47 @@
+version: "0.1.0"
+metadata:
+  name: mux_ab_compare
+  description: WAV -> {raw ??} ? {spatial ????} ?? -> n_way_mux ???????select=0 ?? / 1 ????
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: wav_in
+      component: orpheus.builtin.wav_in
+      task: default
+      params:
+        file_path: test_input.wav
+        channels: 2
+      position: {x: 60, y: 200}
+    - id: raw_passthru
+      component: orpheus.builtin.gain
+      task: default
+      params: {gain_db: 0.0, channels: 2}
+      position: {x: 280, y: 120}
+    - id: spatial
+      component: orpheus.builtin.spatial_enhancer
+      task: default
+      params: {width: 1.6, air: 0.2, mono_mix: 1.0, air_fc: 6000.0, channels: 2}
+      position: {x: 280, y: 320}
+    - id: mux
+      component: orpheus.builtin.n_way_mux
+      task: default
+      params: {inputs: 2, channels: 2, select: 0.0, ramp_ms: 20.0}
+      position: {x: 520, y: 220}
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      task: default
+      params: {file_path: outputs/mux_ab_out.wav, channels: 2, sample_rate: 48000}
+      position: {x: 760, y: 220}
+  connections:
+    - {from: "wav_in:out", to: "raw_passthru:in"}
+    - {from: "wav_in:out", to: "spatial:in"}
+    - {from: "raw_passthru:out", to: "mux:in0"}
+    - {from: "spatial:out", to: "mux:in1"}
+    - {from: "mux:out", to: "wav_out:in"}
