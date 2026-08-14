@@ -1,8 +1,8 @@
 id: orpheus.builtin.n_way_mux
 name: N路选择
 category: 通道路由
-description: N 路输入选择一路输出（in0..inN-1 可变引脚）；select 为小数时在相邻输入间交叉淡化，避免切换咔哒声
-version: 1.0.0
+description: N 路输入选 1 路输出。输入路数由 inputs 决定（引脚 in0..inN-1）；select 选第几路（1 起），切换时按 ramp_ms 线性交叉淡化，无咔哒声
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: NWayMuxState
@@ -38,14 +38,13 @@ parameters:
     update_policy: restart_required
     affects_signature: true
   - id: select
-    name: 选择输入
-    type: float
-    default: 0.0
-    range: [0.0, 31.0]
+    name: 选择输入(1=in0, 2=in1...)
+    type: int
+    default: 1
+    range: [1, 32]
     update_policy: smoothed
-    widget: slider
   - id: ramp_ms
-    name: 交叉淡化
+    name: 切换淡化时长
     type: float
     default: 20.0
     range: [0.0, 1000.0]

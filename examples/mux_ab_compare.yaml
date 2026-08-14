@@ -1,7 +1,7 @@
 version: "0.1.0"
 metadata:
   name: mux_ab_compare
-  description: WAV -> {raw ??} ? {spatial ????} ?? -> n_way_mux ???????select=0 ?? / 1 ????
+  description: A/B 对比试听——WAV 分两路（原始直通 / spatial_enhancer 空间增强）进 n_way_mux，select=1 听原始、select=2 听增强，运行中可平滑切换
 sample_rate: 48000
 block_size: 128
 tasks:
@@ -32,7 +32,7 @@ graph:
     - id: mux
       component: orpheus.builtin.n_way_mux
       task: default
-      params: {inputs: 2, channels: 2, select: 0.0, ramp_ms: 20.0}
+      params: {inputs: 2, channels: 2, select: 1, ramp_ms: 20.0}
       position: {x: 520, y: 220}
     - id: wav_out
       component: orpheus.builtin.wav_out

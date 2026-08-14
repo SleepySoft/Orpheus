@@ -1,5 +1,5 @@
-"""n_way_mux?N?????????.
-??: ?? select ????; ???? in0..inN-1 ????; ????????; ?? select ????."""
+"""n_way_mux 数值正确性测试（select 为 1 起整数：1=in0、2=in1 …）。
+覆盖：按 select 选路；可变引脚 in0..inN-1 绑定（未接引脚静音）；select 越界钳位。"""
 from __future__ import annotations
 
 import math
@@ -88,7 +88,7 @@ def test_mux_selects_input():
             _write_wav(pdir / "in2.wav", [s2, s2])
             srcs = {0: "in0.wav", 1: "in1.wav", 2: "in2.wav"}
             tol = 3 * (1 / 32768.0) + 1e-8
-            for sel, expect in [(0, s0), (1, s1), (2, s2)]:
+            for sel, expect in [(1, s0), (2, s1), (3, s2)]:
                 out, _ = _mux_run(client, name, srcs, select=sel, inputs=3,
                                   ramp_ms=0.0, out_name=f"o{sel}.wav")
                 err = max(abs(a - b) for a, b in zip(out[0], expect))
@@ -108,7 +108,7 @@ def test_mux_variable_pin_bind():
             (pdir / "outputs").mkdir(parents=True, exist_ok=True)
             s0 = [0.2 * math.sin(2 * math.pi * 220 * k / SR) for k in range(1000)]
             _write_wav(pdir / "in0.wav", [s0, s0])
-            out, rj = _mux_run(client, name, {0: "in0.wav"}, select=0.0,
+            out, rj = _mux_run(client, name, {0: "in0.wav"}, select=1,
                                inputs=3, ramp_ms=0.0, out_name="out.wav")
             assert rj["status"] == "ok"
             tol = 3 * (1 / 32768.0) + 1e-8
@@ -119,7 +119,8 @@ def test_mux_variable_pin_bind():
 
 
 @pytest.mark.skipif(_SKIP, reason="n_way_mux not built")
-def test_mux_fractional_crossfade():
+def test_mux_select_clamped_to_inputs():
+    """select 越界（> inputs）应钳到最后一路；0/负数钳到第 1 路。"""
     name = f"mux_{uuid.uuid4().hex[:8]}"
     with TestClient(create_app(ROOT)) as client:
         try:
@@ -132,11 +133,14 @@ def test_mux_fractional_crossfade():
             s1 = [0.4 * math.sin(2 * math.pi * 300 * k / SR) for k in range(n)]
             _write_wav(pdir / "in0.wav", [s0, s0])
             _write_wav(pdir / "in1.wav", [s1, s1])
+            tol = 3 * (1 / 32768.0) + 1e-8
             out, _ = _mux_run(client, name, {0: "in0.wav", 1: "in1.wav"},
-                              select=0.5, inputs=2, ramp_ms=1000.0,
-                              out_name="out.wav")
-            blend = [(a + b) * 0.5 for a, b in zip(s0, s1)]
-            tail_err = max(abs(out[0][k] - blend[k]) for k in range(n - 400, n))
-            assert tail_err < 0.15, tail_err
+                              select=7, inputs=2, ramp_ms=0.0, out_name="hi.wav")
+            err = max(abs(a - b) for a, b in zip(out[0], s1))
+            assert err < tol, ("clamp-high", err)
+            out, _ = _mux_run(client, name, {0: "in0.wav", 1: "in1.wav"},
+                              select=0, inputs=2, ramp_ms=0.0, out_name="lo.wav")
+            err = max(abs(a - b) for a, b in zip(out[0], s0))
+            assert err < tol, ("clamp-low", err)
         finally:
             client.delete(f"/api/projects/{name}")
