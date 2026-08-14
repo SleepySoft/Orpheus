@@ -20,7 +20,9 @@ target_compile_definitions(${COMPONENT_NAME}
         ORPHEUS_BUILDING_COMPONENT
 )
 
-target_link_libraries(${COMPONENT_NAME} PRIVATE m)
+if(NOT MSVC)
+    target_link_libraries(${COMPONENT_NAME} PRIVATE m)
+endif()
 
 set_target_properties(${COMPONENT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/components
