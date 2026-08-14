@@ -25,7 +25,7 @@ static const OrpheusPort ports[] = {
 };
 
 static const OrpheusComponentDescriptor desc = {
-    "orpheus.builtin.delay", "1.0.0", ORPHEUS_ABI_VERSION,
+    "orpheus.builtin.delay", "1.0.1", ORPHEUS_ABI_VERSION,
     ports, 2, params, 3, sizeof(DelayState), 0, 8, 0, true, false
 };
 
@@ -59,6 +59,8 @@ static int prepare(void* state, const OrpheusConfig* config) {
     /* 容量必须是通道数的整数倍：write_pos 按 ch 递增取模，否则通道错位会通道串扰，且可能越界读写（兹啦噪声/崩溃）。 */
     uint32_t block_size = config->block_size > 0 ? config->block_size : 1024;
     s->capacity = (s->delay_samples + block_size + 1) * s->channels;
+    free(s->buffer);            /* 幂等 prepare：重入先释放旧缓冲，防泄漏 */
+    s->buffer = NULL;
     s->buffer = (float*)calloc(s->capacity, sizeof(float));
     if (!s->buffer) return ORPHEUS_ERR_OUT_OF_MEMORY;
     s->write_pos = 0;
@@ -90,10 +92,12 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     float* out_data = (float*)out->data;
     for (uint32_t n = 0; n < frames; ++n) {
         for (uint32_t c = 0; c < ch; ++c) {
+            float x = in_data[n * ch + c];
+            /* 先写后读：delay_samples==0 时读位置==写位置，先写入保证读到的是当前样本（真直通），
+               否则会读到一整圈之前的旧数据（0 延迟出现梳状杂音）。delay>0 时读写位置恒不重叠。 */
+            s->buffer[s->write_pos + c] = x;
             uint32_t idx = (s->write_pos + s->capacity - s->delay_samples * ch) % s->capacity;
             float delayed = s->buffer[idx + c];
-            float x = in_data[n * ch + c];
-            s->buffer[s->write_pos + c] = x;
             /* mix 为 smoothed：一阶平滑，避免实时调参数产生尖声；m=平滑后 wet 占比 */
             s->mix_smoothed += s->mix_coeff * (s->mix - s->mix_smoothed);
             float m = s->mix_smoothed;
