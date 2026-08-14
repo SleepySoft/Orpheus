@@ -910,3 +910,36 @@
 
 ### 遗留
 - BAF 限幅器实际有 high/low 双带参数（`_low` 后缀），当前 `limiter` 只实现单带；如需完全对齐，后续可扩展为 `band_count` 或增加 low 带系数组。
+
+## 2026-08-14 修复 MSVC 构建断裂（m.lib）+ 陈旧构建产物导致的测试大面积失败
+
+### 问题
+完整测试 16 failed。根因有二：
+1. 近期新增的 6 个组件（`adaptive_fir`/`anc_fxlms`/`noise_detector`/`noise_detector_ab`/`noise_detector_nlms`/`negate`）CMakeLists 无条件 `target_link_libraries(... m)`，MinGW 下有 libm 无碍，但当前 `build/` 配置为 MSVC（无 m.lib），LNK1181 直接失败，这些 DLL 从未产出。
+2. build.ninja 陈旧（`unknown target 'orpheus_builtin_delay_line'`），全量 reconfigure + 重建后 `orpheus_runtime.exe --msg` 仍偶发 0xC0000005——插桩定位为不一致增量链接的陈旧 exe，干净重建目标后消失。
+
+### 修复
+- 6 个组件 CMakeLists：`if(NOT MSVC) target_link_libraries(... m) endif()`。
+- 全量 `cli build` 重建。
+- 验证：`pytest orpheus_core/tests/` → **141 passed, 1 skipped**。
+
+### 教训
+- 新组件 CMakeLists 照抄模板时注意 `m` 库的 MSVC 兼容性（MinGW-only）。
+- 测试大面积失败先怀疑构建产物陈旧/不完整，再怀疑代码。
+
+## 2026-08-14 n_way_mux 重做为「N 选 1 开关」+ delay 0 延迟杂音修复
+
+### n_way_mux v1.1.0（按用户反馈重做交互）
+- 原实现 `select` 为 0 起 float 滑杆（小数=相邻路交叉淡化），语义费解；用户原意是「配置 N 个输入、选一个输出」。
+- 新语义：`inputs` 决定引脚数（in0..inN-1，UI 改参数即时刷新引脚）；`select` 改为 **1 起整数**（1=in0、2=in1 …），越界自动钳到 `[1, inputs]`；`ramp_ms` 为切换淡化时长。
+- 切换平滑改为一帧内**逐样本线性斜坡**（旧实现一阶平滑每块只推进一次，实际淡化比 ramp_ms 慢数百倍——隐性 bug）；跨多路时每路各占 ramp_ms；稳态整帧 memcpy。
+- set_parameter 容忍 INT/FLOAT（rt_host SET 一律传 FLOAT）。
+- 验证：ctypes 逐样本——切换前后与所选输入逐样本一致、切换过程最大样本步进不超过源信号自身斜率（无爆音）；pytest 3 项（选路/可变引脚绑定/越界钳位）通过。示例 `examples/mux_ab_compare.yaml` 重写为 A/B 对比试听。
+
+### delay v1.0.1
+- ctypes 逐样本对照理想延迟线：delay>0 各用例 max_err=0（此前两轮换修复已根治兹啦声）；唯一残留 bug 是 **delay_ms=0 时读先于写，读到一整圈前的旧数据**（0 延迟变成 block 大小的回声/梳状杂音）。改为先写后读，0 延迟样本级直通。
+- prepare 幂等：重入先 free 旧环形缓冲防泄漏。
+- README 更正过期备注（mix 已做 5ms 平滑），并注明 mix∈(0,1) 的梳状滤波是延迟混音固有频响而非底噪。
+
+### 验证
+- `pytest orpheus_core/tests/` → **141 passed, 1 skipped**（全量回归）。
