@@ -83,10 +83,14 @@ static int nd_process(void* state,const OrpheusProcessContext* ctx){
     for(uint32_t i=0;i<(uint32_t)frames*ch;++i){ float a=fabsf(in[i]); if(a>=s->clip_level)clipped++; double p=a; se+=p*p; if(a>peak)peak=a; }
     s->clipped_samples+=clipped; s->total_samples+=(uint64_t)frames*ch;
     double rms=sqrt(se/((uint32_t)frames*ch+1));
-    for(uint32_t i=1;i<(uint32_t)frames*ch-1;++i){
-        float d=fabsf(in[i]-in[i-1]);
-        float a=fabsf(in[i]);
-        if(d>s->click_thres || (a > (float)(rms*8.0+0.0001) && a>s->click_thres)) clicks++;
+    /* 突刺（点状杂音/过载点）判定：按“同一通道”相邻样本比较，幅差超过阈值即计一次。说明：交错布局下若拿 in[i] 与 in[i-1] 比，会把左右声道差异误报为突刺；按通道比较后，正常音乐单样本滑动步很小，只有真正的突变才会超阈值。 */
+    if (ch > 0 && frames > 2) {
+        for (uint32_t i = 1; i < frames; ++i) {
+            for (uint32_t c = 0; c < ch; ++c) {
+                float d = fabsf(in[i*ch+c] - in[(i-1)*ch+c]);
+                if (d > s->click_thres) clicks++;
+            }
+        }
     }
     s->clicks+=(uint32_t)clicks;
     s->clip_ratio= s->total_samples? (float)((double)s->clipped_samples/(double)s->total_samples) : 0.0f;
