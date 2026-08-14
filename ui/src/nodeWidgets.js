@@ -527,10 +527,10 @@ function TimeCurveWidget({ data, large }) {
 function NoiseDetectorWidget({ data, large }) {
   const p = data.probe || {};
   const rows = [
-    ['?????', p.flatness, 'flatness', 0],
-    ['???(dB)', p.noise_floor_db, 'floor', 1],
-    ['????', p.clicks, 'clicks', 0],
-    ['????', p.clip_pct, 'clip', 1],
+    ['频谱平坦度', p.flatness, 'flatness', 0],
+    ['噪声底(dB)', p.noise_floor_db, 'floor', 1],
+    ['突刺计数', p.clicks, 'clicks', 0],
+    ['削波占比', p.clip_pct, 'clip', 1],
   ];
   return (
     <div className="probe-body">
@@ -555,9 +555,9 @@ function NoiseDetectorAbWidget({ data, large }) {
   const p = data.probe || {};
   const rows = [
     ['THD+N(dB)', p.thd_n_db, 'thd', 1],
-    ['????', p.noise_ratio, 'ratio', 0],
-    ['????', p.noise_frames, 'frames', 0],
-    ['????', p.clicks, 'clicks', 0],
+    ['噪声占比', p.noise_ratio, 'ratio', 0],
+    ['噪声帧数', p.noise_frames, 'frames', 0],
+    ['突刺计数', p.clicks, 'clicks', 0],
   ];
   return (
     <div className="probe-body">
@@ -583,11 +583,11 @@ function NoiseDetectorAbWidget({ data, large }) {
 function NoiseDetectorNlmsWidget({ data, large }) {
   const pN = data.probe || {};
   const rows = [
-    ['????(dB)', pN.residue_db, 'res', 0],
+    ['残差(dB)', pN.residue_db, 'res', 0],
     ['ERLE(dB)', pN.erle_db, 'erle', 1],
-    ['????', pN.noise_ratio, 'ratio', 0],
-    ['????', pN.noise_frames, 'frames', 0],
-    ['????', pN.clicks, 'clicks', 0],
+    ['噪声占比', pN.noise_ratio, 'ratio', 0],
+    ['噪声帧数', pN.noise_frames, 'frames', 0],
+    ['突刺计数', pN.clicks, 'clicks', 0],
   ];
   return (
     <div className="probe-body">

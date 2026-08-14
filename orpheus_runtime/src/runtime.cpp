@@ -340,52 +340,97 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
 
     // 为悬空输出端口分配丢弃缓冲区，使组件 process 永远看不到 NULL 输出。
     // 块长优先使用 compiler 解析后的端口 block_size；未记录则回退到节点输入块长。
-    for (auto& kv : instances_) {
-        Instance& inst = *kv.second;
-        const NodeConfig& cfg = plan_.node_configs[inst.node_id];
-        const OrpheusComponentDescriptor* desc = inst.interface_->get_descriptor();
-        for (size_t i = 0; i < cfg.output_ports.size(); ++i) {
-            if (inst.outputs[i] != nullptr) continue;
-            const std::string& port_id = cfg.output_ports[i];
-            uint32_t block_size = cfg.block_size > 0 ? cfg.block_size : (cfg.frames > 0 ? cfg.frames : plan_.block_size);
-            auto bs_it = cfg.output_port_block_sizes.find(port_id);
-            if (bs_it != cfg.output_port_block_sizes.end()) {
-                block_size = bs_it->second;
-            }
-            uint32_t channels = 1;
-            auto ch_it = cfg.output_port_channels.find(port_id);
-            if (ch_it != cfg.output_port_channels.end()) {
-                channels = ch_it->second;
-            } else if (desc != nullptr) {
-                for (uint32_t pi = 0; pi < desc->port_count; ++pi) {
-                    const OrpheusPort* p = &desc->ports[pi];
-                    if (p->id == nullptr || port_id != p->id) continue;
-                    if (p->channels > 0) {
-                        channels = p->channels;
-                    } else if (p->is_variable && p->channels_param != nullptr) {
-                        auto pit = cfg.params.find(p->channels_param);
-                        if (pit != cfg.params.end()) {
-                            try {
-                                channels = static_cast<uint32_t>(std::stoul(pit->second));
-                            } catch (...) {
-                                channels = 1;
+    // v2 悬空输出丢弃缓冲区：先全局累计各端口大小并 reserve，
+    // 避免后续 resize 移动 vector 时使先前已绑定的 data 指针变为野指针。
+    {
+        size_t total_discard = 0;
+        for (auto& kv : instances_) {
+            const NodeConfig& cfg = plan_.node_configs[kv.second->node_id];
+            for (size_t i = 0; i < cfg.output_ports.size(); ++i) {
+                if (kv.second->outputs[i] != nullptr) continue;
+                size_t bs = cfg.block_size > 0 ? cfg.block_size
+                          : (cfg.frames > 0 ? cfg.frames : plan_.block_size);
+                const std::string& port_id = cfg.output_ports[i];
+                auto bs_it = cfg.output_port_block_sizes.find(port_id);
+                if (bs_it != cfg.output_port_block_sizes.end()) bs = bs_it->second;
+                uint32_t chans = 1;
+                const OrpheusComponentDescriptor* desc = kv.second->interface_->get_descriptor();
+                auto ch_it = cfg.output_port_channels.find(port_id);
+                if (ch_it != cfg.output_port_channels.end()) {
+                    chans = ch_it->second;
+                } else if (desc != nullptr) {
+                    for (uint32_t pi = 0; pi < desc->port_count; ++pi) {
+                        const OrpheusPort* p = &desc->ports[pi];
+                        if (p->id == nullptr || port_id != p->id) continue;
+                        if (p->channels > 0) chans = p->channels;
+                        else if (p->is_variable && p->channels_param != nullptr) {
+                            auto pit = cfg.params.find(p->channels_param);
+                            if (pit != cfg.params.end()) {
+                                try { chans = static_cast<uint32_t>(std::stoul(pit->second)); }
+                                catch (...) { chans = 1; }
                             }
                         }
+                        break;
                     }
-                    break;
                 }
+                total_discard += static_cast<size_t>(chans) * bs;
             }
-            auto discard = std::unique_ptr<OrpheusBuffer>(new OrpheusBuffer());
-            discard->format = ORPHEUS_FORMAT_F32;
-            discard->channels = channels;
-            discard->frame_capacity = block_size;
-            discard->frame_count = block_size;
-            discard->interleaved = true;
-            size_t n = static_cast<size_t>(channels) * block_size;
-            discard_memory_.resize(discard_memory_.size() + n, 0.0f);
-            discard->data = discard_memory_.data() + discard_memory_.size() - n;
-            inst.outputs[i] = discard.get();
-            discard_buffers_.push_back(std::move(discard));
+        }
+        discard_memory_.clear();
+        discard_memory_.reserve(total_discard);   // 预分配，后续 resize 不再移动
+    }
+
+    {
+        size_t cursor = 0;
+        for (auto& kv : instances_) {
+            Instance& inst = *kv.second;
+            const NodeConfig& cfg = plan_.node_configs[inst.node_id];
+            const OrpheusComponentDescriptor* desc = inst.interface_->get_descriptor();
+            for (size_t i = 0; i < cfg.output_ports.size(); ++i) {
+                if (inst.outputs[i] != nullptr) continue;
+                const std::string& port_id = cfg.output_ports[i];
+                uint32_t block_size = cfg.block_size > 0 ? cfg.block_size : (cfg.frames > 0 ? cfg.frames : plan_.block_size);
+                auto bs_it = cfg.output_port_block_sizes.find(port_id);
+                if (bs_it != cfg.output_port_block_sizes.end()) {
+                    block_size = bs_it->second;
+                }
+                uint32_t channels = 1;
+                auto ch_it = cfg.output_port_channels.find(port_id);
+                if (ch_it != cfg.output_port_channels.end()) {
+                    channels = ch_it->second;
+                } else if (desc != nullptr) {
+                    for (uint32_t pi = 0; pi < desc->port_count; ++pi) {
+                        const OrpheusPort* p = &desc->ports[pi];
+                        if (p->id == nullptr || port_id != p->id) continue;
+                        if (p->channels > 0) {
+                            channels = p->channels;
+                        } else if (p->is_variable && p->channels_param != nullptr) {
+                            auto pit = cfg.params.find(p->channels_param);
+                            if (pit != cfg.params.end()) {
+                                try {
+                                    channels = static_cast<uint32_t>(std::stoul(pit->second));
+                                } catch (...) {
+                                    channels = 1;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+                size_t n = static_cast<size_t>(channels) * block_size;
+                auto discard = std::unique_ptr<OrpheusBuffer>(new OrpheusBuffer());
+                discard->format = ORPHEUS_FORMAT_F32;
+                discard->channels = channels;
+                discard->frame_capacity = block_size;
+                discard->frame_count = block_size;
+                discard->interleaved = true;
+                // 已 reserve，resize 仅在预分配包围内扩展，指针稳定
+                discard_memory_.resize(cursor + n, 0.0f);
+                discard->data = discard_memory_.data() + cursor;
+                cursor += n;
+                inst.outputs[i] = discard.get();
+                discard_buffers_.push_back(std::move(discard));
+            }
         }
     }
 
