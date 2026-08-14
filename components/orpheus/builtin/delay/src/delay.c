@@ -48,7 +48,9 @@ static int prepare(void* state, const OrpheusConfig* config) {
     }
     s->delay_samples = (uint32_t)((delay_ms / 1000.0f) * config->sample_rate + 0.5f);
     s->delay_ms = delay_ms;
-    s->capacity = s->delay_samples * s->channels + 1024;
+    /* 容量必须是通道数的整数倍：write_pos 按 ch 递增取模，否则通道错位会通道串扰，且可能越界读写（兹啦噪声/崩溃）。 */
+    uint32_t block_size = config->block_size > 0 ? config->block_size : 1024;
+    s->capacity = (s->delay_samples + block_size + 1) * s->channels;
     s->buffer = (float*)calloc(s->capacity, sizeof(float));
     if (!s->buffer) return ORPHEUS_ERR_OUT_OF_MEMORY;
     s->write_pos = 0;
@@ -75,7 +77,10 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
             float delayed = s->buffer[idx + c];
             float x = in_data[n * ch + c];
             s->buffer[s->write_pos + c] = x;
-            out_data[n * ch + c] = x + s->mix * delayed;
+            /* 干/湿交叉混合：out = (1-mix)*x + mix*delayed。
+               原先用 x + mix*delayed 会在原声之上叠加湿音副本，
+               信号很响时超过满刻度而硬削波（“兹拉兹拉”噪声）。 */
+            out_data[n * ch + c] = (1.0f - s->mix) * x + s->mix * delayed;
         }
         s->write_pos = (s->write_pos + ch) % s->capacity;
     }

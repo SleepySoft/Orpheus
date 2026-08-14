@@ -1,5 +1,21 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-14（第四十四次：delay 组件兹啦声修复）
+
+- **delay 干湿交叉混合，消除硬削波**
+  - `process` 原为 `out = x + mix*delayed`，会在原声之上叠加湿音副本，
+    信号较响时超过满刻度硬削波（“兹拉兹拉”噪声）。
+  - 改为交叉混合 `out = (1-mix)*x + mix*delayed`：凸组合，输出幅值恒被输入界住，不再削波。
+- **delay 环形缓冲区容量改为通道数整数倍，消除越界/通道串扰**
+  - 原 `capacity = delay_samples*channels + 1024` 非通道数整数倍，
+    奇数通道（3/5/6/7…，manifest 支持 1..32）下 `write_pos` 通道错位，
+    导致通道串扰与越界读写，本身就是爆音/崩溃来源。
+  - 改为 `capacity = (delay_samples + block_size + 1) * channels`（与 delay_line 一致），
+    任意通道数对齐、无越界；`block_size` 缺省 1024。
+- **验证**
+  - 数值模拟：ch=1/2/3/5/7/32 输出最大幅值均 <=输入，确认无削波、通道隔离。
+  - `ninja -C build orpheus_builtin_delay` 构建通过；后端非设备用例 19 项全部通过。
+
 ## 2026-08-10（第四十三次讨论：BAF SAS step0 骨架 + per-channel IIR/delay_line）
 
 - **iir_bank 支持 per-channel 系数**
