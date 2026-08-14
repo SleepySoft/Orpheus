@@ -1,0 +1,68 @@
+id: orpheus.builtin.spatial_enhancer
+name: 空间增强
+category: 音效算法
+description: 同帧 M/S 空间增强：width=侧声展宽、air=侧声高通清亮、mono_mix=单声兼容；无时域延迟故无梳状/错位
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: SpatialEnhancerState
+sources:
+  - src/spatial_enhancer.c
+headers:
+  - include/orpheus_spatial_enhancer.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: width
+    name: 展宽度
+    type: float
+    default: 1.0
+    range: [0.0, 4.0]
+    update_policy: smoothed
+    widget: slider
+  - id: air
+    name: 清亮感
+    type: float
+    default: 0.0
+    range: [0.0, 1.0]
+    update_policy: smoothed
+    widget: slider
+  - id: mono_mix
+    name: 单声兼容
+    type: float
+    default: 1.0
+    range: [0.0, 1.0]
+    update_policy: smoothed
+    widget: slider
+  - id: air_fc
+    name: 清亮截止频率
+    type: float
+    default: 6000.0
+    range: [500.0, 15000.0]
+    unit: Hz
+    update_policy: restart_required
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [2, 2]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

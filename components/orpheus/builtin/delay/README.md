@@ -1,0 +1,52 @@
+# orpheus.builtin.delay — 通用延迟 + 干/湿混音
+
+## 功能
+
+单速率、全通道同时延迟的延迟器，并提供干/湿交叉混合。
+输出为原声（干）与延迟声（湿）的凸组合：
+
+```
+out = (1 - mix) * x + mix * delayed
+```
+
+其中 `x` 为当前输入样本，`delayed` 为延迟 `delay_ms` 后的样本。
+因为 mix ∈ [0,1]，输出是两者的凸组合，幅值恒被输入和延迟信号幅值界住，不会因 delay 本身包加而超满刻度削波。
+
+常用场景：回声/延迟特效、参考链路的延迟成分复刻、双声道时延冗余。
+
+> 注意：本组件对所有通道采用相同的延迟量，**不会**对左右声道引入互差延迟，因此不能扩展立体声声场宽度。
+若需每通道独立延迟数，请用 `orpheus.builtin.delay_line`；
+若需 2 声道空间展宽/空气感，用 `orpheus.builtin.spatial_enhancer`（同帧 M/S，无时域延迟，避免梳状/错位噪声）。
+
+## 端口
+
+| id | 方向 | 类型 | 说明 |
+|---|---|---|---|
+| in | input | audio | 输入音频，`channels` 通道 |
+| out | output | audio | 延迟并混合后的音频，通道数与输入相同 |
+
+## 参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `delay_ms` | float | 100.0 ms | 延迟时间，0~5000ms；修改后需重新启动（restart_required） |
+| `mix` | float | 0.5 | 干/湿混合比，0=原声直通，1=纯延迟音；可实时调整（smoothed） |
+| `channels` | int | 2 | 通道数，1~32；改变后需重新编译 |
+
+## 示例
+
+下面把信号发生器推入 delay 再写出 WAV，方便听取/分析延迟效果：
+
+```yaml
+component: orpheus.builtin.delay
+params:
+  delay_ms: 20.0
+  mix: 0.35
+  channels: 2
+```
+
+## 实时安全
+
+- 内部使用环形缓冲（prepare 分配、destroy 释放），process 中无堆分配、无阻塞、无文件/IO。
+- 延迟缓冲容量为通道数的整数倍，担保对齐、无越界读写。
+- 参数`mix` 为 smoothed，但本组件目前每次 process 直接读取当前值，未做抽平；实时调整 mix 可能产生尖声（小风险）。

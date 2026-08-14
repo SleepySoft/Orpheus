@@ -73,14 +73,6 @@ graph:
         channels_out: 2
         indices: "0,1"
       position: {x: 1300, y: 260}
-    - id: width
-      component: orpheus.builtin.delay
-      task: default
-      params:
-        delay_ms: 7.0
-        mix: 0.22
-        channels: 2
-      position: {x: 1500, y: 260}
     - id: loudness
       component: orpheus.builtin.sleeping_beauty
       task: default
@@ -99,6 +91,17 @@ graph:
         drive_db: 2.5
         channels: 2
       position: {x: 1900, y: 260}
+    - id: spatial
+      component: orpheus.builtin.spatial_enhancer
+      task: default
+      params:
+        width: 1.0
+        air: 0.15
+        mono_mix: 1.0
+        air_fc: 6000.0
+        channels: 2
+      position: {x: 2050, y: 380}
+
     - id: meter_pre
       component: orpheus.builtin.probe_rms
       task: default
@@ -135,10 +138,10 @@ graph:
     - {from: "midrange:out", to: "treble:in"}
     - {from: "treble:out", to: "saturate:in"}
     - {from: "saturate:out", to: "router:in"}
-    - {from: "router:out", to: "width:in"}
-    - {from: "width:out", to: "loudness:in"}
+    - {from: "router:out", to: "loudness:in"}
     - {from: "loudness:out", to: "density:in"}
-    - {from: "density:out", to: "meter_pre:in"}
+    - {from: "density:out", to: "spatial:in"}
+    - {from: "spatial:out", to: "meter_pre:in"}
     - {from: "meter_pre:out", to: "peak_protect:in"}
     - {from: "peak_protect:out", to: "meter_post:in"}
     - {from: "meter_post:out", to: "phones:in"}

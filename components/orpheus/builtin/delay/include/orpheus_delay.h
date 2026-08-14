@@ -13,7 +13,9 @@ typedef struct {
     uint32_t write_pos;
     uint32_t channels;
     uint32_t capacity;
-    float mix;              /* 参数（smoothed，process 每块读取） */
+    float mix;              /* 目标 mix（smoothed） */
+    float mix_smoothed;     /* 当前滑动 mix，process 实际使用值 */
+    float mix_coeff;        /* 一阶滑动系数 */
     float delay_ms;         /* 参数缓存（restart_required） */
 } DelayState;
 

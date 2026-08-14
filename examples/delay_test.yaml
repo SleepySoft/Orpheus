@@ -1,0 +1,59 @@
+version: "0.1.0"
+metadata:
+  name: delay_test
+  description: 信号发生器 -> delay 延迟混音 -> WAV 输出（用于试听 delay 效果）
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: sig
+      component: orpheus.builtin.signal_gen
+      task: default
+      params:
+        frequency: 440.0
+        amplitude: 0.5
+        channels: 2
+      position:
+        x: 100
+        y: 100
+    - id: dl
+      component: orpheus.builtin.delay
+      task: default
+      params:
+        delay_ms: 20.0
+        mix: 0.35
+        channels: 2
+      position:
+        x: 300
+        y: 100
+    - id: rms
+      component: orpheus.builtin.probe_rms
+      task: default
+      params:
+        channels: 2
+      position:
+        x: 500
+        y: 100
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      task: default
+      params:
+        file_path: outputs/test_output.wav
+        channels: 2
+        sample_rate: 48000
+      position:
+        x: 700
+        y: 100
+  connections:
+    - from: sig:out
+      to: dl:in
+    - from: dl:out
+      to: rms:in
+    - from: rms:out
+      to: wav_out:in
