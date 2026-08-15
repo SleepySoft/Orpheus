@@ -48,7 +48,7 @@ function flattenItems(node) {
 }
 
 /** Left-hand palette: project subcomponents + category tree of global components. */
-export default function Palette({ components, subsMeta, onDeleteSub, onDeleteComponent, onPromoteComponent }) {
+export default function Palette({ components, subsMeta, onDeleteSub, onDeleteComponent, onPromoteComponent, onShowReadme }) {
   const [collapsed, setCollapsed] = useState({});
   const [query, setQuery] = useState('');
 
@@ -85,19 +85,36 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
       title={c.description || c.id}
     >
       <div className="palette-item-name">
-        {c.name || c.id.split('.').pop()}
-        {deletable && (
-          <span
-            className="palette-item-del"
-            title="删除子组件（无实例引用时可用）"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDeleteSub(c.id);
-            }}
-          >
-            ×
-          </span>
-        )}
+        <span>{c.name || c.id.split('.').pop()}</span>
+        <span className="palette-item-actions">
+          {!c.sub && onShowReadme && (
+            <button
+              className="palette-item-info"
+              title="查看组件说明"
+              draggable={false}
+              onMouseDown={(e) => e.stopPropagation()}
+              onDragStart={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onShowReadme(c.id);
+              }}
+            >
+              ℹ
+            </button>
+          )}
+          {deletable && (
+            <span
+              className="palette-item-del"
+              title="删除子组件（无实例引用时可用）"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteSub(c.id);
+              }}
+            >
+              ×
+            </span>
+          )}
+        </span>
       </div>
       <div className="palette-item-id">{c.id}</div>
       {!c.sub && c.user_owned && (

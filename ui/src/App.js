@@ -1487,6 +1487,7 @@ const { screenToFlowPosition } = useReactFlow();
                 onDeleteSub={deleteSub}
                 onDeleteComponent={onDeleteComponent}
                 onPromoteComponent={onPromoteComponent}
+                onShowReadme={handleShowReadme}
               />
             )}
             {leftTab === 'tree' && (

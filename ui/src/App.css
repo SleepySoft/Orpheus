@@ -531,6 +531,26 @@
   color: #e03131;
 }
 
+.palette-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.palette-item-info {
+  border: none;
+  background: transparent;
+  color: #adb5bd;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.palette-item-info:hover {
+  color: #4cc9f0;
+}
+
 /* ---------------------------------------------------------- 左侧栏标签页 */
 .side-tabs {
   display: flex;
