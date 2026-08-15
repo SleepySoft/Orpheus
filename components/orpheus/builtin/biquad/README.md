@@ -22,6 +22,7 @@
 | `q` | float | 0.707 | 品质因数，0.1~10.0 |
 | `gain_db` | float | 0.0 dB | 增益，-24~+24 dB（仅 peaking / lowshelf / highshelf 使用） |
 | `channels` | int | 2 | 通道数，1~32；改变后需重新编译（affects_signature） |
+| `form` | string | df2t | 滤波结构：`df2t`=DF-II 转置（滚动延迟单元，寄存器最少、数值性质好，推荐）；`df1`=传统直接 I 型（教学/对照用）。两者传递函数相同 |
 
 ## 关键参数详解
 
@@ -58,7 +59,7 @@ Q 控制"过渡带/谐振峰有多窄"：
 - 全部参数都是 `restart_required`：运行中不能实时改频率/Q/增益，修改后需要重启（重新 prepare 才会重算系数）。需要运行时平滑调参的 EQ 请用 `biquad_bank` + BULK 直写系数，或增益类组件（如 `gain_ramper`）。
 - 系数在 `prepare` 时按**当前采样率**计算；同一份工程换采样率部署会自动重算，无需手动干预。
 - 系数计算用到 `powf/sinf/cosf/sqrtf`，但只发生在 `prepare`，不在实时路径。
-- 本组件的差分实现用输出历史 z1/z2 同时承担零点与极点递推，即实际计算 `y = b0·x + (b1−a1)·y₁ + (b2−a2)·y₂`。它能产生合理的二阶滤波响应，但与教科书 Direct Form I/II 的系数语义**不完全等价**；如需精确的 Cookbook 频响（如严格的 Butterworth -3 dB 点），建议先用扫频（sweep_gen + sweep_record）实测确认。
+- 本组件 v1.1.0 起提供两种差分结构（`form` 参数）：DF-II 转置（默认，`y = b0·x + z1`，滚动更新 z1/z2）与传统 DF-I（`y = b0·x + b1·x₁ + b2·x₂ − a1·y₁ − a2·y₂`）。两者传递函数完全相同，仅寄存器用量与 float 舍入路径不同；脉冲响应已与 RBJ float64 参考逐样本对齐（测试 `test_biquad_forms.py`）。v1.0.0 的递推曾误用输出历史充当输入历史，频响偏离设计值（fc 处可达 -13dB），已修复。
 
 ## 典型用法
 
@@ -79,4 +80,4 @@ Q 控制"过渡带/谐振峰有多窄"：
 ## 实时安全
 
 - `process` 无内存分配、无锁、无 IO、无三角函数（系数已在 prepare 算好），支持就地处理（supports_inplace）。
-- 状态为每通道 2 个历史样本（z1/z2），`reset` 只清零历史，不重算系数。
+- 状态为每通道 4 个历史单元（DF-I 用 x1/x2/y1/y2，DF-II 转置用 z1/z2），`reset` 只清零历史，不重算系数。

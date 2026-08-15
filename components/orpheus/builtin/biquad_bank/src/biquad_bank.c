@@ -68,7 +68,11 @@ static const OrpheusParameter bank_params[] = {
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
       .min_i32 = 1, .max_i32 = 32,
       .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
-      .readback = true, .persistent = true, .affects_signature = true }
+      .readback = true, .persistent = true, .affects_signature = true },
+    { .id = "form", .name = "Structure", .type = ORPHEUS_VALUE_STRING,
+      .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "df2t" },
+      .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+      .readback = true, .persistent = true, .affects_signature = false }
 };
 
 static const OrpheusPort bank_ports[] = {
@@ -81,8 +85,8 @@ static const OrpheusPort bank_ports[] = {
 };
 
 static const OrpheusComponentDescriptor bank_descriptor = {
-    .id = "orpheus.builtin.biquad_bank", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = bank_ports, .port_count = 2, .params = bank_params, .param_count = 7,
+    .id = "orpheus.builtin.biquad_bank", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = bank_ports, .port_count = 2, .params = bank_params, .param_count = 8,
     .state_size = sizeof(BiquadBankState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
 };
@@ -105,9 +109,14 @@ static int bank_prepare(void* state, const OrpheusConfig* config) {
     float fcs[BIQUAD_BANK_STAGES] = { 1000.0f, 3000.0f };
     float qs[BIQUAD_BANK_STAGES] = { 1.0f, 1.0f };
     float gs[BIQUAD_BANK_STAGES] = { 0.0f, 0.0f };
+    const char* form = "df2t";
     for (uint32_t i = 0; i < config->param_count; ++i) {
         if (!config->param_ids[i]) continue;
         const char* id = config->param_ids[i];
+        if (strcmp(id, "form") == 0 && config->param_values[i].type == ORPHEUS_VALUE_STRING) {
+            form = config->param_values[i].value.str;
+            continue;
+        }
         if (config->param_values[i].type != ORPHEUS_VALUE_FLOAT) continue;
         float v = config->param_values[i].value.f32;
         if (strcmp(id, "fc0") == 0) fcs[0] = v;
@@ -117,23 +126,25 @@ static int bank_prepare(void* state, const OrpheusConfig* config) {
         else if (strcmp(id, "q1") == 0) qs[1] = v;
         else if (strcmp(id, "gain_db1") == 0) gs[1] = v;
     }
+    const char* use_form = (form != NULL && strcmp(form, "df1") == 0) ? "df1" : "df2t";
     for (uint32_t i = 0; i < BIQUAD_BANK_STAGES; ++i) {
         BiquadState* bq = &s->bq[i];
         strncpy(bq->type, "peaking", sizeof(bq->type) - 1);
         bq->type[sizeof(bq->type) - 1] = '\0';
+        strncpy(bq->form, use_form, sizeof(bq->form) - 1);
+        bq->form[sizeof(bq->form) - 1] = '\0';
         bq->fc = fcs[i];
         bq->q = qs[i];
         bq->gain_db = gs[i];
         bank_peaking_coeffs(fcs[i], qs[i], gs[i], (float)config->sample_rate,
                             &bq->b0, &bq->b1, &bq->b2, &bq->a1, &bq->a2);
-        for (uint32_t c = 0; c < MAX_CHANNELS; ++c) { bq->z1[c] = 0.0f; bq->z2[c] = 0.0f; }
+        biquad_clear_history(bq);
     }
     return ORPHEUS_OK;
 }
 static int bank_reset(void* state) {
     BiquadBankState* s = (BiquadBankState*)state;
-    for (uint32_t i = 0; i < BIQUAD_BANK_STAGES; ++i)
-        for (uint32_t c = 0; c < MAX_CHANNELS; ++c) { s->bq[i].z1[c] = 0.0f; s->bq[i].z2[c] = 0.0f; }
+    for (uint32_t i = 0; i < BIQUAD_BANK_STAGES; ++i) biquad_clear_history(&s->bq[i]);
     return ORPHEUS_OK;
 }
 
@@ -151,12 +162,7 @@ static int bank_process(void* state, const OrpheusProcessContext* ctx) {
         for (uint32_t n = 0; n < frames; ++n) {
             float x = in_data[n * ch + c];
             for (uint32_t i = 0; i < BIQUAD_BANK_STAGES; ++i) {
-                BiquadState* bq = &s->bq[i];
-                float y = bq->b0 * x + bq->b1 * bq->z1[c] + bq->b2 * bq->z2[c]
-                          - bq->a1 * bq->z1[c] - bq->a2 * bq->z2[c];
-                bq->z2[c] = bq->z1[c];
-                bq->z1[c] = y;
-                x = y;
+                x = biquad_tick(&s->bq[i], c, x);
             }
             out_data[n * ch + c] = x;
         }
@@ -228,6 +234,9 @@ static int bank_register_slots(void* state, const OrpheusRegistry* reg) {
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, &s->bq[0], form, ORPHEUS_SLOT_SETTING, "form", "滤波结构",
+                     ORPHEUS_VALUE_STRING, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     return ORPHEUS_OK;
 }
 

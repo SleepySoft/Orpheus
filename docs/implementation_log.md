@@ -998,3 +998,22 @@
 process 用输出历史 z1/z2 同时充当零点与极点递推：`y = b0·x + (b1−a1)·y₁ + (b2−a2)·y₂`，
 缺 b1·x₁/b2·x₂ 前馈项（奈奎斯特处两个零点丢失），频响与 RBJ 设计值偏差显著
 （1kHz 低通实测 fc 处 -16.3dB vs 标准 -3dB）。biquad_bank 复用同一结构。待用户决策后修。
+
+## 2026-08-15 biquad/biquad_bank v1.1.0：递推 bug 修复 + 双结构可选（form）
+
+### 修复内容
+- v1.0.0 递推 `y = b0·x + (b1−a1)·y₁ + (b2−a2)·y₂` 误用输出历史充当输入历史，前馈零点丢失，频响严重偏离 RBJ 设计（1kHz 低通 fc 处 -16.3dB vs 标准 -3dB，奈奎斯特零点丢失）。
+- v1.1.0 提供两种正确结构（`form` 参数，restart_required）：
+  - `df2t`（默认）：DF-II 转置（滚动延迟单元 z1/z2，寄存器最少、数值性质好）；
+  - `df1`：传统直接 I 型（x1/x2/y1/y2 四条历史，教学/对照用）。
+- 核心单样本函数 `biquad_tick` 与历史清零 `biquad_clear_history` 放在 `orpheus_biquad.h`（static inline），biquad 与 biquad_bank（deps 复用）共用，两处递推一次性修正。
+- BiquadState 增加 x1/x2/y1/y2/form 字段（堆/v2 托管，ABI 无破坏）。
+
+### 验证（新增 test_biquad_forms.py，8 项）
+- 低通/peaking 脉冲响应 vs RBJ float64 参考（DF-I 参考实现）：两种结构 max_err < 2e-5；
+- 低通 fc 处稳态增益 -3dB ±0.6dB（修复前 -16.3dB）；
+- bank 两段 peaking 级联脉冲响应 vs 参考级联；df1/df2t 输出互洽。
+- 全量回归通过。
+
+### 兼容性
+默认行为从错误递推变为正确 df2t——现存工程 biquad 听感会变（更接近设定值，低通不再发闷）。

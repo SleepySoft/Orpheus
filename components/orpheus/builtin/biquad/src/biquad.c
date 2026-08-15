@@ -64,6 +64,16 @@ static const OrpheusParameter biquad_params[] = {
         .readback = true,
         .persistent = true,
         .affects_signature = true
+    },
+    {
+        .id = "form",
+        .name = "Structure",
+        .type = ORPHEUS_VALUE_STRING,
+        .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "df2t" },
+        .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+        .readback = true,
+        .persistent = true,
+        .affects_signature = false
     }
 };
 
@@ -94,12 +104,12 @@ static const OrpheusPort biquad_ports[] = {
 
 static const OrpheusComponentDescriptor biquad_descriptor = {
     .id = "orpheus.builtin.biquad",
-    .version = "1.0.0",
+    .version = "1.1.0",
     .abi_version = ORPHEUS_ABI_VERSION,
     .ports = biquad_ports,
     .port_count = 2,
     .params = biquad_params,
-    .param_count = 5,
+    .param_count = 6,
     .state_size = sizeof(BiquadState),
     .scratch_size = 0,
     .alignment = 8,
@@ -212,6 +222,7 @@ static int biquad_prepare(void* state, const OrpheusConfig* config) {
     s->channels = config->channels > 0 ? config->channels : 2;
 
     const char* type = "lowpass";
+    const char* form = "df2t";
     float fc = 1000.0f;
     float q = 0.707f;
     float gain_db = 0.0f;
@@ -220,6 +231,8 @@ static int biquad_prepare(void* state, const OrpheusConfig* config) {
         if (!config->param_ids[i]) continue;
         if (strcmp(config->param_ids[i], "type") == 0 && config->param_values[i].type == ORPHEUS_VALUE_STRING) {
             type = config->param_values[i].value.str;
+        } else if (strcmp(config->param_ids[i], "form") == 0 && config->param_values[i].type == ORPHEUS_VALUE_STRING) {
+            form = config->param_values[i].value.str;
         } else if (strcmp(config->param_ids[i], "fc") == 0 && config->param_values[i].type == ORPHEUS_VALUE_FLOAT) {
             fc = config->param_values[i].value.f32;
         } else if (strcmp(config->param_ids[i], "q") == 0 && config->param_values[i].type == ORPHEUS_VALUE_FLOAT) {
@@ -233,24 +246,25 @@ static int biquad_prepare(void* state, const OrpheusConfig* config) {
                    &s->b0, &s->b1, &s->b2, &s->a1, &s->a2);
     strncpy(s->type, type, sizeof(s->type) - 1);
     s->type[sizeof(s->type) - 1] = '\0';
+    /* 结构选择：df1=传统直接 I 型；其他（含未知值）回退 df2t（直接 II 型转置，滚动） */
+    if (form != NULL && strcmp(form, "df1") == 0) {
+        strncpy(s->form, "df1", sizeof(s->form) - 1);
+    } else {
+        strncpy(s->form, "df2t", sizeof(s->form) - 1);
+    }
+    s->form[sizeof(s->form) - 1] = '\0';
     s->fc = fc;
     s->q = q;
     s->gain_db = gain_db;
 
-    for (uint32_t ch = 0; ch < MAX_CHANNELS; ++ch) {
-        s->z1[ch] = 0.0f;
-        s->z2[ch] = 0.0f;
-    }
+    biquad_clear_history(s);
 
     return ORPHEUS_OK;
 }
 
 static int biquad_reset(void* state) {
     BiquadState* s = (BiquadState*)state;
-    for (uint32_t ch = 0; ch < MAX_CHANNELS; ++ch) {
-        s->z1[ch] = 0.0f;
-        s->z2[ch] = 0.0f;
-    }
+    biquad_clear_history(s);
     return ORPHEUS_OK;
 }
 
@@ -267,17 +281,9 @@ static int biquad_process(void* state, const OrpheusProcessContext* ctx) {
     float* out_data = (float*)out->data;
 
     for (uint32_t c = 0; c < ch; ++c) {
-        float z1 = s->z1[c];
-        float z2 = s->z2[c];
         for (uint32_t n = 0; n < frames; ++n) {
-            float x = in_data[n * ch + c];
-            float y = s->b0 * x + s->b1 * z1 + s->b2 * z2 - s->a1 * z1 - s->a2 * z2;
-            z2 = z1;
-            z1 = y;
-            out_data[n * ch + c] = y;
+            out_data[n * ch + c] = biquad_tick(s, c, in_data[n * ch + c]);
         }
-        s->z1[c] = z1;
-        s->z2[c] = z2;
     }
 
     out->frame_count = frames;
@@ -315,6 +321,9 @@ static int biquad_register_slots(void* state, const OrpheusRegistry* reg) {
     ORPHEUS_REG_SLOT(reg, s, gain_db, ORPHEUS_SLOT_SETTING, "gain_db", "增益",
                      ORPHEUS_VALUE_FLOAT, .min_f32=-24.0f, .max_f32=24.0f, .unit="dB",
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, form, ORPHEUS_SLOT_SETTING, "form", "滤波结构",
+                     ORPHEUS_VALUE_STRING, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
                      ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,

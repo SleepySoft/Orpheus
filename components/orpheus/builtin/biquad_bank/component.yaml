@@ -1,7 +1,7 @@
 id: orpheus.builtin.biquad_bank
 name: 双二阶滤波器组
 category: 高级/滤波器组
-version: 1.0.0
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: BiquadBankState
@@ -70,6 +70,15 @@ parameters:
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
+  - id: form
+    name: 滤波结构
+    type: string
+    default: df2t
+    widget: select
+    options:
+      - {value: df2t, label: "DF-II 转置（滚动，推荐）"}
+      - {value: df1, label: "DF-I（传统直接 I 型）"}
+    update_policy: restart_required
 bulk_slots:
   - id: bq0.coefs
     name: 第 1 段系数
