@@ -1,6 +1,6 @@
 id: orpheus.builtin.spatial_enhancer
 name: 空间增强
-category: 音效算法
+category: 音效/空间与声像
 description: 同帧 M/S 空间增强：width=侧声展宽、air=侧声高通清亮、mono_mix=单声兼容；无时域延迟故无梳状/错位
 version: 1.0.0
 abi_version: 1

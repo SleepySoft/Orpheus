@@ -1,6 +1,6 @@
 id: orpheus.builtin.delay_line
 name: 多通道独立延迟线
-category: 基础算法
+category: 高级/滤波器组
 description: 每通道独立延迟样本数，支持 BULK 写入每通道延迟
 version: 1.0.0
 abi_version: 1

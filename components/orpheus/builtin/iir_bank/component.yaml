@@ -1,6 +1,6 @@
 id: orpheus.builtin.iir_bank
 name: N级IIR滤波器组
-category: 基础算法
+category: 高级/滤波器组
 description: 可配置级数的级联双二阶IIR滤波器组，BULK系数直写，pooliir软件近似
 version: 1.0.0
 abi_version: 1

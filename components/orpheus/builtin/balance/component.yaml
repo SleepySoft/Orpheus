@@ -1,6 +1,6 @@
 id: orpheus.builtin.balance
 name: 左右平衡
-category: 音效算法
+category: 音效/空间与声像
 description: 左右平衡增益斜坡（偶数通道=左 奇数通道=右），balance=-1 全左 +1 全右
 version: 1.0.0
 abi_version: 1

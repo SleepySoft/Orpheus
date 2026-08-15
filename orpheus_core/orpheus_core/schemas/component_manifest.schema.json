@@ -6,7 +6,8 @@
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$" },
     "name": { "type": "string", "description": "Human-readable display name (UI palette)" },
-    "category": { "type": "string", "description": "Palette category, e.g. 基础算法/通道路由/设备" },
+    "category": { "type": "string", "description": "Palette category path, '/'-separated levels, e.g. 基础/滤波 or 高级/频域" },
+    "order": { "type": "integer", "description": "叶内排序权重（小的在前，缺省按名字排）；用于基础桶的教学顺序" },
     "description": { "type": "string" },
     "version": { "type": "string" },
     "abi_version": { "type": "integer", "minimum": 1 },

@@ -1,6 +1,6 @@
 id: orpheus.builtin.psd
 name: 功率谱估计
-category: 监控工具
+category: 高级/估计与统计
 description: 自功率谱估计（逐块 FFT + 指数平滑），spectrum readback 供 UI 频谱曲线；音频直通
 version: 1.0.0
 abi_version: 1

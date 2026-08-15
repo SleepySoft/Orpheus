@@ -1,6 +1,6 @@
 id: orpheus.builtin.platform_hook
 name: 平台资源钩子
-category: 平台
+category: 平台/平台
 description: 声明式平台集成节点：不参与运行时执行，生成 init/read/write 钩子（USER CODE 填充），供用户程序引用（如 amixer/通信/传感器）
 version: 1.0.0
 abi_version: 1

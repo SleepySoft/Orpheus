@@ -1,6 +1,6 @@
 id: orpheus.builtin.noise_detector
 name: 噪声检测(单端)
-category: 监测工具
+category: 高级/噪声检测
 description: 单端输入：频谱平坦度(噪声类/类音) + 宽带噪声底 + 时域突刺计数 + 削波占比；直通输出，readback 上报 flatness/noise_floor_db/clicks/clip_pct
 version: 1.0.0
 abi_version: 1

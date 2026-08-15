@@ -1,6 +1,6 @@
 id: orpheus.builtin.output_router
 name: 输出路由
-category: 通道路由
+category: 基础/路由
 description: 矩阵混音路由，按增益矩阵将输入混音到输出（matrix 为行优先逗号分隔增益，identity=对角直通）
 version: 1.0.0
 abi_version: 1

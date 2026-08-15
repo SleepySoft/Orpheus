@@ -1,6 +1,7 @@
 id: orpheus.builtin.signal_gen
 name: 信号发生器
-category: 信号源
+category: 基础/信号源
+order: 1
 version: 1.0.0
 abi_version: 1
 package_type: source

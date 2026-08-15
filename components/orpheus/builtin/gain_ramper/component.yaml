@@ -1,6 +1,6 @@
 id: orpheus.builtin.gain_ramper
 name: 多通道增益斜坡器
-category: 基础算法
+category: 高级/滤波器组
 description: 多通道指数增益斜坡（dB 域恒定速率），通道->ramper 映射，SleepingBeauty/Fade/Mute 共享基座
 version: 1.0.0
 abi_version: 1

@@ -1,6 +1,6 @@
 id: orpheus.builtin.rfft
 name: 实数FFT
-category: 基础算法
+category: 高级/频域
 description: 实数FFT（半复数格式输出），默认 FFT 点数=块长。可设置 fft_size 将输入块拆分为多帧处理，并选择输出为 magnitude/power。
 version: 1.0.0
 abi_version: 1

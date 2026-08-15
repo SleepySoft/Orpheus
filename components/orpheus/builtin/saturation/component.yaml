@@ -1,6 +1,6 @@
 id: orpheus.builtin.saturation
 name: 饱和限幅
-category: 音效算法
+category: 音效/动态与塑形
 description: 饱和限幅（limit 上限，soft=0 硬削波 / 1 软饱和曲线）
 version: 1.0.0
 abi_version: 1

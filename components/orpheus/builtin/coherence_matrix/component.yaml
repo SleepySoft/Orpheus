@@ -1,6 +1,6 @@
 id: orpheus.builtin.coherence_matrix
 name: 相干矩阵
-category: 监控工具
+category: 高级/估计与统计
 description: 多通道相干矩阵估计（逐块 FFT + 交叉功率谱 EMA，通道间相干平均谱 → N×N 矩阵 readback），音频直通
 version: 1.0.0
 abi_version: 1

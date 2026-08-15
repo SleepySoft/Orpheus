@@ -1,6 +1,6 @@
 id: orpheus.builtin.midrange
 name: 中音
-category: 音效算法
+category: 音效/音调
 description: 二阶带通搁架音调控制（Direct Form II Transposed + 增益斜坡），gain_db=0 平直
 version: 1.0.0
 abi_version: 1

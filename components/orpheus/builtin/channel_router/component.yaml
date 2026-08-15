@@ -1,6 +1,6 @@
 id: orpheus.builtin.channel_router
 name: 通道索引路由
-category: 通道路由
+category: 基础/路由
 description: 按索引表将输入通道映射到输出通道，支持补零/静音（indices 为 0-based 逗号分隔，越界或 -1 置零）
 version: 1.0.0
 abi_version: 1

@@ -1,6 +1,7 @@
 id: orpheus.builtin.sweep_gen
 name: 扫频发生器
-category: 信号源
+category: 基础/信号源
+order: 2
 version: 1.0.0
 abi_version: 1
 package_type: source

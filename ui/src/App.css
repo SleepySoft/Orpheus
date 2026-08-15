@@ -463,6 +463,15 @@
   cursor: default;
 }
 
+.palette-category-header.sub {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6c757d;
+  border-bottom: 1px dashed #e9ecef;
+  padding: 3px 4px;
+  margin-bottom: 4px;
+}
+
 .palette-caret {
   font-size: 9px;
   color: #868e96;

@@ -1,6 +1,7 @@
 id: orpheus.builtin.gain
 name: 增益
-category: 基础算法
+category: 基础/增益与混音
+order: 1
 version: 1.0.0
 abi_version: 1
 package_type: source

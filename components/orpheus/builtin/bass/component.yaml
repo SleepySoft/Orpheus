@@ -1,6 +1,6 @@
 id: orpheus.builtin.bass
 name: 低音
-category: 音效算法
+category: 音效/音调
 description: 一阶低频搁架音调控制（直通+增益*低通），增益斜坡平滑，gain_db=0 平直
 version: 1.0.0
 abi_version: 1

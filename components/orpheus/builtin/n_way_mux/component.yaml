@@ -1,6 +1,6 @@
 id: orpheus.builtin.n_way_mux
 name: N路选择
-category: 通道路由
+category: 基础/路由
 description: N 路输入选 1 路输出。输入路数由 inputs 决定（引脚 in0..inN-1）；select 选第几路（1 起），切换时按 ramp_ms 线性交叉淡化，无咔哒声
 version: 1.1.0
 abi_version: 1

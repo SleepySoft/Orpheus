@@ -1,6 +1,6 @@
 id: orpheus.builtin.ifft
 name: 实数IFFT
-category: 基础算法
+category: 高级/频域
 description: 实数IFFT（半复数格式输入），FFT点数=块长，输出实数时域信号
 version: 1.0.0
 abi_version: 1

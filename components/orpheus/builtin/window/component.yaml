@@ -1,6 +1,6 @@
 id: orpheus.builtin.window
 name: 窗函数
-category: 基础算法
+category: 高级/频域
 description: 按系数数组逐样本加权（每块从头应用，超窗长部分直通；repeat 模式按 window_size 周期重复），系数为 BULK
 version: 1.0.0
 abi_version: 1

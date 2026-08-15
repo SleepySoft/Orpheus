@@ -1,6 +1,6 @@
 id: orpheus.builtin.square
 name: 平方器
-category: 基础算法
+category: 高级/估计与统计
 description: 逐样本平方 y=x²（功率 / PSD / 相干计算用）
 version: 1.0.0
 abi_version: 1

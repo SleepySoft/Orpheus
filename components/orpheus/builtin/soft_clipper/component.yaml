@@ -1,6 +1,6 @@
 id: orpheus.builtin.soft_clipper
 name: 软削波
-category: 音效算法
+category: 音效/动态与塑形
 description: tanh 软削波（drive 控制输入增益，小信号近似线性，大信号饱和）
 version: 1.0.0
 abi_version: 1

@@ -1,6 +1,6 @@
 id: orpheus.builtin.biquad_bank
 name: 双二阶滤波器组
-category: 基础算法
+category: 高级/滤波器组
 version: 1.0.0
 abi_version: 1
 package_type: source

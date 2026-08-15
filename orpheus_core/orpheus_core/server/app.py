@@ -128,6 +128,7 @@ def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
         "package_type": info.package_type,
         "name": m.get("name", info.id),
         "category": m.get("category", "未分类"),
+        "order": m.get("order", 0),
         "description": m.get("description", ""),
         "clock_source": m.get("clock_source", False),
         "ports": m.get("ports", []),

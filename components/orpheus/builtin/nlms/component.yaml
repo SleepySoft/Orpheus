@@ -1,6 +1,6 @@
 id: orpheus.builtin.nlms
 name: 归一化最小均方
-category: 基础算法
+category: 高级/自适应与降噪
 description: 归一化最小均方（NLMS）自适应滤波器，逐样本用参考信号 ref 逼近误差信号 err，输出 y = w^T x。支持泄漏更新与逐通道独立系数。
 version: 1.0.0
 abi_version: 1

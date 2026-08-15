@@ -1,6 +1,7 @@
 id: orpheus.builtin.mp3_in
 name: MP3 文件输入
-category: 文件
+category: 基础/文件
+order: 3
 version: 1.0.0
 abi_version: 1
 package_type: source

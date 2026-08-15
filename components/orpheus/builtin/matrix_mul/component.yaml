@@ -1,6 +1,6 @@
 id: orpheus.builtin.matrix_mul
 name: 矩阵乘法
-category: 基础算法
+category: 高级/矩阵与混音
 description: 矩阵乘音频块（out[rows] = M(rows×cols) · in[cols]，M 为 BULK 系数）
 version: 1.0.0
 abi_version: 1

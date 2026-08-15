@@ -1,6 +1,7 @@
 id: orpheus.builtin.probe_waveform
 name: 波形监视器
-category: 监控工具
+category: 基础/监控
+order: 3
 version: 1.0.0
 abi_version: 1
 package_type: source

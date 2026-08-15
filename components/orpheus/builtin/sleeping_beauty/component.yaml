@@ -1,6 +1,6 @@
 id: orpheus.builtin.sleeping_beauty
 name: 响度补偿
-category: 音效算法
+category: 音效/动态与塑形
 description: Bose SleepingBeauty 响度补偿算法 - 锥度增益LUT + 非对称L/R平衡锥度 + 4路指数增益斜坡
 version: 1.0.0
 abi_version: 1

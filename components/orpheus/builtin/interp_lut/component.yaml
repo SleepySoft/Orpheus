@@ -1,6 +1,6 @@
 id: orpheus.builtin.interp_lut
 name: 查表插值
-category: 监控工具
+category: 高级/估计与统计
 description: 一维线性插值查表（x_axis/y_axis 为 BULK 表，x 输入 → y 输出 readback + 历史曲线），音频直通
 version: 1.0.0
 abi_version: 1

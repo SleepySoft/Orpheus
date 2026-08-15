@@ -1,6 +1,6 @@
 id: orpheus.builtin.anc_fxlms
 name: 主动降噪(FxLMS)
-category: 自适应算法
+category: 高级/自适应与降噪
 description: 前馈 FxLMS（Filtered-x最小均方）主动降噪：外部参考麦 x + 误差麦 d 进，输出反相抵消信号 -y；自适应滤波器学习期望消除的反相信号，报告 noise_reduction_db。
 version: 1.0.0
 abi_version: 1

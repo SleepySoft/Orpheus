@@ -1,6 +1,6 @@
 id: orpheus.builtin.input_mixer_3d
 name: 3D输入混音器
-category: 基础算法
+category: 高级/矩阵与混音
 description: 加权矩阵混音器（输入通道->输出通道），BULK权重直写，覆盖InputMixer3D/DownmixToStereo
 version: 1.0.0
 abi_version: 1

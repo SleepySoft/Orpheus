@@ -1,5 +1,5 @@
 # 变号(取反相) 组件说明
-> 组件 ID `orpheus.builtin.negate` · 类型：基础算法，`out = -in`
+> 组件 ID `orpheus.builtin.negate` · 类型：基础/增益与混音，`out = -in`
 > 用于主动降噪等需要“取反相抵消信号”的场景。
 
 ## 1. 原理

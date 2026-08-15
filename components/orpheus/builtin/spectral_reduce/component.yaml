@@ -1,6 +1,6 @@
 id: orpheus.builtin.spectral_reduce
 name: 谱减聚合
-category: 基础算法
+category: 高级/频域
 description: 对每通道 STFT 功率/幅度谱做帧内/块内聚合，输出每通道单一标量并广播到整个输出块。支持 sum/mean/min/max。
 version: 1.0.0
 abi_version: 1

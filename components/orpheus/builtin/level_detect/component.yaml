@@ -1,6 +1,7 @@
 id: orpheus.builtin.level_detect
 name: 电平检测
-category: 监控工具
+category: 基础/监控
+order: 5
 description: 峰值/RMS 包络检测（attack/release 平滑），电平经探针 readback 上报，音频直通
 version: 1.0.0
 abi_version: 1

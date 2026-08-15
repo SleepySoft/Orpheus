@@ -1,6 +1,6 @@
 id: orpheus.builtin.sine_mod
 name: 正弦调制器
-category: 音效算法
+category: 音效/调制
 description: AM/颤音调制 y=x·(1+depth·sin(2πft))，频率/深度可实时调
 version: 1.0.0
 abi_version: 1

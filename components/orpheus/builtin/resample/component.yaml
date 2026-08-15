@@ -1,6 +1,6 @@
 id: orpheus.builtin.resample
 name: 降采样器
-category: 速率变换
+category: 高级/多速率
 description: 整数倍降采样（N:1，滑动平均抗混叠）：输入每 N 个样本输出 1 个，下游按分频调度执行
 version: 1.0.0
 abi_version: 1

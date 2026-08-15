@@ -943,3 +943,30 @@
 
 ### 验证
 - `pytest orpheus_core/tests/` → **141 passed, 1 skipped**（全量回归）。
+
+## 2026-08-14 组件分类重构：多级目录 + 顶层四分桶
+
+### 背景
+组件增至 67 个，平级分类（且「监控工具/监测工具」重复分裂）不好找；叶内按名字自然排序不可控。
+
+### 设计
+- `category` 改为 **'/' 分隔的多级路径**（如 `基础/滤波`、`高级/频域`），schema 零改动（本来就是自由字符串），UI 递归建树、深度不限。
+- 顶层四分桶：**基础**（常用/教学 28）→ **音效**（听感处理 12）→ **高级**（公司/商业项目 24）→ **平台**（3），UI 顶层固定此顺序，更深层按中文名排。
+- 新增可选 manifest 字段 `order`（int，叶内排序权重，0=未指定排最后），用于基础桶教学顺序（gain→mixer→mute→switch→negate 等）。
+- 合并重复分类：监测工具（噪声检测三件）→ `高级/噪声检测`；监控工具 → `基础/监控`。
+
+### 改动
+- 67 个 `component.yaml` 的 category 批量改写（一次性脚本，仅触 category/order 行，保留其余格式）。
+- schema 增加 `order` 字段定义；`_component_to_dict` 透传 `order`。
+- `ui/src/Palette.js` 重写为递归树：顶层 TOP_ORDER，深层 localeCompare(zh)，叶内 (order, name)；每层可折叠、聚合计数；搜索平铺不变且分类路径参与模糊匹配。
+- `test_components_have_chinese_name_and_category` 增强：断言多级路径且顶层在约定集合内。
+- SKILL/references/write-component.md 分类注释同步。
+
+### 验证
+- `npm run build` 通过（顺带补齐缺失的 react-markdown 依赖安装）。
+- `pytest orpheus_core/tests/` 全绿。
+- `/api/components` 实测返回新路径分类与 order 字段。
+
+### 说明
+- 后端（registry/compiler）对 category 无感知，纯 UI 展示层语义。
+- 用户自定义组件分类不受约束（测试仅覆盖公共库扫描结果）。

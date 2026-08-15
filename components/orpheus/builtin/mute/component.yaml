@@ -1,6 +1,7 @@
 id: orpheus.builtin.mute
 name: 静音
-category: 音效算法
+category: 基础/增益与混音
+order: 3
 description: 增益斜坡静音（0=正常 1=静音），平滑过渡消除咔哒声
 version: 1.0.0
 abi_version: 1

@@ -2,14 +2,83 @@ import React, { useMemo, useState } from 'react';
 import { subCatalogEntry } from './graphUtils';
 import { fuzzyMatch } from './fuzzy';
 
-// preferred display order for categories; unknown ones go last
-const CATEGORY_ORDER = ['信号源', '基础算法', '通道路由', '文件', '设备', '监控工具'];
+// preferred display order for top-level categories; unknown ones go last (alphabetical)
+const TOP_ORDER = ['基础', '音效', '高级', '平台'];
 
-function categorySort(a, b) {
-  const ia = CATEGORY_ORDER.indexOf(a);
-  const ib = CATEGORY_ORDER.indexOf(b);
+function topSort(a, b) {
+  const ia = TOP_ORDER.indexOf(a);
+  const ib = TOP_ORDER.indexOf(b);
   if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
   return a.localeCompare(b, 'zh');
+}
+
+// 叶内排序：manifest order 字段小的在前（0=未指定排最后），同级按中文名
+function leafSort(a, b) {
+  const oa = a.order || 0;
+  const ob = b.order || 0;
+  if (oa !== ob) return (oa === 0 ? 999 : oa) - (ob === 0 ? 999 : ob);
+  // 递归渲染分类树：顶层按 TOP_ORDER，更深层按中文名；叶内按 order/名字
+  const renderNode = (node, path, depth) => {
+    const sorter = depth === 0 ? topSort : (a, b) => a.localeCompare(b, 'zh');
+    const kids = [...node.children.values()].sort((a, b) => sorter(a.name, b.name));
+    const items = [...node.items].sort(leafSort);
+    return (
+      <React.Fragment key={path}>
+        {kids.map((ch) => {
+          const cp = path ? `${path}/${ch.name}` : ch.name;
+          const count = countItems(ch);
+          return (
+            <div key={cp} className="palette-category">
+              <div
+                className={`palette-category-header${depth > 0 ? ' sub' : ''}`}
+                style={depth > 0 ? { marginLeft: depth * 10 } : undefined}
+                onClick={() => toggle(cp)}
+              >
+                <span className="palette-caret">{collapsed[cp] ? '▶' : '▼'}</span>
+                {ch.name}
+                <span className="palette-count">{count}</span>
+              </div>
+              {!collapsed[cp] && renderNode(ch, cp, depth + 1)}
+            </div>
+          );
+        })}
+        {items.length > 0 && (
+          <div style={depth > 0 ? { marginLeft: depth * 10 } : undefined}>
+            {items.map((c) => renderItem(c))}
+          </div>
+        )}
+      </React.Fragment>
+    );
+  };
+
+  return (a.name || a.id).localeCompare(b.name || b.id, 'zh');
+}
+
+// category 为 '/' 分隔的多级路径（如 基础/滤波），递归建树，深度不限
+function buildTree(components) {
+  const root = { name: '', children: new Map(), items: [] };
+  for (const c of components) {
+    const segs = (c.category || '未分类').split('/').map((s) => s.trim()).filter(Boolean);
+    let node = root;
+    for (const seg of segs) {
+      if (!node.children.has(seg)) node.children.set(seg, { name: seg, children: new Map(), items: [] });
+      node = node.children.get(seg);
+    }
+    node.items.push(c);
+  }
+  return root;
+}
+
+function countItems(node) {
+  let n = node.items.length;
+  for (const ch of node.children.values()) n += countItems(ch);
+  return n;
+}
+
+function flattenItems(node) {
+  let out = [...node.items];
+  for (const ch of node.children.values()) out = out.concat(flattenItems(ch));
+  return out;
 }
 
 /** Left-hand palette: project subcomponents + category tree of global components. */
@@ -17,35 +86,27 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
   const [collapsed, setCollapsed] = useState({});
   const [query, setQuery] = useState('');
 
-  const byCategory = useMemo(() => {
-    const m = new Map();
-    for (const c of components) {
-      const cat = c.category || '未分类';
-      if (!m.has(cat)) m.set(cat, []);
-      m.get(cat).push(c);
-    }
-    return [...m.entries()].sort((a, b) => categorySort(a[0], b[0]));
-  }, [components]);
+  const tree = useMemo(() => buildTree(components), [components]);
 
   const onDragStart = (event, componentId) => {
     event.dataTransfer.setData('application/orpheus-component', componentId);
     event.dataTransfer.effectAllowed = 'move';
   };
 
-  const toggle = (cat) => setCollapsed((prev) => ({ ...prev, [cat]: !prev[cat] }));
+  const toggle = (path) => setCollapsed((prev) => ({ ...prev, [path]: !prev[path] }));
 
-  // 模糊搜索：中文显示名 / 英文 id / 描述均参与匹配；命中时平铺展示结果
+  // 模糊搜索：中文显示名 / 英文 id / 分类路径 / 描述均参与匹配；命中时平铺展示结果
   const flat = useMemo(
     () => [
       ...subsMeta.map((s) => ({ item: subCatalogEntry(s), deletable: true, sub: true })),
-      ...byCategory.flatMap(([, items]) => items.map((c) => ({ item: c, deletable: false }))),
+      ...flattenItems(tree).map((c) => ({ item: c, deletable: false })),
     ],
-    [subsMeta, byCategory]
+    [subsMeta, tree]
   );
   const searching = query.trim().length > 0;
   const results = searching
     ? flat.filter(({ item }) =>
-        fuzzyMatch(query, item.name, item.id, item.description || '')
+        fuzzyMatch(query, item.name, item.id, item.category || '', item.description || '')
       )
     : [];
 
@@ -126,16 +187,7 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
           {subsMeta.map((s) => renderItem(subCatalogEntry(s), true))}
         </div>
       )}
-      {byCategory.map(([cat, items]) => (
-        <div key={cat} className="palette-category">
-          <div className="palette-category-header" onClick={() => toggle(cat)}>
-            <span className="palette-caret">{collapsed[cat] ? '▶' : '▼'}</span>
-            {cat}
-            <span className="palette-count">{items.length}</span>
-          </div>
-          {!collapsed[cat] && items.map((c) => renderItem(c))}
-        </div>
-      ))}
+      {tree.children.size > 0 && renderNode(tree, '', 0)}
       {components.length === 0 && <p className="muted">后端未连接或无组件</p>}
         </>
       )}

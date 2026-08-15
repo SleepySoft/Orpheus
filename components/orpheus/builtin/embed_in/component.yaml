@@ -1,6 +1,6 @@
 id: orpheus.builtin.embed_in
 name: 嵌入输入
-category: 设备
+category: 平台/平台
 platforms: [dsp]
 version: 1.0.0
 abi_version: 1

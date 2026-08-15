@@ -1,6 +1,6 @@
 id: orpheus.builtin.limiter
 name: 峰值限幅
-category: 音效算法
+category: 音效/动态与塑形
 description: 峰值限幅器（共享或每通道 attack/decay/k1/maxAttack）
 version: 1.1.0
 abi_version: 1

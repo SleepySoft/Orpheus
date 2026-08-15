@@ -1,6 +1,6 @@
 id: orpheus.builtin.interleave
 name: 交错器
-category: 通道路由
+category: 基础/路由
 description: 将 N 路单声道输入（in0..inN-1）合并为一路 N 通道交错输出，输入引脚数量随通道数变化；未连接的输入引脚输出静音
 version: 1.0.0
 abi_version: 1

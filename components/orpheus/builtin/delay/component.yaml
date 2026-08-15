@@ -1,6 +1,6 @@
 id: orpheus.builtin.delay
 name: 延迟
-category: 基础算法
+category: 基础/延迟
 version: 1.0.1
 abi_version: 1
 package_type: source

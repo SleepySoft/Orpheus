@@ -1,6 +1,6 @@
 id: orpheus.builtin.fade
 name: 前后衰减
-category: 音效算法
+category: 音效/空间与声像
 description: 频谱分频前后衰减（低频全通、高频按前/后增益斜坡衰减），fade=-1 全后 +1 全前
 version: 1.0.0
 abi_version: 1

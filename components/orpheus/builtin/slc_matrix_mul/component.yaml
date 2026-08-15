@@ -1,6 +1,6 @@
 id: orpheus.builtin.slc_matrix_mul
 name: N表插值斜坡混音矩阵
-category: 基础算法
+category: 高级/矩阵与混音
 description: N 表插值 + 一阶 IIR 斜坡 + 矩阵乘一体化；out[rows] = active(rows*cols) * in[cols]，active 由 N 张增益表按 interp_index 插值后经 IIR 渐变
 version: 1.0.0
 abi_version: 1

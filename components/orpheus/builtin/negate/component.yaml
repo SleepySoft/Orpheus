@@ -1,6 +1,7 @@
 id: orpheus.builtin.negate
 name: 变号
-category: 基础算法
+category: 基础/增益与混音
+order: 5
 description: 反相：out = -in。用于主动降噪等需要取反相抵消信号的场景。
 version: 1.0.0
 abi_version: 1

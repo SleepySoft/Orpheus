@@ -1,6 +1,6 @@
 id: orpheus.builtin.noise_detector_nlms
 name: 噪声检测(NLMS残差)
-category: 监测工具
+category: 高级/噪声检测
 description: 双端 A/B：用 NLMS 自适应滤波器学习 ref→in 的线性路径，残差(in−y)就是非线性失真+添加噪声；readback 上报 residue_db/erle_db/noise_frames/noise_ratio/clicks。
 version: 1.0.0
 abi_version: 1
