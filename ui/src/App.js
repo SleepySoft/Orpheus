@@ -32,6 +32,7 @@ import SubPortsPanel from './SubPortsPanel';
 import ProjectSettings from './ProjectSettings';
 import { NodeActionsContext } from './NodeActionsContext';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import NotesPanel from './NotesPanel';
 
 const nodeTypes = { orpheus: OrpheusNode };
@@ -1622,7 +1623,7 @@ const { screenToFlowPosition } = useReactFlow();
             </div>
             <div className="readme-content">
               {readmeError && <div className="readme-error">{readmeError}</div>}
-              <ReactMarkdown>{readmeContent}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{readmeContent}</ReactMarkdown>
             </div>
           </div>
         </div>

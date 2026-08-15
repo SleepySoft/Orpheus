@@ -2012,6 +2012,29 @@ pre {
   color: #495057;
 }
 
+.readme-content table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 12px;
+  width: 100%;
+}
+
+.readme-content th,
+.readme-content td {
+  border: 1px solid #dee2e6;
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.readme-content th {
+  background: #f1f3f5;
+  font-weight: 600;
+}
+
+.readme-content tr:nth-child(even) td {
+  background: #f8f9fa;
+}
+
 .readme-error {
   background: #fff3bf;
   color: #9a6700;

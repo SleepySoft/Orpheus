@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import * as api from './api';
 
 /** Left-panel project notes editor.
@@ -143,7 +144,7 @@ export default function NotesPanel({ projectName, views, nodeNotes, onNodeNoteCh
         />
       ) : (
         <div className="notes-preview readme-content">
-          <ReactMarkdown>{content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
         </div>
       )}
 
