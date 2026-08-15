@@ -17,40 +17,6 @@ function leafSort(a, b) {
   const oa = a.order || 0;
   const ob = b.order || 0;
   if (oa !== ob) return (oa === 0 ? 999 : oa) - (ob === 0 ? 999 : ob);
-  // 递归渲染分类树：顶层按 TOP_ORDER，更深层按中文名；叶内按 order/名字
-  const renderNode = (node, path, depth) => {
-    const sorter = depth === 0 ? topSort : (a, b) => a.localeCompare(b, 'zh');
-    const kids = [...node.children.values()].sort((a, b) => sorter(a.name, b.name));
-    const items = [...node.items].sort(leafSort);
-    return (
-      <React.Fragment key={path}>
-        {kids.map((ch) => {
-          const cp = path ? `${path}/${ch.name}` : ch.name;
-          const count = countItems(ch);
-          return (
-            <div key={cp} className="palette-category">
-              <div
-                className={`palette-category-header${depth > 0 ? ' sub' : ''}`}
-                style={depth > 0 ? { marginLeft: depth * 10 } : undefined}
-                onClick={() => toggle(cp)}
-              >
-                <span className="palette-caret">{collapsed[cp] ? '▶' : '▼'}</span>
-                {ch.name}
-                <span className="palette-count">{count}</span>
-              </div>
-              {!collapsed[cp] && renderNode(ch, cp, depth + 1)}
-            </div>
-          );
-        })}
-        {items.length > 0 && (
-          <div style={depth > 0 ? { marginLeft: depth * 10 } : undefined}>
-            {items.map((c) => renderItem(c))}
-          </div>
-        )}
-      </React.Fragment>
-    );
-  };
-
   return (a.name || a.id).localeCompare(b.name || b.id, 'zh');
 }
 
@@ -159,6 +125,40 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
       )}
     </div>
   );
+
+  // 递归渲染分类树：顶层按 TOP_ORDER，更深层按中文名；叶内按 order/名字
+  const renderNode = (node, path, depth) => {
+    const sorter = depth === 0 ? topSort : (a, b) => a.localeCompare(b, 'zh');
+    const kids = [...node.children.values()].sort((a, b) => sorter(a.name, b.name));
+    const items = [...node.items].sort(leafSort);
+    return (
+      <React.Fragment key={path}>
+        {kids.map((ch) => {
+          const cp = path ? `${path}/${ch.name}` : ch.name;
+          const count = countItems(ch);
+          return (
+            <div key={cp} className="palette-category">
+              <div
+                className={`palette-category-header${depth > 0 ? ' sub' : ''}`}
+                style={depth > 0 ? { marginLeft: depth * 10 } : undefined}
+                onClick={() => toggle(cp)}
+              >
+                <span className="palette-caret">{collapsed[cp] ? '▶' : '▼'}</span>
+                {ch.name}
+                <span className="palette-count">{count}</span>
+              </div>
+              {!collapsed[cp] && renderNode(ch, cp, depth + 1)}
+            </div>
+          );
+        })}
+        {items.length > 0 && (
+          <div style={depth > 0 ? { marginLeft: depth * 10 } : undefined}>
+            {items.map((c) => renderItem(c))}
+          </div>
+        )}
+      </React.Fragment>
+    );
+  };
 
   return (
     <div className="palette">
