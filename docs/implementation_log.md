@@ -970,3 +970,17 @@
 ### 说明
 - 后端（registry/compiler）对 category 无感知，纯 UI 展示层语义。
 - 用户自定义组件分类不受约束（测试仅覆盖公共库扫描结果）。
+
+## 2026-08-15 signal_gen 增加 duration_s（离线运行时长可控）
+
+### 背景
+用户困惑「信号发生器跑一下就退出」。组件本身连续发声，退出是离线宿主的停止判据：有 wav/mp3 输入按文件全长、有 sweep_gen/sweep_record 按其 duration_s、否则固定 10s。signal_gen 没有时长参数，纯信号发生器图只能跑默认 10s。
+
+### 改动
+- `signal_gen` manifest 新增 `duration_s`（float，默认 10.0，0=宿主默认 10s）：**yaml-only 参数**，组件不消费（它连续发声），编译器据此写入 `plan.duration_frames`。
+- `compiler.py` 时长推断从 sweep_gen/sweep_record 扩展到 signal_gen。
+- 图中有 wav/mp3 输入时仍以文件全长为准（宿主优先级不变）；想无限连续听用实时运行（device_out）。
+- README 说明；test_clock_rate 新增 2 项（duration_s 驱动 plan 时长 / 0 回退）。
+
+### 验证
+- 编译级单测通过；端到端：duration_s=3.0 → wav_out 精确 144000 帧（3.0s @48k）。

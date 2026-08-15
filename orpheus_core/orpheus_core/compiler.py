@@ -444,11 +444,12 @@ class GraphCompiler:
                 },
             }
 
-        # 离线运行时长：无文件输入时，宿主按纯时钟源（扫频发生器/记录）的时长跑，
-        # 否则固定 10s 会截断长扫频（60s 只跑 10s，或跟着 1s 的 wav 只跑 1s）。
+        # 离线运行时长：无文件输入时，宿主按时钟源声明的时长跑（信号发生器/扫频发生器/扫频记录
+        # 的 duration_s），否则固定 10s 会截断长信号（60s 只跑 10s，或跟着 1s 的 wav 只跑 1s）。
         max_dur = 0.0
         for cfg in plan.node_configs.values():
-            if cfg["component"] in ("orpheus.builtin.sweep_gen", "orpheus.builtin.sweep_record"):
+            if cfg["component"] in ("orpheus.builtin.sweep_gen", "orpheus.builtin.sweep_record",
+                                    "orpheus.builtin.signal_gen"):
                 try:
                     d = float(cfg["params"].get("duration_s", 0.0) or 0.0)
                 except (TypeError, ValueError):

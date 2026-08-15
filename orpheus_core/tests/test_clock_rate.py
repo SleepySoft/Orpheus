@@ -510,3 +510,26 @@ graph:
         finally:
             client.delete(f"/api/projects/{name}")
 
+
+
+# ------------------------------------------------------------------ offline duration inference
+
+
+def test_signal_gen_duration_s_drives_plan_duration(compiler):
+    """signal_gen 的 duration_s 决定离线宿主运行时长（无文件输入时）。"""
+    node = Node(id="s", component="orpheus.builtin.signal_gen",
+                params={"frequency": 440.0, "amplitude": 0.5, "channels": 1,
+                        "duration_s": 30.0})
+    sink = Node(id="k", component="orpheus.builtin.null_sink", params={"channels": 1})
+    plan = compiler.compile(make_project([node, sink], [conn("s:out", "k:in")]))
+    assert plan.duration_frames == int(30.0 * plan.sample_rate + 0.5)
+
+
+def test_signal_gen_duration_zero_falls_back(compiler):
+    """duration_s=0 不接管时长，宿主回退默认 10s（plan.duration_frames=0）。"""
+    node = Node(id="s", component="orpheus.builtin.signal_gen",
+                params={"frequency": 440.0, "amplitude": 0.5, "channels": 1,
+                        "duration_s": 0.0})
+    sink = Node(id="k", component="orpheus.builtin.null_sink", params={"channels": 1})
+    plan = compiler.compile(make_project([node, sink], [conn("s:out", "k:in")]))
+    assert plan.duration_frames == 0

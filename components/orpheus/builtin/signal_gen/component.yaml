@@ -40,6 +40,15 @@ parameters:
     default: 0.5
     range: [0.0, 1.0]
     update_policy: smoothed
+  - id: duration_s
+    name: 运行时长
+    type: float
+    default: 10.0
+    range: [0.0, 3600.0]
+    unit: s
+    update_policy: restart_required
+    # yaml-only：编译器据此推导离线运行时长（plan.duration_frames）；组件自身连续发声不消费它。
+    # 0=跟随宿主默认（10s）；图中有 wav/mp3 输入时以文件全长为准。想一直跑请用实时运行（device_out）。
   - id: channels
     name: 通道数
     type: int
