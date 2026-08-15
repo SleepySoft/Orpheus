@@ -2,7 +2,7 @@ id: orpheus.builtin.wav_in
 name: WAV 文件输入
 category: 基础/文件
 order: 1
-version: 1.0.0
+version: 1.0.1
 abi_version: 1
 package_type: source
 state_type: WavInState

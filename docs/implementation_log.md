@@ -984,3 +984,17 @@
 
 ### 验证
 - 编译级单测通过；端到端：duration_s=3.0 → wav_out 精确 144000 帧（3.0s @48k）。
+
+## 2026-08-15 组件小修四项（README 补全时发现）
+
+1. **window v1.0.1**：描述符 `param_count` 3→4（`mode` 参数此前不在静态参数表，仅靠 register_slots 暴露）。
+2. **noise_slew v1.0.1**：prepare 钳制 `channels ≤ 32`（`prev[32]` 定长数组，此前靠 manifest range 兜底，代码层会越界写）。
+3. **wav_in v1.0.1**：注释纠错——通道不足时实际是重复第 0 通道而非"补零"。
+4. **wav_in / mp3_in 容量口径统一**：均为 16M **帧**、超限**启动报错**（wav_in 原按"跨通道合计样本"计；mp3_in 原静默截断）。README 已同步。
+
+验证：`cli build` 通过；pytest 全绿。
+
+### biquad 递推结构确认为非标准（未修，见分析报告）
+process 用输出历史 z1/z2 同时充当零点与极点递推：`y = b0·x + (b1−a1)·y₁ + (b2−a2)·y₂`，
+缺 b1·x₁/b2·x₂ 前馈项（奈奎斯特处两个零点丢失），频响与 RBJ 设计值偏差显著
+（1kHz 低通实测 fc 处 -16.3dB vs 标准 -3dB）。biquad_bank 复用同一结构。待用户决策后修。

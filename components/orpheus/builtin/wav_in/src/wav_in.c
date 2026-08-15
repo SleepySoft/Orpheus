@@ -8,7 +8,7 @@
 #include <windows.h>
 #endif
 
-#define WAV_IN_MAX_SAMPLES (1024 * 1024 * 16) /* 16M samples limit for basic version */
+#define WAV_IN_MAX_FRAMES (1024 * 1024 * 16) /* 16M 帧上限（与 mp3_in 口径一致） */
 
 #ifdef _WIN32
 /* Windows 窄 fopen 按 ANSI 代码页解释路径，UTF-8 中文文件名打不开，
@@ -64,7 +64,7 @@ static const OrpheusPort wav_in_ports[] = {
 
 static const OrpheusComponentDescriptor wav_in_descriptor = {
     .id = "orpheus.builtin.wav_in",
-    .version = "1.0.0",
+    .version = "1.0.1",
     .abi_version = ORPHEUS_ABI_VERSION,
     .ports = wav_in_ports,
     .port_count = 1,
@@ -119,7 +119,7 @@ static int wav_read_file(const char* path, float** out_samples, uint32_t* out_to
     uint32_t total_samples = data_size / bytes_per_sample;
     uint32_t total_frames = total_samples / file_channels;
 
-    if (total_samples > WAV_IN_MAX_SAMPLES) {
+    if (total_frames > WAV_IN_MAX_FRAMES) {
         fclose(f);
         return ORPHEUS_ERR_INVALID_ARG;
     }
@@ -165,7 +165,7 @@ static int wav_read_file(const char* path, float** out_samples, uint32_t* out_to
 
     free(raw);
 
-    /* 如果文件通道数与目标不同，简单映射或补零 */
+    /* 文件通道数与目标不一致时做简单映射：不足则重复第 0 通道，超出则丢弃 */
     if (file_channels != channels) {
         float* remapped = (float*)malloc(total_frames * channels * sizeof(float));
         if (!remapped) {

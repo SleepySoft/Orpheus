@@ -64,8 +64,8 @@ static const OrpheusPort win_ports[] = {
 };
 
 static const OrpheusComponentDescriptor win_descriptor = {
-    .id = "orpheus.builtin.window", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = win_ports, .port_count = 2, .params = win_params, .param_count = 3,
+    .id = "orpheus.builtin.window", .version = "1.0.1", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = win_ports, .port_count = 2, .params = win_params, .param_count = 4,
     .state_size = sizeof(WindowState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = true
 };

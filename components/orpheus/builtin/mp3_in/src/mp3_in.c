@@ -77,7 +77,7 @@ static const OrpheusPort mp3_in_ports[] = {
 
 static const OrpheusComponentDescriptor mp3_in_descriptor = {
     .id = "orpheus.builtin.mp3_in",
-    .version = "1.0.0",
+    .version = "1.0.1",
     .abi_version = ORPHEUS_ABI_VERSION,
     .ports = mp3_in_ports,
     .port_count = 1,
@@ -157,10 +157,17 @@ static int mp3_in_prepare(void* state, const OrpheusConfig* config) {
     }
 
     uint32_t total = 0;
+    int overflow = 0;
     for (;;) {
         uint32_t want = MP3_IN_READ_CHUNK;
         if (total + want > cap) want = cap - total;
-        if (want == 0) break;
+        if (want == 0) {
+            /* 达到上限后再探读 1 帧：能读到说明文件超长，报错而非静默截断（与 wav_in 一致） */
+            ma_uint64 probe = 0;
+            ma_decoder_read_pcm_frames(&decoder, samples, 1, &probe);
+            if (probe > 0) overflow = 1;
+            break;
+        }
         ma_uint64 got = 0;
         ma_result r = ma_decoder_read_pcm_frames(
             &decoder, samples + (size_t)total * s->channels, want, &got);
@@ -168,6 +175,10 @@ static int mp3_in_prepare(void* state, const OrpheusConfig* config) {
         if (r != MA_SUCCESS || got < want) break;
     }
     ma_decoder_uninit(&decoder);
+    if (overflow) {
+        free(samples);
+        return ORPHEUS_ERR_INVALID_ARG;
+    }
 
     s->samples = samples;
     s->total_frames = total;

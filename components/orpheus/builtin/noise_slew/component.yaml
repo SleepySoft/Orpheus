@@ -2,7 +2,7 @@ id: orpheus.builtin.noise_slew
 name: 变化率限幅
 category: 音效/动态与塑形
 description: 逐样本变化率限幅（rise/fall 速率，抑制突变噪声）
-version: 1.0.0
+version: 1.0.1
 abi_version: 1
 package_type: source
 state_type: NoiseSlewState

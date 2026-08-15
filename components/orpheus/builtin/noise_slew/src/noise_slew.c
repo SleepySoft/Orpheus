@@ -41,7 +41,7 @@ static const OrpheusPort ns_ports[] = {
 };
 
 static const OrpheusComponentDescriptor ns_descriptor = {
-    .id = "orpheus.builtin.noise_slew", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .id = "orpheus.builtin.noise_slew", .version = "1.0.1", .abi_version = ORPHEUS_ABI_VERSION,
     .ports = ns_ports, .port_count = 2, .params = ns_params, .param_count = 3,
     .state_size = sizeof(NoiseSlewState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = true
@@ -62,6 +62,7 @@ static int ns_destroy(void* state) { (void)state; return ORPHEUS_OK; }
 static int ns_prepare(void* state, const OrpheusConfig* config) {
     NoiseSlewState* s = (NoiseSlewState*)state;
     s->channels = config->channels > 0 ? config->channels : 2;
+    if (s->channels > 32) s->channels = 32;  /* prev[] 定长 32，钳制防越界 */
     s->rise_rate = read_float(config, "rise_rate", 1.0f);
     s->fall_rate = read_float(config, "fall_rate", 1.0f);
     s->rise_delta = config->sample_rate > 0 ? s->rise_rate / (float)config->sample_rate : 0.0001f;
