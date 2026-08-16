@@ -493,50 +493,16 @@ generated/
 
 ## 8. 控制协议与 Transport
 
-### 8.1 消息类型
+> **本节已被取代**（2026-08-16）：下面是早期草案，实际落地以 `docs/design_registry.md`
+> §17（32 位数据 ID）/ §18（二进制消息信封：8 字节头，CALL/RESPONSE/NOTIFICATION）
+> 与 `docs/design_serial_link.md`（OLINK 串行链路）为准。
 
-- **Request**：参数读写、生命周期、Bulk 操作、Probe 配置。
-- **Response**：请求响应，含错误码。
-- **Event**：运行状态变化、错误、任务统计。
-- **Stream Packet**：Probe 数据、日志、性能计数。
+实际实现概览：
 
-### 8.2 消息头
-
-```c
-typedef struct {
-    uint16_t protocol_version;
-    uint16_t message_type;     // Request / Response / Event / Stream
-    uint32_t request_id;
-    uint32_t session_id;
-    uint32_t payload_length;
-    // 完整性校验字段（CRC32 或更轻量校验）
-} OrpheusMessageHeader;
-```
-
-### 8.3 Transport 接口
-
-```c
-typedef struct {
-    const char* name;
-    size_t max_packet_size;
-    bool reliable;
-    bool ordered;
-    bool full_duplex;
-    int (*open)(void* ctx);
-    int (*close)(void* ctx);
-    int (*send)(void* ctx, const uint8_t* data, size_t len);
-    int (*recv)(void* ctx, uint8_t* buf, size_t* len);
-    int (*query_status)(void* ctx);
-} OrpheusTransportInterface;
-```
-
-核心框架提供：
-
-- In-process Transport（本地 Runtime 直接调用）。
-- Loopback Transport（测试）。
-- Shared Memory Transport（跨进程低延迟）。
-
-外部实现：TCP、UART、SWD、厂商链路。
+- **消息层**：`OrpheusMessageHeader`（route_id + bits：type/flags/call_id/payload_words）+ 4 字节对齐 payload，自描述长度、小端、≤4KB。分发单入口：动态路径 `Runtime::message()`、生成路径 `orpheus_control_message()`，优先级 = 外部 hook → 组件 hook → 默认语义（标量/BULK 读写、PROBE/STATE 只读）。
+- **成帧层（串口用）**：OLINK = COBS(消息 || CRC16-CCITT) || 0x00 定界，双实现 `orpheus_abi/src/olink.c` 与 `orpheus_core/link/olink.py`。
+- **传输**：PC 本地 = rt_host 子进程管道（文本行协议 SET/GET/PROBE…）；远程设备 = 串口（pyserial + `SerialSession`）；嵌入式目标 = 用户实现 send、onRecv 里调 feed（uart_link 组件生成的链路段）。
+- 历史草案中的 `OrpheusTransportInterface`（open/close/send/recv/query_status）未实现，语义已被上述分层覆盖。
 
 ---
 
@@ -943,3 +909,16 @@ orpheus_platform_memory_section_bind(...);
 - 实例链路：`device_in(loopback 2ch) → eq_shelf(biquad) → bass → midrange → treble → saturation → channel_router → delay(7ms/22%) → sleeping_beauty(响度补偿) → soft_clipper → limiter(净空保护) → device_out(phones)`；前后各接 `probe_rms` / `probe_peak` 观测。
 - 说明：该工程是《电脑耳机音乐播放》的参考级链路，可作为“元组件组合”的参考模板；只改参数、不改结构即可适应不同耳机偏好。
 
+
+---
+
+## 34. 串行链路：PC 界面直连嵌入式设备调音（已实现）
+
+> 详见 `docs/design_serial_link.md`（分层设计与实现状态表）。
+
+- **分层**：UI → L4 后端适配层（ControlPlane）→ L3 OLINK 成帧（COBS+CRC16）→ L2 §18 消息信封 → L1 传输（stdio 管道 / UART）。
+- **OLINK**（`orpheus_abi/src/olink.c` + `orpheus_core/link/olink.py`，帧级互测）：`线上帧 = COBS(消息 || CRC16-CCITT) || 0x00`；0x00 恒为帧界、自同步恢复、空消息帧丢弃。
+- **SerialSession**（`orpheus_core/server/serial_session.py`）：与 RtSession 同构——CALL 按 call_id 匹配（300ms 超时+重发）、NOTIFICATION 进探针缓存（/rt/status 形状不变）、resolve/map 由 plan.id_map 本地回答。REST：`rt/start {target,port,baud}`、`GET /api/link/ports`；UI 工具栏目标下拉（本机/COMx+波特率）。
+- **uart_link 组件**（`orpheus.builtin.uart_link`，execution.none）：拖入即给生成工程加设备侧链路段——`orpheus_link_<名>.c/h`（feed=OLINK 解码→`orpheus_control_message` 分发→send 回发；poll=探针泵，内部读 CALL 包 NOTIFICATION 上行）+ `orpheus_link_hooks_<名>.c`（用户只填 init/send，接收回调里调 feed）。manifest 新字段 `codegen_template` 使生成器模板分发通用化（platform_hook 硬编码已消除）。
+- **PC 冒烟**：`orpheus_generated_app --link-stdio`（stdin/stdout 二进制即链路，真实时间驱动探针泵），e2e 测试 `test_uart_link.py`（SerialSession 经管道完成标量/BULK/msg/探针全链路）。
+- alter 语义结论：uart_link 不用 alter（无音频边、生成路径专用）；PC 串口调试由后端适配层承担。

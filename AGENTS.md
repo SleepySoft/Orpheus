@@ -27,8 +27,9 @@
 | 路径 | 内容 |
 |---|---|
 | `orpheus_abi/include/orpheus_abi.h` | **C ABI 契约**：组件与 Runtime 之间唯一接口（descriptor / ports / parameters / process） |
+| `orpheus_abi/{include,src}/orpheus_olink.*` | **OLINK 成帧层**（COBS+CRC16，C99 无依赖）：消息上串口；Python 镜像在 `orpheus_core/link/olink.py` |
 | `components/orpheus/builtin/<name>/` | 组件：`component.yaml` + `src/*.c` + `include/*.h` + `CMakeLists.txt` |
-| `orpheus_core/orpheus_core/` | Python：`registry` / `compiler` / `builder` / `generator` / `subgraph` / `server` / `cli` |
+| `orpheus_core/orpheus_core/` | Python：`registry` / `compiler` / `builder` / `generator` / `subgraph` / `server` / `link`（OLINK+串口） / `cli` |
 | `orpheus_core/tests/` | pytest 测试（server API、子组件展开、可变引脚、时钟/速率） |
 | `orpheus_runtime/` | C++：`runtime.cpp`（执行引擎）、`rt_host.cpp`（实时设备宿主）、`main.cpp`（文件宿主）、`wav_io` |
 | `ui/src/` | React 前端：`App.js` 主控、`widgets.js` 参数控件注册表、`nodeWidgets.js` 节点本体注册表、`graphUtils.js` |
@@ -58,6 +59,7 @@
 - 时钟域：组件 manifest 声明 `clock_source: true` + `clock_domain`（device/file）；task 不显式建模，时钟源组件即时钟域根。
 - 速率调整：`scheduling.divisor` 表达式让节点每 N 块触发一次（`downrate` / `resample` 组件）。
 - `rt_host` 实时协议：stdin `SET <node> <param> <value>` / `GET` / `STOP`；stdout `LOG ...` 为生命周期日志，`PROBE <node> <param> <value>` 为探针上报。
+- **串行链路（设备调音）**：消息层=§18 二进制信封（`Runtime::message` / 生成侧 `orpheus_control_message` 单入口分发）；成帧层=OLINK（COBS+CRC16）；后端 `SerialSession`（rt/start `target: serial`）与 RtSession 同构；`uart_link` 非音频组件（execution.none + `codegen_template`）拖入即给生成工程加设备侧链路段（用户只填 send/init，onRecv 里调 feed，poll 驱动探针泵）。设计见 `docs/design_serial_link.md`。
 
 ## 常用命令（Windows PowerShell）
 
