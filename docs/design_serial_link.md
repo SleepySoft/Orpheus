@@ -1,6 +1,6 @@
 # 串行链路设计：PC 界面直连嵌入式设备调音（设计草案）
 
-> 状态：设计文档（2026-08-15 调查后定稿，未实现）。
+> 状态：**L1-L3 已实现**（2026-08-15，见下「实现状态」）；L4（后端适配层）与 uart_link 组件待做。
 > 目标：让本系统的 UI/后端经串口对运行**生成代码**的真实设备调音调参，且用户侧只需实现两个平台函数（send / onRecv）。
 
 ## 0. 现状盘点（调查结论）
@@ -100,3 +100,18 @@
 - 同 id 多平台实现（registry 语义改动）；
 - TCP/USB-CDC 以外的传输（OLINK 与传输无关，以后加 TCP 只是 L4 多一个 Session 类）；
 - 修改 §18 消息信封。
+
+## 8. 实现状态（2026-08-15，L1-L3 已落地）
+
+| 层 | 状态 | 位置 |
+|---|---|---|
+| L2 消息信封/分发 | 已有，未动 | `orpheus_abi.h` / `Runtime::message` / `orpheus_control_message` |
+| L3 OLINK C 实现 | ✅ | `orpheus_abi/include/orpheus_olink.h` + `orpheus_abi/src/olink.c`（纯 C99 无依赖，静态库 `orpheus_olink`；生成工程可直接复制源码） |
+| L3 OLINK Python 实现 | ✅ | `orpheus_core/orpheus_core/link/olink.py`（`encode()` / `Decoder.feed()` 流式） |
+| L1 PC 串口传输 | ✅ | `orpheus_core/orpheus_core/link/serial_port.py`（pyserial 薄封装，可选依赖，未装不影响本地路径） |
+| 互测 | ✅ | `orpheus_core/tests/test_olink.py`（11 项：CRC 已知向量、COBS 无零、回环、逐字节流式、CRC 错丢帧重同步、垃圾自吞边界、空帧丢弃；C/Python 双向互测经 `tests/olink_cli.c` 按需现场编译驱动） |
+
+定案细节：
+- 空消息帧（仅 CRC、无消息体）双实现一致丢弃——§18 消息最小 8 字节，长度 0 与「无帧」无法区分；
+- 垃圾字节形成的伪 run 最多吞掉其后一帧，之后自动恢复（COBS 固语义，已测试钉死）；
+- OLINK_MSG_MAX=4104；帧缓冲建议 ≥ OLINK_FRAME_MAX。

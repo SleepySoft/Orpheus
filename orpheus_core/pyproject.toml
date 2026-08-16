@@ -15,6 +15,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "python-multipart>=0.0.9",
+    "pyserial>=3.5",
 ]
 
 [project.optional-dependencies]

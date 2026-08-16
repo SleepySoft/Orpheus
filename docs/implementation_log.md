@@ -1017,3 +1017,28 @@ process 用输出历史 z1/z2 同时充当零点与极点递推：`y = b0·x + (
 
 ### 兼容性
 默认行为从错误递推变为正确 df2t——现存工程 biquad 听感会变（更接近设定值，低通不再发闷）。
+
+## 2026-08-16 OLINK 协议层 L1-L3 落地（串行链路第一步）
+
+### 背景
+按 `docs/design_serial_link.md` 分层设计实现协议层：L2 消息信封（§18）不动，新增 L3 OLINK 成帧（COBS + CRC16-CCITT），L1 PC 侧串口字节传输。
+
+### 新增
+- `orpheus_abi/include/orpheus_olink.h` + `orpheus_abi/src/olink.c`：纯 C99 无依赖。`olink_crc16` / `olink_encode`（内联拼 CRC，无临时大缓冲）/ `OLinkDecoder` 流式逐字节解码（帧缓冲由调用方提供，溢出/CRC 错/垃圾均丢当前帧自动重同步）。静态库 `orpheus_olink` 入主构建；生成工程将来直接复制源码。
+- `orpheus_core/orpheus_core/link/olink.py`：Python 镜像（`encode` / `Decoder.feed`）。
+- `orpheus_core/orpheus_core/link/serial_port.py`：pyserial 薄封装（list_ports / SerialTransport），pyserial 为可选运行依赖（pyproject 已加；未装时清晰报错，不影响本地路径）。
+- `tests/olink_cli.c`：帧级 CLI（crc/enc/dec 行协议），供跨语言互测。
+
+### 定案细节（踩坑记录）
+- 空消息帧（仅 CRC、无消息体）双实现一致丢弃：§18 消息最小 8 字节，长度 0 与「无帧」无法区分。
+- 垃圾字节形成的长伪 run 最多吞掉其后一帧，之后自动恢复（COBS 固有语义）。
+- CLI 缓冲教训：dec 输入是线上帧（含 COBS 膨胀），缓冲须按 OLINK_FRAME_MAX 而非 OLINK_MSG_MAX，否则大帧无 0x00 定界导致调用方死等（pytest 挂起 + 僵尸进程锁 exe 的连环事故）。
+- 测试 fixture 现场用主构建配置的编译器（MSVC cl / MinGW gcc）编译 olink_cli（vcvars 包装；cl 的 /Fo 尾反斜杠在 cmd 引号中转义出错，以 obj 目录为 cwd 规避）；源码时间戳过期自动重编。
+
+### 验证
+- `test_olink.py` 11 项：CRC 已知向量（"123456789"→0x29B1）、COBS 产物无零、回环、逐字节流式、CRC 错丢帧+重同步、垃圾自吞边界、空帧丢弃；C↔Python 双向互测（enc/dec/crc/坏帧）。
+- 全量回归：162 passed, 1 skipped。
+
+### 下一步
+- L4 后端适配层：ControlPlane 抽象 + SerialSession（RESPONSE 按 call_id 匹配 / NOTIFICATION 进探针缓存）+ `/api/link/ports` + rt/start target。
+- uart_link 非音频组件 + 生成器模板泛化（消除 generator.py 对 platform_hook 的硬编码）。
