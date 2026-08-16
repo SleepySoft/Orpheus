@@ -111,6 +111,7 @@
 | L1 PC 串口传输 | ✅ | `orpheus_core/orpheus_core/link/serial_port.py`（pyserial 薄封装，可选依赖，未装不影响本地路径） |
 | L4 后端适配层 | ✅（2026-08-16） | `orpheus_core/server/serial_session.py`（SerialSession：CALL 超时重发 / NOTIFICATION 探针缓存 / resolve+map 本地回答）；`link/message.py` §18 助手；`rt/start` 加 target/port/baud；`GET /api/link/ports`；UI 工具栏目标下拉（本机/串口+波特率） |
 | 互测 | ✅ | `orpheus_core/tests/test_olink.py`（11 项：CRC 已知向量、COBS 无零、回环、逐字节流式、CRC 错丢帧重同步、垃圾自吞边界、空帧丢弃；C/Python 双向互测经 `tests/olink_cli.c` 按需现场编译驱动） |
+| uart_link 组件 + 设备侧链路段 | ✅（2026-08-16） | `components/orpheus/builtin/uart_link`（execution.none + manifest 新字段 `codegen_template`）；生成器模板分发泛化（platform_hook 硬编码消除）；生成物：olink.c/h 复制 + `orpheus_link_<s>.c/h`（feed/poll）+ `orpheus_link_hooks_<s>.c`（init/send USER CODE）+ 探针泵 + main.c `--link-stdio`（真实时间驱动泵）；e2e 见 test_uart_link.py |
 
 定案细节：
 - 空消息帧（仅 CRC、无消息体）双实现一致丢弃——§18 消息最小 8 字节，长度 0 与「无帧」无法区分；

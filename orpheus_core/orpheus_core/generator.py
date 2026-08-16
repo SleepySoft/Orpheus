@@ -150,7 +150,7 @@ class CodeGenerator:
                     shutil.copy2(ma_header, comp_out / "include" / "miniaudio.h")
 
         # Generate main.c
-        self._generate_main_c(plan, component_ids, src_dir / "main.c")
+        self._generate_main_c(plan, component_ids, src_dir / "main.c", self.uart_link_decls(plan))
 
         # 嵌入 I/O 适配模板：存在 embed_in/embed_out 节点时生成，用户按硬件填充
         embed_nodes = [
@@ -161,11 +161,9 @@ class CodeGenerator:
         if embed_nodes:
             self._generate_platform_io(plan, src_dir / "platform_io.c")
 
-        # 声明式平台节点（platform_hook）：生成 init/read/write 钩子，用户程序引用
+        # 声明式平台节点（execution.none）：按 codegen_template 分发代码生成模板
         if plan.declarations:
-            self._generate_platform_hooks(
-                plan, src_dir / "platform_hooks.c", include_dir / "orpheus_platform_hooks.h"
-            )
+            self._generate_declarations(plan, src_dir, include_dir)
 
         # 数据 ID（32 位宏）+ ID map + 内存布局（模块嵌套 arena 定义在 include/orpheus_arena.h）
         self._generate_ids(plan, include_dir, src_dir, output_dir)
@@ -176,7 +174,9 @@ class CodeGenerator:
         # Generate CMakeLists.txt
         self._generate_cmake(plan, all_ids, output_dir)
 
-    def _generate_main_c(self, plan: ExecutionPlan, component_ids: list[str], path: Path) -> None:
+    def _generate_main_c(self, plan: ExecutionPlan, component_ids: list[str], path: Path,
+                         link_nodes: list[dict[str, Any]] | None = None) -> None:
+        link_nodes = link_nodes or []
         lines: list[str] = []
         lines.append('#include <stdio.h>')
         lines.append('#include <stdlib.h>')
@@ -195,6 +195,15 @@ class CodeGenerator:
         if any(self._state_type(nid, plan) for nid in plan.execution_order):
             lines.append('#include "orpheus_arena.h"')
         lines.append('#include "orpheus_control.h"')
+        if link_nodes:
+            for d in link_nodes:
+                lines.append(f'#include "orpheus_link_{self._uart_link_sym(d)}.h"')
+            lines.append('#include <threads.h>')
+            lines.append('#include <time.h>')
+            lines.append('#ifdef _WIN32')
+            lines.append('#include <io.h>')
+            lines.append('#include <fcntl.h>')
+            lines.append('#endif')
         lines.append("")
 
         # Per-component entry points: each component lib is compiled with
@@ -431,6 +440,8 @@ class CodeGenerator:
             lines.append(f'    ({ref})->dst_capacity = {frames};')
         if embed_in_nodes or embed_out_nodes:
             lines.append('    orpheus_platform_io_init();')
+        for d in link_nodes:
+            lines.append(f'    orpheus_link_{self._uart_link_sym(d)}_init();')
         lines.append('    return ORPHEUS_OK;')
         lines.append('}')
         lines.append("")
@@ -482,6 +493,23 @@ class CodeGenerator:
         lines.append('}')
         lines.append("")
 
+        if link_nodes:
+            first = self._uart_link_sym(link_nodes[0])
+            lines.append('/* --link-stdio：stdin/stdout 即链路（PC 冒烟）。读线程把 stdin 字节喂给链路层；')
+            lines.append('   多个 uart_link 节点时 stdio 冒烟只接第一个（嵌入式由用户把各实例接各自 UART）。 */')
+            lines.append('static int orpheus_link_stdio_reader(void* arg) {')
+            lines.append('    (void)arg;')
+            lines.append('    for (;;) {')
+            lines.append('        /* 逐字节读：fread(512) 会等满缓冲才返回，getchar 来一个字节喂一个字节 */')
+            lines.append('        int c = getchar();')
+            lines.append('        if (c == EOF) break;')
+            lines.append('        uint8_t b = (uint8_t)c;')
+            lines.append(f'        orpheus_link_{first}_feed(&b, 1);')
+            lines.append('    }')
+            lines.append('    return 0;')
+            lines.append('}')
+            lines.append("")
+
         # hex 工具（--msg 二进制消息 CLI）
         lines.append('static const char* orpheus_hex_digits = "0123456789abcdef";')
         lines.append('static int orpheus_from_hex(const char* hx, uint8_t* out, size_t* out_len) {')
@@ -515,7 +543,8 @@ class CodeGenerator:
         lines.append('')
         lines.append('// Main stub: argv[1] = number of blocks to process (default 1000)')
         lines.append('int main(int argc, char** argv) {')
-        lines.append('    int blocks = argc > 1 ? atoi(argv[1]) : 1000;')
+        lines.append("    int start_i = (argc > 1 && argv[1][0] != '-') ? 2 : 1;")
+        lines.append('    int blocks = start_i == 2 ? atoi(argv[1]) : 1000;')
         lines.append(f'    int rc = orpheus_generated_init({plan.sample_rate}, {plan.block_size});')
         lines.append('    if (rc != ORPHEUS_OK) {')
         lines.append('        fprintf(stderr, "init failed: %d\\n", rc);')
@@ -533,7 +562,9 @@ class CodeGenerator:
         lines.append('    uint32_t rb_id = 0;')
         lines.append('    const char* msg_list[16];')
         lines.append('    int msg_count = 0;')
-        lines.append('    for (int i = 2; i < argc; ++i) {')
+        if link_nodes:
+            lines.append('    int link_stdio = 0;')
+        lines.append('    for (int i = start_i; i < argc; ++i) {')
         lines.append('        if (strcmp(argv[i], "--write-bulk") == 0 && i + 3 < argc) {')
         lines.append('            const char* node = argv[i + 1];')
         lines.append('            const char* key = argv[i + 2];')
@@ -570,6 +601,9 @@ class CodeGenerator:
         lines.append('        } else if (strcmp(argv[i], "--msg") == 0 && i + 1 < argc && msg_count < 16) {')
         lines.append('            msg_list[msg_count++] = argv[++i];')
         lines.append('            control_mode = 1;')
+        if link_nodes:
+            lines.append('        } else if (strcmp(argv[i], "--link-stdio") == 0) {')
+            lines.append('            link_stdio = 1;')
         lines.append('        } else if (strcmp(argv[i], "--echo-hook") == 0 && i + 1 < argc) {')
         lines.append('            uint32_t id = (uint32_t)strtoul(argv[++i], NULL, 0);')
         lines.append('            if (orpheus_control_register_hook(id, orpheus_echo_hook, NULL) != 0) {')
@@ -579,6 +613,25 @@ class CodeGenerator:
         lines.append('            control_mode = 1;')
         lines.append('        }')
         lines.append('    }')
+        if link_nodes:
+            lines.append('    if (link_stdio) {')
+            lines.append('#ifdef _WIN32')
+            lines.append('        _setmode(_fileno(stdin), _O_BINARY);')
+            lines.append('        _setmode(_fileno(stdout), _O_BINARY);')
+            lines.append('#endif')
+            lines.append('        thrd_t link_thread;')
+            lines.append('        thrd_create(&link_thread, orpheus_link_stdio_reader, NULL);')
+            lines.append('        struct timespec link_ts;')
+            lines.append('        for (;;) {')
+            lines.append(f'            if (orpheus_generated_process({plan.block_size}) != ORPHEUS_OK) return 1;')
+            lines.append('            /* 冒烟 harness 用真实时间驱动探针泵（全速跑块时不会洪泛链路）；')
+            lines.append('               嵌入式用户把 poll 换成自己的系统 tick（如 HAL_GetTick()）。 */')
+            lines.append('            timespec_get(&link_ts, TIME_UTC);')
+            lines.append('            uint32_t now_ms = (uint32_t)(link_ts.tv_sec * 1000u + link_ts.tv_nsec / 1000000u);')
+            for d in link_nodes:
+                lines.append(f'            orpheus_link_{self._uart_link_sym(d)}_poll(now_ms);')
+            lines.append('        }')
+            lines.append('    }')
         lines.append('    if (control_mode) {')
         lines.append('        for (int i = 0; i < run_blocks; ++i) {')
         lines.append(f'            if (orpheus_generated_process({plan.block_size}) != ORPHEUS_OK) return 1;')
@@ -709,6 +762,30 @@ class CodeGenerator:
         with open(path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
 
+    # 组件 id → 缺省代码生成模板（manifest codegen_template 字段优先于此回退）
+    _DECL_TEMPLATE_BY_COMPONENT = {
+        "orpheus.builtin.platform_hook": "platform_hooks",
+        "orpheus.builtin.uart_link": "uart_link",
+    }
+
+    def _decl_template(self, decl: dict[str, Any]) -> str | None:
+        """declaration 节点的代码生成模板：manifest codegen_template 优先，组件 id 回退。"""
+        info = self.registry.get(decl["component"])
+        tmpl = (info.manifest.get("codegen_template") if info else None)
+        if tmpl:
+            return str(tmpl)
+        return self._DECL_TEMPLATE_BY_COMPONENT.get(decl["component"])
+
+    def _generate_declarations(self, plan: ExecutionPlan, src_dir: Path, include_dir: Path) -> None:
+        """声明式平台节点（execution.none）代码生成：按模板分发。"""
+        templates = {self._decl_template(d) for d in plan.declarations}
+        if "platform_hooks" in templates:
+            self._generate_platform_hooks(
+                plan, src_dir / "platform_hooks.c", include_dir / "orpheus_platform_hooks.h"
+            )
+        if "uart_link" in templates:
+            self._generate_uart_link(plan, src_dir, include_dir)
+
     def _generate_platform_hooks(self, plan: ExecutionPlan, src_path: Path, hdr_path: Path) -> None:
         """声明式平台节点（platform_hook）→ init/read/write 钩子（USER CODE 填充）。
 
@@ -781,6 +858,166 @@ class CodeGenerator:
         ]
         hdr_path.write_text("\n".join(hdr), encoding="utf-8")
         src_path.write_text("\n".join(src), encoding="utf-8")
+
+    def uart_link_decls(self, plan: ExecutionPlan) -> list[dict[str, Any]]:
+        """plan.declarations 中模板为 uart_link 的节点（main.c/CMake 也用）。"""
+        return [d for d in plan.declarations if self._decl_template(d) == "uart_link"]
+
+    def _uart_link_sym(self, decl: dict[str, Any]) -> str:
+        name = str(decl["params"].get("link_name") or decl["id"])
+        return self._sanitized_node_id(name)
+
+    def _generate_uart_link(self, plan: ExecutionPlan, src_dir: Path, include_dir: Path) -> None:
+        """uart_link 节点 → OLINK 串口链路段（feed/poll 生成物 + init/send USER CODE 骨架）。"""
+        nodes = self.uart_link_decls(plan)
+        if not nodes:
+            return
+        # 自包含：OLINK 成帧层随工程复制
+        abi_src = self.project_root / "orpheus_abi"
+        shutil.copy2(abi_src / "include" / "orpheus_olink.h", include_dir / "orpheus_olink.h")
+        shutil.copy2(abi_src / "src" / "olink.c", src_dir / "olink.c")
+        probes = [e for e in plan.id_map if e["kind"] == "PROBE"]
+        value_type = {"float": "ORPHEUS_VALUE_FLOAT", "int": "ORPHEUS_VALUE_INT",
+                      "bool": "ORPHEUS_VALUE_BOOL", "string": "ORPHEUS_VALUE_STRING"}
+        for d in nodes:
+            s = self._uart_link_sym(d)
+            params = d["params"]
+            baud = int(float(params.get("baud", 921600) or 921600))
+            interval = float(params.get("probe_interval_ms", 200.0) or 0.0)
+            note = str(params.get("note") or "")
+            hdr = [
+                f'#ifndef ORPHEUS_LINK_{s.upper()}_H',
+                f'#define ORPHEUS_LINK_{s.upper()}_H',
+                '#include <stdint.h>',
+                '#ifdef __cplusplus',
+                'extern "C" {',
+                '#endif',
+                '',
+                f'/* uart_link 节点 {d["id"]} · 声明波特率 {baud}（实际由 init 的实现决定）'
+                + (f' · {note}' if note else '') + ' */',
+                f'#define ORPHEUS_LINK_{s.upper()}_PROBE_INTERVAL_MS {interval:.1f}f',
+                '',
+                f'void orpheus_link_{s}_init(void);                      /* USER CODE：串口/DMA 初始化 */',
+                f'int32_t orpheus_link_{s}_send(const uint8_t* data, uint32_t len);  /* USER CODE：发送实现 */',
+                f'void orpheus_link_{s}_feed(const uint8_t* data, uint32_t len);     /* 你的 onRecv/UART 回调里调 */',
+                f'void orpheus_link_{s}_poll(uint32_t now_ms);           /* 主循环周期调用（探针泵） */',
+                '',
+                '#ifdef __cplusplus',
+                '}',
+                '#endif',
+                f'#endif /* ORPHEUS_LINK_{s.upper()}_H */',
+                '',
+            ]
+            (include_dir / f"orpheus_link_{s}.h").write_text("\n".join(hdr), encoding="utf-8")
+
+            c = [
+                f'/* orpheus_link_{s}.c —— OLINK 串口链路段（自动生成；重新生成会覆盖）。',
+                ' * 字节流 → COBS+CRC16 解码 → orpheus_control_message 分发 → RESPONSE 经用户 send 回发；',
+                ' * 探针泵：内部构造读 CALL 本地分发，结果包 NOTIFICATION 上行。 */',
+                f'#include "orpheus_link_{s}.h"',
+                '#include "orpheus_olink.h"',
+                '#include "orpheus_control.h"',
+                '#include <string.h>',
+                '',
+                'static OLinkDecoder g_dec;',
+                'static uint8_t g_dec_inited;',
+                'static uint8_t g_frame[OLINK_MSG_MAX];',
+                'static uint8_t g_resp[OLINK_MSG_MAX];',
+                'static uint32_t g_last_probe_ms;',
+                '',
+                '/* 探针表（kind=PROBE 的数据点） */',
+                'typedef struct { uint32_t id; uint32_t type; uint32_t count; } OrpheusLinkProbe;',
+                'static const OrpheusLinkProbe g_probes[] = {',
+            ]
+            for e in probes:
+                c.append(f'    {{ 0x{e["id"]:08X}U, {value_type.get(e["type"], "ORPHEUS_VALUE_FLOAT")}, {e["count"]}u }},  /* {e["node"]}.{e["key"]} */')
+            if not probes:
+                c.append('    { 0U, 0U, 0U },')
+            c += [
+                '};',
+                '',
+                f'void orpheus_link_{s}_feed(const uint8_t* data, uint32_t len) {{',
+                '    if (!g_dec_inited) { olink_decoder_init(&g_dec); g_dec_inited = 1; g_last_probe_ms = 0; }',
+                '    for (uint32_t i = 0; i < len; ++i) {',
+                '        uint16_t n = olink_decode_byte(&g_dec, data[i], g_frame, sizeof(g_frame));',
+                '        if (n == 0) continue;',
+                '        size_t out_len = 0;',
+                '        if (orpheus_control_message(g_frame, n, g_resp, sizeof(g_resp), &out_len) == 0 && out_len > 0) {',
+                '            uint8_t wire[OLINK_FRAME_MAX];',
+                '            uint16_t m = olink_encode(g_resp, (uint16_t)out_len, wire, sizeof(wire));',
+                f'            if (m > 0) orpheus_link_{s}_send(wire, m);',
+                '        }',
+                '    }',
+                '}',
+                '',
+                '/* 对单个探针：本地构造读 CALL → 包 NOTIFICATION 帧上行 */',
+                'static void link_emit_probe(const OrpheusLinkProbe* p, uint8_t* wire, uint16_t wire_cap) {',
+                '    OrpheusMessageHeader call;',
+                '    call.route_id = p->id;',
+                '    call.bits = ORPHEUS_MSG_MAKE(ORPHEUS_MSG_CALL, 0, 0, 0);',
+                '    size_t out_len = 0;',
+                '    if (orpheus_control_message((const uint8_t*)&call, sizeof(call), g_resp, sizeof(g_resp), &out_len) != 0) return;',
+                '    if (out_len < sizeof(OrpheusMessageHeader)) return;',
+                '    const OrpheusMessageHeader* rh = (const OrpheusMessageHeader*)g_resp;',
+                '    if (ORPHEUS_MSG_TYPE(rh) != ORPHEUS_MSG_RESPONSE) return;',
+                '    uint32_t words = ORPHEUS_MSG_PAYLOAD_WORDS(rh);',
+                '    /* 帧 = 通知头 || payload，整体一次 OLINK 编码后上行 */',
+                '    OrpheusMessageHeader note;',
+                '    note.route_id = p->id;',
+                '    note.bits = ORPHEUS_MSG_MAKE(ORPHEUS_MSG_NOTIFICATION, 0, 0, words);',
+                '    uint8_t frame[OLINK_MSG_MAX];',
+                '    memcpy(frame, &note, sizeof(note));',
+                '    memcpy(frame + sizeof(note), g_resp + sizeof(OrpheusMessageHeader), words * 4);',
+                '    uint16_t m = olink_encode(frame, (uint16_t)(sizeof(note) + words * 4), wire, wire_cap);',
+                f'    if (m > 0) orpheus_link_{s}_send(wire, m);',
+                '}',
+                '',
+                f'void orpheus_link_{s}_poll(uint32_t now_ms) {{',
+                f'    if (ORPHEUS_LINK_{s.upper()}_PROBE_INTERVAL_MS <= 0.0f) return;',
+                '    if (!g_dec_inited) { olink_decoder_init(&g_dec); g_dec_inited = 1; g_last_probe_ms = now_ms; }',
+                f'    if ((float)(now_ms - g_last_probe_ms) < ORPHEUS_LINK_{s.upper()}_PROBE_INTERVAL_MS) return;',
+                '    g_last_probe_ms = now_ms;',
+                '    uint8_t wire[OLINK_FRAME_MAX];',
+                '    for (uint32_t i = 0; i < sizeof(g_probes) / sizeof(g_probes[0]); ++i) {',
+                '        if (g_probes[i].id != 0U) link_emit_probe(&g_probes[i], wire, sizeof(wire));',
+                '    }',
+                '}',
+                '',
+            ]
+            (src_dir / f"orpheus_link_{s}.c").write_text("\n".join(c), encoding="utf-8")
+
+            hooks = [
+                f'/* orpheus_link_hooks_{s}.c —— 串口链路 USER CODE（自动生成；重新生成会覆盖，请另存副本）。',
+                ' * 你要实现的只有两处：init（串口/DMA 初始化）与 send（把字节发出去）。',
+                ' * 收到字节在你自己的接收路径调 orpheus_link_feed，主循环调 orpheus_link_poll。 */',
+                f'#include "orpheus_link_{s}.h"',
+                '#ifdef ORPHEUS_LINK_STDIO',
+                '#include <stdio.h>',
+                '#endif',
+                '',
+                f'void orpheus_link_{s}_init(void) {{',
+                '    /* USER CODE BEGIN init */',
+                '    /* 例：USART1 初始化 + RX 中断/DMA 使能（声明波特率见头文件注释） */',
+                '    /* USER CODE END init */',
+                '}',
+                '',
+                f'int32_t orpheus_link_{s}_send(const uint8_t* data, uint32_t len) {{',
+                '    /* USER CODE BEGIN send */',
+                '#ifdef ORPHEUS_LINK_STDIO',
+                '    /* PC 冒烟：stdout 即链路（二进制模式由 main 设置） */',
+                '    int32_t n = (int32_t)fwrite(data, 1, len, stdout);',
+                '    fflush(stdout);',
+                '    return n;',
+                '#else',
+                '    (void)data; (void)len;',
+                '    /* TODO: 在此实现平台 UART 发送（阻塞写/DMA 入队均可），返回已发字节数 */',
+                '    return 0;',
+                '#endif',
+                '    /* USER CODE END send */',
+                '}',
+                '',
+            ]
+            (src_dir / f"orpheus_link_hooks_{s}.c").write_text("\n".join(hooks), encoding="utf-8")
 
     def _generate_ids(
         self,
@@ -1351,9 +1588,19 @@ class CodeGenerator:
             app_sources += " src/orpheus_id_map.c"
         if (output_dir / "src" / "orpheus_control.c").exists():
             app_sources += " src/orpheus_control.c"
+        if (output_dir / "src" / "olink.c").exists():
+            app_sources += " src/olink.c"
+        for f in sorted((output_dir / "src").glob("orpheus_link_*.c")):
+            app_sources += f" src/{f.name}"
         lines.append(f'add_executable(orpheus_generated_app {app_sources})')
         libs = " ".join(self._component_target_name(cid) for cid in component_ids)
         lines.append(f'target_link_libraries(orpheus_generated_app {libs})')
+        if self.uart_link_decls(plan):
+            # 冒烟 harness 的 stdio 链路默认实现；上设备时移除该定义并实现自己的 send
+            lines.append('target_compile_definitions(orpheus_generated_app PRIVATE ORPHEUS_LINK_STDIO)')
+            lines.append('if(NOT WIN32)')
+            lines.append('  target_link_libraries(orpheus_generated_app pthread)')
+            lines.append('endif()')
 
         with open(output_dir / "CMakeLists.txt", "w", encoding="utf-8") as f:
             f.write("\n".join(lines))

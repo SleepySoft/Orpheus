@@ -1065,3 +1065,29 @@ process 用输出历史 z1/z2 同时充当零点与极点递推：`y = b0·x + (
 ### 下一步
 - uart_link 非音频组件 + 生成器模板泛化（generator.py 硬编码点），设备侧链路代码 + 探针泵。
 - 真机或虚拟串口对（com0com）端到端联调。
+
+## 2026-08-16 uart_link 组件 + 生成器模板泛化 + 设备侧链路段（串行链路收官）
+
+### 新增
+- `components/orpheus/builtin/uart_link`：execution.none 非音频组件（无端口、不可连线），参数 link_name/baud/probe_interval_ms/note + README（教学向，含 USER CODE 用法与 PC 冒烟说明）。
+- manifest 新字段 `codegen_template`（schema 已加；SKILL 文档已同步）。
+- **生成器模板分发泛化**：`_decl_template()`（manifest 字段优先、组件 id 回退）+ `_generate_declarations()`，消除了 `_generate_platform_hooks` 的组件 id 硬编码（platform_hook 产物文件名/内容不变，test_platform_nodes 全过）。
+- `_generate_uart_link`：每节点产出——
+  - `orpheus_olink.h` + `olink.c`（自包含复制）；
+  - `orpheus_link_<s>.h/.c`：`feed()`（OLINK 解码 → orpheus_control_message 分发 → RESPONSE 经用户 send 回发）+ `poll()` 探针泵（内部构造读 CALL 本地分发，包 NOTIFICATION 上行，静态探针表来自 plan.id_map kind=PROBE）；
+  - `orpheus_link_hooks_<s>.c`：init/send 的 USER CODE 骨架（send 含 ORPHEUS_LINK_STDIO 冒烟默认实现）。
+- 生成 main.c：uart_link 存在时 include/init 调用 + `--link-stdio` 模式（Windows 二进制模式、getchar 逐字节读线程、**真实时间**驱动探针泵）+ CMake 集成（ORPHEUS_LINK_STDIO 定义、非 Windows 链 pthread）。
+
+### 踩坑记录
+- stdio harness 的探针泵不能用模拟块时间驱动：全速跑块时模拟时间比真实快几个数量级，探针帧洪泛链路把 CALL 响应淹死；改为 timespec_get 真实时间。
+- 读线程 `fread(buf,1,512,stdin)` 会等满 512 字节才返回，主机发 12 字节永远等不到——改 getchar 逐字节（有字节即返回）。
+- MSVC C11 threads.h 可用（VS2022），冒烟验证过 thrd_create。
+
+### 验证（test_uart_link.py，6 项）
+- 生成断言：文件齐全、探针表含 PROBE id、CMake/main.c 集成正确；
+- 生成工程 cmake 构建通过；
+- **无硬件全链路 e2e**：`orpheus_generated_app --link-stdio` + ProcessTransport + SerialSession——标量写读、BULK 写读、msg call_id 匹配、探针 NOTIFICATION 上行（RMS≈0.3536 基准验证）。
+- platform_hook 既有测试全过；全量回归。
+
+### 至此串行链路全部落地
+L1-L3（OLINK 双实现）→ L4（后端 SerialSession + UI 目标选择）→ uart_link（设备侧链路段）。真机工作流：工程里拖入 uart_link → 生成 C 工程 → 填 hooks 的 init/send → 交叉编译烧录 → Orpheus 界面目标选串口 → 调音看探针。

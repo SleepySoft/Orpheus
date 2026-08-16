@@ -22,6 +22,10 @@
       "items": { "type": "string" },
       "description": "平台限制标签（缺省=无指定平台，可移植、任何平台可用）；如 [win] / [dsp]"
     },
+    "codegen_template": {
+      "type": "string",
+      "description": "execution.none 组件的代码生成模板（如 platform_hooks / uart_link）；缺省按组件 id 回退，未匹配则跳过代码生成"
+    },
     "sources": {
       "type": "array",
       "items": { "type": "string" }

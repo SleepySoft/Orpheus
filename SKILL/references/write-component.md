@@ -30,6 +30,7 @@ description: 一句话说明
 version: 1.0.0
 abi_version: 1
 package_type: source             # source | binary | composite
+# codegen_template: uart_link    # 仅 execution.none 组件：代码生成模板（platform_hooks / uart_link），缺省按组件 id 回退
 sources: [src/example.c]
 headers: [include/orpheus_example.h]
 ports:

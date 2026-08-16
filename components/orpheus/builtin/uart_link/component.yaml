@@ -1,0 +1,39 @@
+id: orpheus.builtin.uart_link
+name: 串口链路
+category: 平台/平台
+description: 非音频组件：拖入即为生成工程加入 OLINK 串口控制链路（COBS+CRC16 成帧 + §18 消息分发 + 探针泵），PC 界面可经串口对设备调音；用户只需实现 send、在串口接收回调里调 feed
+version: 1.0.0
+abi_version: 1
+package_type: source
+codegen_template: uart_link
+parameters:
+  - id: link_name
+    name: 符号前缀
+    type: string
+    default: ""
+    update_policy: restart_required
+  - id: baud
+    name: 波特率（注释用）
+    type: int
+    default: 921600
+    range: [9600, 10000000]
+    unit: bps
+    update_policy: restart_required
+  - id: probe_interval_ms
+    name: 探针上报周期
+    type: float
+    default: 200.0
+    range: [0.0, 10000.0]
+    unit: ms
+    update_policy: restart_required
+  - id: note
+    name: 备注
+    type: string
+    default: ""
+    update_policy: restart_required
+execution:
+  none: true
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true
