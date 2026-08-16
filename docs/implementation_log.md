@@ -1042,3 +1042,26 @@ process 用输出历史 z1/z2 同时充当零点与极点递推：`y = b0·x + (
 ### 下一步
 - L4 后端适配层：ControlPlane 抽象 + SerialSession（RESPONSE 按 call_id 匹配 / NOTIFICATION 进探针缓存）+ `/api/link/ports` + rt/start target。
 - uart_link 非音频组件 + 生成器模板泛化（消除 generator.py 对 platform_hook 的硬编码）。
+
+## 2026-08-16 L4 后端设备适配层落地（串口控制会话）
+
+### 新增
+- `orpheus_core/link/message.py`：§18 信封 Python 助手（make_frame/make_call/parse_frame/标量编解码），位布局与 ABI 一致。
+- `orpheus_core/server/serial_session.py` —— **SerialSession**，与 RtSession 同构接口：
+  - CALL → 等 RESPONSE（call_id 匹配，默认 300ms 超时 + 2 次重发，CALL 串行化单 outstanding）；
+  - NOTIFICATION → 探针缓存（id→(node,key) 反解，snapshot 形状与 /rt/status 一致，UI 零改动）；
+  - set_parameter（node+param → id_map 查 id/类型 → 标量写）、write_id/read_id、write_bulk/read_bulk、msg 裸透传；
+  - resolve/map_all 由编译期 plan.id_map 本地回答（基址在设备侧，PC 不需要）；
+  - 传输依赖注入（SerialTransport 或测试替身），便于内存管道测试。
+- REST：`POST rt/start` 接受 `{target, port, baud}`（local 默认 / serial）；`GET /api/link/ports`（30s 缓存，pyserial 缺失返回空表+提示）；rt_stop 兼容无 proc 的会话。
+- RtSessionManager.adopt：非子进程会话登记/互斥。
+- UI：工具栏运行目标下拉（本机 / COMx 串口）+ 波特率输入 + ↻ 刷新；serial 目标时 ▶ 运行 改走 rt/start（不开本地宿主）；打开工程预取串口列表。
+
+### 验证
+- `test_serial_session.py` 13 项：内存管道 + 模拟设备（对齐 orpheus_control_message 语义）——标量写读、node/key 寻址、PROBE 拒写（本地+设备 ERROR flag 两侧）、BULK 写读、msg call_id 匹配、NOTIFICATION 探针上行、丢帧重发成功/耗尽报错、resolve/map、snapshot 形状、REST 端点形状与 serial 缺 port 400。
+- 浏览器实测：目标下拉出现 COM1、波特率输入联动；选 COM1 点运行 → 清晰报错（主板 COM1 无真实 UART，pyserial configure 失败，预期内）。
+- 全量回归：175 passed, 1 skipped。
+
+### 下一步
+- uart_link 非音频组件 + 生成器模板泛化（generator.py 硬编码点），设备侧链路代码 + 探针泵。
+- 真机或虚拟串口对（com0com）端到端联调。

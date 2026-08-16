@@ -109,6 +109,7 @@
 | L3 OLINK C 实现 | ✅ | `orpheus_abi/include/orpheus_olink.h` + `orpheus_abi/src/olink.c`（纯 C99 无依赖，静态库 `orpheus_olink`；生成工程可直接复制源码） |
 | L3 OLINK Python 实现 | ✅ | `orpheus_core/orpheus_core/link/olink.py`（`encode()` / `Decoder.feed()` 流式） |
 | L1 PC 串口传输 | ✅ | `orpheus_core/orpheus_core/link/serial_port.py`（pyserial 薄封装，可选依赖，未装不影响本地路径） |
+| L4 后端适配层 | ✅（2026-08-16） | `orpheus_core/server/serial_session.py`（SerialSession：CALL 超时重发 / NOTIFICATION 探针缓存 / resolve+map 本地回答）；`link/message.py` §18 助手；`rt/start` 加 target/port/baud；`GET /api/link/ports`；UI 工具栏目标下拉（本机/串口+波特率） |
 | 互测 | ✅ | `orpheus_core/tests/test_olink.py`（11 项：CRC 已知向量、COBS 无零、回环、逐字节流式、CRC 错丢帧重同步、垃圾自吞边界、空帧丢弃；C/Python 双向互测经 `tests/olink_cli.c` 按需现场编译驱动） |
 
 定案细节：

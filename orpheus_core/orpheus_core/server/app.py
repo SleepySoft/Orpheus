@@ -103,6 +103,13 @@ class RtReadBulkRequest(BaseModel):
     id: int | None = None
 
 
+class RtStartRequest(BaseModel):
+    """rt/start 可选请求体：target=local（默认，rt_host 子进程）| serial（串口远程设备）。"""
+    target: str = "local"
+    port: str | None = None
+    baud: int = 921600
+
+
 class RtMsgRequest(BaseModel):
     hex: str
 
@@ -321,6 +328,20 @@ def create_app(project_root: Path) -> FastAPI:
             yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
         registry.scan()
         return {"promoted": component_id}
+
+    @app.get("/api/link/ports")
+    def list_serial_ports() -> dict[str, Any]:
+        """枚举本机串口（供串口目标选择）；pyserial 缺失时返回空表+提示。"""
+        cached = state.get("serial_ports_cache")
+        if cached and time.time() - cached[0] < DEVICES_CACHE_SECONDS:
+            return cached[1]
+        try:
+            from orpheus_core.link.serial_port import list_ports
+            result = {"ports": list_ports()}
+        except RuntimeError as exc:
+            result = {"ports": [], "note": str(exc)}
+        state["serial_ports_cache"] = (time.time(), result)
+        return result
 
     @app.get("/api/devices")
     def list_devices() -> dict[str, Any]:
@@ -744,11 +765,16 @@ def create_app(project_root: Path) -> FastAPI:
     # ---- realtime sessions (rt_host subprocess)
 
     @app.post("/api/projects/{name}/rt/start")
-    def rt_start(name: str) -> dict[str, Any]:
+    def rt_start(name: str, req: RtStartRequest | None = None) -> dict[str, Any]:
         try:
             rec = manager.get(name)
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        target = (req.target if req else "local") or "local"
+        if target == "serial":
+            return _rt_start_serial(name, rec, req)
+        if target != "local":
+            raise HTTPException(status_code=400, detail=f"未知目标: {target}（可选 local / serial）")
         ensure_components_built(flattened_project(rec))
         plan, plan_path = compile_record(rec)
         suffix = ".exe" if sys.platform == "win32" else ""
@@ -764,13 +790,38 @@ def create_app(project_root: Path) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"status": "started", "pid": session.proc.pid}
 
+    def _rt_start_serial(name: str, rec, req: RtStartRequest) -> dict[str, Any]:
+        """串口目标：对运行生成代码的远程设备开控制会话（不需要本地编译/rt_host）。"""
+        if not req or not req.port:
+            raise HTTPException(status_code=400, detail="串口目标需要 port（如 COM3 / /dev/ttyUSB0）")
+        from orpheus_core.link.serial_port import SerialTransport
+        from orpheus_core.server.serial_session import SerialSession
+        _, plan_path = compile_record(rec)
+        import json as _json
+        plan_dict = _json.loads(plan_path.read_text(encoding="utf-8"))
+        id_map = plan_dict.get("id_map", [])
+        try:
+            transport = SerialTransport(req.port, req.baud)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"打开串口失败: {exc}") from exc
+        session = SerialSession(transport, id_map)
+        try:
+            rt_sessions.adopt(name, session)
+        except RuntimeError as exc:
+            session.close()
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"status": "started", "target": "serial", "port": req.port, "baud": req.baud}
+
     @app.post("/api/projects/{name}/rt/stop")
     def rt_stop(name: str) -> dict[str, Any]:
         session = rt_sessions.get(name)
         if session is None:
             raise HTTPException(status_code=404, detail="no realtime session for this project")
         session.stop()
-        return {"status": "stopped", "exit_code": session.proc.poll()}
+        proc = getattr(session, "proc", None)  # 子进程会话有 exit_code；串口会话没有
+        return {"status": "stopped", "exit_code": proc.poll() if proc else None}
 
     @app.get("/api/projects/{name}/rt/status")
     def rt_status(name: str) -> dict[str, Any]:

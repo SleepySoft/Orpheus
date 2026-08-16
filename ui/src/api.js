@@ -37,7 +37,8 @@ export const runProject = (name, pace) =>
 export const runGenerated = (name) => unwrap(api.post(`/projects/${name}/run_generated`));
 export const generateProject = (name) => unwrap(api.post(`/projects/${name}/generate`));
 export const listDevices = () => unwrap(api.get('/devices'));
-export const rtStart = (name) => unwrap(api.post(`/projects/${name}/rt/start`));
+export const rtStart = (name, opts) => unwrap(api.post(`/projects/${name}/rt/start`, opts || {}));
+export const getLinkPorts = () => unwrap(api.get('/link/ports'));
 export const rtStop = (name) => unwrap(api.post(`/projects/${name}/rt/stop`));
 export const rtStatus = (name) => unwrap(api.get(`/projects/${name}/rt/status`));
 export const rtSetParam = (name, node, param, value) =>

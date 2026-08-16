@@ -60,6 +60,9 @@ function Editor() {
   const [selectedId, setSelectedId] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
   const [paceRun, setPaceRun] = useState(false);
+  const [rtTarget, setRtTarget] = useState('local'); // 'local' | 'serial:<port>'
+  const [serialPorts, setSerialPorts] = useState([]);
+  const [serialBaud, setSerialBaud] = useState(921600);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [autoSave, setAutoSave] = useState(true);
@@ -1076,9 +1079,37 @@ const { screenToFlowPosition } = useReactFlow();
     }
   }, [current, ensureSaved]);
 
+  const refreshSerialPorts = useCallback(async () => {
+    try {
+      const r = await api.getLinkPorts();
+      setSerialPorts(r.ports || []);
+    } catch {
+      setSerialPorts([]);
+    }
+  }, []);
+
+  // 打开工程时预取一次串口列表（下拉 focus / ↻ 按钮也会刷新）
+  useEffect(() => {
+    if (current) refreshSerialPorts();
+  }, [current, refreshSerialPorts]);
+
   const doRun = useCallback(async () => {
     if (!current) return;
     await ensureSaved();
+    // 串口目标：不启动本地宿主，直接对远程设备开控制会话
+    if (rtTarget.startsWith('serial:')) {
+      const port = rtTarget.slice('serial:'.length);
+      setStatus('连接串口设备…');
+      try {
+        await api.rtStart(current, { target: 'serial', port, baud: serialBaud });
+        setRt({ running: true, logs: [], probes: {} });
+        setStatus(`串口会话已连接 ${port} @${serialBaud}（远程设备调音中）`);
+      } catch (e) {
+        setStatus('串口连接失败');
+        setLog({ title: '串口连接错误', lines: [api.errorDetail(e)] });
+      }
+      return;
+    }
     setStatus('运行中…');
     try {
       const r = await api.runProject(current, paceRun);
@@ -1125,7 +1156,7 @@ const { screenToFlowPosition } = useReactFlow();
       setStatus('运行失败');
       setLog({ title: '运行错误', lines: [api.errorDetail(e)] });
     }
-  }, [current, ensureSaved, paceRun]);
+  }, [current, ensureSaved, paceRun, rtTarget, serialBaud]);
 
   const doRunGenerated = useCallback(async () => {
     if (!current) return;
@@ -1352,6 +1383,36 @@ const { screenToFlowPosition } = useReactFlow();
         </span>
         <span className="toolbar-sep" />
         <span className="tb-group">
+          <select
+            className="rt-target"
+            value={rtTarget}
+            onChange={(e) => setRtTarget(e.target.value)}
+            onFocus={refreshSerialPorts}
+            disabled={!current || rt.running}
+            title="运行目标：本机（rt_host 实时宿主）或串口连接的远程嵌入式设备"
+          >
+            <option value="local">本机</option>
+            {serialPorts.map((p) => (
+              <option key={p.device} value={`serial:${p.device}`}>
+                {p.device} 串口
+              </option>
+            ))}
+          </select>
+          {rtTarget.startsWith('serial:') && (
+            <>
+              <input
+                className="rt-baud"
+                type="number"
+                value={serialBaud}
+                onChange={(e) => setSerialBaud(parseInt(e.target.value, 10) || 921600)}
+                disabled={rt.running}
+                title="波特率"
+              />
+              <button className="tb-mini" onClick={refreshSerialPorts} title="刷新串口列表">
+                ↻
+              </button>
+            </>
+          )}
           <button className="primary" onClick={doRun} disabled={!current || rt.running}>
             ▶ 运行
           </button>

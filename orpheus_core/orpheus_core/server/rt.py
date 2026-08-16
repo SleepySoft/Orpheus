@@ -291,6 +291,14 @@ class RtSessionManager:
             self._sessions[name] = session
             return session
 
+    def adopt(self, name: str, session) -> None:
+        """接管一个非子进程会话（如串口设备会话 SerialSession），做重名互斥与登记。"""
+        with self._lock:
+            old = self._sessions.get(name)
+            if old and old.running:
+                raise RuntimeError(f"realtime session already running for {name}")
+            self._sessions[name] = session
+
     def get(self, name: str) -> RtSession | None:
         with self._lock:
             return self._sessions.get(name)

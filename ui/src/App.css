@@ -166,6 +166,40 @@
   white-space: nowrap;
 }
 
+.rt-target {
+  font-size: 12px;
+  padding: 5px 6px;
+  border: 1px solid #3d4451;
+  border-radius: 6px;
+  background: #262b36;
+  color: #ced4da;
+}
+
+.rt-baud {
+  width: 78px;
+  font-size: 12px;
+  padding: 5px 6px;
+  border: 1px solid #3d4451;
+  border-radius: 6px;
+  background: #262b36;
+  color: #ced4da;
+}
+
+.tb-mini {
+  border: 1px solid #3d4451;
+  background: #262b36;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #ced4da;
+}
+
+.tb-mini:hover {
+  border-color: #4cc9f0;
+  color: #4cc9f0;
+}
+
 .autosave {
   display: flex;
   align-items: center;
