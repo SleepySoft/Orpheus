@@ -1,6 +1,6 @@
 # slc_matrix_mul - N 表插值斜坡混音矩阵
 
-> Orpheus 专用组件，对应 BAF SAS Medusa Part3 MixingControl + RampProcessing 的一体化实现。
+> Orpheus 专用组件，对应 Symphony SAS Symphony Part3 MixingControl + RampProcessing 的一体化实现。
 
 ## 功能
 
@@ -12,7 +12,7 @@
 
 ### 为什么不能拆分
 
-Medusa 的 Part3 混音使用三组斜坡渐变混音矩阵（Cs 13x2、Left 7x10、Right 7x10），每组有 Min/Detent/Max 三张预调表。完整处理链路：
+Symphony 的 Part3 混音使用三组斜坡渐变混音矩阵（Cs 13x2、Left 7x10、Right 7x10），每组有 Min/Detent/Max 三张预调表。完整处理链路：
 
 ```
 surround_index(0-255, 用户控制)
@@ -97,7 +97,7 @@ SET <node_id> freeze 1
 ```
 
 - `ramp_coeff = 0`: 瞬切，无渐变（适合静态配置）
-- `ramp_coeff = 0.995842`: Medusa 默认，tau ~= 238 样本 ~= 5ms @ 48kHz
+- `ramp_coeff = 0.995842`: Symphony 默认，tau ~= 238 样本 ~= 5ms @ 48kHz
 - `ramp_coeff = 1`: 永不收敛（实际不会使用）
 
 ### 3. 矩阵乘
@@ -155,7 +155,7 @@ process(frames, in, out):
     freeze: 0
 ```
 
-### Medusa Part3 Cs 混音（13x2，3 表）
+### Symphony Part3 Cs 混音（13x2，3 表）
 
 ```yaml
 - id: cs_mixer
@@ -170,7 +170,7 @@ process(frames, in, out):
     interp_x: "0, 128, 255"
     interp_index: 128.0      # 出厂默认 Detent
     interp_method: 1         # 对数线性（听感均匀）
-    ramp_coeff: 0.995842     # Medusa 默认 IIR 系数
+    ramp_coeff: 0.995842     # Symphony 默认 IIR 系数
     freeze: 0
 ```
 
@@ -217,16 +217,16 @@ N=1 时无插值，target 始终等于 tables[0]，行为等价于 `matrix_mul`�
 2. **最大表数量**：8（`SLC_MM_MAX_TABLES`）。
 3. **内存占用**：state 固定分配 `8 * 1024 * 3 * sizeof(float)` ~= 96KB（tables + target + active），无论实际使用多少。
 4. **tables 不可运行时更新**：`restart_required` 策略。调音表内容在 `prepare` 时解析，运行时只能改 `interp_index`（在表间插值）和 `freeze`。若需运行时换表，需重新编译工程。
-5. **无 downmix 混合**：Medusa 的 `targetGain = (1-downmix)*slcGain + downmix*fadeDownmixGain` 未实现。当前 target 直接来自插值，不与 fade downmix 混合。如需此功能，可在上游用 `mixer` 组件预混合，或将 downmix 逻辑加入此组件。
-6. **无 FastSequence 序列号**：Medusa 用奇偶序列号控制冻结/释放，本组件用 `freeze` 布尔参数（0/1）替代，语义等价但无序列号防抖。
+5. **无 downmix 混合**：Symphony 的 `targetGain = (1-downmix)*slcGain + downmix*fadeDownmixGain` 未实现。当前 target 直接来自插值，不与 fade downmix 混合。如需此功能，可在上游用 `mixer` 组件预混合，或将 downmix 逻辑加入此组件。
+6. **无 FastSequence 序列号**：Symphony 用奇偶序列号控制冻结/释放，本组件用 `freeze` 布尔参数（0/1）替代，语义等价但无序列号防抖。
 7. **对数线性模式**：增益值为负或零时钳位到 `5.01e-7`（-126dB），不会产生 NaN，但负增益的物理含义（反相）在此模式下丢失。
 8. **不支持 inplace**：输入输出缓冲区不能重叠（矩阵维度变化时数据布局不同）。
 
-## 与 Medusa 的对应关系
+## 与 Symphony 的对应关系
 
-| Medusa (Model_1_1.c / Model_1_2.c) | slc_matrix_mul |
+| Symphony (Model_1_1.c / Model_1_2.c) | slc_matrix_mul |
 |--------------------------------------|----------------|
-| `MedusaPart3MixingControl_*TargetGains[26/70/70]` | `tables` 参数（3 张表） |
+| `SymphonyPart3MixingControl_*TargetGains[26/70/70]` | `tables` 参数（3 张表） |
 | `surround_index` (0-255, RTC SET) | `interp_index`（immediate, SET 注入） |
 | `InterpolationMethod` (线性/对数线性) | `interp_method` (0/1) |
 | `activeCoeffs = 0.995842` (RampCoeff) | `ramp_coeff` |
@@ -235,8 +235,8 @@ N=1 时无插值，target 始终等于 tables[0]，行为等价于 `matrix_mul`�
 | `AudioOut = AudioIn * activeGains'` (`:12689`) | process 内矩阵乘 |
 | PingPong 跨核共享内存 (N00S1_2_D1_1_F3) | `SET` 命令注入（图外控制） |
 
-### 未覆盖的 Medusa 特性
+### 未覆盖的 Symphony 特性
 
-- **SLC 三表分别为 Cs/Left/Right 独立调音**：Medusa 三组矩阵各有独立的三表。本组件每次实例只处理一组矩阵，需实例化 3 个 `slc_matrix_mul` 分别对应 Cs/Left/Right。
-- **DeciRate 计算 + FullRate 执行的多速率分离**：Medusa 在 Model_1_2（1500Hz）算 target，经 PingPong 传到 Model_1_1（48kHz）执行 IIR+乘法。本组件将插值和执行合并在同一速率，无需 PingPong。若需多速率分离，可用 `downrate` + `embed_in/out` 拆分控制路径。
-- **CAE（Cabin Acoustic Enhancement）**：Medusa 的 CAE 可替换 tail 权重，本组件未实现。
+- **SLC 三表分别为 Cs/Left/Right 独立调音**：Symphony 三组矩阵各有独立的三表。本组件每次实例只处理一组矩阵，需实例化 3 个 `slc_matrix_mul` 分别对应 Cs/Left/Right。
+- **DeciRate 计算 + FullRate 执行的多速率分离**：Symphony 在 Model_1_2（1500Hz）算 target，经 PingPong 传到 Model_1_1（48kHz）执行 IIR+乘法。本组件将插值和执行合并在同一速率，无需 PingPong。若需多速率分离，可用 `downrate` + `embed_in/out` 拆分控制路径。
+- **CAE（Cabin Acoustic Enhancement）**：Symphony 的 CAE 可替换 tail 权重，本组件未实现。

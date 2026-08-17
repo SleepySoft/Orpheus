@@ -38,7 +38,7 @@
 - 任意窗都能用：Hann、Blackman、Kaiser、平顶窗，甚至非标准 taper——由 Python/MATLAB 生成后粘贴即可。
 - 解析为空时兜底为 `[1.0]`（即直通矩形窗）；**未提供的尾部系数为 0**（coeffs 数组先清零再填充），所以请确保系数串长度 ≥ window_size，否则窗尾会被乘成 0 而不是直通。
 
-128 点 Hann 窗的例子（对称，`w[n] = 0.5·(1 − cos(2πn/(N−1)))`）见 `examples/baf_asm_ehc_rnc.yaml` 中 `win` 节点。
+128 点 Hann 窗的例子（对称，`w[n] = 0.5·(1 − cos(2πn/(N−1)))`）见 `examples/symphony_asm_ehc_rnc.yaml` 中 `win` 节点。
 
 ### `mode`：single vs repeat
 
@@ -71,7 +71,7 @@
   params: { channels: 12, fft_size: 128, output_mode: power }
 ```
 
-（完整链路见 `examples/baf_asm_ehc_rnc.yaml` 的 tid5/tid6 任务。）
+（完整链路见 `examples/symphony_asm_ehc_rnc.yaml` 的 tid5/tid6 任务。）
 
 ## 实时安全
 

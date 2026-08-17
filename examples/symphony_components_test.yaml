@@ -1,6 +1,6 @@
 version: "0.1.0"
 metadata:
-  name: baf_components_test
+  name: symphony_components_test
   description: "验证全部6个蒸馏组件: gain_ramper + iir_bank + rfft + ifft + sleeping_beauty + input_mixer_3d（probe_rms 内联探针，wav_out 终端汇）"
 sample_rate: 48000
 block_size: 32
@@ -57,7 +57,7 @@ graph:
       position: {x: 1580, y: 100}
     - id: sink
       component: orpheus.builtin.wav_out
-      params: {file_path: "baf_components_test_out.wav", channels: 2, sample_rate: 48000}
+      params: {file_path: "symphony_components_test_out.wav", channels: 2, sample_rate: 48000}
       position: {x: 1800, y: 100}
   connections:
     - {from: "src:out", to: "ramper:in"}

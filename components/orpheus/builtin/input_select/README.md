@@ -48,4 +48,4 @@ music_bus (30ch) ──► input_select(channels_in=30, channels_out=12,
                  ──► pre_amp
 ```
 
-从 30 通道音乐总线中抽取前 12 路交给预放处理，是 BAF 工程中 `input_select` 子组件的典型用法。
+从 30 通道音乐总线中抽取前 12 路交给预放处理，是 Symphony 工程中 `input_select` 子组件的典型用法。

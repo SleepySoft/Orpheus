@@ -1,12 +1,12 @@
 # input_mixer_3d - 3D输入混音器
 
-> Orpheus 专用扩展组件（L1），对应 BAF SAS 的 InputMixer3D + DownmixToStereo 块。
+> Orpheus 专用扩展组件（L1），对应 Symphony SAS 的 InputMixer3D + DownmixToStereo 块。
 
 ## 功能
 
 加权矩阵混音器。将 M 个输入通道按权重矩阵线性混合为 N 个输出通道，可选输出增益。权重矩阵通过 BULK 槽双缓冲直写，支持运行时热更新。
 
-覆盖 BAF SAS 的 InputMixer3D（5.1.4 加权）与 DownmixToStereo（8 通道下混立体声）两个块。
+覆盖 Symphony SAS 的 InputMixer3D（5.1.4 加权）与 DownmixToStereo（8 通道下混立体声）两个块。
 
 ## 端口
 
@@ -64,7 +64,7 @@ process:
 
 ## 源码映射
 
-| BAF SAS 源码 | 本组件 |
+| Symphony SAS 源码 | 本组件 |
 |---|---|
 | `Model_1_1.c` PreAmp InputMixer3D（514 加权） | `input_mixer_3d` 权重矩阵子块 |
 | DownmixToStereo `Weights_L_R[8]`（8ch->L/R） | `weights` 矩阵 output=2, input=8 |
@@ -73,6 +73,6 @@ process:
 
 ## 限制
 
-- 最大 32x32（BAF SAS 实际用 8x2 / 5.1.4，在范围内）
+- 最大 32x32（Symphony SAS 实际用 8x2 / 5.1.4，在范围内）
 - 行步长固定 32（`IM3D_MAX_CHANNELS`），权重矩阵按行优先紧凑解析后展开到固定步长
 - 无非线性/3D HRTF 处理（纯线性加权矩阵）

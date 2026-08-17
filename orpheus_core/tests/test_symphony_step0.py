@@ -1,8 +1,8 @@
-"""BAF SAS step0 / PostProcess 端到端骨架验证。
+"""Symphony SAS step0 / PostProcess 端到端骨架验证。
 
-- baf_postprocess.yaml：32ch -> 22ch 后处理链路，覆盖 iir_bank/limiter/soft_clipper/
+- symphony_postprocess.yaml：32ch -> 22ch 后处理链路，覆盖 iir_bank/limiter/soft_clipper/
   delay_line/gain_ramper/input_select/output_router。
-- baf_sas_step0.yaml：完整 step0 子组件层级结构，含 Medusa 反馈环（用 1 块延迟打破）。
+- symphony_sas_step0.yaml：完整 step0 子组件层级结构，含 Symphony 反馈环（用 1 块延迟打破）。
 """
 
 from __future__ import annotations
@@ -60,9 +60,9 @@ def _compile(name: str) -> dict:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
-def test_baf_postprocess_compile() -> None:
+def test_symphony_postprocess_compile() -> None:
     """PostProcess 骨架能编译，并包含预期组件。"""
-    plan = _compile("baf_postprocess.yaml")
+    plan = _compile("symphony_postprocess.yaml")
     comps = {cfg["component"] for cfg in plan.node_configs.values()}
     for cid in (
         "orpheus.builtin.input_select",
@@ -81,12 +81,12 @@ def test_baf_postprocess_compile() -> None:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
-def test_baf_postprocess_run_end_to_end(client) -> None:
+def test_symphony_postprocess_run_end_to_end(client) -> None:
     """PostProcess 骨架离线运行并产生非零输出。"""
     name = f"bpp_{uuid.uuid4().hex[:8]}"
     _CREATED.append(name)
     assert client.post("/api/projects", json={"name": name}).status_code == 201
-    src = _load_example("baf_postprocess.yaml")
+    src = _load_example("symphony_postprocess.yaml")
     doc = client.get(f"/api/projects/{name}").json()
     doc["sample_rate"] = src["sample_rate"]
     doc["block_size"] = src["block_size"]
@@ -107,9 +107,9 @@ def test_baf_postprocess_run_end_to_end(client) -> None:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
-def test_baf_sas_step0_compile() -> None:
+def test_symphony_sas_step0_compile() -> None:
     """step0 子组件层级结构能编译。"""
-    plan = _compile("baf_sas_step0.yaml")
+    plan = _compile("symphony_sas_step0.yaml")
     comps = {cfg["component"] for cfg in plan.node_configs.values()}
     # 子组件展开后不应再出现 sub: 前缀
     assert not any(c.startswith("sub:") for c in comps)
@@ -125,12 +125,12 @@ def test_baf_sas_step0_compile() -> None:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
-def test_baf_sas_step0_run_end_to_end(client) -> None:
+def test_symphony_sas_step0_run_end_to_end(client) -> None:
     """step0 骨架离线运行成功，主输出与 Audiopilot 输出均有能量。"""
     name = f"bs0_{uuid.uuid4().hex[:8]}"
     _CREATED.append(name)
     assert client.post("/api/projects", json={"name": name}).status_code == 201
-    src = _load_example("baf_sas_step0.yaml")
+    src = _load_example("symphony_sas_step0.yaml")
     doc = client.get(f"/api/projects/{name}").json()
     doc["sample_rate"] = src["sample_rate"]
     doc["block_size"] = src["block_size"]

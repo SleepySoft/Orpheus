@@ -41,7 +41,7 @@
 ## 典型用法
 
 ```
-main_chain ──► wav_out(file_path="baf_step0_main_out.wav",
+main_chain ──► wav_out(file_path="symphony_step0_main_out.wav",
                        channels=22, sample_rate=48000)
 ```
 

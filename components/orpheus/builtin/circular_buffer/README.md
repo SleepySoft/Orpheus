@@ -62,7 +62,7 @@ out = [ 帧0 (frame_size) | 帧1 (frame_size) | ... | 帧N-1 (frame_size) ]
   params: { channels: 12, fft_size: 128, output_mode: power }
 ```
 
-（完整工程见 `examples/baf_asm_ehc_rnc.yaml` 的 tid5/tid6 任务。）
+（完整工程见 `examples/symphony_asm_ehc_rnc.yaml` 的 tid5/tid6 任务。）
 
 ## 实时安全
 

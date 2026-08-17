@@ -16,7 +16,7 @@
   - 数值模拟：ch=1/2/3/5/7/32 输出最大幅值均 <=输入，确认无削波、通道隔离。
   - `ninja -C build orpheus_builtin_delay` 构建通过；后端非设备用例 19 项全部通过。
 
-## 2026-08-10（第四十三次讨论：BAF SAS step0 骨架 + per-channel IIR/delay_line）
+## 2026-08-10（第四十三次讨论：Symphony SAS step0 骨架 + per-channel IIR/delay_line）
 
 - **iir_bank 支持 per-channel 系数**
   - `component.yaml` 新增 `coefs_mode: shared | per_channel` 与 `coefs_per_channel` BULK 槽。
@@ -27,33 +27,33 @@
   - 补齐 `CMakeLists.txt`；修正 C 描述符中不存在的 widget/kind 常量。
   - 缓冲区容量改为 `max_delay + block_size + 1`；`prepare` 解析 `delays_samples` 字符串默认值。
   - 新增测试验证每通道不同延迟。
-- **BAF PostProcess 骨架**
-  - 新增 `examples/baf_postprocess.yaml`：32ch -> 22ch 主输出，覆盖
+- **Symphony PostProcess 骨架**
+  - 新增 `examples/symphony_postprocess.yaml`：32ch -> 22ch 主输出，覆盖
     input_select/gain_ramper/limiter/iir_bank/soft_clipper/output_router/delay_line/probe/wav_out。
   - 离线运行通过，主输出 RMS > 0.01。
-- **BAF SAS step0 完整骨架**
-  - 新增 `examples/baf_sas_step0.yaml`：Medusa 链 -> 1 块延迟反馈 -> MusicIn ->
+- **Symphony SAS step0 完整骨架**
+  - 新增 `examples/symphony_sas_step0.yaml`：Symphony 链 -> 1 块延迟反馈 -> MusicIn ->
     InputSelect/PreAmp/PostProcess/Audiopilot，使用子组件层级结构。
-  - 子组件占位实现：`medusa_chain`、`input_select`、`pre_amp`、`post_process`、`audiopilot`，
+  - 子组件占位实现：`symphony_chain`、`input_select`、`pre_amp`、`post_process`、`audiopilot`，
     内部用 input_select/output_router/mixer/gain/delay_line 保持通道数转换。
-  - 新增 `test_baf_step0.py`：编译/运行 end-to-end 验证；全量测试 117 passed、1 skipped。
+  - 新增 `test_symphony_step0.py`：编译/运行 end-to-end 验证；全量测试 117 passed、1 skipped。
 
 ## 2026-08-10（第四十二次讨论：FDP 架构修正 + slc_matrix_mul 接入 + UI 参数面板）
 
 - **FDP 架构修正（核心变更）**：源码实证发现 FDP（TID2）不是分析侧链，而是主链内联多速率组件。
-  `step0`（TID0, 1500Hz）第一个调用即 `MedusaPart2FdpFullRateTID0()`（:15600），紧跟 `MedusaPart3FullRateMixing()`（:15606），
+  `step0`（TID0, 1500Hz）第一个调用即 `SymphonyPart2FdpFullRateTID0()`（:15600），紧跟 `SymphonyPart3FullRateMixing()`（:15606），
   FDP 6ch 输出直接喂 Part3。TID2（375Hz）只是 FFT 核心降速率处理，非独立分析抽头。
   双速率机制：TID0 写/读 32 样本/块的 256 样本环形缓冲，TID2 每 4 块读 128 样本做 256 点 STFT（50% 重叠，hop=128）。
-  - `baf_sas_full.yaml`：TID0 chains 加入 `part2_fdp`（Part3 之前）；TID2 改 `mode: inline`、`chains: []`、加双速率 note。
+  - `symphony_sas_full.yaml`：TID0 chains 加入 `part2_fdp`（Part3 之前）；TID2 改 `mode: inline`、`chains: []`、加双速率 note。
   - `distill_topology.py`：新增 `mode == "inline"` 判断（:258），inline 的 task chains 并入主链，不生成死路抽头。
   - 测试断言更新：节点数 25->23、downrate 5->4（无 TID2）、part2_fdp 在主链、tap_2 不在主链。
 - **slc_matrix_mul 接入**：Part3 混音矩阵从 flow 注释 `MixingMatrix` 替换为 `SlcMatrixMul` 组件映射；
   `distill_topology.py` `_RULES` 新增 `slcmatrixmul -> slc_matrix_mul`（:33）。
 - **"分析汇"改名**：`distill_topology.py` 中 `embed_out` 死路终点 label 从"分析汇 TIDn"改为"分析抽头终点 TIDn"（3 处）；
-  全仓库扫描替换残留引用（`baf_sas_full.yaml`、`baf_sas_analysis.md`、`implementation_log.md`、`SKILL/references/distill-model.md`）。
+  全仓库扫描替换残留引用（`symphony_sas_full.yaml`、`symphony_sas_analysis.md`、`implementation_log.md`、`SKILL/references/distill-model.md`）。
 - **SKILL/references/distill-model.md 更新**：§3 映射表加 `slc_matrix_mul` 行；§4.1 示例 FDP 改 `mode: inline`；
   规则加 inline 模式说明（区别于分析侧链）；"分析汇"->"分析抽头终点"。
-- **baf_sas_analysis.md 更新**：§2 加 TID 分类修正；§3.3 加 FDP 双速率架构（含源码行号表）；
+- **symphony_sas_analysis.md 更新**：§2 加 TID 分类修正；§3.3 加 FDP 双速率架构（含源码行号表）；
   §3.4 加 SlcMatrixMul 组件映射；§14.4/14.5/14.6 全面修正（5 抽头->4、FDP ✅、slc_matrix_mul ✅）。
 - **Obsidian MDS6/03 更新**：新增 §2.5"双速率架构与主链内联"（速率转换表 + [!important] callout）；
   Part3 加 [!note] slc_matrix_mul 组件说明；§2.1 补 §2.5 引用。
@@ -63,7 +63,7 @@
 ## 2026-08-09（第四十一次讨论：估计/统计组件与调试可视化——第一批）
 
 - 判断：PSD/相干/线性插值均为已知通用算法（相干公式与 SpeedBounds 插值已在
-  `baf_sas_analysis.md` §11.6/§11.7 从源码蒸馏确认），无需再跑蒸馏，直接实现通用观测组件。
+  `symphony_sas_analysis.md` §11.6/§11.7 从源码蒸馏确认），无需再跑蒸馏，直接实现通用观测组件。
 - 新组件（3 个，均音频直通 + readback 探针）：
   - `psd`：逐块 FFT + 指数平滑，`spectrum` readback（幅度数组，与 probe_spectrum 同构，
     复用频谱 widget）；
@@ -110,7 +110,7 @@
 - `build_topology` 消费结构化 task_flows：interval=1 的链串接为主音频链（sys_in..sys_out）；
   interval>1 的 task 生成 `downrate(factor=call_interval)` 抽头 + 抽头子模块 + 分析抽头终点（embed_out），
   从 sys_in 抽头；旧格式（无 chains/blocks）回退为全部链串接。
-- `examples/baf_sas_full.yaml` 重构：task_flows 结构化（TID0 主链 8 链，TID2 含 part2_fdp，
+- `examples/symphony_sas_full.yaml` 重构：task_flows 结构化（TID0 主链 8 链，TID2 含 part2_fdp，
   TID1/3/4/5 为 Audiopilot 分析侧链）；audiopilot 链收敛为 TID0 正弦调制部分；
   噪声过滤补充 BufferRef/delayBuffer/RateTransition 等结构块。
 - 结果：重新展开 22 主图节点（8 主链 + 4 downrate 抽头 + 4 分析抽头终点）、12 子模块；
@@ -118,9 +118,9 @@
 - 测试：蒸馏导入断言更新（downrate factor 2/4/64/256/768 检查、part2_fdp 不在主链）；
   全量 104 passed、1 skipped。
 
-## 2026-08-09（第三十八次讨论：baf_sas_analysis 缺口核查与补齐）
+## 2026-08-09（第三十八次讨论：symphony_sas_analysis 缺口核查与补齐）
 
-- 核查 `examples/baf_sas_analysis.md` 与 `baf_sas_full.yaml`：§13 声称已实现的 6 个组件
+- 核查 `examples/symphony_sas_analysis.md` 与 `symphony_sas_full.yaml`：§13 声称已实现的 6 个组件
   （gain_ramper/iir_bank/rfft/ifft/input_mixer_3d/sleeping_beauty）在仓库中存在，但
   **从未接入蒸馏映射**（distill_topology / 前端徽章仍把 RFFT/pooliir/SleepingBeauty
   /InputMixer3D 当占位或错误映射），且 **DLL 未构建**、示例工程无自动化测试。
@@ -128,7 +128,7 @@
   - 映射更新：pooliir→iir_bank、RFFT/FFT→rfft、IFFT→ifft、SleepingBeauty→sleeping_beauty、
     InputMixer3D/Downmix→input_mixer_3d（前后端同步）——重新展开占位 17 → 13、真实映射 38 → 40；
   - 构建 6 个组件 DLL；
-  - 新增 `test_baf_components.py`（编译 + 离线端到端运行 + rms 探针），
+  - 新增 `test_symphony_components.py`（编译 + 离线端到端运行 + rms 探针），
     修正 `test_parse_flow` 旧断言（RFFT 现映射 rfft）。
 - 剩余占位 13 个与 §14.2 一致：FDP 专用（Coeffs1st/2ndStage、ApplyCoefficients、PSD平滑、
   DetectImpulse、ReverbExtraction）、相干族（FormCoherenceMatrixGXY、30ch相干求和）、
@@ -156,13 +156,13 @@
 
 ## 2026-08-09（第三十六次讨论：缺失组件——先实现实现明确的）
 
-- 梳理 BAF SAS 蒸馏的 33 个占位块，先实现一批**实现明确**的通用 DSP 组件（8 个）：
+- 梳理 Symphony SAS 蒸馏的 33 个占位块，先实现一批**实现明确**的通用 DSP 组件（8 个）：
   `switch`（开关/旁通，enable+斜坡）、`limiter`（峰值限幅，阈值/attack/release）、
   `soft_clipper`（tanh 软削波，drive 归一化）、`saturation`（饱和限幅，limit/soft 硬软切换）、
   `matrix_mul`（矩阵乘法，rows×cols BULK 系数）、`window`（窗函数，BULK 系数每块从头应用）、
   `noise_slew`（逐样本变化率限幅）、`level_detect`（峰值/RMS 包络检测 + level 探针 readback）。
 - 全部注册进蒸馏映射表（后端 `distill_topology.py` 与前端 `ProjectTree.js` 徽章同步）：
-  baf_sas_full 重新展开后占位块从 41 → 33，真实映射 23 → 31。
+  symphony_sas_full 重新展开后占位块从 41 → 33，真实映射 23 → 31。
 - 数值验证 `tests/test_dynamics_components.py`（6 项）：饱和削波边界、开关静音/窗加权、
   矩阵缩放、限幅稳态增益、软削波有界、变化率步长、电平探针——离线运行全部通过。
 - 变长 BULK（matrix/window 系数）暂不注册运行期 BULK 槽（register_slots 先于 prepare，
@@ -170,7 +170,7 @@
 - 第二批：`square`（平方器 y=x²，功率/PSD 用）、`sine_mod`（正弦调制器，AM/颤音）。
 - 蒸馏映射修正：按「块名+原始片段」匹配（Sum/SASOutputRouter/PostEQ 等此前映射不到），
   规则顺序调整（LevelDetect 优先于 pooliir、相干优先于窗/饱和、路由优先于 selector），
-  并过滤数据表/描述性噪声块（*Map/路径/缓冲/置零/=powf 等）——baf_sas_full 重新展开
+  并过滤数据表/描述性噪声块（*Map/路径/缓冲/置零/=powf 等）——symphony_sas_full 重新展开
   占位 33 → 17，真实映射 38（第二批前为 31），剩余占位均为待调查项
   （FFT/STFT 族、FDP 专用、相干、SpeedBounds、SleepingBeauty、ReverbExtraction 等）。
 
@@ -736,7 +736,7 @@
 ## 2026-08-05：从 references/FAW_E202_DEMO 提取车载音频算法为组件
 
 ### 背景
-`references/FAW_E202_DEMO` 是 Bose AudioWeaver 的 FAW（一汽）E202 车载音频示例工程（C/C++ + MATLAB 代码生成）。其娱乐（ENT）信号链 `Mute -> Gain -> Bass -> Treble -> MidRange -> Fade` 等模块在 `Inner/*_Process.c` 与 `Source/Mod*DemoModule.c` 中实现了真实 DSP 算法（增益斜坡、一阶/二阶 IIR 搁架、频谱分频淡入淡出、矩阵路由）。本迭代把这些算法“正确做成” Orpheus 组件。
+`references/FAW_E202_DEMO` 是 Symphony AudioWeaver 的 FAW（一汽）E202 车载音频示例工程（C/C++ + MATLAB 代码生成）。其娱乐（ENT）信号链 `Mute -> Gain -> Bass -> Treble -> MidRange -> Fade` 等模块在 `Inner/*_Process.c` 与 `Source/Mod*DemoModule.c` 中实现了真实 DSP 算法（增益斜坡、一阶/二阶 IIR 搁架、频谱分频淡入淡出、矩阵路由）。本迭代把这些算法“正确做成” Orpheus 组件。
 
 ### 组件清单（8 个，均为 source 包）
 
@@ -857,34 +857,34 @@
 - 预充仅在异步桥模式生效（duplex 单设备同时钟无需预充）。
 
 
-## 2026-08-10 BAF SAS step0 结构继续展开
+## 2026-08-10 Symphony SAS step0 结构继续展开
 
 ### 完成项
-1. `post_process` 子组件已在 `examples/baf_sas_step0.yaml` 中替换为真实 PostProcess 链路：pre_ramp → limiter → post_eq → soft_clipper → mute_ramp → calibration → freq_comp → output_delay。
-2. Medusa Part3 矩阵混音展开为 3 个 `slc_matrix_mul`（Cs 13→2 / Left 13→10 / Right 13→10）+ output_router 合入 22ch Merge 总线，保留 IIR 斜坡能力（ramp_coeff=0.995842）。
+1. `post_process` 子组件已在 `examples/symphony_sas_step0.yaml` 中替换为真实 PostProcess 链路：pre_ramp → limiter → post_eq → soft_clipper → mute_ramp → calibration → freq_comp → output_delay。
+2. Symphony Part3 矩阵混音展开为 3 个 `slc_matrix_mul`（Cs 13→2 / Left 13→10 / Right 13→10）+ output_router 合入 22ch Merge 总线，保留 IIR 斜坡能力（ramp_coeff=0.995842）。
 3. Part4 / PostProcess 中的 IIR 实例统一改为 13 级 per-channel 占位（`num_stages: 13`，`coefs_mode: per_channel`，系数全部为单位 IIR），与 Model_1_1.c 中 pooliir 13 级结构对齐。
 4. Part4 22ch 重排序已按 Model_1_1.c:13215 的 tmp[] 表实现（1-based 索引）。
 
 ### 验证
-- `python -m orpheus_core.cli compile examples/baf_sas_step0.yaml` 通过。
-- `python -m pytest orpheus_core/tests/test_baf_step0.py -q`：4 passed。
+- `python -m orpheus_core.cli compile examples/symphony_sas_step0.yaml` 通过。
+- `python -m pytest orpheus_core/tests/test_symphony_step0.py -q`：4 passed。
 - `python -m pytest orpheus_core/tests/ -q`：117 passed, 1 skipped。
 
 ### 遗留 / 待下一步
 - 真实 IIR 系数（PostEQ/FreqComp/FullRateEq/MixEq）需要从 `Model_1_1.c` 提取；当前文件不在仓库内，需用户提供路径。
 - Part3 的 `slc_matrix_mul` 当前使用 identity 占位表；真实 `CsTargetGains[26]` / `LeftTargetGains[70]` / `RightTargetGains[70]` 同样需从 Model_1_1.c / PingPongStruct.xml 获取。
-- `limiter` 组件仍为单共享包络，BAF 需要每通道 attack/decay/k1/maxAttack，待扩展组件。
-- Part6→MusicIn 反馈当前为 identity 22→30 扩展，需按 BAF 反馈索引表精确映射。
+- `limiter` 组件仍为单共享包络，Symphony 需要每通道 attack/decay/k1/maxAttack，待扩展组件。
+- Part6→MusicIn 反馈当前为 identity 22→30 扩展，需按 Symphony 反馈索引表精确映射。
 - Audiopilot 子组件仍为占位，需进一步展开 HF/LF 噪声滤波与增益计算。
 
 ## 2026-08-10 从 Model_1_1.c 校正 IIR 级数
 
-- 已定位 `C:\D\Work\Project\EREV\cart-cicd-erev\components\baf\src\out\baremetalgxp\slx\code\Model_1_1_ert_shrlib_rtw\Model_1_1.c`。
+- 已定位 `C:\D\Work\Project\EREV\cart-cicd-erev\components\symphony\src\out\baremetalgxp\slx\code\Model_1_1_ert_shrlib_rtw\Model_1_1.c`。
 - 从对应 TOP 文件确认默认 IIR 级数：
   - PostProcess `PostEQ` / `FreqComp`：`NumStages = [1]*22`
-  - Medusa Part4 `FullRateEq`：复用 p8 `MedusaFullRateHoligramIirPooliirNumStages = [8]*22`
-  - Medusa Part3 `MixEq`：`MedusaFullRateMixEqPooliirNumStages = [10]*13`
-- 已按上述级数更新 `examples/baf_sas_step0.yaml` 中 `post_eq`、`freq_comp`、`full_rate_eq`、`mix_eq`，系数仍用单位 IIR 占位（默认调音数据未提供具体双二阶系数）。
+  - Symphony Part4 `FullRateEq`：复用 p8 `SymphonyFullRateHoligramIirPooliirNumStages = [8]*22`
+  - Symphony Part3 `MixEq`：`SymphonyFullRateMixEqPooliirNumStages = [10]*13`
+- 已按上述级数更新 `examples/symphony_sas_step0.yaml` 中 `post_eq`、`freq_comp`、`full_rate_eq`、`mix_eq`，系数仍用单位 IIR 占位（默认调音数据未提供具体双二阶系数）。
 - 验证：`python -m pytest orpheus_core/tests/ -q` → **117 passed, 1 skipped**。
 
 > 注：TOP 文件中 pooliir 系数数组为单位矩阵形式，与 `iir_bank` 的 `[b0,b1,b2,a1,a2]` 双二阶格式需进一步映射；当前示例保持可运行占位，待真实调音系数确定后再精确填充。
@@ -897,19 +897,19 @@
    - `shared` 模式保持原 `threshold_db/attack_ms/release_ms` 行为，完全向后兼容。
    - `per_channel` 模式支持 `attack_coeffs`、`release_coeffs`、`k1`、`max_attack` 四个逗号分隔浮点数组（长度 ≥ channels）。
    - 每通道独立包络，增益计算：`g = max(k1[c] * threshold/env[c], max_attack[c])`。
-2. 从 `Model_1_1_PostProcess_p0_b0_TOP.c` 提取 BAF PostProcess 限幅器默认值：
+2. 从 `Model_1_1_PostProcess_p0_b0_TOP.c` 提取 Symphony PostProcess 限幅器默认值：
    - `attack = 0.0236999`（22ch）
    - `decay = 1.00023985`（22ch）
    - `k1 = 0.0118499501`（22ch）
    - `maxAttack = 0.316227764`（22ch）
-3. `examples/baf_sas_step0.yaml` 中 `post_process/limiter` 已切换为 `per_channel` 并填入上述 22 通道数组。
+3. `examples/symphony_sas_step0.yaml` 中 `post_process/limiter` 已切换为 `per_channel` 并填入上述 22 通道数组。
 
 ### 验证
 - `python -m orpheus_core.cli build` 通过。
 - `python -m pytest orpheus_core/tests/ -q` → **117 passed, 1 skipped**。
 
 ### 遗留
-- BAF 限幅器实际有 high/low 双带参数（`_low` 后缀），当前 `limiter` 只实现单带；如需完全对齐，后续可扩展为 `band_count` 或增加 low 带系数组。
+- Symphony 限幅器实际有 high/low 双带参数（`_low` 后缀），当前 `limiter` 只实现单带；如需完全对齐，后续可扩展为 `band_count` 或增加 low 带系数组。
 
 ## 2026-08-14 修复 MSVC 构建断裂（m.lib）+ 陈旧构建产物导致的测试大面积失败
 

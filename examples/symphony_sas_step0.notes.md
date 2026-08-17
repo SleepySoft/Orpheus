@@ -1,7 +1,7 @@
-# BAF SAS step0 工程笔记
+# Symphony SAS step0 工程笔记
 
-> 对应文件：`examples/baf_sas_step0.yaml`  
-> 蒸馏来源：`Model_1_1.c`（Bose BAF SAS 空间音频系统）  
+> 对应文件：`examples/symphony_sas_step0.yaml`  
+> 蒸馏来源：`Model_1_1.c`（Symphony Symphony SAS 空间音频系统）  
 > 作者/维护者：Orpheus 团队  
 > 最后更新：2026-08
 
@@ -9,7 +9,7 @@
 
 ## 1. 这个工程是什么？
 
-`baf_sas_step0.yaml` 是 BAF SAS（Bose Automotive Framework - Spatial Audio System）在 Orpheus 中的**第 0 步骨架工程**。它把整个 `Model_1_1.c` 的音频处理链路拆成了若干子组件（subcomponents），用 Orpheus 的原子组件先搭出**拓扑结构、通道数、延迟线位置和参数分区**，但大量系数和复杂算法目前还是占位实现。
+`symphony_sas_step0.yaml` 是 Symphony SAS（Symphony Automotive Framework - Spatial Audio System）在 Orpheus 中的**第 0 步骨架工程**。它把整个 `Model_1_1.c` 的音频处理链路拆成了若干子组件（subcomponents），用 Orpheus 的原子组件先搭出**拓扑结构、通道数、延迟线位置和参数分区**，但大量系数和复杂算法目前还是占位实现。
 
 核心目标不是“听起来对”，而是：
 
@@ -52,7 +52,7 @@ part2_fdp 还分出 fdp_lo_ro → audiopilot
 顶层图中有几个值得注意的设计：
 
 - **`music_src` 是 30 路伪输入**：它不代表真实 30 通道音频，而是把反馈回来的 22 路扩展成 30 路后，与“原始音乐”合并的位置。`music_mixer` 把 `music_src` 和 `feedback_expand` 的输出加在一起。
-- **反馈环**：`part5_6:out` → `feedback_delay` → `feedback_expand` → `music_mixer`。这是 Medusa 的“前馈-反馈”结构的一部分，用于把后处理后的信号重新注入前端。
+- **反馈环**：`part5_6:out` → `feedback_delay` → `feedback_expand` → `music_mixer`。这是 Symphony 的“前馈-反馈”结构的一部分，用于把后处理后的信号重新注入前端。
 - **`fdp_tap`**：从 `part2_fdp:buffer_out`（6 路）中挑选 4 路（索引 1,2,3,5）送给 `audiopilot:fdp_lo_ro`，对应真实 FDP 双速率接口中的 Selector(6ch→4ch:{0,1,2,4})，注意这里的 0-based 索引在 YAML 中写成了 1,2,3,5。
 - **Audiopilot 侧链**：接收 `pre_amp:buffer1`（10 路）、`pre_amp:buffer2`（1 路）、`mono_src`（1 路）和 `fdp_tap`（4 路），输出 10 路宽频噪声补偿信号。
 
@@ -60,7 +60,7 @@ part2_fdp 还分出 fdp_lo_ro → audiopilot
 
 ## 3. 子系统详解
 
-### 3.1 `part2_fdp` — Medusa Part2 频域环绕解码（当前占位）
+### 3.1 `part2_fdp` — Symphony Part2 频域环绕解码（当前占位）
 
 **真实作用**：把 2 路高频（treble_lr）通过 STFT/混响/系数矩阵解码成 6 路环绕信号（Lo/Ro/Lsr/Rsr + 2 路混响），是全系统的“频域全景声”核心。
 
@@ -90,12 +90,12 @@ part2_fdp 还分出 fdp_lo_ro → audiopilot
 - `concat`：把 `buf_expand`（13ch）和 `ts_expand`（13ch）两路合并成 13ch。
 - `mix_eq`：13 通道 10 阶 IIR bank，目前系数全为单位矩阵（直通）。真实 `MixEqpooliirCoeffs` 有 484 个 float。
 - `cs_mix` / `left_mix` / `right_mix`：三个 `slc_matrix_mul`，目前只有单张表且近似单位矩阵，未启用 N 表插值。
-- `cs_expand` / `left_expand` / `right_expand`：把 2/10/10 路输出扩展成 22 路，按 Medusa 的合并位置填入。
+- `cs_expand` / `left_expand` / `right_expand`：把 2/10/10 路输出扩展成 22 路，按 Symphony 的合并位置填入。
 - `merge1` / `merge2`：把三组 22 路扩展结果加起来。
 
 **设计要点**：
 
-- 三组 `slc_matrix_mul` 是 Medusa Part3 的核心：`Cs`（13×2，控制中央/单声道能量）、`Left`（13×10，左半空间）、`Right`（13×10，右半空间）。step0 目前用单表占位，保留了 `ramp_coeff=0.995842` 的默认斜坡系数。
+- 三组 `slc_matrix_mul` 是 Symphony Part3 的核心：`Cs`（13×2，控制中央/单声道能量）、`Left`（13×10，左半空间）、`Right`（13×10，右半空间）。step0 目前用单表占位，保留了 `ramp_coeff=0.995842` 的默认斜坡系数。
 - `mix_eq` 的 13 通道 × 10 阶 IIR 对应 `MixEqpooliirCoeffs`，后续会从 TOP 文件回填。
 
 ---
@@ -117,7 +117,7 @@ part2_fdp 还分出 fdp_lo_ro → audiopilot
 
 ### 3.4 `part5_6` — 全息后处理与求和
 
-**真实作用**：Medusa Part5（SleepingBeauty/PostHoligramRouting/FadeControl/MuteControl） + Part6（Sum/SpeakerDelay/SASRouting/FadeRamper/SpatialFader）。这是把 22 路“直接声”和“全息声”混合、加扬声器延迟、做前后衰减的最后一步。
+**真实作用**：Symphony Part5（SleepingBeauty/PostHoligramRouting/FadeControl/MuteControl） + Part6（Sum/SpeakerDelay/SASRouting/FadeRamper/SpatialFader）。这是把 22 路“直接声”和“全息声”混合、加扬声器延迟、做前后衰减的最后一步。
 
 **当前实现**：
 
@@ -157,7 +157,7 @@ part2_fdp 还分出 fdp_lo_ro → audiopilot
 - `makeup`：12 路 `gain`，默认 0 dB。
 - `input_mixer`：12→12 `input_mixer_3d`，权重近似单位矩阵（只保留了对角线）。真实有 `InputMixer3dWeights_514[3]` 等加权。
 - `downmix`：12→2 `input_mixer_3d`，只把输入 0/1 直送到 L/R。真实 `Weights_L_R[8]` 会混合多路。
-- `bass` / `midrange` / `treble`：Bose 三段音调控制，默认 0 dB（平直）。
+- `bass` / `midrange` / `treble`：Symphony 三段音调控制，默认 0 dB（平直）。
 - `balance`：左右平衡，默认 0（中心）。
 - `volume`：`gain_ramper`，默认 0 dB。
 - `preemp`：2 通道 10 阶 IIR bank，对应 `LevelDetectPreEmpFilterpooliirCoeffs`，目前系数未填。
@@ -168,7 +168,7 @@ part2_fdp 还分出 fdp_lo_ro → audiopilot
 
 **设计要点**：
 
-- 响度/音调/平衡/音量链路只在 2 路立体声上运行，这是 Medusa 预放 Part1 的典型设计。
+- 响度/音调/平衡/音量链路只在 2 路立体声上运行，这是 Symphony 预放 Part1 的典型设计。
 - `buf_router` 把 12 路扩展成 32 路，是因为后级 `post_process` 的 `asd_router` 期望 32 路输入（再选择 22 路）。
 - `buffer1`（10 路）和 `buffer2`（1 路）是 Audiopilot 的“参考信号”和“单声道信号”。
 
@@ -191,13 +191,13 @@ part2_fdp 还分出 fdp_lo_ro → audiopilot
 - `audio_out_router`：22→32 通道路由，填充前 22 路，后 10 路置 -1。
 - `audio_sink`：32 路 null_sink，消耗 `audio_out_router` 的输出。
 
-**注意**：`audio_out_router` + `audio_sink` 对应 Medusa 的 `AudioOut[32]` 分支（主 22 路 + 辅助/未用 10 路）。step0 中主输出从 `out_delay:out` 走，而 `audio_out_router` 只是保持结构完整。
+**注意**：`audio_out_router` + `audio_sink` 对应 Symphony 的 `AudioOut[32]` 分支（主 22 路 + 辅助/未用 10 路）。step0 中主输出从 `out_delay:out` 走，而 `audio_out_router` 只是保持结构完整。
 
 ---
 
 ### 3.8 `audiopilot` — Audiopilot35 噪声补偿侧链（TID0 部分）
 
-**真实作用**：Bose Audiopilot 算法，根据车内噪声自适应提升音乐响度。完整实现跨 TID0/TID1/TID3/TID4/TID5 多个分速率任务。step0 只实现了 TID0 的正弦调制链，以及几个分析侧链的“抽头”。
+**真实作用**：Symphony Audiopilot 算法，根据车内噪声自适应提升音乐响度。完整实现跨 TID0/TID1/TID3/TID4/TID5 多个分速率任务。step0 只实现了 TID0 的正弦调制链，以及几个分析侧链的“抽头”。
 
 **当前实现**：
 
@@ -313,11 +313,11 @@ Audiopilot 的分析节点（`hf_psd`、`lf_interp`、`coh_sat` 等）目前只�
 
 ## 7. 调试建议
 
-- **先看通不通**：`python -m orpheus_core.cli compile examples/baf_sas_step0.yaml` 能否成功生成 plan.json。
+- **先看通不通**：`python -m orpheus_core.cli compile examples/symphony_sas_step0.yaml` 能否成功生成 plan.json。
 - **再看通道数**：重点关注 30→12→32→22、6→13→22、22→30 这些转换点，容易因索引或矩阵尺寸出错。
 - **探针监控**：`main_probe`（22 路 RMS）和 `ap_probe`（10 路 RMS）是快速判断输出是否有信号的窗口。
 - **逐步开关节点**：可以把 `part2_fdp`/`part3_mixing`/`part4_peripheral_eq`/`part5_6` 等子组件临时替换为 passthrough，分段定位问题。
-- **检查 WAV 输出**：`baf_step0_main_out.wav`（22ch）和 `baf_step0_ap_out.wav`（10ch）可以用 Audacity 等工具查看波形。
+- **检查 WAV 输出**：`symphony_step0_main_out.wav`（22ch）和 `symphony_step0_ap_out.wav`（10ch）可以用 Audacity 等工具查看波形。
 
 ---
 
@@ -325,9 +325,9 @@ Audiopilot 的分析节点（`hf_psd`、`lf_interp`、`coh_sat` 等）目前只�
 
 | 文件 | 作用 |
 |---|---|
-| `examples/baf_sas_step0.yaml` | 本工程主文件 |
-| `examples/baf_sas_step0.node-notes.json` | 每个节点实例的简明说明 |
+| `examples/symphony_sas_step0.yaml` | 本工程主文件 |
+| `examples/symphony_sas_step0.node-notes.json` | 每个节点实例的简明说明 |
 | `components/orpheus/builtin/slc_matrix_mul/README.md` | Part3 核心组件详细说明 |
 | `components/orpheus/builtin/sleeping_beauty/README.md` | Part5 SleepingBeauty 说明 |
 | `components/orpheus/builtin/input_mixer_3d/README.md` | PreAmp InputMixer3D/Downmix 说明 |
-| `docs/baf_sas_model_1_1_flow.md` | Medusa 整体流程（如有） |
+| `docs/symphony_sas_model_1_1_flow.md` | Symphony 整体流程（如有） |

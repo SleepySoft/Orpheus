@@ -1,7 +1,7 @@
 # ASM（EHC + RNC）蒸馏提纲
 
-> 源工程：`C:\D\Work\Project\EREV\cart-cicd-erev-asm\components\baf`
-> 目标：在 Orpheus 中建立 `examples/baf_asm_ehc_rnc.yaml` step0 骨架，拓扑/任务/参数分区与源模型对齐，算法先用占位组件近似。
+> 源工程：`C:\D\Work\Project\EREV\cart-cicd-erev-asm\components\symphony`
+> 目标：在 Orpheus 中建立 `examples/symphony_asm_ehc_rnc.yaml` step0 骨架，拓扑/任务/参数分区与源模型对齐，算法先用占位组件近似。
 
 ---
 
@@ -91,7 +91,7 @@ Model_Target
 
 ## 2. Orpheus step0 目标
 
-和 `baf_sas_step0.yaml` 一样，本阶段目标是**结构对齐、可编译、可运行**，而不是“听起来对”。
+和 `symphony_sas_step0.yaml` 一样，本阶段目标是**结构对齐、可编译、可运行**，而不是“听起来对”。
 
 1. **建立顶层图**：`asm_in` / `audio_in` → `ehc_sub` / `rnc_sub` → `output_processing` → `audio_out` / `ref_out`。
 2. **定义 7 个任务**（TID0~TID6），与源模型周期/速率对齐。
@@ -108,7 +108,7 @@ Model_Target
 ```yaml
 version: "0.1.0"
 metadata:
-  name: BAF ASM EHC/RNC step0
+  name: Symphony ASM EHC/RNC step0
   description: ...
 sample_rate: 48000
 block_size: 24          # TID1 块长
@@ -166,11 +166,11 @@ graph:
     - id: audio_out
       component: orpheus.builtin.wav_out
       task: tid1
-      params: { channels: 24, file_path: outputs/baf_asm_audio_out.wav }
+      params: { channels: 24, file_path: outputs/symphony_asm_audio_out.wav }
     - id: ref_out
       component: orpheus.builtin.wav_out
       task: tid2
-      params: { channels: 18, file_path: outputs/baf_asm_ref_out.wav }
+      params: { channels: 18, file_path: outputs/symphony_asm_ref_out.wav }
   connections:
     - asm_in:out -> ehc_sub:asm_in
     - audio_in:out -> rnc_sub:audio_in
@@ -244,8 +244,8 @@ model_tree:
 
 ## 5. 实施顺序
 
-1. 按本提纲编写 `examples/baf_asm_ehc_rnc.yaml`。
-2. 用 `python -m orpheus_core.cli compile examples/baf_asm_ehc_rnc.yaml` 验证图可编译。
+1. 按本提纲编写 `examples/symphony_asm_ehc_rnc.yaml`。
+2. 用 `python -m orpheus_core.cli compile examples/symphony_asm_ehc_rnc.yaml` 验证图可编译。
 3. 用 `python -m pytest orpheus_core/tests/ -q` 做回归测试。
 4. 可选：在 UI 中导入查看拓扑。
 5. 后续：从 `Model_Target_*_TOP.c` 回填系数，逐步实现真实 EHC/RNC 算法组件。

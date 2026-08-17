@@ -1,17 +1,17 @@
-# BAF SAS 完整信号流（基于 Model_1_1.c）
+# Symphony SAS 完整信号流（基于 Model_1_1.c）
 
-> 来源：`cart-cicd-erev/components/baf/src/out/baremetalgxp/slx/code/Model_1_1_ert_shrlib_rtw/Model_1_1.c`（20 641 行）+ `PostProcess.c`  
+> 来源：`cart-cicd-erev/components/symphony/src/out/baremetalgxp/slx/code/Model_1_1_ert_shrlib_rtw/Model_1_1.c`（20 641 行）+ `PostProcess.c`  
 > 采样率 48 kHz，块大小 32，帧率 1.5 kHz。
 
 ## 1. 顶层 TID 调用顺序
 
 ```text
 Model_1_1_step0()  @ 0.6667 ms  (TID0, 主实时链)
-  ├─ MedusaPart2FdpFullRateTID0()   // FDP 输入缓冲 + 输出缓冲
-  ├─ MedusaPart3FullRateMixing()    // 13ch -> 22ch 矩阵混音
-  ├─ MedusaPart4FullRatePeripheralEq() // 22ch IIR + 延迟
-  ├─ MedusaPart5FullRatePostHoligram() // SleepingBeauty + 相位对齐延迟
-  ├─ MedusaPart6SummationAndPreAmp()   // 求和 + 扬声器延迟 + 淡入淡出
+  ├─ SymphonyPart2FdpFullRateTID0()   // FDP 输入缓冲 + 输出缓冲
+  ├─ SymphonyPart3FullRateMixing()    // 13ch -> 22ch 矩阵混音
+  ├─ SymphonyPart4FullRatePeripheralEq() // 22ch IIR + 延迟
+  ├─ SymphonyPart5FullRatePostHoligram() // SleepingBeauty + 相位对齐延迟
+  ├─ SymphonyPart6SummationAndPreAmp()   // 求和 + 扬声器延迟 + 淡入淡出
   ├─ Subsystem Switch                // Part6 输出 -> 22ch feedback -> MusicIn
   ├─ InputSelect()                   // 30ch MusicIn -> 12ch Ent + 1ch Mic + 17ch Ann
   ├─ PreAmpPart1()                   // 化妆增益/下混/音调/平衡/音量/电平检测
@@ -22,7 +22,7 @@ Model_1_1_step1()  @ 1.3333 ms  (TID1)
   └─ Audiopilot35 低速缓冲更新(BufferRef/BufferMic)
 
 Model_1_1_step2()  @ 2.6667 ms  (TID2)
-  └─ MedusaPart2FdpFullRateTID2()   // FDP FFT 慢链：2ch -> 6ch
+  └─ SymphonyPart2FdpFullRateTID2()   // FDP FFT 慢链：2ch -> 6ch
 
 Model_1_1_step3()  @ 42.6667 ms (TID3)
   └─ Audiopilot35 HF noise coherence / FFT 分析
@@ -42,11 +42,11 @@ Model_1_1_step5()  @ 512 ms
 flowchart LR
     subgraph inputs [外部输入]
         MusicIn[MusicIn 30ch]
-        TrebleLr[MedusaPart1Bands_TrebleLr 2ch]
-        Mono[MedusaPart1Bands_Mono 1ch]
+        TrebleLr[SymphonyPart1Bands_TrebleLr 2ch]
+        Mono[SymphonyPart1Bands_Mono 1ch]
     end
 
-    subgraph medusa [Medusa 全速率链]
+    subgraph symphony [Symphony 全速率链]
         FDP[FDP<br/>2ch -> 6ch]
         P3[Part3 Mixing<br/>13ch -> 22ch]
         P4[Part4 PeripheralEQ<br/>22ch IIR+Delay]
@@ -179,12 +179,12 @@ Buffer[32ch]
   -> Model_AudioOut32[22ch]
 ```
 
-### 3.4 Medusa Part2 FDP
+### 3.4 Symphony Part2 FDP
 
 ```text
 TID0:
   TrebleLr[2ch]
-    -> MedusaTrebleDelay (2ch)
+    -> SymphonyTrebleDelay (2ch)
     -> BufferIn (2ch x 32 ring)
     -> BufferOut (6ch x 32 ring) => Model_1_1_B.BufferOut[6ch]
     -> Selector: BufferOut[6ch] -> LoRoLimpRimp[4ch] (indices 0,1,2,4)
@@ -194,17 +194,17 @@ TID2:
   -> BufferOut (6ch x 128)
 ```
 
-### 3.5 Medusa Part3 FullRate Mixing
+### 3.5 Symphony Part3 FullRate Mixing
 
 ```text
-TrebleSurround[7ch] -> MedusaAlignmentDelay[7ch]
+TrebleSurround[7ch] -> SymphonyAlignmentDelay[7ch]
                        -> SelectSurroundDiscrete[3ch]
                        -> SelectLeftSurroundAtmos(Ltf+Ltb) -> Sum -> 1ch
                        -> SelectRightSurroundAtmos(Rtf+Rtb) -> Sum -> 1ch
                        => Merge1[5ch?] + audioOut_o[7ch]
 
 BufferOut[6ch] + audioOut_o[7ch] = MatrixConcatenate1[13ch]
-  -> MedusaFullRateMixEq IIR (software pooliirSplitProcess, 13ch)
+  -> SymphonyFullRateMixEq IIR (software pooliirSplitProcess, 13ch)
   -> InputOrganizer:
        LeftFdp   = [Lo, Limp, Ltail]      (indices 0,2,3)
        RightFdp  = [Ro, Rimp, Rtail]      (indices 1,4,5)
@@ -221,7 +221,7 @@ BufferOut[6ch] + audioOut_o[7ch] = MatrixConcatenate1[13ch]
        => Merge[22ch]
 ```
 
-### 3.6 Medusa Part4 / Part5 / Part6
+### 3.6 Symphony Part4 / Part5 / Part6
 
 ```text
 Part4:
@@ -230,14 +230,14 @@ Part4:
 
 Part5:
   Merge[22ch] -> sleepingBeautyProcess (4 rampers: L/R/C/Mono)
-              -> MedusaTunableDelay (PhaseAlignmentDelays[22])
+              -> SymphonyTunableDelay (PhaseAlignmentDelays[22])
               -> Buffer[22ch]
 
 Part6:
-  Buffer[22ch] + MedusaPart5DeciRatePostHoligram_AudioOut[22ch]
+  Buffer[22ch] + SymphonyPart5DeciRatePostHoligram_AudioOut[22ch]
               -> Add[22ch]
               -> SpeakerDelay[22ch]
-              -> MedusaOutputRouter (routing map 22->22)
+              -> SymphonyOutputRouter (routing map 22->22)
               -> SpatialFader (lpf + fade rampers)
               -> MuteRamper (global ramp)
               -> ImpAsg_InsertedFor_Out1_at_inport_0[22ch]
@@ -281,15 +281,15 @@ GainCalculation:
 
 ## 4. 平台相关 IIR / pooliir 替换表
 
-当前 Orpheus 只有 `orpheus.builtin.iir_bank`，它假设所有通道共享同一组级联系数。BAF 中大量实例需要**每通道不同系数**或**每通道不同级数**。因此要么扩展 `iir_bank`，要么每个通道使用独立 `iir_bank`。
+当前 Orpheus 只有 `orpheus.builtin.iir_bank`，它假设所有通道共享同一组级联系数。Symphony 中大量实例需要**每通道不同系数**或**每通道不同级数**。因此要么扩展 `iir_bank`，要么每个通道使用独立 `iir_bank`。
 
 | # | 位置 | 原函数 | 通道数 | 说明 | Orpheus 替换 |
 |---|---|---|---|---|---|
 | 1 | PostProcess.c:1048 | `iir_accelerator_process` | 22 | PostEQ，每通道 1 级 IIR，频率不同 | 22x `iir_bank`(1 stage) 或扩展 `iir_bank` 支持 per-channel 系数 |
 | 2 | Model_1_1.c:4660 | `iir_accelerator_process` | 22 | OutputCalibration FreqComp，每通道 1 级 | 同上 |
 | 3 | Model_1_1.c:8996 | `pooliirSplitProcess` | 10 | PreAmp LevelDetect 预加重，软件 pooliir | `iir_bank` (共享系数可能可行) |
-| 4 | Model_1_1.c:12473 | `pooliirSplitProcess` | 13 | Medusa Part3 MixEq，软件 pooliir，每通道不同 | 13x `iir_bank` 或扩展 |
-| 5 | Model_1_1.c:13297 | `iir_accelerator_process` | 22 | Medusa Part4 PeripheralEQ | 22x `iir_bank` 或扩展 |
+| 4 | Model_1_1.c:12473 | `pooliirSplitProcess` | 13 | Symphony Part3 MixEq，软件 pooliir，每通道不同 | 13x `iir_bank` 或扩展 |
+| 5 | Model_1_1.c:13297 | `iir_accelerator_process` | 22 | Symphony Part4 PeripheralEQ | 22x `iir_bank` 或扩展 |
 | 6 | Model_1_1.c:15762 | `iir_accelerator_process` | 10 | Audiopilot HF noise BP/LP | 10x `iir_bank` 或扩展 |
 | 7 | Model_1_1.c:15818 | `iir_accelerator_process` | 10 | Audiopilot HF anti-aliasing | 10x `iir_bank` 或扩展 |
 | 8 | Model_1_1.c:16030 | `iir_accelerator_process` | 1 | Audiopilot LF mic filter | 1x `iir_bank` |
@@ -302,7 +302,7 @@ GainCalculation:
 
 ---
 
-## 5. 与当前 `baf_sas_step0.yaml` 中 `model_tree` 的对照
+## 5. 与当前 `symphony_sas_step0.yaml` 中 `model_tree` 的对照
 
 当前蒸馏展开后主链：
 
@@ -321,17 +321,17 @@ post_process -> audiopilot -> sys_out
 | **输入数量** | MusicIn 30ch + TrebleLr 2ch + Mono 1ch | 仅 sys_in |
 | **输出数量** | Model_AudioOut32 22ch + Audiopilot35_Out1 10ch | 仅 sys_out |
 | **多速率** | TID0/TID1/TID2/TID3 分工明确 | 基本忽略 |
-| **PostProcess 位置** | 在 PreAmpPart1 之后，处理 32ch Buffer | 在 Medusa 链末尾，处理 22ch |
+| **PostProcess 位置** | 在 PreAmpPart1 之后，处理 32ch Buffer | 在 Symphony 链末尾，处理 22ch |
 | **Audiopilot 位置** | 在 step0 末尾 inline，依赖 PreAmp 的 Buffer1/Buffer2/Mic | 作为独立节点接在 PostProcess 后 |
 
 ### 5.2 被 `_is_noise()` 误删的模块
 
 当前 `_NOISE_RE` 过滤了 `buffer|delay|rampcoeff|ratetransition` 等关键字，导致以下真实功能块丢失：
 
-- `MedusaTrebleDelay`
-- `MedusaAlignmentDelay` / `TrebleSurroundDelay`
+- `SymphonyTrebleDelay`
+- `SymphonyAlignmentDelay` / `TrebleSurroundDelay`
 - `ChannelDelay` (Part4)
-- `MedusaTunableDelay` / `FullRateHoligramDelay`
+- `SymphonyTunableDelay` / `FullRateHoligramDelay`
 - `SpeakerDelay`
 - `LevelDetectMusicDelay`
 - `Audiopilot Delay1 / Delay2 / Delay`
@@ -378,7 +378,7 @@ post_process -> audiopilot -> sys_out
    - 移除/收紧 `_NOISE_RE`，保留 buffer/delay/rate-transition。
    - 支持并行分支、反馈环、多 TID 子图。
    - 支持 `task_flows` 中显式多速率节点。
-4. **完善 `baf_sas_step0.yaml` 的 `model_tree`**：
+4. **完善 `symphony_sas_step0.yaml` 的 `model_tree`**：
    - 按真实调用顺序排列子系统。
    - 为每个子系统添加内部展开链，不省略中间 buffer/delay。
    - 添加 FDP/Audiopilot 多速率 tap。

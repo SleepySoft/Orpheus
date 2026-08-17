@@ -1,6 +1,6 @@
 # rfft - 实数FFT
 
-> Orpheus 专用扩展组件（L1），对应 BAF SAS 的 FDP / Audiopilot 频域分析 RFFT 块。
+> Orpheus 专用扩展组件（L1），对应 Symphony SAS 的 FDP / Audiopilot 频域分析 RFFT 块。
 
 ## 功能
 
@@ -63,7 +63,7 @@ process (每通道 c):
 
 ## 源码映射
 
-| BAF SAS 源码 | 本组件 |
+| Symphony SAS 源码 | 本组件 |
 |---|---|
 | `Model_1_1.c:10182-10900` FDP `rfft_process_inplace`（256 点，2ch） | `rfft` 256 点半复数输出 |
 | FDP 一次复 FFT 算两路实 FFT（SHARC+ cfftf 优化） | 逐通道独立 radix-2（未做双路打包优化） |

@@ -1,6 +1,6 @@
 # ifft - 实数IFFT
 
-> Orpheus 专用扩展组件（L1），对应 BAF SAS 的 FDP `rifft` 块（overlap-add 重建）。
+> Orpheus 专用扩展组件（L1），对应 Symphony SAS 的 FDP `rifft` 块（overlap-add 重建）。
 
 ## 功能
 
@@ -62,7 +62,7 @@ process (每通道 c):
 
 ## 源码映射
 
-| BAF SAS 源码 | 本组件 |
+| Symphony SAS 源码 | 本组件 |
 |---|---|
 | `Model_1_1.c` FDP `rifft`（256 点，6ch） | `ifft` 256 点半复数输入 |
 | FDP IFFT + OverlapAdd（InputOverlap 叠加） | `ifft` 仅做逆变换；overlap-add 由下游 `delay`+`mixer` 组合实现 |

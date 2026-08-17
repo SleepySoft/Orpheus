@@ -76,7 +76,7 @@ STFT 分析链的收尾组件：把"每块 `num_frames` 帧 × 每帧 `fft_size`
   params: { channels: 4, fft_size: 256, num_frames: 48, bin_count: 129, operation: mean }
 ```
 
-（完整链路见 `examples/baf_asm_ehc_rnc.yaml` 的 tid5/tid6 任务。）
+（完整链路见 `examples/symphony_asm_ehc_rnc.yaml` 的 tid5/tid6 任务。）
 
 ## 实时安全
 

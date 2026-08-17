@@ -1,6 +1,6 @@
 # iir_bank - N级IIR滤波器组
 
-> Orpheus 专用扩展组件（L1），对应 BAF SAS 的 pooliir / GLXP IIR 加速器（软件近似）。
+> Orpheus 专用扩展组件（L1），对应 Symphony SAS 的 pooliir / GLXP IIR 加速器（软件近似）。
 
 ## 功能
 
@@ -56,7 +56,7 @@ z1 = y
 
 ## 源码映射
 
-| BAF SAS 源码 | 本组件 |
+| Symphony SAS 源码 | 本组件 |
 |---|---|
 | pooliir GLXP IIR 加速器（workMem 1104, 22ch, 13stages） | iir_bank 22ch, 13 stages（软件级联） |
 | `pooliirAccelerator.h` `pooliirAccel` CRL 替换 | `ib_process()` 级联循环 |

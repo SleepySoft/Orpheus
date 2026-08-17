@@ -14,7 +14,7 @@ static float read_float(const OrpheusConfig* config, const char* id, float fallb
     return fallback;
 }
 
-/* Same-frame Mid/Side spatial enhancer (baf DownmixToStereo / SpatialFader style).
+/* Same-frame Mid/Side spatial enhancer (symphony DownmixToStereo / SpatialFader style).
    NO time-domain delay -> NO comb filter, NO mid/side time misalignment.
    mid=(L+R)/2, side=(L-R)/2. Processed in the same frame, so the neutral
    setting (width=1, air=0, mono_mix=1) is bit-identical passthrough.

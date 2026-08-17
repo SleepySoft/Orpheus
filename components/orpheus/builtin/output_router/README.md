@@ -50,4 +50,4 @@ feedback (22ch) ──► output_router(channels_in=22, channels_out=30, matrix=
                 ──► music_mixer
 ```
 
-BAF 工程中用 `output_router` 把 22 路反馈信号扩展成 30 路，以便与原始音乐信号对齐后混合。
+Symphony 工程中用 `output_router` 把 22 路反馈信号扩展成 30 路，以便与原始音乐信号对齐后混合。

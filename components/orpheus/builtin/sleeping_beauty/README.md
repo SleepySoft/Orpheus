@@ -1,10 +1,10 @@
 # sleeping_beauty - 响度补偿
 
-> Orpheus 高级组合组件（L2），对应 BAF SAS 的 FullRateSleepingBeauty 子系统。
+> Orpheus 高级组合组件（L2），对应 Symphony SAS 的 FullRateSleepingBeauty 子系统。
 
 ## 功能
 
-Bose SleepingBeauty 响度补偿算法。根据音量位置（gain_index）应用非对称 L/R 增益锥度，经 4 路指数斜坡器平滑输出。核心是"低音量提升、高音量衰减"的响度曲线 + 平衡位置的非对称衰减。
+Symphony SleepingBeauty 响度补偿算法。根据音量位置（gain_index）应用非对称 L/R 增益锥度，经 4 路指数斜坡器平滑输出。核心是"低音量提升、高音量衰减"的响度曲线 + 平衡位置的非对称衰减。
 
 ## 端口
 
@@ -86,7 +86,7 @@ if (极端 && mutesBass) { mono=0; }                       // 可选静音低音
 
 ## 源码映射
 
-| BAF SAS 源码 | 本组件 |
+| Symphony SAS 源码 | 本组件 |
 |---|---|
 | `Model_1_1.c:13515` calculate_SB_gains | `sb_calculate_gains()` |
 | `Model_1_1.c:13680` calculate_ramp_parameters | `sb_ramper_set_target()` |
@@ -95,4 +95,4 @@ if (极端 && mutesBass) { mono=0; }                       // 可选静音低音
 | `SleepingBeautyConfig.m` NumRampers=4 | `SB_MAX_RAMPERS=4` |
 | `SleepingBeautyConfig.m` ChanToRampMap | `chan_map` 参数 |
 | 参数分区 p12_b0 | 全部参数覆盖 |
-| RTC: PreAmpMedusaSleepingBeautyFrSet | `gain_index` smoothed 参数 |
+| RTC: PreAmpSymphonySleepingBeautyFrSet | `gain_index` smoothed 参数 |

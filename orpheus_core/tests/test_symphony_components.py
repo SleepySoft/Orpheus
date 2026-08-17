@@ -1,4 +1,4 @@
-"""BAF 蒸馏组件端到端验证。
+"""Symphony 蒸馏组件端到端验证。
 
 覆盖 6 个蒸馏组件（gain_ramper / iir_bank / rfft / ifft / sleeping_beauty /
 input_mixer_3d）：示例工程编译 + 离线运行 + rfft->ifft round-trip 链路数值合理。
@@ -19,7 +19,7 @@ from orpheus_core.registry import Registry
 from orpheus_core.server.app import create_app
 
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE = ROOT / "examples" / "baf_components_test.yaml"
+EXAMPLE = ROOT / "examples" / "symphony_components_test.yaml"
 _CREATED: list[str] = []
 
 
@@ -40,7 +40,7 @@ def _cleanup(client):
     _CREATED.clear()
 
 
-def test_baf_components_compile() -> None:
+def test_symphony_components_compile() -> None:
     """6 个蒸馏组件进入编译执行计划。"""
     registry = Registry()
     registry.add_search_path(ROOT / "components")
@@ -64,9 +64,9 @@ def test_baf_components_compile() -> None:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
-def test_baf_components_run_end_to_end(client) -> None:
+def test_symphony_components_run_end_to_end(client) -> None:
     """示例工程离线运行：输出 WAV、rms 探针上报（rfft->ifft 链路数值合理）。"""
-    name = f"baf_{uuid.uuid4().hex[:8]}"
+    name = f"symphony_{uuid.uuid4().hex[:8]}"
     _CREATED.append(name)
     assert client.post("/api/projects", json={"name": name}).status_code == 201
     pdir = ROOT / "workspace" / name
@@ -82,7 +82,7 @@ def test_baf_components_run_end_to_end(client) -> None:
     assert resp.status_code == 200, resp.text
     result = resp.json()
     assert result["status"] == "ok", result["stderr"]
-    out = pdir / "baf_components_test_out.wav"
+    out = pdir / "symphony_components_test_out.wav"
     assert out.exists() and out.stat().st_size > 0
     rms = [p for p in result["probes"] if p["node"] == "probe" and p["param"] == "rms"]
     assert rms and max(p["value"] for p in rms) > 0.01

@@ -89,17 +89,17 @@ def test_parse_flow_splits_blocks_and_respects_parens() -> None:
     assert map_block("PreqOut1") == "orpheus.builtin.output_router"
 
 
-def test_distill_baf_sas_topology_expansion() -> None:
-    """baf_sas_step0 的 model_tree.chains 在导入时展开为拓扑：
+def test_distill_symphony_sas_topology_expansion() -> None:
+    """symphony_sas_step0 的 model_tree.chains 在导入时展开为拓扑：
     主图含全部链子模块，未映射块用占位组件 id（UI 标红「组件缺失」），注释保留。
 
-    baf_sas_step0.yaml 本身已是可执行工程（20 节点），蒸馏端点只会在骨架图（<=3 节点）
+    symphony_sas_step0.yaml 本身已是可执行工程（20 节点），蒸馏端点只会在骨架图（<=3 节点）
     上展开 model_tree；因此测试时把 graph 替换为最小骨架，验证 model_tree 展开能力。"""
     import yaml
 
     name = _new_name()
     data = yaml.safe_load(
-        (ROOT / "examples" / "baf_sas_step0.yaml").read_text(encoding="utf-8")
+        (ROOT / "examples" / "symphony_sas_step0.yaml").read_text(encoding="utf-8")
     )
     # 蒸馏端点只在骨架图上展开 model_tree
     data["graph"] = {
@@ -153,7 +153,7 @@ def test_distill_baf_sas_topology_expansion() -> None:
         # model_tree 注释随展开保留，且经重载往返不丢
         got = client.get(f"/api/projects/{name}").json()
         assert len(got["subcomponents"]) == 13
-        assert got["model_tree"]["name"].startswith("Bose")
+        assert got["model_tree"]["name"].startswith("Symphony")
 
 
 @pytest.mark.skipif(

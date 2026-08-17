@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """pooliir → SOS 转换脚本
 
-Bose BAF 生成的 pooliir 系数是紧凑型双二阶级联格式：
+Symphony Symphony 生成的 pooliir 系数是紧凑型双二阶级联格式：
 
     每个通道：gain, [a2, a1, b2/b0, b1/b0] * num_stages
 
@@ -140,7 +140,7 @@ def _format_iir_bank(sos_channels: List[List[List[float]]]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="把 Bose pooliir 系数转换为标准 SOS / Orpheus iir_bank 系数。"
+        description="把 Symphony pooliir 系数转换为标准 SOS / Orpheus iir_bank 系数。"
     )
     parser.add_argument(
         "--coeffs",

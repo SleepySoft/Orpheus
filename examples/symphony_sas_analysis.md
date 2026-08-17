@@ -1,16 +1,16 @@
-# BAF SAS 空间音频系统 - 蒸馏分析说明
+# Symphony SAS 空间音频系统 - 蒸馏分析说明
 
 > 源码：`Model_1_1.c` v7.736（905KB / 20642 行静态 C，Simulink Coder R2022b，ert_shrlib 目标）
 > 目标 DSP：ADI SHARC+ GLXP | 基础块率：1500Hz（48kHz / 32 样本块）
-> 可导入工程：`examples/baf_sas_step0.yaml`（含 `model_tree`）
+> 可导入工程：`examples/symphony_sas_step0.yaml`（含 `model_tree`）
 
 ## 1. 系统概述
 
-BAF（音频框架）SAS 空间音频系统，用于车载多通道音频处理。由 Talaria + Simulink Coder 生成静态 C 代码，经 BAF 框架（`Audio_Graph.c`）调度，`rtmodel.c` 按 TID switch 分派到 `Model_1_1_step0~5`。
+Symphony（音频框架）SAS 空间音频系统，用于车载多通道音频处理。由 Talaria + Simulink Coder 生成静态 C 代码，经 Symphony 框架（`Audio_Graph.c`）调度，`rtmodel.c` 按 TID switch 分派到 `Model_1_1_step0~5`。
 
-两个 BAF 实例：
-- **Baf1 / Model_1_1**：48kHz 实时音频主路径（本蒸馏对象）
-- **Baf2 / Model_1_2**：1500Hz 降采样域控制/DSP（通过 IPC ping-pong 缓冲与 Baf1 交换数据）
+两个 Symphony 实例：
+- **Symphony1 / Model_1_1**：48kHz 实时音频主路径（本蒸馏对象）
+- **Symphony2 / Model_1_2**：1500Hz 降采样域控制/DSP（通过 IPC ping-pong 缓冲与 Symphony1 交换数据）
 
 参数调谐桥：`Model_InterpretationEngine64`（x86 PC 端 TSP 解释引擎）将运行期可调参数（TSP）解释为 DSP 状态变量（StateVar）。
 
@@ -63,12 +63,12 @@ FDP 是主音频链的**内联组件**，不是独立分析侧链。通过 256 �
 
 | 速率 | 函数 | 行号 | 职责 |
 |------|------|------|------|
-| TID0 (1500Hz) | MedusaPart2FullRateFdpTID0() | :12003-12070 | TrebleDelay -> BufferIn写(32样本/块) -> BufferOut读(32样本/块) -> Selector(6ch->4ch: {0,1,2,4}) |
-| TID2 (375Hz) | MedusaPart2FullRateFdpTID2() | :12073-12145 | BufferIn读(128样本) -> Model_1_1_Fdp()(256点STFT核心) -> BufferOut写(128样本) |
+| TID0 (1500Hz) | SymphonyPart2FullRateFdpTID0() | :12003-12070 | TrebleDelay -> BufferIn写(32样本/块) -> BufferOut读(32样本/块) -> Selector(6ch->4ch: {0,1,2,4}) |
+| TID2 (375Hz) | SymphonyPart2FullRateFdpTID2() | :12073-12145 | BufferIn读(128样本) -> Model_1_1_Fdp()(256点STFT核心) -> BufferOut写(128样本) |
 
-- **step0（TID0）第一个调用**就是 FDP（:15600），紧跟 MedusaPart3FullRateMixing()（:15606），FDP 输出直接喂 Part3。
+- **step0（TID0）第一个调用**就是 FDP（:15600），紧跟 SymphonyPart3FullRateMixing()（:15606），FDP 输出直接喂 Part3。
 - **速率转换**：TID0 每 32 样本写入输入环形缓冲；TID2 每 4 块读 128 样本做 256 点 FFT（50% 重叠，hop=128），输出 128 样本写回；TID0 再每 32 样本读出。block=32, hop=128, FFT=256, 4块/帧。
-- **step2（TID2）**：Model_1_1_MedusaPart2FdpFullRateTID2()（:17508）只调 MedusaPart2FullRateFdpTID2()，即 FFT 核心。
+- **step2（TID2）**：Model_1_1_SymphonyPart2FdpFullRateTID2()（:17508）只调 SymphonyPart2FullRateFdpTID2()，即 FFT 核心。
 - **结论**：FDP 6ch 输出经 Part3 InputOrganizer（:12486-12563）提取 LeftFdp(3ch)/RightFdp(3ch)，与 Atmos 装配 13ch -> 混音矩阵 -> 22ch。FDP 是主链内联，不是死路抽头。
 
 ### 3.4 Part3 全速率混合
@@ -91,7 +91,7 @@ FDP 是主音频链的**内联组件**，不是独立分析侧链。通过 256 �
 - 参数（p12_b0）：ChannelToRamperMap（22）、TableDb（30）、TableIdx（30）、Offset（1, 128.0）、RampTime（1, 30.0）、MutesBass（1, 0.0）、PhaseAlignmentDelays（22 uint）
 
 ### 3.7 Part6 求和与预放
-- Sum（holigram[22×32] + direct[22×32]）→ SpeakerDelay[32384]（22ch, stateLen 1472, per-ch delay）→ MedusaOutputRouter → FadeRamper LPF（TOPFilterCoefficients[3]）→ SpatialFader
+- Sum（holigram[22×32] + direct[22×32]）→ SpeakerDelay[32384]（22ch, stateLen 1472, per-ch delay）→ SymphonyOutputRouter → FadeRamper LPF（TOPFilterCoefficients[3]）→ SpatialFader
 - 延迟：SpeakerDelay（22ch, 32384, stateLen 1472）
 - 参数（p13_b0）：SpeakerDelay（22 uint）、PostHoligramRoutingMap（22）、FadeControl（TableDb[30] + TableIdx[30] + RampTime + Offset + BoostDisable + EnableSilentExtreme = 64）、FadeRamper（ChannelToRamperMap[22] + DisableLpf + TOPFilterCoeffs[3] = 26）、MuteRampTime（1, 100.0）
 
@@ -271,7 +271,7 @@ struct Ramper {
 
 ### 11.2 SleepingBeauty — 响度补偿 + 多通道增益斜坡
 
-> Bose 动态范围/响度补偿算法。根据音量位置（gain_index）应用非对称 L/R 增益锥度，经 4 个指数斜坡器平滑输出。
+> Symphony 动态范围/响度补偿算法。根据音量位置（gain_index）应用非对称 L/R 增益锥度，经 4 个指数斜坡器平滑输出。
 
 **源码位置**：`Model_1_1.c:13515-13930`（calculate_SB_gains + calculate_ramp_parameters + control）
 
@@ -379,11 +379,11 @@ InputMixer3D:
 
 ---
 
-### 11.4 FDP - 频域环绕解码器（Medusa 核心）
+### 11.4 FDP - 频域环绕解码器（Symphony 核心）
 
-**源码位置**：`Model_1_1.c:10489-11854`（`Model_1_1_Fdp_Init` / `Model_1_1_Fdp`，子系统 `MedusaFdpFullRate/Fdp`）；DeciRate 版在 `Model_1_2.c`（延迟线 774，FullRate 2193）。
+**源码位置**：`Model_1_1.c:10489-11854`（`Model_1_1_Fdp_Init` / `Model_1_1_Fdp`，子系统 `SymphonyFdpFullRate/Fdp`）；DeciRate 版在 `Model_1_2.c`（延迟线 774，FullRate 2193）。
 
-**是什么**：FDP（Frequency Domain Processing）是 Medusa 的频域核心——把立体声 L/R 经 STFT 变到频域，按"直接路径 / 串扰过量"分解出多路环绕成分，再提取混响并 IFFT 重建。它是"立体声上混成环绕声"的频域解码器，也是整个 2->22 上混链路的频域算法核心。
+**是什么**：FDP（Frequency Domain Processing）是 Symphony 的频域核心——把立体声 L/R 经 STFT 变到频域，按"直接路径 / 串扰过量"分解出多路环绕成分，再提取混响并 IFFT 重建。它是"立体声上混成环绕声"的频域解码器，也是整个 2->22 上混链路的频域算法核心。
 
 **声道流（已修正）**：输入 2ch（L/R，经 TrebleDelay[7928] 对齐）-> 频域解码 -> IFFT 输出 **6ch**（`rifft_process(...,256,6,128)`，`:11754`；BufferOut 环形缓冲 1536=256x6，`:11986`），**不是 4ch**。6ch 在 Part3 按 `LeftFdp={1,3,4}`、`RightFdp={2,5,6}` 分组（`:12486`），与 Atmos/延迟混合后装配成系统 **22ch** 扬声器输出。即：FDP 自身 2->6，全系统 ->22。
 
@@ -425,7 +425,7 @@ InputMixer3D:
   v
 [9] ReverbExtraction (4 条延迟路径, :11201):
   |    LeftFast/LeftSlow/RightFast/RightSlow x Delay[2193] (FullRate)
-  |    各路乘 DecayRate(MedusaPart1Bands_DecayRate) + LsSmoothFactor, fast/slow 不同时间常数
+  |    各路乘 DecayRate(SymphonyPart1Bands_DecayRate) + LsSmoothFactor, fast/slow 不同时间常数
   |    isImpulsive 时切换到 fast 衰减路径
   v
 [10] :11747  IFFT + OverlapAdd: rifft_process(256点, 6ch, overlap128) -> 时域, 叠加 outputOverlap[768=128x6]
@@ -442,7 +442,7 @@ InputMixer3D:
 - **Lo / Ro**：直接路径输出 = `Lok*Lin` / `Rok*Rin`（频域相乘 = 时域滤波）。
 - **Lsr / Rsr**：环绕残差 = `Lxk*Lin` / `Rxk*Rin`，即"过量"部分，送入混响提取产生环绕声。
 - **SPS**（Surround Phase Selectivity）：`|Lx-Rx|/(|Lx|+|Rx|+eps)`，空间感指标，衡量左右串扰成分的幅度差异，用于加权环绕系数。
-- **SPUM**（Stereo Program Up-Mix）：`MedusaFullRateFdpSpum*` 参数族——`FastPsdSmoothFactor`/`SlowPsdSmoothFactor`（PSD 双时间常数平滑）、`LsSmoothFactor`（混响平滑）、`DirectPathSamplesDec`(1161，直接路径延迟)、`DecayRate`(来自 Part1)、`Overwrite`（强制覆写系数）。
+- **SPUM**（Stereo Program Up-Mix）：`SymphonyFullRateFdpSpum*` 参数族——`FastPsdSmoothFactor`/`SlowPsdSmoothFactor`（PSD 双时间常数平滑）、`LsSmoothFactor`（混响平滑）、`DirectPathSamplesDec`(1161，直接路径延迟)、`DecayRate`(来自 Part1)、`Overwrite`（强制覆写系数）。
 
 **参数分区**（p3_b0）：FdpCoeffs(6) / FdpSpum(4) / DirectPathSamplesDec(1,uint,1161) / TrebleDelay(1,uint,1280)。
 
@@ -480,7 +480,7 @@ InputMixer3D:
                                                 级数: HoligramIirPooliirNumStages(array)
 ```
 
-**功能**：Bose 专有空间声场重建算法。通过延迟 + IIR 滤波 + 路由，在扬声器阵列上重建虚拟声源。
+**功能**：Symphony 专有空间声场重建算法。通过延迟 + IIR 滤波 + 路由，在扬声器阵列上重建虚拟声源。
 
 **参数分区**（p8_b0）：
 
@@ -598,7 +598,7 @@ if (EnergyDifference > DetectImpulseThreshold) {
 
 ## 13. 已实现组件记录
 
-> 以下组件已从 BAF SAS 源码蒸馏并在 Orpheus 中实现，可通过 `orpheus.builtin.<name>` 引用。
+> 以下组件已从 Symphony SAS 源码蒸馏并在 Orpheus 中实现，可通过 `orpheus.builtin.<name>` 引用。
 
 ### 13.1 gain_ramper（L0 通用原语）
 
@@ -638,7 +638,7 @@ if (EnergyDifference > DetectImpulseThreshold) {
 |---|---|
 | 组件 ID | `orpheus.builtin.sleeping_beauty` |
 | 源码对应 | `Model_1_1.c:13515-13930` FullRateSleepingBeauty |
-| 用途 | Bose 响度补偿算法 |
+| 用途 | Symphony 响度补偿算法 |
 | 状态 | 已实现，编译通过 |
 
 **设计要点**：
@@ -715,7 +715,7 @@ L2 高级组合    sleeping_beauty (LUT + balance taper + 4x ramper)
 
 ### 13.8 运行时验证
 
-测试工程 `examples/baf_components_test.yaml` 构建完整链路并通过运行时端到端验证：
+测试工程 `examples/symphony_components_test.yaml` 构建完整链路并通过运行时端到端验证：
 
 ```
 signal_gen(4ch) -> gain_ramper -> iir_bank -> rfft -> ifft
@@ -766,7 +766,7 @@ Orpheus 本身支持多速率（`scheduling.divisor` / `downrate`），但蒸馏
 
 ### 14.5 演进重点与落地状态
 
-1. ✅ **build_topology 多速率建模（已落地）**：`task_flows` 结构化规范 + `build_topology` 按 TID 生成降速率分析抽头（`downrate(factor=call_interval)` -> 抽头子模块 -> 分析抽头终点）。BAF SAS 蒸馏现已展开为 TID0 主链（含 FDP 内联）+ 4 分析抽头（TID1÷2/TID3÷64/TID4÷256/TID5÷768）；TID2（FDP）标记 mode:inline 并入主链，不生成死路抽头。
+1. ✅ **build_topology 多速率建模（已落地）**：`task_flows` 结构化规范 + `build_topology` 按 TID 生成降速率分析抽头（`downrate(factor=call_interval)` -> 抽头子模块 -> 分析抽头终点）。Symphony SAS 蒸馏现已展开为 TID0 主链（含 FDP 内联）+ 4 分析抽头（TID1÷2/TID3÷64/TID4÷256/TID5÷768）；TID2（FDP）标记 mode:inline 并入主链，不生成死路抽头。
 2. ✅ **补不可组合组件（已落地）**：`coherence_matrix`（多参考相干/Schur补）、`psd`（功率谱）、`interp_lut`（查表插值）已实现并接入 `_RULES` 映射；TID3/4/5 分析侧链用真实组件展开（window->rfft->coherence_matrix->psd / interp_lut->noise_slew / mixer->coherence_matrix->square->saturation）。
 3. ⬜ **反馈环 / 任务桥（未落地）**：分析抽头止于分析抽头终点（embed_out，原称分析抽头终点已改名），分析->控制->主链的回灌仍无法在图内连线（图内禁反馈）。需引入受控"任务桥"原语才能闭环。
 4. ✅ **FDP 架构修正（已落地 2026-08-10）**：FDP 从 ÷4 死路抽头修正为主链内联多速率（mode:inline）。TID0 I/O（BufferIn/Out 32样本/块 + Selector 6ch->4ch）+ TID2 FFT 核心（256点STFT）双速率结构已文档化。ApplyCoefficients 映射 matrix_mul；Coeffs1stStage/Coeffs2ndStage/DetectImpulse/ReverbExtraction 仍为占位（4 处），需一体化 fdp 组件。
@@ -774,11 +774,11 @@ Orpheus 本身支持多速率（`scheduling.divisor` / `downrate`），但蒸馏
 
 ### 14.6 蒸馏现状（2026-08-09 更新）
 
-`examples/baf_sas_step0.yaml` 的 `model_tree` 蒸馏模型现已覆盖：
+`examples/symphony_sas_step0.yaml` 的 `model_tree` 蒸馏模型现已覆盖：
 
 - **分频**：6 个 TID 速率域全部建模（task_flows），导入展开为 TID0 主链（含 FDP 内联）+ 4 降速率分析抽头（TID1/3/4/5）；TID2（FDP）mode:inline 并入主链；
 - **分析**：TID1/3/4/5 分析侧链用真实组件（delay/coherence_matrix/psd/interp_lut/noise_slew/mixer/square/saturation）展开，FDP（TID2）频域链路用 rfft/ifft/window/psd/biquad/matrix_mul；占位块 4 处（Coeffs1stStage/Coeffs2ndStage/DetectImpulse/ReverbExtraction）；
 - **混音矩阵**：Part3 用 3x slc_matrix_mul（N 表插值 + 一阶 IIR 斜坡）替换 flow 注释；
 - **未连线**：分析回灌控制（受图内禁反馈限制）；FDP 仍有 4 处自定义块占位需一体化组件。
 
-`build_topology` 展开验证：TID0 主链（含 FDP 内联）+ 4 downrate 抽头（TID2 不再生成死路抽头）；`test_distill_baf_sas_topology_expansion` 通过；全量 pytest 111 项（蒸馏/子图/平台等纯 Python 用例通过）。
+`build_topology` 展开验证：TID0 主链（含 FDP 内联）+ 4 downrate 抽头（TID2 不再生成死路抽头）；`test_distill_symphony_sas_topology_expansion` 通过；全量 pytest 111 项（蒸馏/子图/平台等纯 Python 用例通过）。

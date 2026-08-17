@@ -1,7 +1,7 @@
 version: 0.1.0
 metadata:
-  name: baf_sas_step0
-  description: BAF SAS Model_1_1.c step0 骨架：Medusa 链 -> 反馈 -> InputSelect/PreAmp/PostProcess/Audiopilot，子系统用
+  name: symphony_sas_step0
+  description: Symphony SAS Model_1_1.c step0 骨架：Symphony 链 -> 反馈 -> InputSelect/PreAmp/PostProcess/Audiopilot，子系统用
     passthrough/占位实现
   distilled_from: Model_1_1.c
 sample_rate: 48000
@@ -82,7 +82,7 @@ graph:
     params:
       channels_in: 22
       channels_out: 30
-      # MedusaPostHoligramRoutingMap (0-based): output channel o = input channel RoutingMap[o]
+      # SymphonyPostHoligramRoutingMap (0-based): output channel o = input channel RoutingMap[o]
       # extracted from Model_1_1_PreAmp_p13_b0_TOP.c
       matrix: 0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     position:
@@ -136,7 +136,7 @@ graph:
   - id: main_out
     component: orpheus.builtin.wav_out
     params:
-      file_path: baf_step0_main_out.wav
+      file_path: symphony_step0_main_out.wav
       channels: 22
       sample_rate: 48000
     position:
@@ -152,7 +152,7 @@ graph:
   - id: ap_out
     component: orpheus.builtin.wav_out
     params:
-      file_path: baf_step0_ap_out.wav
+      file_path: symphony_step0_ap_out.wav
       channels: 10
       sample_rate: 48000
     position:
@@ -203,7 +203,7 @@ graph:
     to: ap_out:in
 subcomponents:
 - id: part2_fdp
-  name: Medusa Part2 FDP
+  name: Symphony Part2 FDP
   ports:
   - id: treble_lr
     direction: input
@@ -235,7 +235,7 @@ subcomponents:
     - from: treble_delay:out
       to: fdp_matrix:in
 - id: part3_mixing
-  name: Medusa Part3 全速率混音
+  name: Symphony Part3 全速率混音
   ports:
   - id: buffer_out
     direction: input
@@ -414,7 +414,7 @@ subcomponents:
     - from: right_expand:out
       to: merge2:in1
 - id: part4_peripheral_eq
-  name: Medusa Part4 外围 EQ
+  name: Symphony Part4 外围 EQ
   ports:
   - id: in
     direction: input
@@ -467,7 +467,7 @@ subcomponents:
     - from: full_rate_eq:out
       to: ch_delay:in
 - id: part5_6
-  name: Medusa Part5/6 全息后处理+求和
+  name: Symphony Part5/6 全息后处理+求和
   ports:
   - id: in
     direction: input
@@ -1204,9 +1204,9 @@ subcomponents:
     - from: coh_sat:out
       to: coh_sink:in
 
-# 从 baf_sas_full.yaml 迁移的完整 model_tree（结构/参数量/分区/TID 任务）
+# 从 symphony_sas_full.yaml 迁移的完整 model_tree（结构/参数量/分区/TID 任务）
 model_tree:
-  name: Bose BAF SAS 空间音频系统（完整蒸馏）
+  name: Symphony Symphony SAS 空间音频系统（完整蒸馏）
   source: Model_1_1.c v7.736 (905KB, 20642 行静态 C)
   base_rate: 1500Hz (48kHz/32样本块)
   task_flows:
@@ -1333,7 +1333,7 @@ model_tree:
     - id: tid3_hf_noise_est
       label: TID3 HF 噪声估计（÷64, 多参考相干）
       flow: "Windowing(sine+cosine 窗, 10ch) -> RFFT(256点, 10ch->65bin) -> FormCoherenceMatrixGXY(多重相干, Schur补, K=16, threshold=0.88) -> PSD(噪声谱Gnn, 下限保护, 供自适应)"
-      note: "实证见 baf_sas_analysis §11.6；音乐/噪声功率分离，无需显式 H；分析回灌无法连线"
+      note: "实证见 symphony_sas_analysis §11.6；音乐/噪声功率分离，无需显式 H；分析回灌无法连线"
     - id: tid4_lf_speed_bounds
       label: TID4 LF 噪声速度界限（÷256）
       flow: "SpeedBounds(速度轴128点查表, min/max dB SPL) -> NoiseSlew(噪声斜坡)"

@@ -1,7 +1,7 @@
 version: 0.1.0
 metadata:
-  name: baf_postprocess
-  description: BAF PostProcess 子系统骨架：32ch Buffer -> 22ch 主输出（Selector/Limiter/PostEQ/SoftClip/MuteRamp/Calibration/FreqComp/Delay）
+  name: symphony_postprocess
+  description: Symphony PostProcess 子系统骨架：32ch Buffer -> 22ch 主输出（Selector/Limiter/PostEQ/SoftClip/MuteRamp/Calibration/FreqComp/Delay）
   distilled_from: Model_1_1.c PostProcess
 sample_rate: 48000
 block_size: 32
@@ -114,7 +114,7 @@ graph:
   - id: sink
     component: orpheus.builtin.wav_out
     params:
-      file_path: baf_postprocess_out.wav
+      file_path: symphony_postprocess_out.wav
       channels: 22
       sample_rate: 48000
     position:

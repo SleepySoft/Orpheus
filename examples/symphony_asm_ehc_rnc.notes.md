@@ -1,16 +1,16 @@
-# BAF ASM EHC/RNC step0 工程笔记
+# Symphony ASM EHC/RNC step0 工程笔记
 
-> 对应文件：`examples/baf_asm_ehc_rnc.yaml`
-> 蒸馏来源：`C:\D\Work\Project\EREV\cart-cicd-erev-asm\components\baf` 中的 `Model_Target` 生成 C 代码
+> 对应文件：`examples/symphony_asm_ehc_rnc.yaml`
+> 蒸馏来源：`C:\D\Work\Project\EREV\cart-cicd-erev-asm\components\symphony` 中的 `Model_Target` 生成 C 代码
 > 最后更新：2026-08
 
 ---
 
 ## 1. 这个工程是什么？
 
-`baf_asm_ehc_rnc.yaml` 是 Bose 车载 ASM（Active Sound Management）系统中 **EHC（Engine Harmonic Cancellation，发动机谐波消除）** 与 **RNC（Road Noise Cancellation，路噪消除）** 的 Orpheus step0 骨架。
+`symphony_asm_ehc_rnc.yaml` 是 Symphony 车载 ASM（Active Sound Management）系统中 **EHC（Engine Harmonic Cancellation，发动机谐波消除）** 与 **RNC（Road Noise Cancellation，路噪消除）** 的 Orpheus step0 骨架。
 
-源模型是 Simulink 自动生成的 C 代码，运行在 BAF（Bose Audio Framework）单核运行时上。本工程把它蒸馏成可视化图，目标是：
+源模型是 Simulink 自动生成的 C 代码，运行在 Symphony（Symphony Audio Framework）单核运行时上。本工程把它蒸馏成可视化图，目标是：
 
 1. 对齐顶层 I/O：25 路 `asm_in`、22 路 `audio_in`、24 路 `audio_out`、18 路 `ref_out`。
 2. 对齐 7 个同步任务率（TID0~TID6）。
@@ -103,7 +103,7 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 
 ### 5.1 已从 TOP 文件回填的参数
 
-以下参数直接取自 `Model_Target_*_TOP.c`，已写入 `examples/baf_asm_ehc_rnc.yaml`：
+以下参数直接取自 `Model_Target_*_TOP.c`，已写入 `examples/symphony_asm_ehc_rnc.yaml`：
 
 | 节点 | 参数 | 来源 | 说明 |
 |---|---|---|---|
@@ -132,7 +132,7 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 
 - `Ehc_p0_b1` CoreHmuFreqTable / CoreLeakageFreqTable（查找表，896 元素）
 - `Ehc_p0_b2/b3` CoreProjW1/W2/W3/W4（投影表，3584/7168 元素）
-- `Ehc_p0_b0` MicAaFilter / ReconFilter / MicConditionHelmholtzFilter pooliir 系数（Bose pooliir 格式，与 Orpheus iir_bank 5-tuple 不兼容）
+- `Ehc_p0_b0` MicAaFilter / ReconFilter / MicConditionHelmholtzFilter pooliir 系数（Symphony pooliir 格式，与 Orpheus iir_bank 5-tuple 不兼容）
 - `Rnc_p15_b0` Accel/Mic AaFilter、ReconFilter pooliir 系数
 - `Rnc_p15_b3/b4` 扬声器-扬声器 / 麦克风-扬声器 Wiener 滤波系数（12800/9600 元素）
 - `Rnc_p15_b5` NLMS 自适应滤波初始系数（12000 元素）
@@ -190,9 +190,9 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 
 ## 6. 调试建议
 
-- 先编译：`python -m orpheus_core.cli compile examples/baf_asm_ehc_rnc.yaml`
-- 再运行：`build/orpheus_runtime.exe examples/baf_asm_ehc_rnc.plan.json build/components`
-- 检查 WAV：`outputs/baf_asm_audio_out.wav`（24ch）和 `outputs/baf_asm_ref_out.wav`（18ch）。
+- 先编译：`python -m orpheus_core.cli compile examples/symphony_asm_ehc_rnc.yaml`
+- 再运行：`build/orpheus_runtime.exe examples/symphony_asm_ehc_rnc.plan.json build/components`
+- 检查 WAV：`outputs/symphony_asm_audio_out.wav`（24ch）和 `outputs/symphony_asm_ref_out.wav`（18ch）。
 - 注意：当前 step0 占位工程在运行时会因 `ehc_sub` 的 AutoStabilizer 支路（与本次改动无关）发生访问冲突，属于已知问题；编译和 STFT 链路单元测试已通过。
 - 任务 rate 验证：查看 plan.json 中各节点所属 task 与预期 TID 是否一致。
 - 探针：关注 `ehc_sub/autostab_probe`、`rnc_sub/nlms_probe`、`rnc_sub/slow_probe` 是否随输入变化。
@@ -203,8 +203,8 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 
 | 文件 | 作用 |
 |---|---|
-| `examples/baf_asm_ehc_rnc.yaml` | 本工程主文件 |
-| `docs/baf_asm_ehc_rnc_distill_outline.md` | 蒸馏分析与提纲 |
+| `examples/symphony_asm_ehc_rnc.yaml` | 本工程主文件 |
+| `docs/symphony_asm_ehc_rnc_distill_outline.md` | 蒸馏分析与提纲 |
 | `components/orpheus/builtin/sine_mod/README.md` | EHC 谐波占位组件说明 |
 | `components/orpheus/builtin/fir/README.md` | RNC ControlFilter 占位组件说明 |
 | `components/orpheus/builtin/limiter/README.md` | 输出保护组件说明 |

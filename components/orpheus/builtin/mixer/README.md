@@ -49,4 +49,4 @@ music_src ──► mixer(gain0=0, gain1=0) ◄── feedback_delay
           ──► wav_out
 ```
 
-把原始音乐信号与反馈延迟后的信号合并，是 BAF SAS 工程中 `music_mixer` 节点的经典用法。
+把原始音乐信号与反馈延迟后的信号合并，是 Symphony SAS 工程中 `music_mixer` 节点的经典用法。
