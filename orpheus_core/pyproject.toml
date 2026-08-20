@@ -30,3 +30,7 @@ orpheus-cli = "orpheus_core.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["orpheus_core*"]
+
+# 宿主模板等非 .py 资源（win 实时宿主 host_win.c）随包分发
+[tool.setuptools.package-data]
+orpheus_core = ["templates/*", "platforms.yaml"]

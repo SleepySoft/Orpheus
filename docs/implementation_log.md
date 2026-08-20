@@ -1,5 +1,44 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-20（第四十五次：生成路径平台化——win 实时宿主 + alter 全链路落地）
+
+- **删除生成路径的设备组件硬拦截**：`app.py` 旧守卫（"生成模式暂不支持设备组件"）在平台解析**之前**
+  检查扁平图，与 alter 机制自相矛盾（device_in↔embed_in 声明齐全、target=dsp 时也被误拒）。
+  现删除该守卫，平台可达性完全由 `resolve_project` 在编译期判定（断链/无交集报错信息已足够清晰）。
+- **win 实时宿主代码生成（新能力）**：图含 device_in/device_out（解析平台=win）时，生成器产出
+  可在 PC 直连声卡运行的独立 exe，不再只是 dsp 骨架：
+  - `orpheus_core/templates/host_win.c`：**仓库内维护的真实 C 模板**（单一事实来源，非 Python
+    字符串内联），生成时原样复制。设备拓扑/异步桥/预充水位/欠载告警与 rt_host 对齐；
+    stdin 文本协议（SET/GET/BULK/RESOLVE/MAP/RW/RR/RWB/GETBULK/RGB/MSG/STOP）与 rt_host 一致，
+    **生成 exe 可直接接入既有 RtSession/UI 实时面板**；
+  - 图参数经生成的 `orpheus_host_config.h` 宏注入（设备名/loopback/通道/采样率/块长/环形缓冲）；
+  - `main.c` 在 win 宿主模式让出 `main()`，`orpheus_generated_init/process/teardown` 转非 static，
+    新增 `orpheus_generated.h` 接口头 + 设备 buffer 访问器 + arena 基址；
+  - CMake 追加 host_win.c 与 Windows 系统库（ole32/oleaut32/uuid/winmm，同 rt_host），
+    miniaudio.h 复制进生成工程（自包含）。
+  - 踩坑：MSVC 不支持 C11 stdatomic——宿主计数/标志用 volatile（32 位对齐读写在 Windows 原子，
+    与 rt_host 的宽松语义等价）；C11 threads.h（VS2022/MinGW 均可用，uart_link 已验证）。
+- **生成控制层标量 API**：`orpheus_control_set_value/get_value`（node/key）、
+  `set_value_id/get_value_id`（按 ID）、`probe_count/probe_get`（探针枚举）——直写 state+offset
+  （部署形态，调音渐变由组件 process 自行平滑，PROBE/STATE 只读拒写）；
+  `OrpheusIdEntry` 增加 node/key 字段（RESOLVE/MAP 行与 GETBULK 反查依赖）。
+- **target 贯通**：`ExecutionPlan.target` 记录解析结果（C++ plan 加载器用 `j.value()`，额外字段安全）；
+  CLI `compile`/`generate` 加 `--target`；动态「▶ 运行」含设备组件时锁定 win 解析
+  （动态路径只在 PC 跑，即使工程 target=dsp 也激活 device 成员，保证运行语义直观）。
+- **run_generated 分流**：构建后若 plan 含设备组件，生成 exe 以实时会话方式启动
+  （`rt_sessions.start`，协议同 rt_host），否则保持文件时钟批跑。
+- **UI（alter 全链路最后一块）**：工程设置加「目标平台」下拉（auto/win/dsp → doc.target）；
+  多选节点 →「设为替代组」（并集合并、支持并入已有组）/「解除替代组」（对称清空，含未选中成员）；
+  节点 ⚯ 替代组徽标（tooltip 列组成员）与平台徽标（win/dsp，来自组件 platforms）；
+  graphUtils 往返保留 alters；节点删除路径清理悬空 alter 引用；设组前端口集合轻量预检。
+- **示例**：`examples/pc_dsp_dual_target.yaml`——device_in↔embed_in、device_out↔embed_out 两对
+  替代组，auto 生成 win 宿主、`--target dsp` 生成嵌入骨架，同图双目标。
+- **验证**：`test_generate_win_host.py` 9 项（宿主形态/配置注入/alter 双目标/不可达报错/标量 API/
+  id_map/文件图回归）；全量 190 passed, 1 skipped；
+  真实验证：device_gain_biquad 生成工程 MSVC 构建通过，声卡 duplex 启动，
+  GET/SET 生效（gain_db -6→-3）、PROBE 心跳、MAP 全表、STOP 干净退出；
+  dsp 骨架构建回归通过；`npm run build` 通过。
+
 ## 2026-08-14（第四十四次：delay 组件兹啦声修复）
 
 - **delay 干湿交叉混合，消除硬削波**

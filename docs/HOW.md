@@ -714,6 +714,7 @@ orpheus_platform_memory_section_bind(...);
 
 - **动态加载（UI 运行所走）**：图编译只产出 plan.json 数据（拓扑、Buffer 分配、签名），不含任何代码生成；组件 DLL 预编译（缺了才补建）；基座程序（orpheus_runtime / orpheus_rt_host）LoadLibrary 动态加载，经 C ABI 函数表调用。图改动零 C 编译，编辑-运行循环快，面向 PC 设计/调试。
 - **代码生成（部署路径）**：`orpheus-cli generate` 展开为独立 C 工程，静态编译，无 DLL 依赖，可交叉编译到嵌入式目标。目前仅支持单 Task、无探针。
+  - **宿主形态按平台解析结果选择**（2026-08-20）：解析为 win（图含 device_in/device_out）→ 生成 miniaudio 实时宿主（`templates/host_win.c` 模板原样复制 + `orpheus_host_config.h` 注入设备参数），产出 exe 在 PC 直连声卡运行，stdin/stdout 协议与 rt_host 一致（可直接接入 RtSession/UI 实时面板）；解析为 dsp（embed_in/embed_out）→ 文件时钟骨架 + `platform_io.c` 适配模板。alter 替代组（§见 design_registry 19）让同一工程可按 `--target` 生成两种形态。
 - 两条路径共享同一份组件 C 源码与 ABI 契约，设计原则要求结果一致（自动化一致性测试待补）。
 
 ---

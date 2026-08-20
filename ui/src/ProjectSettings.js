@@ -33,6 +33,7 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
   const [sampleRate, setSampleRate] = useState(String(sr0));
   const [blockSize, setBlockSize] = useState(String(doc?.block_size ?? 128));
   const [doubleBank, setDoubleBank] = useState(doc?.double_bank || 'auto');
+  const [target, setTarget] = useState(doc?.target || 'auto');
 
   const frames0 = parseInt(doc?.buffer_size ?? 0, 10) || 0;
   const autoFrames0 = Math.round(sr0 / 10);
@@ -97,7 +98,7 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
       setError('缓冲帧数范围 1-1048576');
       return;
     }
-    onSave({ sample_rate: srVal, block_size: bs, buffer_size: buf, double_bank: doubleBank });
+    onSave({ sample_rate: srVal, block_size: bs, buffer_size: buf, double_bank: doubleBank, target });
   };
 
   return (
@@ -146,6 +147,19 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
           </div>
           <span className="settings-hint">
             底层以「帧」存储（0=自动=采样率/10≈100ms）。按帧/按时间二选一，按当前采样率联动：编辑一个，另一个自动换算。按时间输入四舍五入到最近整数帧，故帧↔毫秒来回切换可能 ±1 帧偏差（正常）。增大缓冲可容忍更多时钟漂移与调度抖动，但增加延迟。
+          </span>
+        </div>
+
+        <div className="settings-field">
+          <label>目标平台 (target)</label>
+          <select value={target} onChange={(e) => setTarget(e.target.value)}>
+            <option value="auto">自动（优先 win，整链交集判定）</option>
+            <option value="win">win（PC/Windows）</option>
+            <option value="dsp">dsp（嵌入式）</option>
+          </select>
+          <span className="settings-hint">
+            目标平台决定生成代码的宿主形态：win = 可直连声卡运行的 PC 程序；dsp = 嵌入骨架 + platform_io.c 适配模板。
+            alter 替代组按此激活成员（同组内任意平台只激活一个，未激活成员不参与编译）。
           </span>
         </div>
 

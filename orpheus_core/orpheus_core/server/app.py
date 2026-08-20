@@ -138,6 +138,7 @@ def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
         "order": m.get("order", 0),
         "description": m.get("description", ""),
         "clock_source": m.get("clock_source", False),
+        "platforms": info.platforms,  # 平台限制（空=全平台）；UI 平台徽标与 alter 提示用
         "ports": m.get("ports", []),
         "parameters": m.get("parameters", []),
         "bulk_slots": m.get("bulk_slots", []),
@@ -170,11 +171,14 @@ def create_app(project_root: Path) -> FastAPI:
 
     # ------------------------------------------------------------- helpers
 
-    def compile_record(rec: ProjectRecord) -> tuple[ExecutionPlan, Path]:
-        """Flatten subcomponents, compile to a plan, and write plan.json."""
+    def compile_record(rec: ProjectRecord, target: str | None = None) -> tuple[ExecutionPlan, Path]:
+        """Flatten subcomponents, compile to a plan, and write plan.json.
+
+        target：目标平台覆盖（None=工程 target 字段/auto）。平台解析（alter 组
+        激活、平台交集校验）在 GraphCompiler.compile 内部完成。"""
         try:
             flat = flatten_project(rec.project)
-            plan = GraphCompiler(registry).compile(flat)
+            plan = GraphCompiler(registry).compile(flat, target=target)
         except CompileError as exc:
             raise HTTPException(status_code=400, detail=f"compile error: {exc}") from exc
         plan_path = rec.path.with_suffix(".plan.json")
@@ -190,13 +194,12 @@ def create_app(project_root: Path) -> FastAPI:
             raise HTTPException(status_code=400, detail=f"compile error: {exc}") from exc
 
     def generate_record(rec: ProjectRecord) -> tuple[ExecutionPlan, Path]:
-        """生成独立 C 工程（不构建/运行）。嵌入 I/O 占位组件（embed_in/embed_out）允许。"""
-        flat = flattened_project(rec)
-        if any(n.component in DEVICE_COMPONENTS for n in flat.graph.nodes.values()):
-            raise HTTPException(
-                status_code=400,
-                detail="生成模式暂不支持设备组件（生成宿主为文件时钟）",
-            )
+        """生成独立 C 工程（不构建/运行）。
+
+        宿主形态由平台解析结果决定：含设备组件（win 平台）→ miniaudio 实时宿主
+        （host_win.c，生成即可在 PC 直连声卡运行）；含 embed_in/embed_out（dsp
+        平台）→ 文件时钟骨架 + platform_io.c 适配模板。平台不可达/断链由
+        resolve 在编译期报错，此处不再另行拦截设备组件。"""
         plan, _ = compile_record(rec)
         gen_dir = rec.directory / "generated"
         CodeGenerator(registry, root).generate(plan, gen_dir)
@@ -545,7 +548,9 @@ def create_app(project_root: Path) -> FastAPI:
         has_device = any(n.component in DEVICE_COMPONENTS for n in flat.graph.nodes.values())
 
         built = ensure_components_built(flat)
-        plan, plan_path = compile_record(rec)
+        # 动态路径只在 PC 上运行：含设备组件时锁定 win 解析（即使工程 target=dsp，
+        # alter 组也会在 win 下激活 device_in/out，保证「▶ 运行」语义直观）
+        plan, plan_path = compile_record(rec, target="win" if has_device else None)
 
         if has_device:
             suffix = ".exe" if sys.platform == "win32" else ""
@@ -641,6 +646,25 @@ def create_app(project_root: Path) -> FastAPI:
 
         suffix = ".exe" if sys.platform == "win32" else ""
         exe = build_dir / f"orpheus_generated_app{suffix}"
+
+        has_device = any(
+            cfg["component"] in DEVICE_COMPONENTS for cfg in plan.node_configs.values()
+        )
+        if has_device:
+            # win 实时宿主（host_win.c）：设备时钟长跑进程，协议与 rt_host 一致
+            # （stdin SET/GET/BULK/STOP，stdout LOG/PROBE），直接复用 rt 会话机制。
+            try:
+                session = rt_sessions.start(name, [str(exe)], cwd=rec.directory)
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            return {
+                "mode": "realtime",
+                "status": "started",
+                "pid": session.proc.pid,
+                "generated": True,
+                "generated_path": str(gen_dir.relative_to(rec.directory)),
+                "download_url": f"/api/projects/{name}/generated/archive",
+            }
 
         # match the offline host's duration: blocks = ceil(wav_in frames / block_size)
         blocks = 1000

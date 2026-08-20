@@ -1,0 +1,56 @@
+version: "0.1.0"
+metadata:
+  name: pc_dsp_dual_target
+  description: >-
+    PC/嵌入式双目标示例：device_in ↔ embed_in、device_out ↔ embed_out 互为替代组（alters）。
+    target=auto 时优先生成 win 实时宿主（miniaudio，声卡直接可跑）；
+    --target dsp 或工程 target: dsp 时激活嵌入成员，生成 platform_io.c 适配骨架。
+target: auto
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    # 输入槽位：PC 用声卡采集（win），嵌入式用 embed_in 占位（dsp）
+    - id: in_pc
+      component: orpheus.builtin.device_in
+      alters: [in_dsp]
+      params:
+        channels: 2
+      position: { x: 100, y: 100 }
+    - id: in_dsp
+      component: orpheus.builtin.embed_in
+      params:
+        channels: 2
+        sample_rate: 48000
+      position: { x: 100, y: 220 }
+    - id: gain
+      component: orpheus.builtin.gain
+      params:
+        gain_db: -6.0
+        channels: 2
+      position: { x: 340, y: 100 }
+    # 输出槽位：PC 用声卡播放（win），嵌入式用 embed_out 占位（dsp）
+    - id: out_pc
+      component: orpheus.builtin.device_out
+      alters: [out_dsp]
+      params:
+        channels: 2
+      position: { x: 580, y: 100 }
+    - id: out_dsp
+      component: orpheus.builtin.embed_out
+      params:
+        channels: 2
+        sample_rate: 48000
+      position: { x: 580, y: 220 }
+  connections:
+    # 连线只锚定一个成员（同一槽位只能连一个）；平台解析后重映射到激活成员
+    - from: in_pc:out
+      to: gain:in
+    - from: gain:out
+      to: out_pc:in

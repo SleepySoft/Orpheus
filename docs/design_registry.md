@@ -586,10 +586,11 @@ hdr[1] = (msg_type   & 0x3)  << 30       /* 2b: CALL / RESPONSE / NOTIFICATION /
   resp=NULL 表示 notification。
 - 异步：CALL 先同步 RESPONSE（受理），结果后经 `emit_notification(call_id, ...)` 推送。
 
-## 19. 平台属性与 alter 组件（2026-08-09 设计草案，取代早期 role 草案）
+## 19. 平台属性与 alter 组件（2026-08-09 设计草案，取代早期 role 草案；2026-08-20 全链路落地）
 
-> 状态：设计草案。方向：组件自声明平台限制与 alter（同接口替代）关系，
-> 引擎对整条链做平台可达性判定，运行/生成时统一解析。
+> 状态：**已落地**。后端解析（resolve.py）→ 编译器集成 → 生成路径平台宿主
+> （win=miniaudio 实时宿主 host_win.c 模板 / dsp=platform_io.c 骨架）→ UI（目标平台
+> 下拉 + 「设为替代组」+ ⚯/平台徽标）。见 implementation_log 2026-08-20 条目。
 
 ### 19.1 问题
 

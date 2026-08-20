@@ -47,6 +47,21 @@ const uniqueNodeId = (existing, base) => {
   return id;
 };
 
+/** 节点删除后清理其他节点 alters 中的悬空引用（保持组内声明对称）。 */
+const stripAlters = (nodes, gone) =>
+  nodes.map((n) =>
+    (n.data.alters || []).some((a) => gone.has(a))
+      ? { ...n, data: { ...n.data, alters: (n.data.alters || []).filter((a) => !gone.has(a)) } }
+      : n
+  );
+
+/** 节点端口签名（方向:引脚 id 排序拼接）——替代组接口一致性轻量提示用。 */
+const portSignature = (node) =>
+  (node.data.ports || [])
+    .map((p) => `${p.direction}:${p.id}`)
+    .sort()
+    .join('|');
+
 function Editor() {
   const [catalog, setCatalog] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -392,8 +407,10 @@ const { screenToFlowPosition } = useReactFlow();
       const removed = changes.filter((c) => c.type === 'remove').map((c) => c.id);
       updateView(activeView, (v) => {
         const gone = new Set(removed);
+        let nodes = applyNodeChanges(changes, v.nodes);
+        if (gone.size) nodes = stripAlters(nodes, gone);
         return {
-          nodes: applyNodeChanges(changes, v.nodes),
+          nodes,
           edges: gone.size
             ? v.edges.filter((e) => !gone.has(e.source) && !gone.has(e.target))
             : v.edges,
@@ -413,13 +430,69 @@ const { screenToFlowPosition } = useReactFlow();
   const deleteSelected = useCallback(() => {
     const ids = selectedIds.filter((id) => view.nodes.some((n) => n.id === id));
     if (!ids.length) return;
+    const gone = new Set(ids);
     updateView(activeView, (v) => ({
-      nodes: v.nodes.filter((n) => !ids.includes(n.id)),
+      nodes: stripAlters(
+        v.nodes.filter((n) => !ids.includes(n.id)),
+        gone
+      ),
       edges: v.edges.filter((e) => !ids.includes(e.source) && !ids.includes(e.target)),
     }));
     setSelectedIds([]);
     setSelectedId(null);
     setDirty(true);
+  }, [selectedIds, view, activeView, updateView]);
+
+  /** 设为替代组：合并选中节点已有的 alter 组与新选中集合，组内成员互相声明。 */
+  const makeAlterGroup = useCallback(() => {
+    const selected = new Set(selectedIds.filter((id) => view.nodes.some((n) => n.id === id)));
+    if (selected.size < 2) return;
+    // 并集 = 选中节点 ∪ 它们已有组的全部成员（支持把新节点并入已有组）
+    const union = new Set(selected);
+    for (const n of view.nodes) {
+      if (selected.has(n.id)) {
+        for (const a of n.data.alters || []) union.add(a);
+      }
+    }
+    const members = view.nodes.filter((n) => union.has(n.id));
+    if (members.length < 2) return;
+    // 轻量提示：组内组件端口集合应一致（后端编译时是最终裁判，此处仅提示不阻止）
+    const sig = portSignature(members[0]);
+    if (members.some((n) => portSignature(n) !== sig)) {
+      window.alert('提示：选中节点的接口（端口集合）不一致，编译将报错。\n仍已设为替代组，请确认各成员组件端口一致。');
+    }
+    const ids = members.map((n) => n.id).sort();
+    updateView(activeView, (v) => ({
+      ...v,
+      nodes: v.nodes.map((n) =>
+        union.has(n.id)
+          ? { ...n, data: { ...n.data, alters: ids.filter((id) => id !== n.id) } }
+          : n
+      ),
+    }));
+    setDirty(true);
+    setStatus(`已设替代组（${ids.length} 个成员）：${ids.join('、')}`);
+  }, [selectedIds, view, activeView, updateView]);
+
+  /** 解除替代组：清空选中节点所在组的全部成员 alters（组内未选中成员一并清，保持对称）。 */
+  const clearAlterGroup = useCallback(() => {
+    const selected = new Set(selectedIds.filter((id) => view.nodes.some((n) => n.id === id)));
+    const clearIds = new Set();
+    for (const n of view.nodes) {
+      if (selected.has(n.id) && (n.data.alters || []).length) {
+        clearIds.add(n.id);
+        for (const a of n.data.alters) clearIds.add(a);
+      }
+    }
+    if (!clearIds.size) return;
+    updateView(activeView, (v) => ({
+      ...v,
+      nodes: v.nodes.map((n) =>
+        clearIds.has(n.id) ? { ...n, data: { ...n.data, alters: [] } } : n
+      ),
+    }));
+    setDirty(true);
+    setStatus(`已解除替代组（${clearIds.size} 个成员）`);
   }, [selectedIds, view, activeView, updateView]);
 
   const onEdgesChange = useCallback(
@@ -480,6 +553,7 @@ const { screenToFlowPosition } = useReactFlow();
               clockSource: !!comp.clock_source,
               ports: resolvePorts(comp, params),
               parameters: comp.parameters || [],
+              platforms: comp.platforms || [],
             },
           },
         ],
@@ -781,8 +855,12 @@ const { screenToFlowPosition } = useReactFlow();
 
   const onDeleteNode = useCallback(
     (nodeId) => {
+      const gone = new Set([nodeId]);
       updateView(activeView, (v) => ({
-        nodes: v.nodes.filter((nd) => nd.id !== nodeId),
+        nodes: stripAlters(
+          v.nodes.filter((nd) => nd.id !== nodeId),
+          gone
+        ),
         edges: v.edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
       }));
       setSelectedId(null);
@@ -1348,6 +1426,25 @@ const { screenToFlowPosition } = useReactFlow();
           </span>
           <button onClick={createSub} disabled={!current}>
             新建子组件
+          </button>
+          <button
+            onClick={makeAlterGroup}
+            disabled={!current || selectedIds.length < 2}
+            title="把选中的节点（Ctrl+点击多选，≥2 个）声明为替代组：同组占同一逻辑槽位，按目标平台激活其一；选中已有组成员可把新节点并入该组"
+          >
+            ⚯ 设为替代组
+          </button>
+          <button
+            onClick={clearAlterGroup}
+            disabled={
+              !current ||
+              !selectedIds.some(
+                (id) => (view.nodes.find((n) => n.id === id)?.data.alters || []).length > 0
+              )
+            }
+            title="解除选中节点所在的替代组（组内全部成员一并解除）"
+          >
+            解除替代组
           </button>
           <button
             className="danger-soft"

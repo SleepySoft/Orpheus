@@ -133,6 +133,19 @@ const BodyWidget = NODE_WIDGETS[data.component];
               📝
             </span>
           )}
+          {Array.isArray(data.alters) && data.alters.length > 0 && (
+            <span
+              className="alter-badge"
+              title={`替代组：与 ${data.alters.join('、')} 占同一逻辑槽位，按目标平台（工程设置 target）激活其一，未激活成员不参与编译`}
+            >
+              ⚯ 替代组
+            </span>
+          )}
+          {Array.isArray(data.platforms) && data.platforms.length > 0 && (
+            <span className="platform-badge" title={`适用平台：${data.platforms.join(' / ')}`}>
+              {data.platforms.join('/')}
+            </span>
+          )}
         </div>
         <div className="node-subtitle">{shortName}</div>
         {noiseStatusClass(data) && (

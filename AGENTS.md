@@ -43,7 +43,7 @@
 ### 两条执行路径（共享同一份组件源码与 ABI）
 
 1. **动态加载路径（UI「▶ 运行」）**：图编译只产出 plan.json（拓扑、Buffer 分配、端口签名），组件预编译为 DLL，`orpheus_runtime` / `orpheus_rt_host` LoadLibrary 经 C ABI 调用。编辑-运行循环零 C 编译。
-2. **代码生成路径（UI「⚙ 编译后运行」）**：`cli generate` 展开为独立 C 工程（CMake），静态编译，无 DLL、无 Python 依赖，可交叉编译。
+2. **代码生成路径（UI「⚙ 编译后运行」）**：`cli generate [--target win|dsp]` 展开为独立 C 工程（CMake），静态编译，无 DLL、无 Python 依赖，可交叉编译。宿主形态由平台解析决定：**win**（图含 device_in/out）→ miniaudio 实时宿主（`orpheus_core/orpheus_core/templates/host_win.c` 模板，协议与 rt_host 一致，生成即可 PC 直连声卡运行）；**dsp**（embed_in/out）→ 文件时钟骨架 + `platform_io.c` 适配模板。
 
 两条路径要求**逐字节一致**（有自动化一致性测试：`test_generated_run_matches_dynamic_run`）。
 
@@ -58,7 +58,8 @@
 
 - 时钟域：组件 manifest 声明 `clock_source: true` + `clock_domain`（device/file）；task 不显式建模，时钟源组件即时钟域根。
 - 速率调整：`scheduling.divisor` 表达式让节点每 N 块触发一次（`downrate` / `resample` 组件）。
-- `rt_host` 实时协议：stdin `SET <node> <param> <value>` / `GET` / `STOP`；stdout `LOG ...` 为生命周期日志，`PROBE <node> <param> <value>` 为探针上报。
+- `rt_host` 实时协议：stdin `SET <node> <param> <value>` / `GET` / `STOP`；stdout `LOG ...` 为生命周期日志，`PROBE <node> <param> <value>` 为探针上报。生成的 win 宿主（host_win.c）讲同一协议，生成 exe 可直接接入 RtSession/UI 实时面板。
+- **目标平台与 alter**：组件 manifest 可选 `platforms`（如 device_in/out=[win]、embed_in/out=[dsp]，缺省=全平台）；工程顶层 `target`（auto/win/dsp），节点级 `alters` 声明替代组（同接口、占同一槽位，按平台激活一个成员）。`resolve.py` 做合规校验与整链平台可达性判定（并集→交集→选成员→边重映射），编译器 `compile(project, target)` 先解析后编译。UI：工程设置选目标平台，多选节点「设为替代组」，⚯ 徽标。示例：`examples/pc_dsp_dual_target.yaml`。
 - **串行链路（设备调音）**：消息层=§18 二进制信封（`Runtime::message` / 生成侧 `orpheus_control_message` 单入口分发）；成帧层=OLINK（COBS+CRC16）；后端 `SerialSession`（rt/start `target: serial`）与 RtSession 同构；`uart_link` 非音频组件（execution.none + `codegen_template`）拖入即给生成工程加设备侧链路段（用户只填 send/init，onRecv 里调 feed，poll 驱动探针泵）。设计见 `docs/design_serial_link.md`。
 
 ## 常用命令（Windows PowerShell）
@@ -66,8 +67,8 @@
 ```powershell
 python serve.py                       # 启动后端+UI：http://127.0.0.1:8000（同域 API + ui/build）
 python -m orpheus_core.cli build      # 构建全部组件 + runtime（cmake -G Ninja）
-python -m orpheus_core.cli compile <project.yaml>
-python -m orpheus_core.cli generate <project.yaml>   # 生成独立 C 工程
+python -m orpheus_core.cli compile <project.yaml> [--target win|dsp]
+python -m orpheus_core.cli generate <project.yaml> <out_dir> [--target win|dsp]   # 生成独立 C 工程
 python -m pytest orpheus_core/tests/  # 全部后端测试
 cd ui; npm run build                  # 前端改动后必须重新构建，serve 才托管新版本
 cd ui; npm start                      # 前端热更新（:3000，代理到 :8000 API）
@@ -91,7 +92,7 @@ cd ui; npm start                      # 前端热更新（:3000，代理到 :800
 
 ## 测试约定
 
-- 后端：`python -m pytest orpheus_core/tests/`（约 29 项，覆盖 server API、子组件展开、可变引脚、时钟/速率、双路径一致性）。
+- 后端：`python -m pytest orpheus_core/tests/`（覆盖 server API、子组件展开、可变引脚、时钟/速率、平台解析与 win 宿主生成、双路径一致性）。
 - C++：`tests/abi_smoke.c` ABI 冒烟测试；组件一致性靠 Python e2e 脚本（`scripts/`）。
 - 新增组件应有数值正确性验证（示例工程或 pytest）。
 

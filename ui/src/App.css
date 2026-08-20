@@ -1311,6 +1311,28 @@ button.danger {
   white-space: nowrap;
 }
 
+.alter-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #5f3dc4;
+  background: #e5dbff;
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.platform-badge {
+  font-size: 10px;
+  font-weight: 500;
+  color: #087f5b;
+  background: #c3fae8;
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
 .node-subtitle {
   font-size: 11px;
   color: #868e96;

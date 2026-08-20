@@ -104,6 +104,19 @@ class CodeGenerator:
         for d in [components_dir, src_dir, include_dir]:
             d.mkdir(parents=True, exist_ok=True)
 
+        # win 实时宿主模式：图含设备组件（device_in/device_out）时，生成 miniaudio
+        # 设备时钟宿主（模板 host_win.c 原样复制，协议与 rt_host 一致）；否则保持
+        # 文件时钟/嵌入骨架。平台解析（resolve.py）已保证设备组件只在 win 下出现。
+        device_in_nodes = [
+            nid for nid in plan.execution_order
+            if plan.node_configs[nid]["component"] == "orpheus.builtin.device_in"
+        ]
+        device_out_nodes = [
+            nid for nid in plan.execution_order
+            if plan.node_configs[nid]["component"] == "orpheus.builtin.device_out"
+        ]
+        win_host = bool(device_in_nodes or device_out_nodes)
+
         # The generated project must be self-contained: vendor the ABI header.
         abi_header = self.project_root / "orpheus_abi" / "include" / "orpheus_abi.h"
         shutil.copy2(abi_header, include_dir / "orpheus_abi.h")
@@ -150,7 +163,35 @@ class CodeGenerator:
                     shutil.copy2(ma_header, comp_out / "include" / "miniaudio.h")
 
         # Generate main.c
-        self._generate_main_c(plan, component_ids, src_dir / "main.c", self.uart_link_decls(plan))
+        self._generate_main_c(plan, component_ids, src_dir / "main.c",
+                              self.uart_link_decls(plan), win_host=win_host,
+                              device_in_nodes=device_in_nodes,
+                              device_out_nodes=device_out_nodes)
+        if win_host:
+            self._generate_host_config(plan, device_in_nodes, device_out_nodes,
+                                       include_dir / "orpheus_host_config.h")
+            # 宿主接口头：init/process + 设备 buffer 访问器 + arena 基址
+            gen_h = [
+                '#ifndef ORPHEUS_GENERATED_H',
+                '#define ORPHEUS_GENERATED_H',
+                '#include "orpheus_abi.h"',
+                '/* 图本体接口（main.c 实现）：win 宿主（host_win.c）与嵌入宿主共用。 */',
+                'int orpheus_generated_init(uint32_t sample_rate, uint32_t block_size);',
+                'int orpheus_generated_process(uint32_t frame_count);',
+                'void orpheus_generated_teardown(void);  /* 逆执行序销毁（宿主退出时调用） */',
+                '/* 设备 buffer：宿主在 process 前填 device_in 输出、process 后取 device_out 输入。 */',
+                'OrpheusBuffer* orpheus_host_device_in_buffer(void);   /* 未连接返回 NULL */',
+                'OrpheusBuffer* orpheus_host_device_out_buffer(void);  /* 未连接返回 NULL */',
+                'void* orpheus_arena_base(void);  /* 状态 arena 基址（RESOLVE 用），无状态返回 NULL */',
+                '#endif /* ORPHEUS_GENERATED_H */',
+            ]
+            (include_dir / "orpheus_generated.h").write_text(
+                "\n".join(gen_h) + "\n", encoding="utf-8")
+            # 宿主模板：仓库内真实 C 文件（单一事实来源），原样复制进生成工程
+            template = Path(__file__).parent / "templates" / "host_win.c"
+            shutil.copy2(template, src_dir / "host_win.c")
+            ma_header = self.project_root / "third_party" / "miniaudio.h"
+            shutil.copy2(ma_header, include_dir / "miniaudio.h")
 
         # 嵌入 I/O 适配模板：存在 embed_in/embed_out 节点时生成，用户按硬件填充
         embed_nodes = [
@@ -174,14 +215,72 @@ class CodeGenerator:
         # Generate CMakeLists.txt
         self._generate_cmake(plan, all_ids, output_dir)
 
+    def _generate_host_config(
+        self,
+        plan: ExecutionPlan,
+        device_in_nodes: list[str],
+        device_out_nodes: list[str],
+        path: Path,
+    ) -> None:
+        """生成 win 宿主的设备配置宏头（orpheus_host_config.h）。
+
+        host_win.c 模板不感知图细节，全部设备参数经此头注入；
+        多 device_in/device_out 时取第一个（与 rt_host 一致）。
+        """
+        def params_of(nodes: list[str]) -> dict[str, Any]:
+            if not nodes:
+                return {}
+            return plan.node_configs[nodes[0]].get("params", {})
+
+        in_params = params_of(device_in_nodes)
+        out_params = params_of(device_out_nodes)
+
+        def as_int(v: Any, default: int) -> int:
+            try:
+                return int(float(v))
+            except (TypeError, ValueError):
+                return default
+
+        in_ch = as_int(in_params.get("channels", 2), 2)
+        out_ch = as_int(out_params.get("channels", 2), 2)
+        in_device = str(in_params.get("device", "") or "")
+        out_device = str(out_params.get("device", "") or "")
+        loopback = str(in_params.get("source", "microphone") or "microphone") == "loopback"
+
+        lines = [
+            '#ifndef ORPHEUS_HOST_CONFIG_H',
+            '#define ORPHEUS_HOST_CONFIG_H',
+            '/* orpheus_host_config.h —— win 实时宿主设备配置（自动生成，勿手改）。',
+            ' * host_win.c 模板的全部图相关参数由此注入。 */',
+            f'#define ORPHEUS_HOST_HAS_IN {1 if device_in_nodes else 0}',
+            f'#define ORPHEUS_HOST_HAS_OUT {1 if device_out_nodes else 0}',
+            f'#define ORPHEUS_HOST_LOOPBACK {1 if loopback else 0}',
+            f'#define ORPHEUS_HOST_IN_DEVICE "{self._c_escape(in_device)}"  /* 设备名称子串（大小写不敏感），空=默认 */',
+            f'#define ORPHEUS_HOST_OUT_DEVICE "{self._c_escape(out_device)}"',
+            f'#define ORPHEUS_HOST_IN_CHANNELS {in_ch}u',
+            f'#define ORPHEUS_HOST_OUT_CHANNELS {out_ch}u',
+            f'#define ORPHEUS_HOST_SAMPLE_RATE {int(plan.sample_rate)}u',
+            f'#define ORPHEUS_HOST_BLOCK_SIZE {int(plan.block_size)}u',
+            f'#define ORPHEUS_HOST_BUFFER_FRAMES {int(plan.buffer_size)}u  /* 异步桥环形缓冲容量（帧），0=自动 采样率/10 */',
+            '#endif /* ORPHEUS_HOST_CONFIG_H */',
+        ]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
     def _generate_main_c(self, plan: ExecutionPlan, component_ids: list[str], path: Path,
-                         link_nodes: list[dict[str, Any]] | None = None) -> None:
+                         link_nodes: list[dict[str, Any]] | None = None,
+                         win_host: bool = False,
+                         device_in_nodes: list[str] | None = None,
+                         device_out_nodes: list[str] | None = None) -> None:
         link_nodes = link_nodes or []
+        device_in_nodes = device_in_nodes or []
+        device_out_nodes = device_out_nodes or []
         lines: list[str] = []
         lines.append('#include <stdio.h>')
         lines.append('#include <stdlib.h>')
         lines.append('#include <string.h>')
         lines.append('#include "orpheus_abi.h"')
+        if win_host:
+            lines.append('#include "orpheus_generated.h"')
         lines.append("")
 
         # Include component headers
@@ -347,8 +446,9 @@ class CodeGenerator:
             lines.append('};')
         lines.append("")
 
-        # Init function
-        lines.append('static int orpheus_generated_init(uint32_t sample_rate, uint32_t block_size) {')
+        # Init function（win 宿主模式下非 static，供 host_win.c 调用）
+        init_qual = '' if win_host else 'static '
+        lines.append(f'{init_qual}int orpheus_generated_init(uint32_t sample_rate, uint32_t block_size) {{')
         lines.append('    int rc;')
         lines.append('    OrpheusConfig config;')
         lines.append('    config.sample_rate = sample_rate;')
@@ -448,7 +548,8 @@ class CodeGenerator:
 
         # Process function (multi-rate: per-node frames + divisor-gated firing)
         lines.append('static uint64_t g_block_counter = 0;')
-        lines.append('static int orpheus_generated_process(uint32_t frame_count) {')
+        proc_qual = '' if win_host else 'static '
+        lines.append(f'{proc_qual}int orpheus_generated_process(uint32_t frame_count) {{')
         lines.append('    int rc;')
         lines.append('    OrpheusProcessContext ctx;')
         lines.append(f'    ctx.sample_rate = {plan.sample_rate};')
@@ -493,6 +594,34 @@ class CodeGenerator:
         lines.append('}')
         lines.append("")
 
+        if win_host:
+            # win 宿主（host_win.c）接口：设备 buffer 访问器 + arena 基址（RESOLVE 用）。
+            # device_in 的输出 buffer 由宿主在 process 前填充；device_out 的输入 buffer
+            # 由宿主在 process 后取走（与 rt_host 的职责划分一致）。
+            def _port_buf(node_id: str, port_id: str) -> str | None:
+                return port_buffer.get(f"{node_id}:{port_id}")
+
+            in_buf = _port_buf(device_in_nodes[0], "out") if device_in_nodes else None
+            out_buf = _port_buf(device_out_nodes[0], "in") if device_out_nodes else None
+            lines.append('/* win 宿主接口（orpheus_generated.h） */')
+            lines.append('OrpheusBuffer* orpheus_host_device_in_buffer(void) {')
+            lines.append(f'    return {in_buf if in_buf else "NULL"};')
+            lines.append('}')
+            lines.append('OrpheusBuffer* orpheus_host_device_out_buffer(void) {')
+            lines.append(f'    return {out_buf if out_buf else "NULL"};')
+            lines.append('}')
+            if any(self._state_type(nid, plan) for nid in plan.execution_order):
+                lines.append('void* orpheus_arena_base(void) { return &g_arena; }')
+            else:
+                lines.append('void* orpheus_arena_base(void) { return NULL; }')
+            # 逆执行序销毁（宿主退出时调用，让 wav_out 等落盘冲刷）
+            lines.append('void orpheus_generated_teardown(void) {')
+            for node_id in reversed(plan.execution_order):
+                s = self._sanitized_node_id(node_id)
+                lines.append(f'    g_iface_{s}->destroy(g_state_{s});')
+            lines.append('}')
+            lines.append("")
+
         if link_nodes:
             first = self._uart_link_sym(link_nodes[0])
             lines.append('/* --link-stdio：stdin/stdout 即链路（PC 冒烟）。读线程把 stdin 字节喂给链路层；')
@@ -510,6 +639,16 @@ class CodeGenerator:
             lines.append('}')
             lines.append("")
 
+        if not win_host:
+            # 文件时钟缺省宿主 main()；win 宿主模式的 main() 在 host_win.c（设备时钟）
+            self._emit_file_clock_main(lines, plan, link_nodes)
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+
+    def _emit_file_clock_main(self, lines: list[str], plan: ExecutionPlan,
+                              link_nodes: list[dict[str, Any]]) -> None:
+        """文件时钟缺省宿主 main()：块循环 + 控制 CLI（--write-bulk/--msg 等）。"""
         # hex 工具（--msg 二进制消息 CLI）
         lines.append('static const char* orpheus_hex_digits = "0123456789abcdef";')
         lines.append('static int orpheus_from_hex(const char* hx, uint8_t* out, size_t* out_len) {')
@@ -688,9 +827,6 @@ class CodeGenerator:
             lines.append(f'    g_iface_{s}->destroy(g_state_{s});')
         lines.append('    return 0;')
         lines.append('}')
-
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
 
     def _generate_platform_io(self, plan: ExecutionPlan, path: Path) -> None:
         """生成嵌入 I/O 适配模板：三个 USER CODE 函数，用户按实际硬件填充。"""
@@ -1152,6 +1288,8 @@ class CodeGenerator:
             '    uint32_t slot;',
             '    size_t module_offset;   /* 模块在 arena 中的偏移（offsetof） */',
             '    size_t arena_offset;    /* 叶子状态在 arena 中的完整偏移（offsetof） */',
+            '    const char* node;       /* 叶子节点 id（模块包为 ""） */',
+            '    const char* key;        /* 槽 key（模块包为 ""） */',
             '} OrpheusIdEntry;',
             'const OrpheusIdEntry* orpheus_id_map(size_t* out_count);',
             '#endif /* ORPHEUS_ID_MAP_H */',
@@ -1178,7 +1316,7 @@ class CodeGenerator:
                 f'ORPHEUS_ID_TUNE, ORPHEUS_FORM_MODULE, 0, ORPHEUS_VALUE_BULK_REF, '
                 f'1, sizeof({mod_type}), '
                 f'{mod["id"]}, ORPHEUS_ID_SLOT_MODULE, offsetof(OrpheusArena, {chain}), '
-                f'offsetof(OrpheusArena, {chain}) }},'
+                f'offsetof(OrpheusArena, {chain}), "", "" }},'
             )
         by_module = self._id_map_by_module(plan)
         for path in ordered_paths:
@@ -1205,7 +1343,8 @@ class CodeGenerator:
                     f'ORPHEUS_FORM_{entry["form"]}, '
                     f'{"1" if entry.get("double_bank") else "0"}, {vtype}, {count}, '
                     f'sizeof({ctype}) * {count}U, '
-                    f'{mod["id"]}, {entry["id"] & 0xFFFF}, {mod_off}, {arena_off} }},'
+                    f'{mod["id"]}, {entry["id"] & 0xFFFF}, {mod_off}, {arena_off}, '
+                    f'"{nid}", "{entry["key"]}" }},'
                 )
         map_c.append('};')
         map_c.append('')
@@ -1306,6 +1445,15 @@ class CodeGenerator:
             'int orpheus_control_get_bulk_id(uint32_t id, void* out, size_t count);',
             'int orpheus_control_register_hook(uint32_t id, OrpheusHookFn fn, void* ctx);',
             'int orpheus_control_message(const uint8_t* in, size_t in_len, uint8_t* out, size_t out_cap, size_t* out_len);',
+            '/* 标量槽读写与探针枚举（宿主控制面用，如 win 宿主的 SET/GET/PROBE 协议）。',
+            ' * 直写 state+offset，不经组件 set_parameter：调音渐变由组件 process 自行平滑；',
+            ' * PROBE/STATE 只读，set 返回 -1。字符串槽按 char 数组处理（容量=size×count）。 */',
+            'int orpheus_control_set_value(const char* node, const char* key, OrpheusValue v);',
+            'int orpheus_control_get_value(const char* node, const char* key, OrpheusValue* out);',
+            'int orpheus_control_set_value_id(uint32_t id, OrpheusValue v);   /* RW <id>：按 ID 写标量 */',
+            'int orpheus_control_get_value_id(uint32_t id, OrpheusValue* out); /* RR <id>：按 ID 读标量 */',
+            'size_t orpheus_control_probe_count(void);',
+            'int orpheus_control_probe_get(size_t index, const char** node, const char** key, OrpheusValue* out);',
             '#endif /* ORPHEUS_CONTROL_H */',
         ]
         (include_dir / "orpheus_control.h").write_text("\n".join(h) + "\n", encoding="utf-8")
@@ -1443,6 +1591,80 @@ class CodeGenerator:
         c.append('    return -1;')
         c.append('}')
         c.append('')
+        c.append('/* 标量槽读写：直写 state+offset（部署形态；调音渐变由组件 process 自行平滑）。 */')
+        c.append('static void orpheus_control_read_slot(const OrpheusGenSlot* s, OrpheusValue* out) {')
+        c.append('    const char* addr = (const char*)s->state + s->offset;')
+        c.append('    out->type = (OrpheusValueType)s->type;')
+        c.append('    switch (s->type) {')
+        c.append('        case ORPHEUS_VALUE_FLOAT:  out->value.f32 = *(const float*)addr; break;')
+        c.append('        case ORPHEUS_VALUE_INT:    out->value.i32 = *(const int32_t*)addr; break;')
+        c.append('        case ORPHEUS_VALUE_BOOL:   out->value.b = *(const bool*)addr; break;')
+        c.append('        case ORPHEUS_VALUE_STRING: out->value.str = (const char*)addr; break;  /* 槽存储为 char 数组 */')
+        c.append('        default: out->value.i32 = 0; break;')
+        c.append('    }')
+        c.append('}')
+        c.append('')
+        c.append('static int orpheus_control_write_slot(OrpheusGenSlot* s, OrpheusValue v) {')
+        c.append('    char* addr = (char*)s->state + s->offset;')
+        c.append('    /* 文本协议数值不区分 float/int，允许互转；bool 由 int/float 归一 */')
+        c.append('    if (s->type == ORPHEUS_VALUE_FLOAT) {')
+        c.append('        if (v.type == ORPHEUS_VALUE_FLOAT) { *(float*)addr = v.value.f32; return 0; }')
+        c.append('        if (v.type == ORPHEUS_VALUE_INT)   { *(float*)addr = (float)v.value.i32; return 0; }')
+        c.append('    }')
+        c.append('    if (s->type == ORPHEUS_VALUE_INT) {')
+        c.append('        if (v.type == ORPHEUS_VALUE_INT)   { *(int32_t*)addr = v.value.i32; return 0; }')
+        c.append('        if (v.type == ORPHEUS_VALUE_FLOAT) { *(int32_t*)addr = (int32_t)v.value.f32; return 0; }')
+        c.append('    }')
+        c.append('    if (s->type == ORPHEUS_VALUE_BOOL) {')
+        c.append('        if (v.type == ORPHEUS_VALUE_BOOL)  { *(bool*)addr = v.value.b; return 0; }')
+        c.append('        if (v.type == ORPHEUS_VALUE_INT)   { *(bool*)addr = v.value.i32 != 0; return 0; }')
+        c.append('        if (v.type == ORPHEUS_VALUE_FLOAT) { *(bool*)addr = v.value.f32 != 0.0f; return 0; }')
+        c.append('    }')
+        c.append('    if (s->type == ORPHEUS_VALUE_STRING && v.type == ORPHEUS_VALUE_STRING && v.value.str) {')
+        c.append('        size_t cap = s->size * s->count;')
+        c.append('        if (cap == 0) return -1;')
+        c.append('        strncpy(addr, v.value.str, cap - 1);')
+        c.append('        addr[cap - 1] = (char)0;')
+        c.append('        return 0;')
+        c.append('    }')
+        c.append('    return -1;')
+        c.append('}')
+        c.append('')
+        c.append('int orpheus_control_set_value(const char* node, const char* key, OrpheusValue v) {')
+        c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
+        c.append('    if (!s || s->kind == ORPHEUS_SLOT_PROBE || s->kind == ORPHEUS_SLOT_STATE) return -1;')
+        c.append('    return orpheus_control_write_slot(s, v);')
+        c.append('}')
+        c.append('')
+        c.append('int orpheus_control_get_value(const char* node, const char* key, OrpheusValue* out) {')
+        c.append('    if (!out) return -1;')
+        c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
+        c.append('    if (!s) return -1;')
+        c.append('    orpheus_control_read_slot(s, out);')
+        c.append('    return 0;')
+        c.append('}')
+        c.append('')
+        c.append('size_t orpheus_control_probe_count(void) {')
+        c.append('    size_t n = 0;')
+        c.append('    for (size_t i = 0; i < g_gen_slot_count; ++i)')
+        c.append('        if (g_gen_slots[i].state && g_gen_slots[i].kind == ORPHEUS_SLOT_PROBE) n++;')
+        c.append('    return n;')
+        c.append('}')
+        c.append('')
+        c.append('int orpheus_control_probe_get(size_t index, const char** node, const char** key, OrpheusValue* out) {')
+        c.append('    size_t seen = 0;')
+        c.append('    for (size_t i = 0; i < g_gen_slot_count; ++i) {')
+        c.append('        OrpheusGenSlot* s = &g_gen_slots[i];')
+        c.append('        if (!s->state || s->kind != ORPHEUS_SLOT_PROBE) continue;')
+        c.append('        if (seen++ != index) continue;')
+        c.append('        if (node) *node = s->node;')
+        c.append('        if (key) *key = s->key;')
+        c.append('        if (out) orpheus_control_read_slot(s, out);')
+        c.append('        return 0;')
+        c.append('    }')
+        c.append('    return -1;')
+        c.append('}')
+        c.append('')
         c.append('static const struct { uint32_t id; const char* node; const char* key; } g_all_id_ref[] = {')
         if plan.id_map:
             for e in plan.id_map:
@@ -1472,6 +1694,21 @@ class CodeGenerator:
         c.append('        }')
         c.append('    }')
         c.append('    return NULL;')
+        c.append('}')
+        c.append('')
+        c.append('/* 按 ID 标量读写（RW/RR 命令）：经 id→node/key 引用表定位槽。 */')
+        c.append('int orpheus_control_set_value_id(uint32_t id, OrpheusValue v) {')
+        c.append('    OrpheusGenSlot* s = orpheus_control_find_by_id(id);')
+        c.append('    if (!s || s->kind == ORPHEUS_SLOT_PROBE || s->kind == ORPHEUS_SLOT_STATE) return -1;')
+        c.append('    return orpheus_control_write_slot(s, v);')
+        c.append('}')
+        c.append('')
+        c.append('int orpheus_control_get_value_id(uint32_t id, OrpheusValue* out) {')
+        c.append('    if (!out) return -1;')
+        c.append('    OrpheusGenSlot* s = orpheus_control_find_by_id(id);')
+        c.append('    if (!s) return -1;')
+        c.append('    orpheus_control_read_slot(s, out);')
+        c.append('    return 0;')
         c.append('}')
         c.append('')
         c.append('/* 二进制消息：CALL → 同步 RESPONSE（回显 call_id）；NOTIFICATION → 单向分发（无返回）。 */')
@@ -1588,6 +1825,8 @@ class CodeGenerator:
             app_sources += " src/orpheus_id_map.c"
         if (output_dir / "src" / "orpheus_control.c").exists():
             app_sources += " src/orpheus_control.c"
+        if (output_dir / "src" / "host_win.c").exists():
+            app_sources += " src/host_win.c"
         if (output_dir / "src" / "olink.c").exists():
             app_sources += " src/olink.c"
         for f in sorted((output_dir / "src").glob("orpheus_link_*.c")):
@@ -1595,6 +1834,11 @@ class CodeGenerator:
         lines.append(f'add_executable(orpheus_generated_app {app_sources})')
         libs = " ".join(self._component_target_name(cid) for cid in component_ids)
         lines.append(f'target_link_libraries(orpheus_generated_app {libs})')
+        if (output_dir / "src" / "host_win.c").exists():
+            # win 实时宿主：miniaudio 在 Windows 需要的系统库（与 rt_host 一致）
+            lines.append('if(WIN32)')
+            lines.append('  target_link_libraries(orpheus_generated_app ole32 oleaut32 uuid winmm)')
+            lines.append('endif()')
         if self.uart_link_decls(plan):
             # 冒烟 harness 的 stdio 链路默认实现；上设备时移除该定义并实现自己的 send
             lines.append('target_compile_definitions(orpheus_generated_app PRIVATE ORPHEUS_LINK_STDIO)')

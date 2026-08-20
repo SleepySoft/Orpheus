@@ -45,6 +45,7 @@ class ExecutionPlan:
     declarations: list[dict[str, Any]] = field(default_factory=list)  # 声明式平台节点（execution.none）
     modules: list[dict[str, Any]] = field(default_factory=list)  # 模块内存布局（ID 寻址：模块 id + 槽）
     id_map: list[dict[str, Any]] = field(default_factory=list)   # 数据点 ID 表（动态/生成两路共用）
+    target: str = ""             # 平台解析选定的目标平台（win/dsp/...；空=未解析）
 
 
 def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
@@ -214,6 +215,7 @@ class GraphCompiler:
         resolved, _resolution = resolve_project(project, self.registry, target)
         project = resolved
         graph = project.graph
+        resolved_platform = _resolution.platform
         default_task = project.get_default_task()
         resolved_task = self._resolve_source_rate(project, default_task)
         # 时钟源采样率覆盖所有 task，保证跨任务端口解析时 sample_rate 一致
@@ -353,6 +355,7 @@ class GraphCompiler:
             execution_order=execution_order,
         )
         plan.declarations = declarations
+        plan.target = resolved_platform
 
         # per-node processing quantum: the producer buffer's frame count
         # (differs from task block size in rate-shifted domains)

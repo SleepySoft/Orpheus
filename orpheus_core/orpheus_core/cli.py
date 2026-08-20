@@ -42,8 +42,10 @@ def scan(ctx: click.Context) -> None:
 
 @cli.command()
 @click.argument("project_file", type=click.Path(exists=True, path_type=Path))
+@click.option("--target", "target", default=None,
+              help="目标平台覆盖（auto/win/dsp）；缺省读工程 target 字段")
 @click.pass_context
-def compile(ctx: click.Context, project_file: Path) -> None:
+def compile(ctx: click.Context, project_file: Path, target: str | None) -> None:
     """Compile a project YAML into an execution plan JSON."""
     root = ctx.obj["project_root"]
     registry = Registry()
@@ -55,7 +57,7 @@ def compile(ctx: click.Context, project_file: Path) -> None:
 
     compiler = GraphCompiler(registry)
     try:
-        plan = compiler.compile(flatten_project(project))
+        plan = compiler.compile(flatten_project(project), target=target)
     except CompileError as exc:
         click.echo(f"compile error: {exc}", err=True)
         sys.exit(1)
@@ -116,8 +118,11 @@ def build(ctx: click.Context, component_ids: tuple[str, ...], build_dir: Path | 
 @cli.command()
 @click.argument("project_file", type=click.Path(exists=True, path_type=Path))
 @click.argument("output_dir", type=click.Path(path_type=Path))
+@click.option("--target", "target", default=None,
+              help="目标平台覆盖（auto/win/dsp）；缺省读工程 target 字段")
 @click.pass_context
-def generate(ctx: click.Context, project_file: Path, output_dir: Path) -> None:
+def generate(ctx: click.Context, project_file: Path, output_dir: Path,
+             target: str | None) -> None:
     """Generate a standalone C project from a project YAML."""
     root = ctx.obj["project_root"]
     registry = Registry()
@@ -129,7 +134,7 @@ def generate(ctx: click.Context, project_file: Path, output_dir: Path) -> None:
 
     compiler = GraphCompiler(registry)
     try:
-        plan = compiler.compile(flatten_project(project))
+        plan = compiler.compile(flatten_project(project), target=target)
     except CompileError as exc:
         click.echo(f"compile error: {exc}", err=True)
         sys.exit(1)

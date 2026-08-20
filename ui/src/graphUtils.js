@@ -79,6 +79,9 @@ export function graphToFlow(graph, catalogById) {
         clockSource: !!comp?.clock_source,
         ports: resolvePorts(comp, n.params),
         parameters: comp?.parameters || [],
+        // 替代组声明（同图内节点 id 列表）与组件平台标签，往返保留
+        alters: Array.isArray(n.alters) ? n.alters : [],
+        platforms: comp?.platforms || [],
       },
     };
   });
@@ -100,6 +103,8 @@ export function flowToGraph(nodes, edges) {
       params: n.data.params || {},
       position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
       ...(n.data.label && n.data.label !== n.id ? { label: n.data.label } : {}),
+      // alters 非空数组时写回节点，空则省略
+      ...(Array.isArray(n.data.alters) && n.data.alters.length ? { alters: n.data.alters } : {}),
     })),
     connections: edges
       .filter((e) => e.sourceHandle && e.targetHandle)
