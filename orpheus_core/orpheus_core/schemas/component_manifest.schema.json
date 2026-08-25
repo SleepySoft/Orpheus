@@ -95,6 +95,19 @@
             "type": "string",
             "enum": ["setting", "command", "bulk", "probe", "state"],
             "description": "数据点类别：调音参数 / 一次性命令 / 大块数据(Bulk) / 探针 / 内部状态。缺省按 readback+persistent 推断（探针），否则为 setting。UI 参数面板据此分类组织。"
+          },
+          "bindable": {
+            "type": "boolean",
+            "description": "允许作为控制连接目标（缺省 false）。约束：update_policy ∈ immediate/smoothed/block_boundary，且不得 affects_signature（编译期校验）"
+          },
+          "control_source": {
+            "type": "boolean",
+            "description": "允许作为控制连接源（缺省 false）。约束：必须可读（readback: true 或 kind 为 probe/state）"
+          },
+          "shape": {
+            "type": "array",
+            "items": { "type": ["integer", "string"] },
+            "description": "参数维度声明：整数常量或 param:xxx 表达式（复用端口表达式语法）；缺省 = 标量 []"
           }
         }
       }

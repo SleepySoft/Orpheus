@@ -7,9 +7,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
+from orpheus_core.project import Connection, ControlConnection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.parameter_catalog import id_form_of, id_kind_of, id_value
+
+# 可作为控制连接目标的 update_policy（restart_required/transactional 不允许运行期被驱动）
+_BINDABLE_POLICIES = {"immediate", "smoothed", "block_boundary"}
+# control_source 参数必须可读：显式 readback，或 kind 为 probe/state
+_CONTROL_SOURCE_KINDS = {"probe", "state"}
 
 
 class CompileError(Exception):
@@ -46,6 +51,8 @@ class ExecutionPlan:
     modules: list[dict[str, Any]] = field(default_factory=list)  # 模块内存布局（ID 寻址：模块 id + 槽）
     id_map: list[dict[str, Any]] = field(default_factory=list)   # 数据点 ID 表（动态/生成两路共用）
     target: str = ""             # 平台解析选定的目标平台（win/dsp/...；空=未解析）
+    # 控制链路：编译期校验通过的参数驱动关系（运行时块边界两相快照投递）
+    control_links: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
@@ -338,6 +345,9 @@ class GraphCompiler:
         # 2.5 Clock domains: every flow must be driven by exactly one clock
         self._validate_clock_domains(graph)
 
+        # 2.6 控制连接校验（control_source/bindable/类型/形状），产出 plan.control_links
+        control_links = self._validate_control_links(graph, project.control_connections, node_task)
+
         # 3. Topological sort
         execution_order = self._topological_sort(graph)
 
@@ -356,6 +366,7 @@ class GraphCompiler:
         )
         plan.declarations = declarations
         plan.target = resolved_platform
+        plan.control_links = control_links
 
         # per-node processing quantum: the producer buffer's frame count
         # (differs from task block size in rate-shifted domains)
@@ -491,6 +502,129 @@ class GraphCompiler:
         plan.id_map = self._build_id_map(plan, getattr(project, "double_bank", "auto"))
 
         return plan
+
+    def _resolve_param_shape(
+        self, param: dict[str, Any], node: Node, comp: ComponentInfo, task: Task
+    ) -> list[int]:
+        """求值参数 shape 声明（元素为整数或 ``param:xxx`` 表达式），缺省 = 标量 []。"""
+        dims: list[int] = []
+        for elem in param.get("shape") or []:
+            value = _resolve_value(elem, node, task)
+            if value is None and isinstance(elem, str) and elem.startswith("param:"):
+                # 节点未显式给值时回退到 manifest 默认值（与端口 count 展开同一策略）
+                param_id = elem[6:]
+                for p in comp.manifest.get("parameters", []):
+                    if p["id"] == param_id:
+                        value = p.get("default")
+                        break
+            try:
+                value = int(value)
+            except (TypeError, ValueError) as exc:
+                raise CompileError(
+                    f"无法求值参数形状：节点 {node.id} 参数 {param['id']} 的 shape 元素 {elem!r}"
+                ) from exc
+            if value < 1:
+                raise CompileError(
+                    f"非法参数形状：节点 {node.id} 参数 {param['id']} 的维度 {value} < 1"
+                )
+            dims.append(value)
+        return dims
+
+    def _validate_control_links(
+        self,
+        graph: Graph,
+        control_connections: list[ControlConnection],
+        node_task,
+    ) -> list[dict[str, Any]]:
+        """校验控制连接并产出 plan.control_links。
+
+        规则（design_control_link_eval §3/§8）：源参数须声明 control_source 且可读；
+        目标参数须声明 bindable、非 affects_signature、update_policy 合规；
+        两端类型严格相同、shape 按各自节点参数求值后严格相等（禁止隐式转换）。
+        """
+        links: list[dict[str, Any]] = []
+        driven_targets: set[str] = set()  # 同一目标参数只允许一个控制源（两相快照下同块两写是模糊行为）
+        for cc in control_connections:
+            src_ref, dst_ref = cc.from_ref, cc.to_ref
+            if str(dst_ref) in driven_targets:
+                raise CompileError(
+                    f"控制连接目标重复：{dst_ref} 已被其他控制连接驱动；"
+                    f"同一参数只能有一个控制源（需汇聚时请显式加适配组件）"
+                )
+            driven_targets.add(str(dst_ref))
+            src_node = graph.nodes.get(src_ref.node_id)
+            if src_node is None:
+                raise CompileError(f"控制连接源节点不存在：{src_ref.node_id}（{src_ref}）")
+            dst_node = graph.nodes.get(dst_ref.node_id)
+            if dst_node is None:
+                raise CompileError(f"控制连接目标节点不存在：{dst_ref.node_id}（{dst_ref}）")
+            src_comp = self.registry.get(src_node.component)
+            dst_comp = self.registry.get(dst_node.component)
+
+            def param_of(comp: ComponentInfo, param_id: str) -> dict[str, Any] | None:
+                for p in comp.manifest.get("parameters", []):
+                    if p["id"] == param_id:
+                        return p
+                return None
+
+            src_param = param_of(src_comp, src_ref.port_id) if src_comp else None
+            if src_param is None:
+                raise CompileError(f"控制连接源参数不存在：{src_ref}（组件 {src_node.component}）")
+            if not src_param.get("control_source"):
+                raise CompileError(
+                    f"控制连接源参数未声明 control_source：{src_ref}；"
+                    f"请在组件 manifest 中为该参数加 control_source: true"
+                )
+            if not (src_param.get("readback") or src_param.get("kind") in _CONTROL_SOURCE_KINDS):
+                raise CompileError(
+                    f"控制连接源参数不可读：{src_ref}；control_source 要求 readback: true 或 kind 为 probe/state"
+                )
+            dst_param = param_of(dst_comp, dst_ref.port_id) if dst_comp else None
+            if dst_param is None:
+                raise CompileError(f"控制连接目标参数不存在：{dst_ref}（组件 {dst_node.component}）")
+            if not dst_param.get("bindable"):
+                raise CompileError(
+                    f"控制连接目标参数不允许绑定：{dst_ref}；"
+                    f"请在组件 manifest 中为该参数加 bindable: true"
+                )
+            if dst_param.get("affects_signature"):
+                raise CompileError(
+                    f"控制连接目标参数影响端口签名（affects_signature），不允许绑定：{dst_ref}"
+                )
+            policy = dst_param.get("update_policy", "immediate")
+            if policy not in _BINDABLE_POLICIES:
+                raise CompileError(
+                    f"控制连接目标参数更新策略不允许绑定：{dst_ref}（update_policy: {policy}）；"
+                    f"仅支持 immediate/smoothed/block_boundary"
+                )
+            src_type = src_param.get("type", "float")
+            dst_type = dst_param.get("type", "float")
+            if src_type != dst_type:
+                raise CompileError(
+                    f"控制连接类型不匹配：{src_ref}（{src_type}）→ {dst_ref}（{dst_type}）；禁止隐式转换"
+                )
+            src_shape = self._resolve_param_shape(src_param, src_node, src_comp, node_task(src_node))
+            dst_shape = self._resolve_param_shape(dst_param, dst_node, dst_comp, node_task(dst_node))
+            if src_shape != dst_shape:
+                fmt = lambda s: "标量" if not s else "[" + "×".join(str(d) for d in s) + "]"
+                raise CompileError(
+                    f"控制连接形状不匹配：{src_ref}（{fmt(src_shape)}）→ {dst_ref}（{fmt(dst_shape)}）"
+                )
+            count = 1
+            for d in dst_shape:
+                count *= d
+            links.append(
+                {
+                    "src_node": src_ref.node_id,
+                    "src_param": src_ref.port_id,
+                    "dst_node": dst_ref.node_id,
+                    "dst_param": dst_ref.port_id,
+                    "type": dst_type,
+                    "shape": dst_shape,
+                    "count": count,
+                }
+            )
+        return links
 
     def _module_data_points(self, plan: ExecutionPlan, module: dict) -> list[dict[str, Any]]:
         """模块内数据点：叶子按执行序 × manifest 参数序 + bulk_slots 序（槽序号同此顺序）。"""

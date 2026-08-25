@@ -482,6 +482,26 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         key_to_id_[e.node + "\x1f" + e.key] = e.id;
     }
 
+    // 控制链路运行态初始化（快照/字符串缓冲在此预分配，process 路径零分配）。
+    // 本期运行期仅执行 float/int/bool 标量（count==1）与 string 原样透传；
+    // count>1 的数值数组链编译期已做形状校验，运行期跳过。
+    control_links_.clear();
+    size_t skipped_links = 0;
+    for (const auto& cl : plan_.control_links) {
+        ControlLinkState st;
+        st.cfg = &cl;
+        st.skip = (cl.type != "string") && cl.count > 1;
+        if (cl.type == "string") {
+            st.str_buf.assign(256, '\0');  // 预分配上限，超长截断
+        }
+        if (st.skip) ++skipped_links;
+        control_links_.push_back(std::move(st));
+    }
+    if (skipped_links > 0) {
+        std::cerr << "[Runtime] 控制链路：" << skipped_links
+                  << " 条数组链（count>1）本期运行时不执行，仅编译期校验" << std::endl;
+    }
+
     return 0;
 }
 
@@ -959,6 +979,33 @@ const OrpheusComponentInterface* Runtime::get_interface(const std::string& node_
     return it->second->interface_;
 }
 
+void Runtime::control_tick() {
+    if (control_links_.empty()) return;
+    /* 第一相：读 —— 全部源参数 → 快照（经 ABI get_parameter / 槽直读）。
+       字符串源拷贝进预分配缓冲，process 路径零分配。 */
+    for (auto& l : control_links_) {
+        if (l.skip) continue;
+        l.read_ok = get_parameter(l.cfg->src_node, l.cfg->src_param, &l.snapshot) == ORPHEUS_OK;
+        if (l.read_ok && l.snapshot.type == ORPHEUS_VALUE_STRING && !l.str_buf.empty()) {
+            const char* s = l.snapshot.value.str != nullptr ? l.snapshot.value.str : "";
+            size_t n = std::strlen(s);
+            if (n >= l.str_buf.size()) n = l.str_buf.size() - 1;  /* 超长截断 */
+            std::memcpy(l.str_buf.data(), s, n);
+            l.str_buf[n] = '\0';
+        }
+    }
+    /* 第二相：写 —— 快照 → 全部目标（经 ABI set_parameter / 槽直写）。
+       读写分相保证顺序无关：多跳链每链固定 1 块延迟。 */
+    for (auto& l : control_links_) {
+        if (l.skip || !l.read_ok) continue;
+        OrpheusValue v = l.snapshot;
+        if (v.type == ORPHEUS_VALUE_STRING && !l.str_buf.empty()) {
+            v.value.str = l.str_buf.data();
+        }
+        set_parameter(l.cfg->dst_node, l.cfg->dst_param, v);
+    }
+}
+
 int Runtime::process_block(uint32_t frame_count) {
     /* 块边界提交：待写的 BULK 影子区一次性 memcpy 到 active（单控制写者假设） */
     for (auto& kv : bulk_pending_) {
@@ -998,6 +1045,7 @@ int Runtime::process_block(uint32_t frame_count) {
             return result;
         }
     }
+    control_tick();
     block_counter_++;
     return 0;
 }

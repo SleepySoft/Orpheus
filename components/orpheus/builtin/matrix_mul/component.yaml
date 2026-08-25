@@ -43,6 +43,7 @@ parameters:
     widget: text
     kind: bulk
     update_policy: restart_required
+    shape: [param:rows, param:cols]  # 维度声明：rows×cols（供控制连接形状校验）
 memory:
   state_size: 0
   scratch_size: 0

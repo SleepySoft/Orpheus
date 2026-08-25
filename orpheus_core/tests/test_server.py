@@ -156,6 +156,55 @@ def test_node_label_roundtrip(client):
         client.delete(f"/api/projects/{name}")
 
 
+def test_compile_returns_control_links(client):
+    """合法控制连接：compile 响应携带 control_links 摘要（类型/形状/count 已求值）。"""
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        resp = client.post("/api/projects", json={"name": name, "from_example": "control_link_demo"})
+        assert resp.status_code == 201, resp.text
+        resp = client.post(f"/api/projects/{name}/compile")
+        assert resp.status_code == 200, resp.text
+        links = resp.json()["control_links"]
+        assert links == [
+            {
+                "src_node": "lvl",
+                "src_param": "level",
+                "dst_node": "g",
+                "dst_param": "gain_db",
+                "type": "float",
+                "shape": [],
+                "count": 1,
+            }
+        ]
+    finally:
+        client.delete(f"/api/projects/{name}")
+
+
+def test_compile_rejects_invalid_control_link(client):
+    """非法控制连接（目标非 bindable）：compile 返回 400 + 中文错误信息。"""
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        assert client.post("/api/projects", json={"name": name}).status_code == 201
+        doc = client.get(f"/api/projects/{name}").json()
+        doc["graph"] = {
+            "nodes": [
+                {"id": "lvl", "component": "orpheus.builtin.level_detect",
+                 "params": {"channels": 2}},
+                {"id": "g", "component": "orpheus.builtin.gain",
+                 "params": {"channels": 2}},
+            ],
+            "connections": [],
+        }
+        # smoothing_ms 是 restart_required 且未声明 bindable
+        doc["control_connections"] = [{"from": "lvl:level", "to": "g:smoothing_ms"}]
+        assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
+        resp = client.post(f"/api/projects/{name}/compile")
+        assert resp.status_code == 400, resp.text
+        assert "不允许绑定" in resp.json()["detail"], resp.text
+    finally:
+        client.delete(f"/api/projects/{name}")
+
+
 @pytest.mark.skipif(
     not (ROOT / "build" / "orpheus_runtime.exe").exists()
     or not (ROOT / "build" / "components").exists(),

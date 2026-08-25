@@ -58,6 +58,17 @@ struct IdMapEntry {
     bool double_bank = false;  // BULK 双 bank 生效（工程 auto/on/off × 组件声明）
 };
 
+// 控制链路：源节点参数值 → 目标节点参数（块边界两相快照投递，每链 1 块延迟）
+struct ControlLinkConfig {
+    std::string src_node;
+    std::string src_param;
+    std::string dst_node;
+    std::string dst_param;
+    std::string type;              // "float"/"int"/"bool"/"string"（编译期已严格匹配）
+    std::vector<uint32_t> shape;   // 求值后的维度（空 = 标量）
+    uint32_t count = 1;            // shape 各维乘积（标量为 1）
+};
+
 struct Plan {
     uint32_t abi_version = 1;
     uint32_t sample_rate = 48000;
@@ -72,6 +83,7 @@ struct Plan {
     std::vector<ConnectionConfig> connections;
     std::vector<ModuleConfig> modules;
     std::vector<IdMapEntry> id_map;
+    std::vector<ControlLinkConfig> control_links;
 
     static Plan load_from_file(const std::string& path);
 };

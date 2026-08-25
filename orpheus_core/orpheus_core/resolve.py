@@ -309,7 +309,7 @@ def resolve_project(
     group_map_all: dict[str, list[str]] = {}
     active_all: dict[str, str] = {}
 
-    for graph in [resolved.graph] + [s.graph for s in resolved.subcomponents]:
+    for gi, graph in enumerate([resolved.graph] + [s.graph for s in resolved.subcomponents]):
         active_map, group_map, warns = _resolve_graph(
             graph, platform, registry, platforms
         )
@@ -332,6 +332,13 @@ def resolve_project(
                 conn.from_ref.node_id = active_map[conn.from_ref.node_id]
             if conn.to_ref.node_id in active_map:
                 conn.to_ref.node_id = active_map[conn.to_ref.node_id]
+        # 控制连接（顶层段，引用主图节点）同样重映射到激活成员
+        if gi == 0:
+            for cc in resolved.control_connections:
+                if cc.from_ref.node_id in active_map:
+                    cc.from_ref.node_id = active_map[cc.from_ref.node_id]
+                if cc.to_ref.node_id in active_map:
+                    cc.to_ref.node_id = active_map[cc.to_ref.node_id]
 
     return resolved, Resolution(
         platform=platform,

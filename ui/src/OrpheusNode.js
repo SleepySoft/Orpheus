@@ -1,7 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, NodeResizer } from 'reactflow';
-import { resolveExprValue } from './graphUtils';
+import { resolveExprValue, resolveShape, shapeText, CTL_PREFIX } from './graphUtils';
 import { NODE_WIDGETS } from './nodeWidgets';
 import { NodeActionsContext } from './NodeActionsContext';
 
@@ -67,7 +67,7 @@ function noiseStatusClass(data) {
 }
 
 const BodyWidget = NODE_WIDGETS[data.component];
-  const { showReadme } = React.useContext(NodeActionsContext);
+  const { showReadme, showControlLinks } = React.useContext(NodeActionsContext);
 
   // compiled rate badge, e.g. "48kHz" or "24kHz ÷2" (visible time tree)
   // 时钟源（信号/扫频/设备/wav 输入）显示 ⏱ 徽标：图采样率以它为准
@@ -187,6 +187,42 @@ const BodyWidget = NODE_WIDGETS[data.component];
         <div className="node-ports inputs">{inputs.map((p) => renderRow(p, true))}</div>
         <div className="node-ports outputs">{outputs.map((p) => renderRow(p, false))}</div>
       </div>
+      {/* 控制区（仅「控制链路」开关开启时渲染）：control_source 参数出行尾源 handle，
+          bindable 参数出行首目标 handle；方形橙色 handle 与音频圆点区分 */}
+      {showControlLinks &&
+        (data.parameters || []).some((p) => p.control_source || p.bindable) && (
+          <div className="node-controls">
+            {(data.parameters || [])
+              .filter((p) => p.control_source || p.bindable)
+              .map((p) => (
+                <div
+                  key={p.id}
+                  className={`port-row ctl-row ${p.control_source && !p.bindable ? 'src' : ''}`}
+                >
+                  {p.bindable && (
+                    <Handle
+                      type="target"
+                      position={Position.Left}
+                      id={`${CTL_PREFIX}${p.id}`}
+                      style={{ ...handleStyle, left: -11 }}
+                    />
+                  )}
+                  <span className="ctl-name">{p.name || p.id}</span>
+                  <span className="shape-badge">
+                    {shapeText(resolveShape(p.shape || [], data.params, { parameters: data.parameters }))}
+                  </span>
+                  {p.control_source && (
+                    <Handle
+                      type="source"
+                      position={Position.Right}
+                      id={`${CTL_PREFIX}${p.id}`}
+                      style={{ ...handleStyle, right: -11 }}
+                    />
+                  )}
+                </div>
+              ))}
+          </div>
+        )}
       {BodyWidget && <BodyWidget data={data} />}
         {enlarged &&
           createPortal(

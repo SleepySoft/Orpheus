@@ -522,6 +522,8 @@ def create_app(project_root: Path) -> FastAPI:
             "execution_order": plan.execution_order,
             "buffers": len(plan.buffers),
             "connections": len(plan.connections),
+            # 控制链路（编译期已校验），供 UI 显示与测试断言；空图为 []
+            "control_links": plan.control_links,
             # per-node rate info for UI badges (time-tree visualization)
             "node_rates": {
                 nid: {

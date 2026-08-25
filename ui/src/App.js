@@ -19,11 +19,17 @@ import {
   mergedCatalog,
   defaultParams,
   resolvePorts,
+  resolveShape,
+  shapeText,
+  shapeEquals,
+  isControlHandle,
+  ctlParamId,
   isSubRef,
   subIdOf,
   subViewKey,
 } from './graphUtils';
 import OrpheusNode from './OrpheusNode';
+import ControlEdge from './ControlEdge';
 import ParamPanel from './ParamPanel';
 import ParamBrowser from './ParamBrowser';
 import Palette from './Palette';
@@ -36,8 +42,47 @@ import remarkGfm from 'remark-gfm';
 import NotesPanel from './NotesPanel';
 
 const nodeTypes = { orpheus: OrpheusNode };
+const edgeTypes = { control: ControlEdge };
 const AUTOSAVE_DELAY_MS = 1500;
 const EMPTY_VIEW = { nodes: [], edges: [] };
+
+/** 控制目标允许的更新策略（restart_required 参数禁止作为控制目标）。 */
+const CONTROL_TARGET_POLICIES = ['immediate', 'smoothed', 'block_boundary'];
+
+/** 控制 handle（ctl:<paramId>）→ { node, schema, shape }；节点或参数缺失返回 null。 */
+function controlEndpointInfo(nodes, nodeId, handleId) {
+  const node = nodes.find((n) => n.id === nodeId);
+  if (!node) return null;
+  const schema = (node.data.parameters || []).find((p) => p.id === ctlParamId(handleId));
+  if (!schema) return null;
+  const shape = resolveShape(schema.shape || [], node.data.params, {
+    parameters: node.data.parameters,
+  });
+  return { node, schema, shape };
+}
+
+/** 控制连接静态校验：返回 null 表示可连，否则返回中文拒绝原因。 */
+function validateControlConnection(nodes, params) {
+  const src = controlEndpointInfo(nodes, params.source, params.sourceHandle);
+  const dst = controlEndpointInfo(nodes, params.target, params.targetHandle);
+  if (!src) return `控制源参数不存在：${params.source}:${ctlParamId(params.sourceHandle)}`;
+  if (!dst) return `目标参数不存在：${params.target}:${ctlParamId(params.targetHandle)}`;
+  if (!src.schema.control_source)
+    return `参数 ${params.source}:${src.schema.id} 未声明 control_source，不能作为控制源`;
+  if (!dst.schema.bindable)
+    return `参数 ${params.target}:${dst.schema.id} 未声明 bindable，不能作为控制目标`;
+  if (dst.schema.affects_signature)
+    return `目标参数 ${dst.schema.id} 影响端口签名（affects_signature），不能作为控制目标`;
+  if (!CONTROL_TARGET_POLICIES.includes(dst.schema.update_policy))
+    return `目标参数 ${dst.schema.id} 的更新策略为 ${dst.schema.update_policy || '未声明'}，控制目标仅支持 immediate/smoothed/block_boundary`;
+  if (src.schema.type !== dst.schema.type)
+    return `类型不匹配：${src.schema.type} → ${dst.schema.type}`;
+  if (src.shape === null || dst.shape === null)
+    return `形状求值失败：${shapeText(src.shape)} → ${shapeText(dst.shape)}`;
+  if (!shapeEquals(src.shape, dst.shape))
+    return `形状不匹配：${shapeText(src.shape)} → ${shapeText(dst.shape)}`;
+  return null;
+}
 
 const uniqueNodeId = (existing, base) => {
   const ids = new Set(existing.map((n) => n.id));
@@ -100,6 +145,14 @@ function Editor() {
     return 200;
   });
   const [rightOpen, setRightOpen] = useState(true); // 参数面板/子组件面板
+  // 「控制链路」显示开关（持久化）：关闭时控制 handle/控制边完全不渲染
+  const [showControlLinks, setShowControlLinks] = useState(() => {
+    try {
+      return localStorage.getItem('orpheus.showControlLinks') === '1';
+    } catch (e) {
+      return false;
+    }
+  });
   const [openMenu, setOpenMenu] = useState(null); // 'project' | 'run' | null：分组展开菜单
   const distillFileRef = useRef(null);
   const [status, setStatus] = useState('未连接后端');
@@ -505,7 +558,14 @@ const { screenToFlowPosition } = useReactFlow();
 
   const onConnect = useCallback(
     (params) => {
-      // an input pin may be driven by exactly one wire
+      // 控制引脚只能连控制引脚，音频引脚只能连音频引脚（交叉拒绝）
+      const srcCtl = isControlHandle(params.sourceHandle);
+      const dstCtl = isControlHandle(params.targetHandle);
+      if (srcCtl !== dstCtl) {
+        setStatus('控制引脚只能与控制引脚相连（不能与音频引脚交叉连接）');
+        return;
+      }
+      // an input pin may be driven by exactly one wire（控制目标引脚同样独占）
       const occupied = view.edges.some(
         (e) => e.target === params.target && e.targetHandle === params.targetHandle
       );
@@ -513,10 +573,24 @@ const { screenToFlowPosition } = useReactFlow();
         setStatus(`输入引脚 ${params.target}:${params.targetHandle} 已有连线（先删除原连线）`);
         return;
       }
-      updateView(activeView, (v) => ({ ...v, edges: addEdge(params, v.edges) }));
+      if (srcCtl) {
+        // 控制连接：control_source → bindable，类型/形状/更新策略静态校验
+        const err = validateControlConnection(view.nodes, params);
+        if (err) {
+          setStatus(`控制连接被拒绝：${err}`);
+          return;
+        }
+        const id = `ec-${params.source}:${ctlParamId(params.sourceHandle)}-${params.target}:${ctlParamId(params.targetHandle)}`;
+        updateView(activeView, (v) => ({
+          ...v,
+          edges: addEdge({ ...params, id, type: 'control' }, v.edges),
+        }));
+      } else {
+        updateView(activeView, (v) => ({ ...v, edges: addEdge(params, v.edges) }));
+      }
       setDirty(true);
     },
-    [activeView, updateView, view.edges]
+    [activeView, updateView, view.edges, view.nodes]
   );
 
   const onDragOver = useCallback((event) => {
@@ -586,12 +660,14 @@ const { screenToFlowPosition } = useReactFlow();
           return { ...nd, data: { ...nd.data, params, ports } };
         });
         // prune edges whose handle no longer exists on the edited node
+        // （控制边 handle 为 ctl:<paramId>，不在 ports 列表里：跳过剪线，形状失配改由标红保留）
         const edited = nodes.find((n) => n.id === selectedId);
         const valid = new Set((edited?.data.ports || []).map((p) => p.id));
         const edges = v.edges.filter(
           (e) =>
-            !(e.source === selectedId && !valid.has(e.sourceHandle)) &&
-            !(e.target === selectedId && !valid.has(e.targetHandle))
+            e.type === 'control' ||
+            (!(e.source === selectedId && !valid.has(e.sourceHandle)) &&
+              !(e.target === selectedId && !valid.has(e.targetHandle)))
         );
         return { nodes, edges };
       });
@@ -622,10 +698,12 @@ const { screenToFlowPosition } = useReactFlow();
         });
         const edited = nodes.find((n) => n.id === nodeId);
         const valid = new Set((edited && edited.data.ports || []).map((p) => p.id));
+        // 同上：控制边不参与按端口的剪线（失配标红保留）
         const edges = v.edges.filter(
           (e) =>
-            !(e.source === nodeId && !valid.has(e.sourceHandle)) &&
-            !(e.target === nodeId && !valid.has(e.targetHandle))
+            e.type === 'control' ||
+            (!(e.source === nodeId && !valid.has(e.sourceHandle)) &&
+              !(e.target === nodeId && !valid.has(e.targetHandle)))
         );
         return { nodes, edges };
       });
@@ -750,6 +828,15 @@ const { screenToFlowPosition } = useReactFlow();
       /* ignore */
     }
   }, [leftWidth]);
+
+  // 控制链路显示开关持久化
+  useEffect(() => {
+    try {
+      localStorage.setItem('orpheus.showControlLinks', showControlLinks ? '1' : '0');
+    } catch (e) {
+      /* ignore */
+    }
+  }, [showControlLinks]);
 
   const onLeftResizeStart = useCallback(
     (e) => {
@@ -925,9 +1012,16 @@ const { screenToFlowPosition } = useReactFlow();
     if (!subId) return;
 
     const internalNodes = view.nodes.filter((n) => S.has(n.id));
-    const internalEdges = view.edges.filter((e) => S.has(e.source) && S.has(e.target));
-    const boundaryIn = view.edges.filter((e) => !S.has(e.source) && S.has(e.target));
-    const boundaryOut = view.edges.filter((e) => S.has(e.source) && !S.has(e.target));
+    // 控制边只在主图视图层存在，不参与包装（避免被带入子组件视图后丢失）
+    const internalEdges = view.edges.filter(
+      (e) => e.type !== 'control' && S.has(e.source) && S.has(e.target)
+    );
+    const boundaryIn = view.edges.filter(
+      (e) => e.type !== 'control' && !S.has(e.source) && S.has(e.target)
+    );
+    const boundaryOut = view.edges.filter(
+      (e) => e.type !== 'control' && S.has(e.source) && !S.has(e.target)
+    );
 
     const ports = [];
     const inPortOf = {};
@@ -976,7 +1070,10 @@ const { screenToFlowPosition } = useReactFlow();
           },
         ],
         edges: [
-          ...prev[activeView].edges.filter((e) => !S.has(e.source) && !S.has(e.target)),
+          // 控制边全部留在主图（节点被包进子组件后可能悬空，由用户自行删除）
+          ...prev[activeView].edges.filter(
+            (e) => e.type === 'control' || (!S.has(e.source) && !S.has(e.target))
+          ),
           ...boundaryIn.map((e) => ({
             ...e,
             id: `e-${e.source}:${e.sourceHandle}-${instanceId}:${inPortOf[`${e.target}:${e.targetHandle}`]}`,
@@ -1355,6 +1452,25 @@ const { screenToFlowPosition } = useReactFlow();
 
   const selectedNode = view.nodes.find((nd) => nd.id === selectedId) || null;
 
+  // 传给 ReactFlow 的边：开关关闭时过滤控制边（界面与纯音频图逐像素一致）；
+  // 开启时为控制边注入两端求值形状与失配标记（随参数变化自动刷新，失配标红不剪线）。
+  const displayEdges = useMemo(
+    () =>
+      view.edges
+        .filter((e) => showControlLinks || e.type !== 'control')
+        .map((e) => {
+          if (e.type !== 'control') return e;
+          const src = controlEndpointInfo(view.nodes, e.source, e.sourceHandle);
+          const dst = controlEndpointInfo(view.nodes, e.target, e.targetHandle);
+          const mismatch = !src || !dst || !shapeEquals(src.shape, dst.shape);
+          return {
+            ...e,
+            data: { srcShape: src?.shape ?? null, dstShape: dst?.shape ?? null, mismatch },
+          };
+        }),
+    [view.edges, view.nodes, showControlLinks]
+  );
+
   // 点击工具栏外关闭展开菜单
   useEffect(() => {
     if (!openMenu) return undefined;
@@ -1463,6 +1579,17 @@ const { screenToFlowPosition } = useReactFlow();
           <label className="autosave">
             <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
             自动保存
+          </label>
+          <label
+            className="autosave"
+            title="显示控制参数链路：控制源（readback）→ 可绑定参数的虚线连接与形状标注"
+          >
+            <input
+              type="checkbox"
+              checked={showControlLinks}
+              onChange={(e) => setShowControlLinks(e.target.checked)}
+            />
+            控制链路
           </label>
         </span>
         <span className="toolbar-sep" />
@@ -1672,10 +1799,10 @@ const { screenToFlowPosition } = useReactFlow();
           </>
         )}
         <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
-          <NodeActionsContext.Provider value={{ showReadme: handleShowReadme }}>
+          <NodeActionsContext.Provider value={{ showReadme: handleShowReadme, showControlLinks }}>
             <ReactFlow
             nodes={view.nodes}
-            edges={view.edges}
+            edges={displayEdges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
@@ -1691,6 +1818,7 @@ const { screenToFlowPosition } = useReactFlow();
               else if (ids.length === 0) setSelectedId(null);
             }}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             deleteKeyCode={['Delete', 'Backspace']}
             selectionKeyCode="Control"
             multiSelectionKeyCode="Control"

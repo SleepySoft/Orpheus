@@ -1130,3 +1130,25 @@ process 用输出历史 z1/z2 同时充当零点与极点递推：`y = b0·x + (
 
 ### 至此串行链路全部落地
 L1-L3（OLINK 双实现）→ L4（后端 SerialSession + UI 目标选择）→ uart_link（设备侧链路段）。真机工作流：工程里拖入 uart_link → 生成 C 工程 → 填 hooks 的 init/send → 交叉编译烧录 → Orpheus 界面目标选串口 → 调音看探针。
+
+## 2026-08-25 控制参数链路核心框架（design_control_link_eval 第 0/1 期骨架）
+
+### 新增
+- manifest schema：parameters[] 增加可选 `bindable`（可作控制目标，要求 update_policy ∈ immediate/smoothed/block_boundary 且非 affects_signature）、`control_source`（可作控制源，要求可读：readback 或 kind=probe/state）、`shape`（维度声明，整数或 `param:xxx` 表达式，缺省=标量 []）。
+- 工程 YAML 顶层段 `control_connections: [{from: "node:param", to: "node:param"}]`；project.schema.json、ProjectLoader/project_to_dict（Project.control_connections 字段）全链路保留。
+- compiler：`_validate_control_links()`（compiler.py）中文校验——节点/参数存在、control_source+可读、bindable、非 affects_signature、update_policy 合规、类型严格相同、shape 两端按 `_resolve_value` 求值后严格相等（禁止隐式转换）；通过后产出 `plan.control_links: [{src_node, src_param, dst_node, dst_param, type, shape, count}]`。
+- runtime 动态路径：plan.cpp 解析 control_links；runtime.cpp 实现两相快照 `control_tick()`——每个图块所有节点 process 完成后执行，先读全部源到快照、再写全部目标（经 ABI get/set_parameter，v2 槽直读直写天然生效），每链固定 1 块延迟、顺序无关、闭环合法。字符串透传用 load_plan 预分配的 256B 缓冲（process 路径零分配）。
+- 子图展开：control_connections 引用子组件实例内部参数 → flatten_project 报中文错误（跨子图边界本期不支持）；resolve.py 对 alter 激活做主图控制连接重映射。
+- 试点组件：gain.gain_db +bindable、level_detect.level +control_source、probe_rms.rms +control_source、matrix_mul.matrix +shape:[param:rows, param:cols]。
+
+### 运行期限制（本期）
+- 仅执行 float/int/bool 标量（count==1）+ string 原样透传；count>1 的数值数组链编译期校验、运行期跳过并在 load_plan 打印一次中文提示。
+- 代码生成路径（generator）尚未生成 control_tick 等价物——含 control_connections 的工程走 generate 会静默丢失控制语义（待补，注意双路径一致性测试）。
+
+### 验证
+- test_control_links.py 12 项：schema 接受新字段、合法标量链 plan 内容、五类负例、加载→保存→编译不丢、跨子图边界报错。
+- e2e 冒烟（generated_test/ctl_link_e2e.yaml）：sig→gain(-96dB 初始)→level_detect→wav_out，控制链 lvl:level→g:gain_db 闭环，输出 RMS≈0.37（无控制链应近静默）证明两相投递生效。
+- 全量 pytest 202 过；cli build 全量通过。
+
+### 踩坑记录
+- plan.h 新增字段后 ninja 增量编译混用新旧目标文件（结构体布局不一致）导致运行时 "vector too long"；删除 build/orpheus_runtime 对象目录全量重编恢复。改 plan.h/runtime.h 后若运行异常先清对象重编。

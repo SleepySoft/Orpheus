@@ -5,4 +5,5 @@ import { createContext } from 'react';
  *  through the serializable node data. */
 export const NodeActionsContext = createContext({
   showReadme: () => {},
+  showControlLinks: false, // 「控制链路」显示开关：关闭时节点不渲染控制 handle
 });

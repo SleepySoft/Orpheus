@@ -99,6 +99,10 @@ public:
     // Execute one block.
     int process_block(uint32_t frame_count);
 
+    // 控制链路：块边界两相快照（先读全部源、再写全部目标），每图块一次。
+    // 读快照在上一个块末完成，故每条链固定 1 块延迟，闭环合法（无代数环）。
+    void control_tick();
+
     // Process entire WAV file: input_path -> output_path.
     int process_wav(const std::string& input_path, const std::string& output_path);
 
@@ -127,6 +131,16 @@ private:
     struct RegisteredHook { OrpheusHookFn fn; void* ctx; };
     std::map<uint32_t, RegisteredHook> hooks_;         // 外部注册 hook（按 route_id）
     uint64_t block_counter_ = 0;  // for rate-divisor scheduling
+
+    // 控制链路运行态：快照与字符串缓冲在 load_plan 预分配，process 路径零 malloc。
+    struct ControlLinkState {
+        const ControlLinkConfig* cfg = nullptr;  // 指向 plan_.control_links（加载后不变）
+        bool skip = false;       // count>1 的数值数组链本期不执行（编译期已做形状校验）
+        bool read_ok = false;    // 本 tick 源读取是否成功
+        OrpheusValue snapshot{}; // 数值/布尔快照
+        std::vector<char> str_buf;  // 字符串快照预分配缓冲（string 透传用）
+    };
+    std::vector<ControlLinkState> control_links_;
 
     int msg_default(uint32_t route, const OrpheusBlob& req, bool write,
                     uint8_t* out, size_t out_cap, uint32_t* resp_words, uint32_t* resp_flags);

@@ -1,0 +1,65 @@
+version: "0.1.0"
+metadata:
+  name: control_link_demo
+  description: 控制链路示例：level_detect.level → gain.gain_db 闭环（增益由电平驱动，1 块延迟）
+sample_rate: 48000
+block_size: 128
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: sig
+      component: orpheus.builtin.signal_gen
+      task: default
+      params:
+        frequency: 440.0
+        amplitude: 0.5
+        channels: 1
+        duration_s: 3.0
+      position:
+        x: 100
+        y: 100
+    - id: g
+      component: orpheus.builtin.gain
+      task: default
+      params:
+        gain_db: -96.0
+        channels: 1
+      position:
+        x: 300
+        y: 100
+    - id: lvl
+      component: orpheus.builtin.level_detect
+      task: default
+      params:
+        mode: 1
+        channels: 1
+        attack_ms: 1.0
+        release_ms: 50.0
+      position:
+        x: 500
+        y: 100
+    - id: wav_out
+      component: orpheus.builtin.wav_out
+      task: default
+      params:
+        file_path: outputs/test_output.wav
+        channels: 1
+        sample_rate: 48000
+      position:
+        x: 700
+        y: 100
+  connections:
+    - from: sig:out
+      to: g:in
+    - from: g:out
+      to: lvl:in
+    - from: lvl:out
+      to: wav_out:in
+control_connections:
+  - from: lvl:level
+    to: g:gain_db

@@ -45,6 +45,18 @@
       }
     },
     "graph": { "$ref": "#/definitions/graph" },
+    "control_connections": {
+      "type": "array",
+      "description": "控制连接：源节点可读参数 → 目标节点 bindable 参数（from/to 均为 node:param）",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "properties": {
+          "from": { "type": "string", "description": "node:param，源参数须声明 control_source" },
+          "to": { "type": "string", "description": "node:param，目标参数须声明 bindable" }
+        }
+      }
+    },
     "subcomponents": {
       "type": "array",
       "items": {

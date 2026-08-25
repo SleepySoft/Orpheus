@@ -111,7 +111,21 @@ def flatten_project(project: Project) -> Project:
     for sub in subs.values():
         _validate_subcomponent(sub)
 
+    # 控制连接（顶层段）随展开映射节点 id：原子节点在顶层前缀为空、id 不变；
+    # 指向子组件实例内部的控制连接本期不支持，报中文错误。
+    flat_control: list = []
+    for cc in project.control_connections:
+        for ref in (cc.from_ref, cc.to_ref):
+            node = project.graph.nodes.get(ref.node_id)
+            if node is not None and is_subcomponent_ref(node.component):
+                raise CompileError(
+                    f"控制连接暂不支持跨子图边界：{ref} 指向子组件实例 {node.id} "
+                    f"（{node.component}）的内部参数；请改用展开后的原子节点"
+                )
+        flat_control.append(copy.deepcopy(cc))
+
     flat = copy.copy(project)  # shallow: tasks/metadata shared, graph replaced
     flat.graph = _expand_graph(project.graph, subs, prefix="", stack=())
     flat.subcomponents = []
+    flat.control_connections = flat_control
     return flat

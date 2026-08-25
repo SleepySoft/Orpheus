@@ -1371,6 +1371,72 @@ button.danger {
   background: #ffd166;
 }
 
+/* ---------------------------------------------------------- control links */
+
+/* 控制区：音频端口区下方的参数行（橙色方形 handle 区别于音频圆点） */
+.node-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0 6px;
+  border-top: 1px dashed #e9ecef;
+}
+
+.ctl-row {
+  font-size: 11px;
+  color: #ad5a00;
+}
+
+/* 纯控制源参数行右对齐（源 handle 在右侧） */
+.ctl-row.src {
+  justify-content: flex-end;
+}
+
+.ctl-row .react-flow__handle {
+  background: #f0a24c;
+  border: 1px solid #1a1a2e;
+  border-radius: 2px; /* 方形 */
+}
+
+.ctl-row .react-flow__handle:hover {
+  background: #ffd8a8;
+}
+
+.shape-badge {
+  font-size: 10px;
+  color: #d9480f;
+}
+
+/* 控制边：虚线流动动画；失配时由 ControlEdge 内联改为红色 */
+.control-edge-path {
+  animation: control-edge-dash 0.8s linear infinite;
+}
+
+@keyframes control-edge-dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+.control-edge-label {
+  position: absolute;
+  font-size: 10px;
+  line-height: 1.4;
+  color: #d9480f;
+  background: #fff;
+  border: 1px solid #f0a24c;
+  border-radius: 3px;
+  padding: 0 4px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.control-edge-label.mismatch {
+  color: #e03131;
+  border-color: #e03131;
+  background: #fff5f5;
+}
+
 /* ---------------------------------------------------------- bottom bar */
 
 .bottombar {

@@ -29,6 +29,7 @@ parameters:
     range: [-96.0, 24.0]
     unit: dB
     update_policy: smoothed
+    bindable: true  # 控制连接目标（smoothed 策略合规）
   - id: channels
     name: 通道数
     type: int

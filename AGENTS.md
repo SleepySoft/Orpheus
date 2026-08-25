@@ -61,6 +61,7 @@
 - `rt_host` 实时协议：stdin `SET <node> <param> <value>` / `GET` / `STOP`；stdout `LOG ...` 为生命周期日志，`PROBE <node> <param> <value>` 为探针上报。生成的 win 宿主（host_win.c）讲同一协议，生成 exe 可直接接入 RtSession/UI 实时面板。
 - **目标平台与 alter**：组件 manifest 可选 `platforms`（如 device_in/out=[win]、embed_in/out=[dsp]，缺省=全平台）；工程顶层 `target`（auto/win/dsp），节点级 `alters` 声明替代组（同接口、占同一槽位，按平台激活一个成员）。`resolve.py` 做合规校验与整链平台可达性判定（并集→交集→选成员→边重映射），编译器 `compile(project, target)` 先解析后编译。UI：工程设置选目标平台，多选节点「设为替代组」，⚯ 徽标。示例：`examples/pc_dsp_dual_target.yaml`。
 - **串行链路（设备调音）**：消息层=§18 二进制信封（`Runtime::message` / 生成侧 `orpheus_control_message` 单入口分发）；成帧层=OLINK（COBS+CRC16）；后端 `SerialSession`（rt/start `target: serial`）与 RtSession 同构；`uart_link` 非音频组件（execution.none + `codegen_template`）拖入即给生成工程加设备侧链路段（用户只填 send/init，onRecv 里调 feed，poll 驱动探针泵）。设计见 `docs/design_serial_link.md`。
+- **控制参数链路**：工程顶层 `control_connections`（`node:param` → `node:param`）声明参数驱动；manifest 参数可声明 `bindable`（目标，禁 affects_signature/restart_required）/ `control_source`（源，须可读）/ `shape`（维度表达式，如 `matrix_mul.matrix: [param:rows, param:cols]`）。compiler 校验（策略/签名约束、类型与 shape 严格相等、禁隐式转换、目标唯一不重复）后产出 `plan.control_links`；**动态路径** runtime 每图块末尾两相快照 `control_tick`（先全读后全写，每链 1 块延迟，闭环合法）；**生成路径** generator 在 `orpheus_generated_process` 末尾生成等价 `control_tick()`（静态分配、直线代码），双路径逐字节一致（`test_generated_run_matches_dynamic_run_with_control_link`）。运行期执行 float/int/bool 标量 + string 透传（256B 上限），count>1 数组链仅编译期校验。UI：工具栏「控制链路」开关（默认关=界面与旧版一致），控制 handle 为橙色方形（`ctl:<param>` id）、虚线动画边 + 形状标注（失配标红），onConnect 做源/目标/类型/shape 校验。示例 `examples/control_link_demo.yaml`；设计 `docs/design_control_link_eval.md`；测试 `orpheus_core/tests/test_control_links.py`。UI 控件注册表在 `widgets.js`/`nodeWidgets.js`，控制边组件在 `ui/src/ControlEdge.js`。
 
 ## 常用命令（Windows PowerShell）
 
@@ -71,6 +72,7 @@ python -m orpheus_core.cli compile <project.yaml> [--target win|dsp]
 python -m orpheus_core.cli generate <project.yaml> <out_dir> [--target win|dsp]   # 生成独立 C 工程
 python -m pytest orpheus_core/tests/  # 全部后端测试
 cd ui; npm run build                  # 前端改动后必须重新构建，serve 才托管新版本
+cd ui; npm test -- --watchAll=false   # 前端纯函数测试（jest，如 graphUtils.test.js）
 cd ui; npm start                      # 前端热更新（:3000，代理到 :8000 API）
 ```
 

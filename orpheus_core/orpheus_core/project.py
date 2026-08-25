@@ -53,6 +53,16 @@ class Graph:
 
 
 @dataclass
+class ControlConnection:
+    """控制连接：源节点 control_source 参数 → 目标节点 bindable 参数。
+
+    from/to 均为 ``node:param`` 引用（复用 PortRef 的解析，port_id 即参数 id）。
+    """
+    from_ref: PortRef
+    to_ref: PortRef
+
+
+@dataclass
 class SubPort:
     """External port of a subcomponent, mapped to an internal atomic node port."""
     id: str
@@ -91,6 +101,8 @@ class Project:
     tasks: dict[str, Task] = field(default_factory=dict)
     graph: Graph = field(default_factory=Graph)
     subcomponents: list[Subcomponent] = field(default_factory=list)
+    # 控制连接（顶层段）：编译期校验后进入 plan.control_links，运行期块边界两相快照投递
+    control_connections: list[ControlConnection] = field(default_factory=list)
     # 顶层未知字段（如 presets、model_tree 蒸馏注释）：schema 放行但 loader 不认识，
     # 统一收进这里，保证 保存→重载→导出 往返不丢数据。
     extra: dict[str, Any] = field(default_factory=dict)
@@ -173,6 +185,11 @@ def project_to_dict(project: Project) -> dict[str, Any]:
         ],
         "graph": _graph_to_dict(project.graph),
     }
+    if project.control_connections:
+        doc["control_connections"] = [
+            {"from": str(c.from_ref), "to": str(c.to_ref)}
+            for c in project.control_connections
+        ]
     if project.subcomponents:
         doc["subcomponents"] = [
             {
@@ -227,6 +244,13 @@ class ProjectLoader:
             )
 
         project.graph = _parse_graph(data.get("graph", {"nodes": [], "connections": []}))
+        for c in data.get("control_connections", []) or []:
+            project.control_connections.append(
+                ControlConnection(
+                    from_ref=PortRef.parse(c["from"]),
+                    to_ref=PortRef.parse(c["to"]),
+                )
+            )
         for s in data.get("subcomponents", []):
             sub = Subcomponent(
                 id=s["id"],
@@ -243,6 +267,7 @@ class ProjectLoader:
         known = {
             "version", "metadata", "sample_rate", "block_size", "buffer_size",
             "double_bank", "target", "tasks", "graph", "subcomponents",
+            "control_connections",
         }
         for key, value in data.items():
             if key not in known:

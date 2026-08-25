@@ -105,6 +105,20 @@ Plan Plan::load_from_file(const std::string& path) {
         p.modules.push_back(mc);
     }
 
+    for (const auto& cl : j.value("control_links", json::array())) {
+        ControlLinkConfig cc;
+        cc.src_node = cl.value("src_node", "");
+        cc.src_param = cl.value("src_param", "");
+        cc.dst_node = cl.value("dst_node", "");
+        cc.dst_param = cl.value("dst_param", "");
+        cc.type = cl.value("type", "float");
+        for (const auto& d : cl.value("shape", json::array())) {
+            cc.shape.push_back(static_cast<uint32_t>(d.get<int>()));
+        }
+        cc.count = cl.value("count", 1u);
+        p.control_links.push_back(cc);
+    }
+
     for (const auto& e : j.value("id_map", json::array())) {
         IdMapEntry ie;
         ie.id = e.value("id", 0u);

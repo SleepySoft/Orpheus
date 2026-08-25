@@ -158,6 +158,56 @@ def test_generated_run_matches_dynamic_run(client):
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
+def test_generated_run_matches_dynamic_run_with_control_link(client):
+    """含控制链路的工程：生成路径（control_tick 注入）与动态路径输出逐字节一致，且控制确实生效。
+
+    control_link_demo：sig → gain（初始 -96dB）→ level_detect → wav_out，
+    控制链 lvl:level → g:gain_db 闭环。无链基线增益保持 -96dB（近静默），输出必须不同。
+    """
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    base = f"test_{uuid.uuid4().hex[:8]}"
+    try:
+        resp = client.post("/api/projects", json={"name": name, "from_example": "control_link_demo"})
+        assert resp.status_code == 201, resp.text
+        out = ROOT / "workspace" / name / "outputs" / "test_output.wav"
+
+        # 动态路径
+        resp = client.post(f"/api/projects/{name}/run")
+        assert resp.status_code == 200 and resp.json()["status"] == "ok", resp.text
+        dynamic_bytes = out.read_bytes()
+
+        # 生成路径（静态编译工程，含两相快照 control_tick）
+        resp = client.post(f"/api/projects/{name}/run_generated")
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["mode"] == "generated"
+        assert result["status"] == "ok", result["stderr"]
+        generated_bytes = out.read_bytes()
+
+        assert len(generated_bytes) == len(dynamic_bytes)
+        assert generated_bytes == dynamic_bytes, "含控制链的生成路径与动态路径输出不一致"
+
+        # 无链基线：同图去掉 control_connections，增益保持 -96dB → 输出必须不同
+        resp = client.post("/api/projects", json={"name": base, "from_example": "control_link_demo"})
+        assert resp.status_code == 201, resp.text
+        doc = client.get(f"/api/projects/{base}").json()  # GET 直接返回文档本体
+        doc.pop("control_connections", None)
+        resp = client.put(f"/api/projects/{base}", json=doc)
+        assert resp.status_code == 200, resp.text
+        base_out = ROOT / "workspace" / base / "outputs" / "test_output.wav"
+        resp = client.post(f"/api/projects/{base}/run")
+        assert resp.status_code == 200 and resp.json()["status"] == "ok", resp.text
+        assert base_out.read_bytes() != dynamic_bytes, "控制链未生效（与无链基线输出相同）"
+    finally:
+        client.delete(f"/api/projects/{name}")
+        client.delete(f"/api/projects/{base}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
 def test_run_returns_probe_readback(client):
     """signal_gen(0.5 sine) -> probe_rms -> wav_out: run response carries RMS value."""
     name = f"test_{uuid.uuid4().hex[:8]}"

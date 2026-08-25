@@ -446,6 +446,69 @@ class CodeGenerator:
             lines.append('};')
         lines.append("")
 
+        # ---- 控制链路（两相快照 control_tick；语义与动态路径 Runtime::control_tick 一致：
+        #      每图块一次，先读全部源到快照、再写全部目标，经组件 ABI get/set_parameter） ----
+        ctl_links = list(getattr(plan, "control_links", []) or [])
+
+        def _fmt_shape(shape: list) -> str:
+            return "标量" if not shape else "×".join(str(int(d)) for d in shape)
+
+        if ctl_links:
+            lines.append('/* ==== 控制链路（块边界两相快照：先全读、后全写，每链 1 块延迟，')
+            lines.append('     顺序无关、闭环合法；与动态路径 Runtime::control_tick 同语义） ==== */')
+            lines.append(f'static OrpheusValue g_ctl_snap[{len(ctl_links)}];  /* 控制帧快照 */')
+            lines.append(f'static int g_ctl_ok[{len(ctl_links)}];             /* 源读取成功标志 */')
+            for i, link in enumerate(ctl_links):
+                if link["type"] == "string":
+                    lines.append(
+                        f'static char g_ctl_str{i}[256];  /* string 链快照缓冲（256B 上限，超长截断） */'
+                    )
+            lines.append('')
+            lines.append('static void control_tick(void) {')
+            lines.append('    /* 第一相：读 —— 全部源参数 → 快照（经组件 get_parameter） */')
+            for i, link in enumerate(ctl_links):
+                desc = (f'{link["src_node"]}.{link["src_param"]} [{_fmt_shape(link["shape"])}]'
+                        f' -> {link["dst_node"]}.{link["dst_param"]}')
+                if link["type"] != "string" and int(link.get("count", 1)) > 1:
+                    lines.append(
+                        f'    /* {desc}：数组链（count={int(link["count"])}）本期不执行，仅编译期形状校验 */'
+                    )
+                    continue
+                s_src = self._sanitized_node_id(link["src_node"])
+                lines.append(f'    /* {desc} */')
+                lines.append(
+                    f'    g_ctl_ok[{i}] = (g_iface_{s_src}->get_parameter != NULL &&'
+                )
+                lines.append(
+                    f'        g_iface_{s_src}->get_parameter(g_state_{s_src}, "{link["src_param"]}",'
+                    f' &g_ctl_snap[{i}]) == ORPHEUS_OK);'
+                )
+                if link["type"] == "string":
+                    lines.append(f'    if (g_ctl_ok[{i}]) {{  /* 字符串快照拷入静态缓冲（截断 255B + NUL） */')
+                    lines.append(f'        const char* p_ = g_ctl_snap[{i}].value.str != NULL')
+                    lines.append(f'                         ? g_ctl_snap[{i}].value.str : "";')
+                    lines.append('        size_t n_ = strlen(p_);')
+                    lines.append(f'        if (n_ >= sizeof(g_ctl_str{i})) n_ = sizeof(g_ctl_str{i}) - 1;')
+                    lines.append(f'        memcpy(g_ctl_str{i}, p_, n_);')
+                    lines.append(f'        g_ctl_str{i}[n_] = \'\\0\';')
+                    lines.append('    }')
+            lines.append('')
+            lines.append('    /* 第二相：写 —— 快照 → 全部目标（经组件 set_parameter） */')
+            for i, link in enumerate(ctl_links):
+                if link["type"] != "string" and int(link.get("count", 1)) > 1:
+                    continue  # 数组链：第一相已注记，本相同样跳过
+                s_dst = self._sanitized_node_id(link["dst_node"])
+                lines.append(f'    if (g_ctl_ok[{i}] && g_iface_{s_dst}->set_parameter != NULL) {{')
+                if link["type"] == "string":
+                    lines.append(f'        g_ctl_snap[{i}].value.str = g_ctl_str{i};')
+                lines.append(
+                    f'        (void)g_iface_{s_dst}->set_parameter(g_state_{s_dst}, "{link["dst_param"]}",'
+                    f' &g_ctl_snap[{i}]);'
+                )
+                lines.append('    }')
+            lines.append('}')
+            lines.append("")
+
         # Init function（win 宿主模式下非 static，供 host_win.c 调用）
         init_qual = '' if win_host else 'static '
         lines.append(f'{init_qual}int orpheus_generated_init(uint32_t sample_rate, uint32_t block_size) {{')
@@ -589,6 +652,9 @@ class CodeGenerator:
         if embed_in_nodes or embed_out_nodes:
             lines.append('')
             lines.append('    orpheus_platform_io_post_block();')
+        if ctl_links:
+            lines.append('')
+            lines.append('    control_tick();  /* 控制链路：两相快照（先全读后全写），每图块一次 */')
         lines.append('    g_block_counter++;')
         lines.append('    return ORPHEUS_OK;')
         lines.append('}')

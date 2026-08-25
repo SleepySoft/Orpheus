@@ -923,3 +923,17 @@ orpheus_platform_memory_section_bind(...);
 - **uart_link 组件**（`orpheus.builtin.uart_link`，execution.none）：拖入即给生成工程加设备侧链路段——`orpheus_link_<名>.c/h`（feed=OLINK 解码→`orpheus_control_message` 分发→send 回发；poll=探针泵，内部读 CALL 包 NOTIFICATION 上行）+ `orpheus_link_hooks_<名>.c`（用户只填 init/send，接收回调里调 feed）。manifest 新字段 `codegen_template` 使生成器模板分发通用化（platform_hook 硬编码已消除）。
 - **PC 冒烟**：`orpheus_generated_app --link-stdio`（stdin/stdout 二进制即链路，真实时间驱动探针泵），e2e 测试 `test_uart_link.py`（SerialSession 经管道完成标量/BULK/msg/探针全链路）。
 - alter 语义结论：uart_link 不用 alter（无音频边、生成路径专用）；PC 串口调试由后端适配层承担。
+
+
+---
+
+## 35. 控制参数链路（已实现）
+
+> 详见 `docs/design_control_link_eval.md`（可行性评估 + 双平面语义 + 设计决策）。
+
+- **声明模型**：工程顶层 `control_connections: [{from: "node:param", to: "node:param"}]`；manifest 参数新增 `bindable`（目标，与 affects_signature/restart_required 互斥）/ `control_source`（源，须 readback 可读）/ `shape`（维度表达式，复用 `param:` 语法，如 `matrix_mul.matrix: [param:rows, param:cols]`）。
+- **双平面语义**：签名平面（shape/采样率）编译期拓扑求值、结构性无环；控制平面运行期值流动，**每条链 = 1 块单位延迟，闭环合法**（如 level_detect → gain 的 AGC 反馈环）。
+- **编译**：compiler 校验两端存在性/bindable/control_source/update_policy/类型严格相同/shape 求值后严格相等（全中文错误），并拒绝重复目标（同一参数只允许一个控制源），产出 `plan.control_links`；子图 flatten 与 alter 解析同步重映射。
+- **运行（双路径一致）**：动态路径 `Runtime::control_tick` 与生成路径 `orpheus_generated_process` 末尾的 `control_tick()` 同语义——每图块末尾两相快照（先全读后全写，顺序无关），经 ABI get/set_parameter 投递；float/int/bool 标量 + string 透传（256B），count>1 数组链仅编译期校验。一致性测试 `test_generated_run_matches_dynamic_run_with_control_link` 逐字节相等。
+- **UI**：工具栏「控制链路」开关（默认关，界面与旧版完全一致）；开启后节点显示橙色方形控制 handle（`ctl:<param>`），控制边为虚线动画 + 形状标注（`[2]→[2]`，失配标红 ⚠），onConnect 做源/目标/类型/shape 全量校验；参数改动后失配边标红保留、恢复匹配自动复原。
+- **示例/测试**：`examples/control_link_demo.yaml`（电平闭环 AGC）；`orpheus_core/tests/test_control_links.py`（schema/校验/子图/codegen 14 项）。
