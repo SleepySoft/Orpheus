@@ -54,6 +54,10 @@ class ExecutionPlan:
     target: str = ""             # 平台解析选定的目标平台（win/dsp/...；空=未解析）
     # 控制链路：编译期校验通过的参数驱动关系（运行时块边界两相快照投递）
     control_links: list[dict[str, Any]] = field(default_factory=list)
+    # 静态调度表：主步长 tick（图速率帧）+ 每节点触发周期 period（= 节点间隔 / tick）。
+    # 宿主按 tick 推进；runtime/生成路径按 (block_counter+1) % period == 0 触发。
+    # 单速率图下 tick==block_size、period==divisor，与旧行为逐字节一致。
+    schedule: dict[str, Any] | None = None
 
 
 def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
@@ -466,6 +470,40 @@ class GraphCompiler:
                 },
             }
 
+        # 4.5 静态调度表：每个节点的触发间隔统一折算为图采样率帧数
+        #     I_n = frames_n × 图速率 / 节点流速率（整除不了立即报错，不静默掩盖），
+        #     主步长 tick = 所有 I_n 的 GCD，节点周期 period_n = I_n / tick。
+        def _node_stream_rate(node_id: str) -> int:
+            """节点量子 frames 所在的流速率：有输入取首个输入端口速率，源节点取首个端口。"""
+            pms = expanded_ports[node_id]
+            inputs = [p for p in pms if p["direction"] == "input"]
+            chosen = inputs[0] if inputs else (pms[0] if pms else None)
+            if chosen is None:
+                return plan.sample_rate
+            rp = resolved_ports.get(f"{node_id}:{chosen['id']}")
+            return int(rp.sample_rate) if rp is not None else plan.sample_rate
+
+        intervals: dict[str, int] = {}
+        for node_id, cfg in plan.node_configs.items():
+            frames_n = int(cfg["frames"])
+            rate_n = _node_stream_rate(node_id)
+            num = frames_n * plan.sample_rate
+            if rate_n <= 0 or num % rate_n != 0:
+                raise CompileError(
+                    f"时钟链不匹配：节点 {node_id} 的触发间隔无法折算为图速率整数帧"
+                    f"（frames={frames_n}, node_rate={rate_n}, graph_rate={plan.sample_rate}）"
+                )
+            intervals[node_id] = num // rate_n
+        tick = 0
+        for iv in intervals.values():
+            tick = iv if tick == 0 else math.gcd(tick, iv)
+        if tick <= 0:
+            tick = plan.block_size
+        periods = {nid: iv // tick for nid, iv in intervals.items()}
+        plan.schedule = {"tick": tick, "periods": periods}
+        for nid, cfg in plan.node_configs.items():
+            cfg["period"] = periods[nid]
+
         # 离线运行时长：无文件输入时，宿主按时钟源声明的时长跑（信号发生器/扫频发生器/扫频记录
         # 的 duration_s），否则固定 10s 会截断长信号（60s 只跑 10s，或跟着 1s 的 wav 只跑 1s）。
         max_dur = 0.0
@@ -488,12 +526,31 @@ class GraphCompiler:
             key = f"buf_{buffer_id}"
             buffer_id += 1
             from_port = resolved_ports[str(conn.from_ref)]
+            to_node_id = conn.to_ref.node_id
+            to_comp = self.registry.get(graph.nodes[to_node_id].component)
+            merging = bool(to_comp and (to_comp.manifest.get("scheduling") or {}).get("merge"))
+            frame_count = int(from_port.block_size)
+            if merging:
+                # rate-bridge：合流（merge）节点的输入边深度 = 合流量子（各源块长的 LCM，
+                # 天然是公倍数）。生产者照旧按自己的块长直写 staging，runtime/生成路径
+                # 按写游标滚入桥接 buffer，merge 节点在同步点整块读出。
+                # 约束：桥接源必须是整写组件（每次触发完整交付输出端口块 = 节点量子）；
+                # downrate/resample 等部分产出组件直连接入在此报错，不打表面补丁。
+                producer_frames = int(plan.node_configs[conn.from_ref.node_id]["frames"])
+                if frame_count != producer_frames:
+                    raise CompileError(
+                        f"时钟链不匹配：合流节点 {to_node_id} 的源 {conn.from_ref.node_id} "
+                        f"不是整写组件（每次触发产出 {producer_frames} 帧，输出端口块长 "
+                        f"{frame_count}）；请在分频/重采样之后加一级直通组件（如 gain）再合流"
+                    )
+                frame_count = int(in_frames[to_node_id])
             plan.buffers[key] = {
                 "from": str(conn.from_ref),
                 "to": str(conn.to_ref),
                 "sample_format": from_port.sample_format,
                 "channels": from_port.channels,
-                "frame_count": from_port.block_size,
+                "frame_count": frame_count,
+                **({"rate_bridge": True} if merging else {}),
             }
             plan.connections.append(
                 {

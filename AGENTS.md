@@ -58,6 +58,7 @@
 
 - 时钟域：组件 manifest 声明 `clock_source: true` + `clock_domain`（device/file）；task 不显式建模，时钟源组件即时钟域根。
 - 速率调整：`scheduling.divisor` 表达式让节点每 N 块触发一次（`downrate` / `resample` 组件）。
+- **静态调度表**：compiler 把每个节点的触发间隔折算为图速率帧（`frames×图速率/节点流速率`），推导 `plan.schedule = {tick: GCD, periods: {node: 周期}}` 落入 plan；宿主（main/rt_host/生成宿主）按 `tick` 推进，runtime/生成代码按 `(block_counter+1) % period == 0` 触发。单速率图 tick==block_size、period==divisor（行为不变）。跨速率合流（`scheduling.merge`，如 rate_sync）的输入边标记 `rate_bridge`：深度=合流量子（LCM），生产者写 staging、骨架按写游标滚入桥接 buffer，merge 节点同步点整块读。时钟链不匹配编译期报错。设计：`docs/design_clock_scheduling.md`；测试 `orpheus_core/tests/test_static_schedule.py`。
 - `rt_host` 实时协议：stdin `SET <node> <param> <value>` / `GET` / `STOP`；stdout `LOG ...` 为生命周期日志，`PROBE <node> <param> <value>` 为探针上报。生成的 win 宿主（host_win.c）讲同一协议，生成 exe 可直接接入 RtSession/UI 实时面板。
 - **目标平台与 alter**：组件 manifest 可选 `platforms`（如 device_in/out=[win]、embed_in/out=[dsp]，缺省=全平台）；工程顶层 `target`（auto/win/dsp），节点级 `alters` 声明替代组（同接口、占同一槽位，按平台激活一个成员）。`resolve.py` 做合规校验与整链平台可达性判定（并集→交集→选成员→边重映射），编译器 `compile(project, target)` 先解析后编译。UI：工程设置选目标平台，多选节点「设为替代组」，⚯ 徽标。示例：`examples/pc_dsp_dual_target.yaml`。
 - **串行链路（设备调音）**：消息层=§18 二进制信封（`Runtime::message` / 生成侧 `orpheus_control_message` 单入口分发）；成帧层=OLINK（COBS+CRC16）；后端 `SerialSession`（rt/start `target: serial`）与 RtSession 同构；`uart_link` 非音频组件（execution.none + `codegen_template`）拖入即给生成工程加设备侧链路段（用户只填 send/init，onRecv 里调 feed，poll 驱动探针泵）。设计见 `docs/design_serial_link.md`。

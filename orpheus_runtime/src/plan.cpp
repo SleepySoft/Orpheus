@@ -23,6 +23,7 @@ Plan Plan::load_from_file(const std::string& path) {
     p.buffer_size = j.value("buffer_size", 0u);
     p.duration_frames = j.value("duration_frames", 0u);
     p.task_id = j.value("task_id", "default");
+    p.schedule_tick = j.value("schedule", json::object()).value("tick", 0u);
 
     for (const auto& n : j.value("nodes", json::array())) {
         p.nodes.push_back(n.get<std::string>());
@@ -64,6 +65,7 @@ Plan Plan::load_from_file(const std::string& path) {
             }
         }
         cfg.divisor = it.value().value("divisor", 1u);
+        cfg.period = it.value().value("period", 0u);
         cfg.block_size = it.value().value("block_size", 0u);
         cfg.frames = it.value().value("frames", 0u);
         cfg.sample_rate = it.value().value("sample_rate", 0u);
@@ -84,6 +86,7 @@ Plan Plan::load_from_file(const std::string& path) {
         bc.sample_format = it.value().value("sample_format", "f32");
         bc.channels = it.value().value("channels", 2u);
         bc.frame_count = it.value().value("frame_count", p.block_size);
+        bc.rate_bridge = it.value().value("rate_bridge", false);
         p.buffers[it.key()] = bc;
     }
 

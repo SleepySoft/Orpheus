@@ -31,6 +31,12 @@ class CodeGenerator:
     def _c_escape(value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')
 
+    @staticmethod
+    def _schedule_tick(plan: ExecutionPlan) -> int:
+        """静态调度主步长（图速率帧）；旧 plan 无 schedule 时回退 plan.block_size。"""
+        schedule = getattr(plan, "schedule", None) or {}
+        return int(schedule.get("tick", 0) or plan.block_size)
+
     # ------------------------------------------------------------ ID / 模块布局辅助
 
     def _state_type(self, node_id: str, plan: ExecutionPlan) -> str | None:
@@ -260,7 +266,7 @@ class CodeGenerator:
             f'#define ORPHEUS_HOST_IN_CHANNELS {in_ch}u',
             f'#define ORPHEUS_HOST_OUT_CHANNELS {out_ch}u',
             f'#define ORPHEUS_HOST_SAMPLE_RATE {int(plan.sample_rate)}u',
-            f'#define ORPHEUS_HOST_BLOCK_SIZE {int(plan.block_size)}u',
+            f'#define ORPHEUS_HOST_BLOCK_SIZE {self._schedule_tick(plan)}u  /* 静态调度主步长（图速率帧） */',
             f'#define ORPHEUS_HOST_BUFFER_FRAMES {int(plan.buffer_size)}u  /* 异步桥环形缓冲容量（帧），0=自动 采样率/10 */',
             '#endif /* ORPHEUS_HOST_CONFIG_H */',
         ]
@@ -375,20 +381,67 @@ class CodeGenerator:
         lines.append('static OrpheusRegistry g_reg = { NULL, generated_reg_add, NULL };')
         lines.append('')
 
+        # rate-bridge 分析：合流（merge）节点输入边。源端口直写 staging（自己的块长），
+        # 每次触发后按写游标 memcpy 滚入桥接 buffer（深度=合流量子），merge 节点在
+        # 同步点整块读出——与动态路径 Runtime 的 BridgeCopy 同语义。
+        bridge_srcs: dict[str, dict[str, Any]] = {}  # "node:port" -> staging 信息
+        bridge_copies: list[dict[str, Any]] = []     # 每条桥接边一次滚动拷贝
+        for conn in plan.connections:
+            if not plan.buffers[conn["buffer"]].get("rate_bridge"):
+                continue
+            src = conn["from"]
+            if src not in bridge_srcs:
+                from_node, from_port = src.split(":", 1)
+                from_cfg = plan.node_configs[from_node]
+                stride = int(from_cfg.get("output_port_block_sizes", {}).get(from_port, 0)) \
+                    or int(from_cfg.get("frames", 0))
+                channels = int(from_cfg.get("output_port_channels", {}).get(from_port, 1))
+                bridge_srcs[src] = {
+                    "sym": f'{self._sanitized_node_id(from_node)}_{self._sanitized_node_id(from_port)}',
+                    "stride": stride,
+                    "channels": channels,
+                }
+            bridge_copies.append({
+                "src": src,
+                "to": conn["to"],
+                "src_node": src.split(":", 1)[0],
+                "sym": bridge_srcs[src]["sym"],
+                "buf": conn["buffer"].replace("-", "_").replace(".", "_"),
+                "stride": bridge_srcs[src]["stride"],
+                "channels": bridge_srcs[src]["channels"],
+                "depth": int(plan.buffers[conn["buffer"]]["frame_count"]),
+            })
+
         # Buffer declarations
         for buf_id, buf in plan.buffers.items():
             s_buf = buf_id.replace("-", "_").replace(".", "_")
             samples = buf["frame_count"] * buf["channels"]
             lines.append(f'static float g_buf_{s_buf}[{samples}];')
             lines.append(f'static OrpheusBuffer g_buffer_{s_buf} = {{0}};')
+        # rate-bridge staging 缓冲与写游标
+        for src, info in bridge_srcs.items():
+            lines.append(f'static float g_stage_buf_{info["sym"]}[{info["stride"] * info["channels"]}];')
+            lines.append(f'static OrpheusBuffer g_stage_{info["sym"]} = {{0}};')
+        for i in range(len(bridge_copies)):
+            lines.append(f'static uint32_t g_bridge_cursor_{i} = 0;')
         lines.append("")
 
         # Input/output buffer pointer arrays per node, sized by the ordered port
         # lists and bound by port id (unconnected pins stay NULL).
+        # rate-bridge：桥接源端口一律绑定 staging；普通消费方共享 staging，
+        # 桥接消费方（merge 输入）绑定桥接 buffer。
         port_buffer: dict[str, str] = {}  # "node:port" -> buffer global name
         fanout_buf: dict[str, str] = {}   # source "node:port" -> first buffer id
         for conn in plan.connections:
             s_buf = conn["buffer"].replace("-", "_").replace(".", "_")
+            if conn["from"] in bridge_srcs:
+                staging = f'&g_stage_{bridge_srcs[conn["from"]]["sym"]}'
+                port_buffer[conn["from"]] = staging
+                if plan.buffers[conn["buffer"]].get("rate_bridge"):
+                    port_buffer[conn["to"]] = f'&g_buffer_{s_buf}'
+                else:
+                    port_buffer[conn["to"]] = staging
+                continue
             if conn["from"] not in fanout_buf:
                 fanout_buf[conn["from"]] = s_buf
             s_buf = fanout_buf[conn["from"]]
@@ -552,6 +605,14 @@ class CodeGenerator:
             lines.append(f'    g_buffer_{s_buf}.frame_capacity = {buf["frame_count"]};')
             lines.append(f'    g_buffer_{s_buf}.frame_count = {buf["frame_count"]};')
             lines.append(f'    g_buffer_{s_buf}.interleaved = 1;')
+        # rate-bridge staging buffer 初始化
+        for src, info in bridge_srcs.items():
+            lines.append(f'    g_stage_{info["sym"]}.data = g_stage_buf_{info["sym"]};')
+            lines.append(f'    g_stage_{info["sym"]}.format = ORPHEUS_FORMAT_F32;')
+            lines.append(f'    g_stage_{info["sym"]}.channels = {info["channels"]};')
+            lines.append(f'    g_stage_{info["sym"]}.frame_capacity = {info["stride"]};')
+            lines.append(f'    g_stage_{info["sym"]}.frame_count = {info["stride"]};')
+            lines.append(f'    g_stage_{info["sym"]}.interleaved = 1;')
         lines.append("")
 
         # Create and prepare instances (with per-node parameter tables)
@@ -609,7 +670,7 @@ class CodeGenerator:
         lines.append('}')
         lines.append("")
 
-        # Process function (multi-rate: per-node frames + divisor-gated firing)
+        # Process function (multi-rate: per-node frames + schedule-period-gated firing)
         lines.append('static uint64_t g_block_counter = 0;')
         proc_qual = '' if win_host else 'static '
         lines.append(f'{proc_qual}int orpheus_generated_process(uint32_t frame_count) {{')
@@ -632,11 +693,12 @@ class CodeGenerator:
             n_out = len(cfg.get("output_ports", []))
             in_name = f'g_inputs_{s}' if n_in else 'NULL'
             out_name = f'g_outputs_{s}' if n_out else 'NULL'
-            divisor = cfg.get("divisor", 1)
+            # 静态调度：优先编译器推导的 period（主 tick 数），旧 plan 回退 divisor
+            period = int(cfg.get("period", 0) or cfg.get("divisor", 1))
             frames = cfg.get("frames", 0)
-            if divisor > 1:
-                lines.append(f'    if ((g_block_counter + 1) % {divisor} == 0) {{')
-            indent = '        ' if divisor > 1 else '    '
+            if period > 1:
+                lines.append(f'    if ((g_block_counter + 1) % {period} == 0) {{')
+            indent = '        ' if period > 1 else '    '
             lines.append(f'{indent}ctx.state = g_state_{s};')
             node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
             lines.append(f'{indent}ctx.sample_rate = {node_sr};')
@@ -647,7 +709,15 @@ class CodeGenerator:
             lines.append(f'{indent}ctx.output_count = {n_out};')
             lines.append(f'{indent}rc = g_iface_{s}->process(g_state_{s}, &ctx);')
             lines.append(f'{indent}if (rc != ORPHEUS_OK) return rc;')
-            if divisor > 1:
+            # rate-bridge：本节点是桥接源时，触发后把 staging 的新鲜块滚入桥接 buffer
+            for i, cp in enumerate(bridge_copies):
+                if cp["src_node"] != node_id:
+                    continue
+                lines.append(f'{indent}/* rate-bridge: {cp["src"]} -> {cp["to"]} */')
+                lines.append(f'{indent}memcpy(g_buf_{cp["buf"]} + g_bridge_cursor_{i} * {cp["channels"]},')
+                lines.append(f'{indent}       g_stage_buf_{cp["sym"]}, {cp["stride"] * cp["channels"]} * sizeof(float));')
+                lines.append(f'{indent}g_bridge_cursor_{i} = (g_bridge_cursor_{i} + {cp["stride"]}) % {cp["depth"]};')
+            if period > 1:
                 lines.append('    }')
         if embed_in_nodes or embed_out_nodes:
             lines.append('')
@@ -715,6 +785,8 @@ class CodeGenerator:
     def _emit_file_clock_main(self, lines: list[str], plan: ExecutionPlan,
                               link_nodes: list[dict[str, Any]]) -> None:
         """文件时钟缺省宿主 main()：块循环 + 控制 CLI（--write-bulk/--msg 等）。"""
+        # 静态调度主步长：宿主按 tick 推进（旧 plan 回退 plan.block_size）
+        tick = self._schedule_tick(plan)
         # hex 工具（--msg 二进制消息 CLI）
         lines.append('static const char* orpheus_hex_digits = "0123456789abcdef";')
         lines.append('static int orpheus_from_hex(const char* hx, uint8_t* out, size_t* out_len) {')
@@ -828,7 +900,7 @@ class CodeGenerator:
             lines.append('        thrd_create(&link_thread, orpheus_link_stdio_reader, NULL);')
             lines.append('        struct timespec link_ts;')
             lines.append('        for (;;) {')
-            lines.append(f'            if (orpheus_generated_process({plan.block_size}) != ORPHEUS_OK) return 1;')
+            lines.append(f'            if (orpheus_generated_process({tick}) != ORPHEUS_OK) return 1;')
             lines.append('            /* 冒烟 harness 用真实时间驱动探针泵（全速跑块时不会洪泛链路）；')
             lines.append('               嵌入式用户把 poll 换成自己的系统 tick（如 HAL_GetTick()）。 */')
             lines.append('            timespec_get(&link_ts, TIME_UTC);')
@@ -839,7 +911,7 @@ class CodeGenerator:
             lines.append('    }')
         lines.append('    if (control_mode) {')
         lines.append('        for (int i = 0; i < run_blocks; ++i) {')
-        lines.append(f'            if (orpheus_generated_process({plan.block_size}) != ORPHEUS_OK) return 1;')
+        lines.append(f'            if (orpheus_generated_process({tick}) != ORPHEUS_OK) return 1;')
         lines.append('        }')
         lines.append('        for (int m = 0; m < msg_count; ++m) {')
         lines.append('            uint8_t in[4096]; size_t in_len = 0;')
@@ -882,7 +954,7 @@ class CodeGenerator:
         lines.append('        goto teardown;')
         lines.append('    }')
         lines.append('    for (int i = 0; i < blocks; ++i) {')
-        lines.append(f'        rc = orpheus_generated_process({plan.block_size});')
+        lines.append(f'        rc = orpheus_generated_process({tick});')
         lines.append('        if (rc != ORPHEUS_OK) return 1;')
         lines.append('    }')
         lines.append('teardown:')

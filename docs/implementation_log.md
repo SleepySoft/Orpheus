@@ -1,5 +1,28 @@
 # Orpheus 基础版本实施日志
 
+## 2026-08-26（第四十六次：时钟链静态调度表——修复跨速率合流的 sink 重复写）
+
+- **问题**（design_clock_scheduling.md，rate_sync 落地后暴露）：多速率图各分支块长不同
+  （如 24/32/96），编译器已推导 per-node 量子，但宿主仍按单一全局 `plan.block_size` 推进，
+  runtime 靠 divisor 自推相位——薄 sink（wav_out，divisor=1、frames=96）每个宿主 tick
+  都被调用并整块落盘，同一 96 帧块重复写（复现：2s@48k 应得 96000 帧，实际 384000=4×）。
+- **复现测试先行**：`orpheus_core/tests/test_static_schedule.py::test_merge_sink_no_duplicate_writes`
+  （signal_gen 块24 + signal_gen 块32 → rate_sync LCM96 → wav_out），修复前精确复现 4.0×。
+- **静态调度表**（compiler → plan.schedule）：节点触发间隔统一折算图速率帧
+  `I_n = frames_n × 图速率 / 节点流速率`（整除不了即 CompileError「时钟链不匹配」），
+  主步长 `tick = GCD(I_n)`，周期 `period_n = I_n / tick`；触发谓词
+  `(block_counter+1) % period == 0`。单速率图 tick==block_size、period==divisor，行为不变。
+- **rate-bridge FIFO**：merge 节点（`scheduling.merge`）输入边在 plan.buffers 标记
+  `rate_bridge`、深度=合流量子（输入块长 LCM）；生产者直写独立 staging（自己的块长），
+  触发后骨架按写游标 memcpy 滚入桥接 buffer，merge 节点同步点整块读出。桥接源必须是
+  整写组件（每触发交付输出端口块=节点量子），downrate/resample 直连接入编译期报错。
+- **落地**：runtime（period 谓词 + BridgeCopy 滚动拷贝）、main.cpp/rt_host（按 tick 推进）、
+  generator（等价 period 门控 + staging/拷贝直线代码 + file-clock main/host_win 配置步长）、
+  server（run_generated/generate 的 blocks 按 tick 折算）。旧 plan（无 schedule/rate_bridge
+  字段）全链路回退旧行为。
+- **验证**：`test_static_schedule.py` 3 项（调度表推导、单速率回退等价、合流图动态/生成
+  逐字节一致 + 帧数 96000）；全量回归见当次提交记录。
+
 ## 2026-08-20（第四十五次：生成路径平台化——win 实时宿主 + alter 全链路落地）
 
 - **删除生成路径的设备组件硬拦截**：`app.py` 旧守卫（"生成模式暂不支持设备组件"）在平台解析**之前**

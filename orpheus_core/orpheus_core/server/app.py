@@ -668,7 +668,9 @@ def create_app(project_root: Path) -> FastAPI:
                 "download_url": f"/api/projects/{name}/generated/archive",
             }
 
-        # match the offline host's duration: blocks = ceil(wav_in frames / block_size)
+        # match the offline host's duration: blocks = ceil(wav_in frames / tick)
+        # 静态调度：宿主按主步长 tick 推进（无 schedule 的旧 plan 回退 block_size）
+        tick = int((plan.schedule or {}).get("tick", 0)) or plan.block_size
         blocks = 1000
         has_wav_in = False
         for cfg in plan.node_configs.values():
@@ -678,11 +680,11 @@ def create_app(project_root: Path) -> FastAPI:
                 if fp:
                     frames = _wav_total_frames(rec.directory / str(fp))
                     if frames > 0:
-                        blocks = (frames + plan.block_size - 1) // plan.block_size
+                        blocks = (frames + tick - 1) // tick
                 break
         if not has_wav_in and plan.duration_frames > 0:
             # 纯时钟图（扫频等）：按计划时长跑，避免 60s 扫频只跑默认 1000 块
-            blocks = max(blocks, (plan.duration_frames + plan.block_size - 1) // plan.block_size)
+            blocks = max(blocks, (plan.duration_frames + tick - 1) // tick)
 
         project_dir = rec.directory
         (project_dir / "outputs").mkdir(exist_ok=True)
@@ -722,13 +724,14 @@ def create_app(project_root: Path) -> FastAPI:
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         plan, gen_dir = generate_record(rec)
+        tick = int((plan.schedule or {}).get("tick", 0)) or plan.block_size
         return {
             "status": "ok",
             "generated_dir": str(gen_dir),
             "generated_path": str(gen_dir.relative_to(rec.directory)),
             "download_url": f"/api/projects/{name}/generated/archive",
             "blocks_default": plan.duration_frames > 0
-            and (plan.duration_frames + plan.block_size - 1) // plan.block_size
+            and (plan.duration_frames + tick - 1) // tick
             or 1000,
         }
 

@@ -297,17 +297,14 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
     // Bind buffers to instance inputs/outputs by port id (unconnected pins stay nullptr).
     // Fan-out: connections sharing the same source port share one buffer, so every
     // downstream node reads the data written by the producer (consumers are read-only).
+    // rate-bridge 边（merge 节点输入）：生产者不直写桥接 buffer，而是写共享 staging
+    // （自己的块长），触发后由 process_block 按写游标滚入桥接 buffer（深度=合流量子）。
     std::map<std::string, OrpheusBuffer*> fanout_buffer;
     for (const auto& conn : plan_.connections) {
         PortRef from_ref(conn.from);
         PortRef to_ref(conn.to);
-        OrpheusBuffer* buf = buffers_[conn.buffer].get();
-        auto shared = fanout_buffer.find(conn.from);
-        if (shared != fanout_buffer.end()) {
-            buf = shared->second;
-        } else {
-            fanout_buffer[conn.from] = buf;
-        }
+        OrpheusBuffer* edge_buf = buffers_[conn.buffer].get();
+        const bool is_bridge = plan_.buffers[conn.buffer].rate_bridge;
 
         Instance* from_inst = instances_[from_ref.node_id].get();
         Instance* to_inst = instances_[to_ref.node_id].get();
@@ -317,24 +314,65 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             return -1;
         }
 
+        // 源端口直写 buffer：普通边=共享 fanout 边 buffer；桥接源=独立 staging。
+        OrpheusBuffer* src_buf = nullptr;
+        auto shared = fanout_buffer.find(conn.from);
+        if (shared != fanout_buffer.end()) {
+            src_buf = shared->second;
+        } else if (!is_bridge) {
+            src_buf = edge_buf;
+            fanout_buffer[conn.from] = src_buf;
+        } else {
+            const NodeConfig& from_cfg = plan_.node_configs[from_ref.node_id];
+            uint32_t stride = 0;
+            auto bs_it = from_cfg.output_port_block_sizes.find(from_ref.port_id);
+            if (bs_it != from_cfg.output_port_block_sizes.end()) stride = bs_it->second;
+            if (stride == 0) stride = from_cfg.block_size > 0 ? from_cfg.block_size : plan_.block_size;
+            uint32_t chans = 1;
+            auto ch_it = from_cfg.output_port_channels.find(from_ref.port_id);
+            if (ch_it != from_cfg.output_port_channels.end()) chans = ch_it->second;
+            auto staging = std::unique_ptr<OrpheusBuffer>(new OrpheusBuffer());
+            staging->format = ORPHEUS_FORMAT_F32;
+            staging->channels = chans;
+            staging->frame_capacity = stride;
+            staging->frame_count = stride;
+            staging->interleaved = true;
+            auto mem = std::unique_ptr<float[]>(new float[static_cast<size_t>(stride) * chans]());
+            staging->data = mem.get();
+            staging_memory_.push_back(std::move(mem));
+            src_buf = staging.get();
+            staging_buffers_.push_back(std::move(staging));
+            fanout_buffer[conn.from] = src_buf;
+        }
+
         auto oi = from_inst->output_index.find(from_ref.port_id);
         if (oi != from_inst->output_index.end()) {
-            from_inst->outputs[oi->second] = buf;
+            from_inst->outputs[oi->second] = src_buf;
         } else if (from_inst->output_index.empty()) {
-            from_inst->outputs.push_back(buf);  // legacy plans without port lists
+            from_inst->outputs.push_back(src_buf);  // legacy plans without port lists
         } else {
             std::cerr << "[Runtime] unknown output port: " << conn.from << std::endl;
             return -1;
         }
 
+        OrpheusBuffer* dst_buf = is_bridge ? edge_buf : src_buf;
         auto ii = to_inst->input_index.find(to_ref.port_id);
         if (ii != to_inst->input_index.end()) {
-            to_inst->inputs[ii->second] = buf;
+            to_inst->inputs[ii->second] = dst_buf;
         } else if (to_inst->input_index.empty()) {
-            to_inst->inputs.push_back(buf);  // legacy plans without port lists
+            to_inst->inputs.push_back(dst_buf);  // legacy plans without port lists
         } else {
             std::cerr << "[Runtime] unknown input port: " << conn.to << std::endl;
             return -1;
+        }
+
+        if (is_bridge) {
+            BridgeCopy cp;
+            cp.staging = src_buf;
+            cp.bridge = edge_buf;
+            cp.frames = src_buf->frame_capacity;
+            cp.channels = src_buf->channels;
+            bridge_copies_[from_ref.node_id].push_back(cp);
         }
     }
 
@@ -1027,8 +1065,9 @@ int Runtime::process_block(uint32_t frame_count) {
 
     for (const auto& node_id : plan_.execution_order) {
         const NodeConfig& cfg = plan_.node_configs[node_id];
-        // multi-rate scheduling: fire only on the node's rate phase
-        if (cfg.divisor > 1 && (block_counter_ + 1) % cfg.divisor != 0) {
+        // 静态调度：优先用编译器推导的 period（主 tick 数）；旧 plan 回退 divisor。
+        const uint32_t period = cfg.period > 0 ? cfg.period : cfg.divisor;
+        if (period > 1 && (block_counter_ + 1) % period != 0) {
             continue;
         }
         Instance& inst = *instances_[node_id];
@@ -1043,6 +1082,17 @@ int Runtime::process_block(uint32_t frame_count) {
         int result = inst.interface_->process(inst.state, &ctx);
         if (result != ORPHEUS_OK) {
             return result;
+        }
+        // rate-bridge：生产者触发后，把 staging 里的新鲜块按写游标滚入桥接 buffer
+        auto bc = bridge_copies_.find(node_id);
+        if (bc != bridge_copies_.end()) {
+            for (auto& cp : bc->second) {
+                float* dst = static_cast<float*>(cp.bridge->data)
+                             + static_cast<size_t>(cp.cursor) * cp.channels;
+                const size_t n = static_cast<size_t>(cp.frames) * cp.channels;
+                std::memcpy(dst, cp.staging->data, n * sizeof(float));
+                cp.cursor = (cp.cursor + cp.frames) % cp.bridge->frame_capacity;
+            }
         }
     }
     control_tick();

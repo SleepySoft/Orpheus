@@ -119,6 +119,19 @@ private:
     std::vector<float> buffer_memory_;
     std::vector<std::unique_ptr<OrpheusBuffer>> discard_buffers_;
     std::vector<float> discard_memory_;
+    // rate-bridge：合流（merge）节点输入边的滚动 FIFO。生产者照旧直写 staging
+    // （自己的块长），触发后骨架按写游标 memcpy 进桥接 buffer（深度=合流量子），
+    // merge 节点在同步点整块读出。staging 内存在 load_plan 分配，process 路径零 malloc。
+    struct BridgeCopy {
+        const OrpheusBuffer* staging;  // 生产者直写的暂存 buffer（自己的块长）
+        OrpheusBuffer* bridge;         // 桥接 buffer（深度=合流量子）
+        uint32_t frames = 0;           // 每次触发拷贝的帧数（源端口块长）
+        uint32_t channels = 0;
+        uint32_t cursor = 0;           // 写游标（帧）
+    };
+    std::map<std::string, std::vector<BridgeCopy>> bridge_copies_;  // 生产者节点 → 拷贝列表
+    std::vector<std::unique_ptr<OrpheusBuffer>> staging_buffers_;
+    std::vector<std::unique_ptr<float[]>> staging_memory_;
     std::vector<uint8_t> state_arena_;   // v2：统一内存拼接（每实例一块连续切片）
     std::map<uint32_t, const IdMapEntry*> id_index_;   // 数据 ID → plan.id_map 条目
     std::map<std::string, uint32_t> key_to_id_;        // "node\x1fkey" → 数据 ID

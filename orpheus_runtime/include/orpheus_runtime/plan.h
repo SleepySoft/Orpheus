@@ -19,6 +19,7 @@ struct NodeConfig {
     std::map<std::string, uint32_t> output_port_block_sizes;
     std::map<std::string, uint32_t> output_port_channels;  // per-output-port resolved block size
     uint32_t divisor = 1;   // rate divisor: node runs when (block_counter+1) % divisor == 0
+    uint32_t period = 0;    // 静态调度周期（主 tick 数）；0 = 回退 divisor（旧 plan）
     uint32_t block_size = 0;  // node rate-domain scheduling quantum (0 = plan fallback)
     uint32_t frames = 0;    // samples to call process with per firing (0 = plan block_size)
     uint32_t sample_rate = 0;  // node effective sample rate (0 = inherit plan rate)
@@ -31,6 +32,7 @@ struct BufferConfig {
     std::string sample_format;
     uint32_t channels;
     uint32_t frame_count;
+    bool rate_bridge = false;  // 合流桥接 buffer：深度=合流量子，骨架按写游标滚动填充
 };
 
 struct ConnectionConfig {
@@ -75,6 +77,7 @@ struct Plan {
     uint32_t block_size = 128;
     uint32_t buffer_size = 0;  // async ring buffer capacity (0 = auto)
     uint32_t duration_frames = 0;  // 离线宿主运行时长提示（0=默认 10s）
+    uint32_t schedule_tick = 0;    // 静态调度主步长（图速率帧）；0=回退 block_size（旧 plan）
     std::string task_id;
     std::vector<std::string> nodes;
     std::vector<std::string> execution_order;

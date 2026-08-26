@@ -1,6 +1,6 @@
 # 时钟链与静态调度（clock chain / static schedule）设计记录
 
-> 状态：问题分析 + 方向结论（尚未落地实现）。
+> 状态：v1 已落地（见文末「落地方案 v1」）。
 > 对象：宿主驱动粒度、跨速率合流、buffer/delay、sink 消费的时钟链。
 
 ## 背景与触发
@@ -38,6 +38,38 @@
 - `plan.block_size` 降级为单速率/回退默认（单速率图下推导值等于现值，测试应无损）。
 - 把时钟链不匹配当错误显式暴露（compile 或 run 报错），不打表面补丁掩盖（呼应决策：不回退、有错直接报、避免噪音）。
 - 跨 rate 合流必须声明经过 rate-bridge 同步点，否则编译报错。
+
+## 落地方案 v1（已实现）
+
+**调度表模型**：每个节点的触发间隔统一折算成图采样率帧数
+`I_n = frames_n × plan.sample_rate / node_rate_n`（`frames_n` 为节点量子，
+`node_rate_n` 为节点有效采样率；整除不了即编译报错「时钟链不匹配」，不静默掩盖）。
+主步长 `tick = GCD(所有 I_n)`，节点周期 `period_n = I_n / tick`。
+runtime/generator 的触发谓词统一为 `(block_counter + 1) % period_n == 0`。
+
+- 单速率图（含 downrate 超块链、resample 异速链）：推导出的 tick == plan.block_size、
+  period == 旧 divisor，行为逐字节不变（大量一致性测试保底）。
+- 跨块长合流图（24/32/96）：tick=8、周期 3/4/12/12，sink 只在有新鲜数据的
+  time-slot 触发 —— 96000 帧重复写（实际 4×）消除。
+
+**rate-bridge FIFO**：指向 merge 节点（`scheduling.merge`，如 rate_sync）的边在
+plan.buffers 里标记 `rate_bridge: true`，深度 = merge 节点量子（输入块长 LCM，
+天然是各源块长的公倍数）。runtime/生成代码为该边旁路一个 staging buffer：
+生产者照旧写 staging（自己的块长），触发后由骨架按写游标把小段 memcpy 进桥接
+buffer；merge 节点在同步点整块读取。约束：桥接源必须是「整写者」（每次触发完整
+交付其输出端口块 = 节点量子），downrate/resample 等部分产出组件直连接入会在
+编译期报错，提示中间加一级直通组件。
+
+**plan 新增字段**（旧 plan 无此字段时全部回退旧行为）：
+- `plan.schedule = {"tick": int, "periods": {node_id: int}}`
+- `node_configs[*].period`（生成路径直接消费；0/缺省 = 回退 divisor）
+- `buffers[*].rate_bridge: bool`
+
+**宿主**：`main.cpp` / `rt_host.cpp` / 生成的 file-clock main / `host_win.c` 的推进
+步长统一改为 `schedule.tick`（缺省回退 `plan.block_size`），不再自猜全局块长。
+
+**已知边界**：相位全部对齐在 tick 0（所有节点首次触发于各自 period-1 tick），
+不支持任意相位偏移；merge 输入要求同速率（连接校验已有的 sample_rate 相等保证）。
 
 ## 范围提示
 

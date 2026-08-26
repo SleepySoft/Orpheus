@@ -227,8 +227,9 @@ int main(int argc, char** argv) {
             for (const auto& act : actions) {
                 if (act.first == "run") {
                     int n = std::atoi(act.second.c_str());
+                    const uint32_t tick = plan.schedule_tick > 0 ? plan.schedule_tick : plan.block_size;
                     for (int i = 0; i < n; ++i) {
-                        if (runtime.process_block(plan.block_size) != 0) return 1;
+                        if (runtime.process_block(tick) != 0) return 1;
                     }
                     continue;
                 }
@@ -275,8 +276,9 @@ int main(int argc, char** argv) {
             did_id_cmd = true;
         }
         if (run_blocks > 0 && did_id_cmd) {
+            const uint32_t tick = plan.schedule_tick > 0 ? plan.schedule_tick : plan.block_size;
             for (uint32_t i = 0; i < run_blocks; ++i) {
-                if (runtime.process_block(plan.block_size) != 0) return 1;
+                if (runtime.process_block(tick) != 0) return 1;
             }
         }
         if (have_rr) {
@@ -359,7 +361,8 @@ int main(int argc, char** argv) {
                 : plan.sample_rate * 10;  // 10 seconds default（按图采样率）
         }
 
-        uint32_t block_size = plan.block_size;
+        // 静态调度：按编译器推导的主步长推进（旧 plan 回退 plan.block_size）。
+        uint32_t block_size = plan.schedule_tick > 0 ? plan.schedule_tick : plan.block_size;
         uint32_t processed = 0;
         std::atomic<bool> probes_running{true};
         std::thread probe_thread;

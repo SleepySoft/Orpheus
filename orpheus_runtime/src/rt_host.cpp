@@ -588,7 +588,8 @@ int main(int argc, char** argv) {
         host.device_out_buf = has_out ? runtime.get_input_buffer(device_out_id, "in") : nullptr;
         host.in_channels = 2;
         host.out_channels = 2;
-        host.block_size = block_size;
+        // 静态调度：按编译器推导的主步长分块推进（旧 plan 回退 CLI block_size）。
+        host.block_size = plan.schedule_tick > 0 ? plan.schedule_tick : block_size;
         host.buffer_size = plan.buffer_size;
         host.rb = nullptr;
 
