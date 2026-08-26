@@ -209,3 +209,89 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 | `components/orpheus/builtin/fir/README.md` | RNC ControlFilter 占位组件说明 |
 | `components/orpheus/builtin/limiter/README.md` | 输出保护组件说明 |
 | `components/orpheus/builtin/nlms/README.md` | NLMS 自适应滤波组件说明 |
+
+---
+
+## 8. 非音频数据链路审计与下一步（2026-08-26）
+
+> 背景：系统已落地「非音频数据链路」（控制链路 control_connections，
+> 见 docs/design_control_link_eval.md，commit 122d674）。在 EHC/RNC 示例上
+> 重新审视「完善」的范围，并记录一条关键设计决策。
+
+### 8.1 现状核查（实证）
+
+- 该示例最后一次修改早于控制链路特性（abd8f7b），因此 examples/symphony_asm_ehc_rnc.yaml **没有使用新的 control_connections 机制**。
+- 当前直接 compile 即失败：block size mismatch at rnc_divergence_detector__error_mix: inputs differ (8192 vs 6144)。发散检测子图把 STFT 谱输出（sr）与耦合矩阵输出（coupling_matrix）在同一个 error_mix（mixer）混音，两者有效块长不一致，已退化为编译阻断。
+- 诊断/反馈信号（nf_est、divergence_flag、step_size_modifier、importance_factor、STFT 谱）目前全部接到 probe_rms / null_sink 死胡同，没有闭环——这正是非音频数据链路（feedback + 矩阵分析结果）要解决的场景。
+- 文档/元数据里 distilled_from: ...components/symphony 指向的目录已不存在：原 components/symphony 已整体迁移到 components/baf，真实生成码在 baf\src\out\baremetalgul\slx\code\Model_Target_ert_shrlib_rtw\ 下（Model_Target*.c、EHC.c/.h、RncSub.c/.h、OutputRouter.c、SignalSplitter.c，以及 Model_Target_Ehc_p0_b*_TOP.c / Model_Target_Rnc_p15_b*_TOP.c 等 TOP 分区，与 yaml model_tree.parameter_partitions 一一对应）。
+
+### 8.2 关键设计决策：子图可导出「控制连接点」
+
+设计要点：**子图（subcomponent）不仅导出音频连接点（port），也可导出控制连接点。**即子图 ports 除音频 direction/maps_to 之外、
+更新增加「控制连接点」。这样，跨子图的控制连接（cross-subgraph control link）是自然的：顶层 control_connections 直接引用 <sub_id>:<control_port>，子图 flatten 时把控制点解析为内部原子节点参数（与音频 maps_to 同一机制横向贯通）。
+
+示例（子图 ports 增加控制点）：
+
+```yaml
+subcomponents:
+  - id: ehc_sub
+    ports:
+      - id: autostab_level
+        kind: control_output
+        maps_to: autostab_probe:rms
+      - id: gain_override
+        kind: control_input
+        maps_to: core_gain:gain_db
+```
+
+由若 EHC/RNC 反馈闭环显式化：EhcSub.AutosStabilizerProbe.rms（control_source）→ EhcSub.core_gain.gain_db；RncSub.slow_probe.rms → RncSub.rnc_gain.gain_db；RncNoiseFloor.nf_est → Rnc 饱和/权重阈值；RncDivergence.importance_factor / step_size_modifier → RncNlms 步长。
+边界：控制边值在数字型时为标量（当前实现）；count>1 的数值数组链路仍走 bulk 校验，需运行时/生成侧确认后接入。
+
+### 8.3 完善工作清单（按优先级）
+
+1. **修复编译阻断**：对齐 rnc_divergence_detector 的 error_mix 有效块长，恢复可编译、可运行。
+2. **接入控制链路**：把可标量化的诊断参数用 control_connections 闭环（至少一条演示闭环），让非音频数据链路真正生效。
+3. **补齐子图控制端口能力**：实现/验证「子图导出控制点」，使跨子图控制连接成为一等语法。
+4. **同步 baf 路径**：更新 yaml / notes / 蒸馏提纲中的 components/symphony 引用为 components/baf/...。
+5. **一致性验证**：与参考模型逐样本对比（保持双路径一致性测试基线）。
+
+
+---
+### 8.4 rate_sync：多速率异步合流组件（2026-08-26）
+
+#### 问题澄清
+`rnc_divergence_detector` 有两个独立输入端口：`roof_in`（来自车顶麦 `audio_in`，
+TID2、1.5kHz、基块 32）与 `spkr_in`（来自 `rnc_sub:out`，TID1、2kHz、基块 24）。
+两条路径各自降到同一慢速（约 7.8Hz），但：
+- **采样率不同**（1.5kHz 与 2kHz，需各自 resample 到同域）；
+- **批次/调度不同**（divisor 192 与 256）；
+- **子图内部 `error_mix` 想把两者的处理结果在同一音频 mixer 节点合流**。
+
+在真实模型里这是合法的：发散/cm 诊断就是要比较"预测(基于 spkr 估计) vs 实测(roof 麦)"。
+但这依赖一个**跨速率域的同步缓冲**，把两条已分别降到同一慢速的流，按同一 tick 相位对齐后再合并。
+
+此前清除 hack：误把 `roof_select` 源从 `audio_in` 改为 `asm_in`（强行让整除 divisor 相等）来"绕开"编译，
+但那会**把车顶麦克风语义替换成别的信号**，虽能编译、运行无意义——已还原。见下方"应做/不应做"。
+
+#### 根因：divisor 定义与传播
+- `scheduling.divisor` 定义在**组件 manifest**（如 `downrate` 的 `param:factor`）。
+- 编译器 `_propagate_rate_divisors` 将其沿"输出端口"正向传播：`port_divisor[node:out] = d_in * factor`。
+- **汇合校验在编译器层面一刀切**：某节点所有输入端口收集到的 divisor 若 `len(set)>1` 即报
+  `rate mismatch` / `block size mismatch`——它不区分该节点是否本应接受不同速率的输入。
+- 因此"divisor"在数据流上是**每条输入链的边属性**；把两条不同基块链硬塞进一个 audio mixer，
+  在现有模型下过不了编译，**这不是语义错误、而是模型表达不全**。
+
+#### 设计决策
+- 新增 **`orpheus.builtin.rate_sync`** 组件：多输入 FIFO 同步缓冲。
+  - 作用：把两条**已分别降到同一慢速（同绝对采样率、同 tick 块长）** 但相位不一致的流，缓冲对齐到同一 tick 后合流输出。
+  - 参数：`channels`、`mode`（auto/lcm/fixed）、`block_a`/`block_b`（或 `block_sizes`）、`buffer_length`（可调下限）、`insert_at`（可当作延迟）。
+  - **自动分析 buffer 长度**：按输入各支路块的 LCM（最小公倍数，默认建议）自动选一个能容纳整帧对齐的缓冲深长；亦可视输  phase 之差手动指定。
+  - 输出：合流后的对齐数据（同速率）。
+- 编译器配套（最小改动）：在 rate_sync 的 manifest 用 `scheduling.merge: true` 声明"接受异步多速率输入"，
+  `_propagate_rate_divisors` 对该节点**跳过输入集合相等**强校验（但仍执行拓扑/时钟可用）。
+  从而两条链能同时进入同一组件。
+
+#### 教训（不要重蹈）
+- 不要用"改信号源让整除 divisor 相等"来绕过编译器——那改变语义。
+- "合流"必须由组件自身持有缓冲（FIFO）并在输入边界对齐，而不是靠编译器把两个块硬塞进 mixer。
+- 本组件完成后，`rnc_divergence_detector` 的 `error_mix` 应改为用 rate_sync 对齐后合流（语义才真）。

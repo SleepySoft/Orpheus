@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -375,12 +376,19 @@ class GraphCompiler:
             for conn in graph.connections:
                 to_node = conn.to_ref.node_id
                 bs = resolved_ports[str(conn.from_ref)].block_size
-                if strict and to_node in frames and frames[to_node] != bs:
-                    raise CompileError(
-                        f"block size mismatch at node {to_node}: inputs differ "
-                        f"({frames[to_node]} vs {bs})"
-                    )
-                frames[to_node] = bs
+                comp = self.registry.get(graph.nodes[to_node].component)
+                merging = bool(comp and (comp.manifest.get("scheduling") or {}).get("merge"))
+                if merging:
+                    # 多速率异步合流：本节点接受多个不同块长输入，向下游暴露公倍数块。
+                    prev = frames.get(to_node)
+                    frames[to_node] = math.lcm(prev, bs) if prev else bs
+                else:
+                    if strict and to_node in frames and frames[to_node] != bs:
+                        raise CompileError(
+                            f"block size mismatch at node {to_node}: inputs differ "
+                            f"({frames[to_node]} vs {bs})"
+                        )
+                    frames[to_node] = bs
             return frames
 
         in_frames = _compute_in_frames()
@@ -791,12 +799,16 @@ class GraphCompiler:
             node = graph.nodes[node_id]
             incoming = [c for c in graph.connections if c.to_ref.node_id == node_id]
             up = {port_divisor[str(c.from_ref)] for c in incoming}
-            if len(up) > 1:
+            comp = self.registry.get(node.component)
+            merging = bool(comp and (comp.manifest.get("scheduling") or {}).get("merge"))
+            if len(up) > 1 and not merging:
                 raise CompileError(
                     f"rate mismatch at node {node_id}: input divisors {sorted(up)} "
                     f"(merge different rates via appropriate rate components)"
                 )
-            d_in = next(iter(up)) if up else 1
+            # merge 节点输入可来自不同速率域：向下游暴露其中最慢的调度除数
+            # （与块长 LCM 语义一致：输出按公倍数 tick 对齐）。
+            d_in = max(up) if up else 1
             node_divisor[node_id] = d_in
             comp = self.registry.get(node.component)
             factor_expr = (comp.manifest.get("scheduling") or {}).get("divisor") if comp else None

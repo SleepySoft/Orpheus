@@ -1,0 +1,60 @@
+id: orpheus.builtin.rate_sync
+name: 同步缓冲
+category: 基础/路由与时序
+description: 多路已降到同一慢速的流按公倍数对齐合流；支持自动计算缓冲长度（LCM）或手动指定
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: RateSyncState
+sources:
+  - src/rate_sync.c
+headers:
+  - include/orpheus_rate_sync.h
+ports:
+  - id: in0
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: in1
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 1
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: mode
+    name: 缓冲模式
+    type: string
+    default: "auto"
+    allowed: ["auto", "fixed"]
+    update_policy: restart_required
+  - id: buffer_length
+    name: 缓冲长度
+    type: int
+    default: 0
+    range: [0, 131072]
+    update_policy: restart_required
+    affects_signature: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true
+scheduling:
+  merge: true
