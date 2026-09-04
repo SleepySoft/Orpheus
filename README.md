@@ -7,6 +7,7 @@ An intuitive, easily extensible audio processing framework based on visual progr
 - [`docs/WHAT.md`](docs/WHAT.md) — 产品目标、核心需求、成功标准与范围边界。
 - [`docs/HOW.md`](docs/HOW.md) — 技术栈、架构方案、关键机制与落地路线图。
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — 当前实现状态、近期优先级与验收进度。
+- [`docs/baf_model_alignment.md`](docs/baf_model_alignment.md) — ASM/EREV-1 BAF out 生成代码的实证映射与剩余缺口。
 - [`docs/design_draft.txt`](docs/design_draft.txt) — 历史设计草案与详细子系统分解。
 - [`docs/design_v1.md`](docs/design_v1.md) — 高层概念草稿。
 

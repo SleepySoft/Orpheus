@@ -815,9 +815,16 @@ subcomponents:
         x: 460
         y: 100
     - id: sclip
-      component: orpheus.builtin.soft_clipper
+      component: orpheus.builtin.baf_soft_clipper
       params:
-        drive_db: 0.0
+        xmin: 0.65
+        xmax: 1.35
+        p2: 0.714285731
+        xmin_low: 0.65
+        xmax_low: 1.35
+        p2_low: 0.714285731
+        param_set: 1
+        disabled: false
         channels: 22
       position:
         x: 640

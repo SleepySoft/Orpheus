@@ -29,7 +29,19 @@ class CodeGenerator:
 
     @staticmethod
     def _c_escape(value: str) -> str:
-        return value.replace("\\", "\\\\").replace('"', '\\"')
+        escapes = {
+            "\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r",
+            "\t": "\\t", "\b": "\\b", "\f": "\\f",
+        }
+        output: list[str] = []
+        for char in value:
+            if char in escapes:
+                output.append(escapes[char])
+            elif ord(char) < 32 or ord(char) == 127:
+                output.append(f"\\{ord(char):03o}")
+            else:
+                output.append(char)
+        return "".join(output)
 
     @staticmethod
     def _schedule_tick(plan: ExecutionPlan) -> int:
@@ -511,6 +523,32 @@ class CodeGenerator:
             lines.append('}')
             lines.append("")
 
+        connected_outputs = {conn["from"] for conn in plan.connections}
+        discard_outputs: list[dict[str, Any]] = []
+        for node_id in plan.execution_order:
+            cfg = plan.node_configs[node_id]
+            for port_id in cfg.get("output_ports", []):
+                endpoint = f"{node_id}:{port_id}"
+                if endpoint in connected_outputs:
+                    continue
+                frames = int(cfg.get("output_port_block_sizes", {}).get(port_id, 0)) \
+                    or int(cfg.get("frames", 0)) or int(plan.block_size)
+                channels = int(cfg.get("output_port_channels", {}).get(port_id, 1))
+                discard_outputs.append({
+                    "endpoint": endpoint,
+                    "sym": f'{self._sanitized_node_id(node_id)}_{self._sanitized_node_id(port_id)}',
+                    "frames": frames,
+                    "channels": channels,
+                })
+        for discard in discard_outputs:
+            lines.append(
+                f'static float g_discard_data_{discard["sym"]}'
+                f'[{discard["frames"] * discard["channels"]}];'
+            )
+            lines.append(f'static OrpheusBuffer g_discard_{discard["sym"]} = {{0}};')
+        if discard_outputs:
+            lines.append("")
+
         # Input/output buffer pointer arrays per node, sized by the ordered port
         # lists and bound by port id (unconnected pins stay NULL).
         # rate-bridge：桥接源端口一律绑定 staging；普通消费方共享 staging，
@@ -533,6 +571,8 @@ class CodeGenerator:
             s_buf = fanout_buf[conn["from"]]
             port_buffer[conn["from"]] = f'&g_buffer_{s_buf}'
             port_buffer[conn["to"]] = f'&g_buffer_{s_buf}'
+        for discard in discard_outputs:
+            port_buffer[discard["endpoint"]] = f'&g_discard_{discard["sym"]}'
 
         for node_id in plan.execution_order:
             s = self._sanitized_node_id(node_id)
@@ -698,6 +738,13 @@ class CodeGenerator:
             lines.append(f'    g_stage_{info["sym"]}.frame_capacity = {info["stride"]};')
             lines.append(f'    g_stage_{info["sym"]}.frame_count = {info["stride"]};')
             lines.append(f'    g_stage_{info["sym"]}.interleaved = 1;')
+        for discard in discard_outputs:
+            lines.append(f'    g_discard_{discard["sym"]}.data = g_discard_data_{discard["sym"]};')
+            lines.append(f'    g_discard_{discard["sym"]}.format = ORPHEUS_FORMAT_F32;')
+            lines.append(f'    g_discard_{discard["sym"]}.channels = {discard["channels"]};')
+            lines.append(f'    g_discard_{discard["sym"]}.frame_capacity = {discard["frames"]};')
+            lines.append(f'    g_discard_{discard["sym"]}.frame_count = {discard["frames"]};')
+            lines.append(f'    g_discard_{discard["sym"]}.interleaved = 1;')
         lines.append("")
 
         # Create and prepare instances (with per-node parameter tables)
@@ -795,7 +842,13 @@ class CodeGenerator:
             lines.append(f'{indent}ctx.input_count = {n_in};')
             lines.append(f'{indent}ctx.output_count = {n_out};')
             lines.append(f'{indent}rc = g_iface_{s}->process(g_state_{s}, &ctx);')
-            lines.append(f'{indent}if (rc != ORPHEUS_OK) return rc;')
+            lines.append(f'{indent}if (rc != ORPHEUS_OK) {{')
+            lines.append(
+                f'{indent}    fprintf(stderr, "process failed: node={self._c_escape(node_id)} '
+                f'component={self._c_escape(cfg["component"])} rc=%d\\n", rc);'
+            )
+            lines.append(f'{indent}    return rc;')
+            lines.append(f'{indent}}}')
             # rate-bridge：本节点是桥接源时，触发后把 staging 的新鲜块滚入桥接 buffer
             for i, cp in enumerate(bridge_copies):
                 if cp["src_node"] != node_id:
@@ -870,7 +923,13 @@ class CodeGenerator:
                 lines.append(f'{indent}ctx.input_count = {n_in};')
                 lines.append(f'{indent}ctx.output_count = {n_out};')
                 lines.append(f'{indent}rc = g_iface_{s}->process(g_state_{s}, &ctx);')
-                lines.append(f'{indent}if (rc != ORPHEUS_OK) return rc;')
+                lines.append(f'{indent}if (rc != ORPHEUS_OK) {{')
+                lines.append(
+                    f'{indent}    fprintf(stderr, "process failed: task={self._c_escape(task_id)} '
+                    f'node={self._c_escape(node_id)} component={self._c_escape(cfg["component"])} rc=%d\\n", rc);'
+                )
+                lines.append(f'{indent}    return rc;')
+                lines.append(f'{indent}}}')
                 for i, cp in enumerate(bridge_copies):
                     if cp["src_node"] != node_id:
                         continue

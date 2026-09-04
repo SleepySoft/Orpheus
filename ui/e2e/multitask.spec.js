@@ -14,6 +14,14 @@ const project = {
     { id: 'producer', name: 'Producer', sample_rate: 48000, block_size: 24, priority: 1 },
     { id: 'consumer', name: 'Consumer', sample_rate: 48000, block_size: 32, priority: 0 },
   ],
+  lesson: {
+    title: '多任务检查',
+    steps: [{ title: '确认节点', body: '检查 gain_node 组件。' }],
+    checks: [{
+      id: 'gain', label: 'Gain 节点存在', type: 'node_component',
+      node: 'gain_node', component: 'orpheus.builtin.gain',
+    }],
+  },
   graph: {
     nodes: [{
       id: 'gain_node', component: 'orpheus.builtin.gain', task: 'producer',
@@ -55,4 +63,10 @@ test('配置 Task 并保存节点归属', async ({ page, request }) => {
   const saved = await response.json();
   expect(saved.tasks.map((task) => task.id)).toEqual(['producer', 'consumer', 'task_3']);
   expect(saved.graph.nodes.find((node) => node.id === 'gain_node').task).toBe('task_3');
+
+  await page.getByRole('button', { name: '教学', exact: true }).click();
+  const lesson = page.locator('.lesson-panel');
+  await expect(lesson.getByText('多任务检查')).toBeVisible();
+  await lesson.getByRole('button', { name: '检查当前工程' }).click();
+  await expect(lesson.getByText('1/1 项通过')).toBeVisible();
 });

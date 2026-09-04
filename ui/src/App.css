@@ -1023,6 +1023,45 @@
   margin: 0 0 10px;
 }
 
+.lesson-panel {
+  width: min(620px, calc(100vw - 32px));
+  max-height: 80vh;
+}
+
+.lesson-steps {
+  padding-left: 24px;
+}
+
+.lesson-steps li {
+  margin-bottom: 10px;
+}
+
+.lesson-steps p {
+  margin: 4px 0 0;
+  color: #495057;
+}
+
+.lesson-results {
+  border-top: 1px solid #dee2e6;
+  padding-top: 10px;
+}
+
+.lesson-check {
+  display: grid;
+  grid-template-columns: 56px minmax(120px, 1fr) 2fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+}
+
+.lesson-check small {
+  color: #6c757d;
+  word-break: break-word;
+}
+
+.lesson-pass { color: #237a3b; font-weight: 700; }
+.lesson-fail { color: #b42318; font-weight: 700; }
+
 .modal-file-list {
   flex: 1;
   overflow-y: auto;

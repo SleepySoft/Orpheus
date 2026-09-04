@@ -2,8 +2,8 @@
 # Symphony ASM EHC/RNC step0 占位模型
 # ----------------------------------------------------------------------------
 # 名称：Symphony ASM EHC/RNC step0
-# 来源：C:\D\Work\Project\EREV\cart-cicd-erev-asm\components\symphony
-#        中的 Model_Target / AsmBlock / EhcSub / RncSub / OutputProcessing
+# 来源：cart-cicd-erev-asm/components/baf/src/out/baremetalgul/slx/code/
+#        Model_Target_ert_shrlib_rtw 中的 Model_Target / EHC / RncSub
 # 目标：对齐 Symphony ASM（Active Sound Management）中 EHC（Engine Harmonic
 #        Cancellation）与 RNC（Road Noise Cancellation）的拓扑、任务率、
 #        通道数和参数分区；算法与系数全部使用 Orpheus 内置组件占位。
@@ -16,7 +16,8 @@
 #   - EHC AutoStabilizer：downrate -> gain -> probe_rms -> null_sink，
 #     落在 TID3（250Hz）。
 #   - RNC 输入处理：channel_router + iir_bank + gain 占位。
-#   - RNC NLMS：gain + mixer + probe_rms + null_sink 占位。
+#   - RNC NLMS：12 参考 × 8 输出 × 125 taps 的真实 MIMO 更新核心；
+#     filtered-error Wiener 路径和 12000 初始权值仍按需从 TOP 导入。
 #   - RNC ControlFilter：fir + matrix_mul 占位。
 #   - RNC 慢速控制：downrate -> gain -> probe_rms -> null_sink，落在 TID4。
 #   - 输出处理：mixer 合并 EHC/RNC/娱乐音，limiter + soft_clipper 保护，
@@ -29,10 +30,27 @@ version: 0.1.0
 metadata:
   name: symphony_asm_ehc_rnc
   description: Symphony ASM EHC/RNC step0 骨架：拓扑/任务/参数分区对齐源模型，算法用内置组件占位
-  distilled_from: cart-cicd-erev-asm/components/symphony/Model_Target*.c
+  distilled_from: cart-cicd-erev-asm/components/baf/src/out/baremetalgul/slx/code/Model_Target_ert_shrlib_rtw
 sample_rate: 48000
 block_size: 24
 target: auto
+
+lesson:
+  title: BAF ASM 多任务 RNC 蒸馏实验
+  description: 对照 out 生成代码识别任务、跨任务桥和 12×8×125 MIMO NLMS 核心。
+  steps:
+    - title: 核对调度
+      body: 对照 Baf.exec_graph.json，确认 TID1 为 0.5 ms 基任务，TID5/TID6 为 32/128 ms 分析任务。
+    - title: 核对 NLMS 维度
+      body: 检查 rnc_sub 内的 rnc_mimo_nlms：12 路参考、8 路输出、125 taps，当前 TOP 步长全 0。
+    - title: 检查控制闭环
+      body: slow_probe.rms 通过子组件公开参数驱动 rnc_gain.gain_db。
+  checks:
+    - {id: compile, label: 工程可编译, type: compile_valid}
+    - {id: nlms_component, label: 使用 MIMO NLMS, type: node_component, node: rnc_sub__rnc_nlms, component: orpheus.builtin.rnc_mimo_nlms}
+    - {id: nlms_taps, label: NLMS 为 125 taps, type: parameter_equals, node: rnc_sub__rnc_nlms, param: filter_length, value: 125}
+    - {id: control, label: 跨子图控制闭环存在, type: control_connection_exists, from: rnc_sub__slow_probe:rms, to: rnc_sub__rnc_gain:gain_db}
+    - {id: bridges, label: 多任务边界显式桥接, type: task_bridge_count, minimum: 8}
 
 tasks:
   - id: tid0
@@ -152,6 +170,11 @@ graph:
       position:
         x: 380
         y: 520
+    - id: nfd_bridge
+      component: orpheus.builtin.async_bridge
+      task: tid5
+      params: {channels: 12, capacity_frames: 0}
+      position: {x: 300, y: 520}
     - id: roof_select
       component: orpheus.builtin.input_select
       task: tid1
@@ -162,6 +185,11 @@ graph:
       position:
         x: 60
         y: 660
+    - id: audio_roof_bridge
+      component: orpheus.builtin.async_bridge
+      task: tid1
+      params: {channels: 22, capacity_frames: 0}
+      position: {x: 20, y: 660}
     - id: dd_downrate_roof_64
       component: orpheus.builtin.downrate
       task: tid1
@@ -180,6 +208,11 @@ graph:
       position:
         x: 360
         y: 660
+    - id: roof_tid5_bridge
+      component: orpheus.builtin.async_bridge
+      task: tid5
+      params: {channels: 4, capacity_frames: 0}
+      position: {x: 300, y: 660}
     - id: dd_downrate_spkr_64
       component: orpheus.builtin.downrate
       task: tid1
@@ -198,6 +231,21 @@ graph:
       position:
         x: 360
         y: 800
+    - id: spkr_tid5_bridge
+      component: orpheus.builtin.async_bridge
+      task: tid5
+      params: {channels: 8, capacity_frames: 0}
+      position: {x: 300, y: 800}
+    - id: roof_tid6_bridge
+      component: orpheus.builtin.async_bridge
+      task: tid6
+      params: {channels: 4, capacity_frames: 0}
+      position: {x: 440, y: 660}
+    - id: spkr_tid6_bridge
+      component: orpheus.builtin.async_bridge
+      task: tid6
+      params: {channels: 8, capacity_frames: 0}
+      position: {x: 440, y: 800}
     - id: rnc_divergence_detector
       component: sub:rnc_divergence_detector
       task: tid6
@@ -210,6 +258,8 @@ graph:
       to: ehc_sub:asm_in
     - from: asm_in:out
       to: rnc_sub:audio_in
+    - from: asm_in:out
+      to: rnc_sub:nlms_ref_in
     - from: asm_in:out
       to: output_processing:ent_in
     - from: audio_in:out
@@ -228,21 +278,37 @@ graph:
     - from: accel_select:out
       to: nfd_downrate:in
     - from: nfd_downrate:out
+      to: nfd_bridge:in
+    - from: nfd_bridge:out
       to: rnc_noise_floor:accel_in
     - from: audio_in:out
+      to: audio_roof_bridge:in
+    - from: audio_roof_bridge:out
       to: roof_select:in
     - from: roof_select:out
       to: dd_downrate_roof_64:in
     - from: dd_downrate_roof_64:out
+      to: roof_tid5_bridge:in
+    - from: roof_tid5_bridge:out
       to: dd_downrate_roof_4:in
     - from: dd_downrate_roof_4:out
+      to: roof_tid6_bridge:in
+    - from: roof_tid6_bridge:out
       to: rnc_divergence_detector:roof_in
     - from: rnc_sub:out
       to: dd_downrate_spkr_64:in
     - from: dd_downrate_spkr_64:out
+      to: spkr_tid5_bridge:in
+    - from: spkr_tid5_bridge:out
       to: dd_downrate_spkr_4:in
     - from: dd_downrate_spkr_4:out
+      to: spkr_tid6_bridge:in
+    - from: spkr_tid6_bridge:out
       to: rnc_divergence_detector:spkr_in
+control_connections:
+  # 跨子图公开参数：慢速 RMS 驱动 RNC 增益，验证控制点 flatten 与一块延迟语义。
+  - from: rnc_sub:slow_level
+    to: rnc_sub:rnc_gain_db
 subcomponents:
   - id: ehc_core
     name: EHC Core
@@ -467,6 +533,15 @@ subcomponents:
           position:
             x: 740
             y: 220
+        - id: autostab_bridge
+          component: orpheus.builtin.async_bridge
+          task: tid3
+          params:
+            channels: 8
+            capacity_frames: 0
+          position:
+            x: 660
+            y: 220
         - id: autostab_probe
           component: orpheus.builtin.probe_rms
           task: tid3
@@ -493,6 +568,8 @@ subcomponents:
         - from: output_mix:out
           to: output_router:in
         - from: downrate_to_tid3:out
+          to: autostab_bridge:in
+        - from: autostab_bridge:out
           to: autostab_gain:in
         - from: autostab_gain:out
           to: autostab_probe:in
@@ -512,9 +589,38 @@ subcomponents:
       - id: audio_in
         direction: input
         maps_to: input_router:in
+      - id: nlms_ref_in
+        direction: input
+        maps_to: nlms_ref_router:in
       - id: out
         direction: output
         maps_to: output_router:out
+    public_parameters:
+      - id: rnc_gain_db
+        name: RNC 增益
+        direction: input
+        maps_to: rnc_gain:gain_db
+        type: float
+        default: 0.0
+      - id: nlms_step_sizes
+        name: NLMS 各输出步长
+        direction: input
+        maps_to: rnc_nlms:step_sizes
+        type: string
+        default: "0,0,0,0,0,0,0,0"
+        update_policy: restart_required
+      - id: nlms_initial_weights
+        name: NLMS 初始权值
+        direction: input
+        maps_to: rnc_nlms:initial_weights
+        type: string
+        default: ""
+        update_policy: restart_required
+      - id: slow_level
+        name: RNC 慢速电平
+        direction: output
+        maps_to: slow_probe:rms
+        type: float
     graph:
       nodes:
         - id: input_router
@@ -528,6 +634,17 @@ subcomponents:
           position:
             x: 60
             y: 60
+        - id: nlms_ref_router
+          component: orpheus.builtin.channel_router
+          task: tid1
+          params:
+            channels_in: 25
+            channels_out: 12
+            # 真实模型 NumActiveAccelChannels=12；物理 ActiveAccelChannelsMap 尚待回填。
+            indices: 0,1,2,3,4,5,6,7,8,9,10,11
+          position:
+            x: 60
+            y: 180
         - id: anti_alias_iir
           component: orpheus.builtin.iir_bank
           task: tid1
@@ -574,14 +691,18 @@ subcomponents:
             x: 400
             y: 60
         - id: rnc_nlms
-          component: orpheus.builtin.nlms
+          component: orpheus.builtin.rnc_mimo_nlms
           task: tid1
           params:
-            channels: 8
-            filter_length: 32
-            step_size: 0.01
+            reference_channels: 12
+            output_channels: 8
+            filter_length: 125
+            # Model_Target_Rnc_p15_b2_TOP.c 当前默认值确为全 0。
+            step_sizes: 0,0,0,0,0,0,0,0
             leakage: 1.0
-            eps: 0.000001
+            eps: 0.00001
+            # 用 scripts/extract_baf_top.py 从 b5 TOP 提取 12000 项后填入。
+            initial_weights: ""
           position:
             x: 240
             y: 180
@@ -646,6 +767,15 @@ subcomponents:
           position:
             x: 560
             y: 420
+        - id: slow_bridge
+          component: orpheus.builtin.async_bridge
+          task: tid4
+          params:
+            channels: 8
+            capacity_frames: 0
+          position:
+            x: 480
+            y: 420
         - id: slow_probe
           component: orpheus.builtin.probe_rms
           task: tid4
@@ -676,16 +806,18 @@ subcomponents:
         - from: rnc_gain:out
           to: downrate_to_tid4:in
         - from: downrate_to_tid4:out
+          to: slow_bridge:in
+        - from: slow_bridge:out
           to: slow_gain:in
         - from: slow_gain:out
           to: slow_probe:in
         - from: slow_probe:out
           to: slow_sink:in
 
-        - from: rnc_gain:out
+        - from: nlms_ref_router:out
           to: rnc_nlms:ref
         - from: input_router:out
-          to: rnc_nlms:err
+          to: rnc_nlms:filtered_error
         - from: rnc_nlms:out
           to: nlms_probe:in
         - from: input_router:out

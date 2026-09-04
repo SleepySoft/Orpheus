@@ -751,10 +751,17 @@ class GraphCompiler:
             nid = leaf["node"]
             cfg = plan.node_configs[nid]
             info = self.registry.get(cfg["component"])
+            key_index: dict[str, int] = {}
             for p in (info.manifest.get("parameters", []) if info else []):
+                key_index[p["id"]] = len(points)
                 points.append({**p, "node": nid})
             for bs in (info.manifest.get("bulk_slots", []) if info else []):
-                points.append({**bs, "node": nid, "runtime": True})
+                point = {**bs, "node": nid, "runtime": True}
+                if bs["id"] in key_index:
+                    points[key_index[bs["id"]]] = point
+                else:
+                    key_index[bs["id"]] = len(points)
+                    points.append(point)
             for ch in (info.manifest.get("custom_handles", []) if info else []):
                 points.append({**ch, "node": nid, "kind": "custom", "type": "string"})
         return points

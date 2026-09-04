@@ -15,7 +15,7 @@ from __future__ import annotations
 import copy
 
 from orpheus_core.compiler import CompileError
-from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Subcomponent
+from orpheus_core.project import Connection, ControlConnection, Graph, Node, PortRef, Project, Subcomponent
 
 SUB_PREFIX = "sub:"
 NODE_SEP = "__"
@@ -52,6 +52,31 @@ def _validate_subcomponent(sub: Subcomponent) -> None:
                 f"subcomponent {sub.id}: port {port.id!r} maps to nested subcomponent "
                 f"instance {ref.node_id!r}; map to an atomic node instead"
             )
+    seen_params: set[str] = set()
+    for param in sub.public_parameters:
+        if param.id in seen_params:
+            raise CompileError(f"subcomponent {sub.id}: duplicate public parameter id {param.id!r}")
+        seen_params.add(param.id)
+        if param.direction not in ("input", "output"):
+            raise CompileError(
+                f"subcomponent {sub.id}: public parameter {param.id!r} has invalid direction {param.direction!r}"
+            )
+        try:
+            ref = PortRef.parse(param.maps_to)
+        except ValueError as exc:
+            raise CompileError(
+                f"subcomponent {sub.id}: invalid public parameter maps_to {param.maps_to!r}: {exc}"
+            ) from exc
+        node = sub.graph.nodes.get(ref.node_id)
+        if node is None:
+            raise CompileError(
+                f"subcomponent {sub.id}: public parameter {param.id!r} maps to unknown node {ref.node_id!r}"
+            )
+        if is_subcomponent_ref(node.component):
+            raise CompileError(
+                f"subcomponent {sub.id}: public parameter {param.id!r} maps to nested subcomponent "
+                f"instance {ref.node_id!r}; map to an atomic node instead"
+            )
 
 
 def _expand_graph(
@@ -77,7 +102,24 @@ def _expand_graph(
         if sub_id in stack:
             cycle = " -> ".join((*stack, sub_id))
             raise CompileError(f"subcomponent cycle: {cycle}")
+        output_overrides = [
+            public.id for public in sub.public_parameters
+            if public.direction == "output" and public.id in node.params
+        ]
+        if output_overrides:
+            raise CompileError(
+                f"node {node.id}: 子组件控制输出不可由实例赋值: {output_overrides}"
+            )
         inner = _expand_graph(sub.graph, subs, f"{prefix}{node.id}{NODE_SEP}", (*stack, sub_id))
+        for public in sub.public_parameters:
+            if public.direction != "input":
+                continue
+            value = node.params.get(public.id, public.default)
+            if value is None:
+                continue
+            target = PortRef.parse(public.maps_to)
+            flat_target = f"{prefix}{node.id}{NODE_SEP}{target.node_id}"
+            inner.nodes[flat_target].params[target.port_id] = copy.deepcopy(value)
         flat.nodes.update(inner.nodes)
         flat.connections.extend(inner.connections)
 
@@ -111,18 +153,31 @@ def flatten_project(project: Project) -> Project:
     for sub in subs.values():
         _validate_subcomponent(sub)
 
-    # 控制连接（顶层段）随展开映射节点 id：原子节点在顶层前缀为空、id 不变；
-    # 指向子组件实例内部的控制连接本期不支持，报中文错误。
-    flat_control: list = []
+    def map_control_endpoint(ref: PortRef, expected_direction: str) -> PortRef:
+        node = project.graph.nodes.get(ref.node_id)
+        if node is None or not is_subcomponent_ref(node.component):
+            return copy.deepcopy(ref)
+        sub = subs[subcomponent_id(node.component)]
+        public = next((p for p in sub.public_parameters if p.id == ref.port_id), None)
+        if public is None:
+            raise CompileError(
+                f"节点 {node.id}: 子组件 {node.component!r} 没有公开参数 {ref.port_id!r}"
+            )
+        if public.direction != expected_direction:
+            role = "源" if expected_direction == "output" else "目标"
+            raise CompileError(
+                f"控制连接{role} {ref} 的公开参数方向应为 {expected_direction}，"
+                f"实际为 {public.direction}"
+            )
+        target = PortRef.parse(public.maps_to)
+        return PortRef(node_id=f"{node.id}{NODE_SEP}{target.node_id}", port_id=target.port_id)
+
+    flat_control: list[ControlConnection] = []
     for cc in project.control_connections:
-        for ref in (cc.from_ref, cc.to_ref):
-            node = project.graph.nodes.get(ref.node_id)
-            if node is not None and is_subcomponent_ref(node.component):
-                raise CompileError(
-                    f"控制连接暂不支持跨子图边界：{ref} 指向子组件实例 {node.id} "
-                    f"（{node.component}）的内部参数；请改用展开后的原子节点"
-                )
-        flat_control.append(copy.deepcopy(cc))
+        flat_control.append(ControlConnection(
+            from_ref=map_control_endpoint(cc.from_ref, "output"),
+            to_ref=map_control_endpoint(cc.to_ref, "input"),
+        ))
 
     flat = copy.copy(project)  # shallow: tasks/metadata shared, graph replaced
     flat.graph = _expand_graph(project.graph, subs, prefix="", stack=())

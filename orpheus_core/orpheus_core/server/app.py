@@ -22,6 +22,7 @@ from orpheus_core.builder import BuildError, ComponentBuilder, run_cmake_with_ms
 from orpheus_core.compiler import CompileError, ExecutionPlan, GraphCompiler
 from orpheus_core.distill_topology import build_topology
 from orpheus_core.generator import CodeGenerator
+from orpheus_core.lesson import evaluate_lesson
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.server.manager import ProjectError, ProjectManager, ProjectRecord
 from orpheus_core.server.rt import RtSessionManager
@@ -446,6 +447,22 @@ def create_app(project_root: Path) -> FastAPI:
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return {"status": "saved", "name": name}
+
+    @app.post("/api/projects/{name}/lesson/check")
+    def check_lesson(name: str) -> dict[str, Any]:
+        try:
+            rec = manager.get(name)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        flat = None
+        plan = None
+        compile_error = None
+        try:
+            flat = flatten_project(rec.project)
+            plan = GraphCompiler(registry).compile(flat)
+        except CompileError as exc:
+            compile_error = str(exc)
+        return evaluate_lesson(rec.project, flat, plan, compile_error)
 
     @app.get("/api/projects/{name}/notes")
     def get_project_notes(name: str) -> dict[str, Any]:

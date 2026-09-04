@@ -73,7 +73,7 @@
   "sub:post_process/asd_router": "32→22 通道路由。从预放扩展的 32 路中选出 22 路主通道。",
   "sub:post_process/post_eq": "22 通道 13 阶 IIR bank。PostEQ 的 pooliir 占位，系数待回填。",
   "sub:post_process/limiter": "22 通道限幅器。threshold=-1dB，各通道攻击/释放/系数相同，防止后级削波。",
-  "sub:post_process/sclip": "22 路 soft_clipper。drive=0dB，当前基本不作用，后续可配置音色塑形。",
+  "sub:post_process/sclip": "22 路 BAF 二次分段 SoftClipper，公式和 high/low 参数来自 EREV-1 out 的 rt_sys_PostProcess_87.c 与 PostProcess TOP。",
   "sub:post_process/mute_ramp": "22 路 gain_ramper。MuteRamper 占位，100ms 斜坡，默认 0 dB。",
   "sub:post_process/calib": "22→22 output_router。OutputCalibration 占位，当前 identity。",
   "sub:post_process/freq_comp": "22 通道 13 阶 IIR bank。FreqComp 的 pooliir 占位，系数待回填。",

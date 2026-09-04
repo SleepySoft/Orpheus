@@ -1,0 +1,91 @@
+id: orpheus.builtin.rnc_mimo_nlms
+name: RNC 多参考 NLMS
+category: 高级/自适应与降噪
+description: 对齐 BAF RNC AdaptFilter 的多参考多输出 NLMS 核心；支持 12×8×125 初始权值与逐输出步长
+version: 1.0.0
+abi_version: 3
+package_type: source
+state_type: RncMimoNlmsState
+sources:
+  - src/rnc_mimo_nlms.c
+headers:
+  - include/orpheus_rnc_mimo_nlms.h
+ports:
+  - id: ref
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:reference_channels
+  - id: filtered_error
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:output_channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:output_channels
+parameters:
+  - id: reference_channels
+    name: 参考通道数
+    type: int
+    default: 12
+    range: [1, 12]
+    update_policy: restart_required
+    affects_signature: true
+  - id: output_channels
+    name: 输出通道数
+    type: int
+    default: 8
+    range: [1, 8]
+    update_policy: restart_required
+    affects_signature: true
+  - id: filter_length
+    name: 自适应滤波长度
+    type: int
+    default: 125
+    range: [1, 125]
+    update_policy: restart_required
+  - id: step_sizes
+    name: 各输出步长
+    type: string
+    default: "0,0,0,0,0,0,0,0"
+    update_policy: restart_required
+  - id: leakage
+    name: 泄漏因子
+    type: float
+    default: 1.0
+    range: [0.0, 1.0]
+    update_policy: restart_required
+  - id: eps
+    name: 归一化正则项
+    type: float
+    default: 0.00001
+    range: [0.000000000001, 1.0]
+    update_policy: restart_required
+  - id: initial_weights
+    name: 初始权值
+    type: string
+    default: ""
+    kind: bulk
+    update_policy: restart_required
+bulk_slots:
+  - id: weights
+    name: 自适应权值
+    type: float
+    count: 12000
+    double_bank: true
+  - id: step_sizes
+    name: 各输出步长
+    type: float
+    count: 8
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

@@ -1,0 +1,40 @@
+id: orpheus.builtin.baf_soft_clipper
+name: BAF 分段软削波
+category: 高级/模型专用
+description: 对齐 BAF PostProcess SoftClipper 的二次分段曲线，支持 high/low 两套参数与 active bitmask
+version: 1.0.0
+abi_version: 3
+package_type: source
+state_type: BafSoftClipperState
+sources:
+  - src/baf_soft_clipper.c
+headers:
+  - include/orpheus_baf_soft_clipper.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - {id: xmin, name: 高档起始点, type: float, default: 0.65, update_policy: restart_required}
+  - {id: xmax, name: 高档输入上限, type: float, default: 1.35, update_policy: restart_required}
+  - {id: p2, name: 高档二次系数, type: float, default: 0.714285731, update_policy: restart_required}
+  - {id: xmin_low, name: 低档起始点, type: float, default: 0.65, update_policy: restart_required}
+  - {id: xmax_low, name: 低档输入上限, type: float, default: 1.35, update_policy: restart_required}
+  - {id: p2_low, name: 低档二次系数, type: float, default: 0.714285731, update_policy: restart_required}
+  - {id: param_set, name: 参数档位, type: int, default: 1, range: [0, 1], update_policy: block_boundary, bindable: true}
+  - {id: disabled, name: 禁用, type: bool, default: false, update_policy: block_boundary, bindable: true}
+  - {id: channels, name: 通道数, type: int, default: 22, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  - {id: active_mask, name: 激活通道位图, type: int, default: 0, kind: probe, readback: true, control_source: true, update_policy: immediate}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

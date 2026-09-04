@@ -1,5 +1,16 @@
 # Orpheus 基础版本实施日志
 
+## 2026-09-04（第四十八次：P2 子组件公开参数 + BAF 真实算法对齐）
+
+- 子组件新增 `public_parameters`：实例参数提升、UI 编辑、控制 handle 与跨子图控制连接 flatten 全链路落地。
+- 直接核对 ASM out：`NlmsAdaptiveFilterCoeffsInit[12000]` 的布局为 8 speaker × 12 reference × 125 taps；新增 `rnc_mimo_nlms` 固定内存组件和卷积/更新 C golden。
+- 新增 `extract_baf_top.py`，对 b5 初始权值实测 count=12000、SHA-256=`0e908d3303747c0b7f03332f8961dfd66903f29653184d0a63902fec38fdf725`；纠正文档中 NlmsStepSize=0.01 的误判，当前 TOP 实值为 8 个 0。
+- 直接核对 EREV-1 `rt_sys_PostProcess_87.c`，新增二次分段 `baf_soft_clipper` 与边界 golden；SAS 示例替换 tanh 占位。
+- Symphony ASM 的历史跨 Task 直连全部迁移到 `async_bridge`；RNC 输入增加独立 12ch reference 边界。
+- 修复生成器多行字符串 C 转义、参数/runtime BULK 同 key 重复 ID、悬空输出未分配 discard buffer，并加入 process 节点级错误诊断。
+- 教学包最小闭环：工程内嵌步骤与结构化 checks，后端自动检查编译/节点/参数/连线/控制链/异步桥，UI 教学面板展示结果；ASM 示例附 5 条检查。
+- 验证：ASM 48-target、SAS 68-target 独立生成工程构建成功并运行；模型/子图专项 pytest 通过。
+
 ## 2026-09-04（第四十七次：可复现构建 + 多 Task 入口与异步桥）
 
 - Windows CI 与 `scripts/verify.ps1` 统一 Python 3.12、MSVC、CTest、pytest、Jest 和 UI 生产构建；`cli build` 默认构建 ABI/OLINK/loader smoke。

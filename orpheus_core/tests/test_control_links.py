@@ -24,6 +24,7 @@ from orpheus_core.project import (
     PortRef,
     Project,
     ProjectLoader,
+    SubParameter,
     Subcomponent,
 )
 from orpheus_core.registry import ComponentInfo, Registry
@@ -294,23 +295,86 @@ def test_control_connections_survive_load_save_compile(compiler, tmp_path):
     assert plan.control_links[0]["dst_param"] == "gain_db"
 
 
-def test_control_connection_across_subgraph_rejected():
+def test_public_parameters_survive_load_save(tmp_path):
+    doc = {
+        "version": "0.1.0",
+        "graph": {"nodes": [], "connections": []},
+        "subcomponents": [{
+            "id": "chain",
+            "ports": [],
+            "public_parameters": [{
+                "id": "gain", "name": "增益", "direction": "input",
+                "maps_to": "g:gain_db", "type": "float", "default": -6.0,
+                "shape": [], "update_policy": "smoothed",
+            }],
+            "graph": {
+                "nodes": [{"id": "g", "component": "orpheus.builtin.gain", "params": {"channels": 1}}],
+                "connections": [],
+            },
+        }],
+    }
+    path = tmp_path / "project.yaml"
+    path.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
+    loader = ProjectLoader()
+    project = loader.load(path)
+    parameter = project.subcomponents[0].public_parameters[0]
+    assert parameter.maps_to == "g:gain_db"
+    assert parameter.default == -6.0
+    assert parameter.update_policy == "smoothed"
+    loader.save(project, path)
+    saved = yaml.safe_load(path.read_text(encoding="utf-8"))
+    saved_parameter = saved["subcomponents"][0]["public_parameters"][0]
+    assert saved_parameter == {
+        key: value
+        for key, value in doc["subcomponents"][0]["public_parameters"][0].items()
+        if key != "shape"
+    }
+
+
+def test_control_connection_across_subgraph_maps_public_parameters(compiler):
     sub = Subcomponent(
         id="chain",
         graph=Graph(
-            nodes={"g": Node(id="g", component="orpheus.builtin.gain", params={"channels": 2})},
+            nodes={
+                "level": Node(id="level", component="orpheus.builtin.level_detect", params={"channels": 2}),
+                "g": Node(id="g", component="orpheus.builtin.gain", params={"channels": 2}),
+            },
             connections=[],
         ),
+        public_parameters=[
+            SubParameter(id="level", direction="output", maps_to="level:level"),
+            SubParameter(id="gain", direction="input", maps_to="g:gain_db", default=-6.0),
+        ],
     )
     project = make_project(
         {
-            "level1": Node(id="level1", component="orpheus.builtin.level_detect", params={"channels": 2}),
-            "sub1": Node(id="sub1", component="sub:chain"),
+            "sub1": Node(id="sub1", component="sub:chain", params={"gain": -12.0}),
         },
-        [ctl("level1:level", "sub1:gain_db")],  # 指向子组件实例内部参数
+        [ctl("sub1:level", "sub1:gain")],
     )
     project.subcomponents = [sub]
-    with pytest.raises(CompileError, match="跨子图边界"):
+    flat = flatten_project(project)
+    assert flat.graph.nodes["sub1__g"].params["gain_db"] == -12.0
+    assert str(flat.control_connections[0].from_ref) == "sub1__level:level"
+    assert str(flat.control_connections[0].to_ref) == "sub1__g:gain_db"
+    plan = compiler.compile(flat)
+    assert plan.control_links[0]["src_node"] == "sub1__level"
+    assert plan.control_links[0]["dst_node"] == "sub1__g"
+
+
+def test_public_parameter_direction_is_enforced():
+    sub = Subcomponent(
+        id="chain",
+        graph=Graph(nodes={
+            "g": Node(id="g", component="orpheus.builtin.gain", params={"channels": 1}),
+        }),
+        public_parameters=[
+            SubParameter(id="gain", direction="input", maps_to="g:gain_db"),
+        ],
+    )
+    project = make_project({"sub1": Node(id="sub1", component="sub:chain")}, [ctl("sub1:gain", "sub1:gain")])
+    project.subcomponents = [sub]
+    with pytest.raises(CompileError, match="方向应为 output"):
         flatten_project(project)
 
 

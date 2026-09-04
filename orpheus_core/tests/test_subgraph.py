@@ -10,7 +10,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orpheus_core.compiler import CompileError, GraphCompiler
-from orpheus_core.project import Connection, Graph, Node, PortRef, Project, SubPort, Subcomponent
+from orpheus_core.project import (
+    Connection, Graph, Node, PortRef, Project, SubParameter, SubPort, Subcomponent,
+)
 from orpheus_core.registry import Registry
 from orpheus_core.server.app import create_app
 from orpheus_core.subgraph import flatten_project
@@ -166,6 +168,28 @@ def test_flatten_duplicate_port_id():
     project = make_project()
     project.subcomponents[0].ports.append(SubPort(id="in", direction="input", maps_to="gain:in"))
     with pytest.raises(CompileError, match="duplicate port"):
+        flatten_project(project)
+
+
+def test_flatten_public_parameter_instance_override():
+    project = make_project()
+    project.subcomponents[0].public_parameters = [
+        SubParameter(id="gain_db", direction="input", maps_to="gain:gain_db", default=-6.0),
+    ]
+    project.graph.nodes["acc1"].params["gain_db"] = -18.0
+
+    flat = flatten_project(project)
+    assert flat.graph.nodes["acc1__gain"].params["gain_db"] == -18.0
+    assert project.subcomponents[0].graph.nodes["gain"].params["gain_db"] == -6.0
+
+
+def test_flatten_rejects_public_output_override():
+    project = make_project()
+    project.subcomponents[0].public_parameters = [
+        SubParameter(id="level", direction="output", maps_to="gain:gain_db"),
+    ]
+    project.graph.nodes["acc1"].params["level"] = 1.0
+    with pytest.raises(CompileError, match="控制输出不可由实例赋值"):
         flatten_project(project)
 
 

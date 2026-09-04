@@ -24,6 +24,7 @@ export const importDistilled = (name, yamlText) =>
   unwrap(api.post(`/projects/${name}/distill`, { yaml: yamlText }));
 export const getProject = (name) => unwrap(api.get(`/projects/${name}`));
 export const saveProject = (name, doc) => unwrap(api.put(`/projects/${name}`, doc));
+export const checkLesson = (name) => unwrap(api.post(`/projects/${name}/lesson/check`));
 export const getProjectNotes = (name) => unwrap(api.get(`/projects/${name}/notes`));
 export const saveProjectNotes = (name, content) =>
   unwrap(api.put(`/projects/${name}/notes`, { content }));

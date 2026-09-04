@@ -9,7 +9,7 @@
 - ABI v3、统一 arena、32 位数据 ID、BULK 双 Bank、消息协议。
 - 子组件递归展开、目标平台/alter、OLINK/串口会话、控制参数链路。
 - 多速率静态调度与 `rate_sync` 合流；动态和生成路径一致性测试。
-- 69 个内置组件，均有组件 README。
+- 72 个内置组件，均有组件 README。
 
 ## P0 工程基线
 
@@ -44,6 +44,12 @@
 
 ## P2 候选
 
-- 含代码的封装型复合组件、动态数量槽和跨子图控制链。
-- Symphony SAS/EHC/RNC 真实系数与专用算法回填。
-- 教学视图、课程包、自动检查和 Tauri 桌面封装。
+- [x] 子组件公开参数、实例参数提升与跨子图控制链。
+- [x] BAF RNC 12×8×125 MIMO NLMS 核心、12000 权值提取器与 golden。
+- [x] BAF SAS 二次分段 SoftClipper 与 EREV-1 TOP 参数回填。
+- [x] Symphony ASM 历史跨 Task 边迁移到 `async_bridge`，生成工程可构建运行。
+- [x] 课程包步骤、结构化自动检查 API 与条件化教学面板。
+- [ ] RNC 200-tap Wiener filtered-error、系数历史与发散恢复状态机。
+- [ ] EHC 谐波参考/FxLMS 与 SAS FDP 双速率 STFT。
+- [ ] 含代码的封装型复合组件库与动态数量运行槽。
+- [ ] 教师答案/进度持久化和 Tauri 桌面封装。

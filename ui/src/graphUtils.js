@@ -80,7 +80,7 @@ export function resolvePorts(component, params) {
   return ports;
 }
 
-/** Present a subcomponent definition like a catalog component (ports, no params). */
+/** Present a subcomponent definition like a catalog component. */
 export function subCatalogEntry(sub) {
   return {
     id: subViewKey(sub.id),
@@ -88,7 +88,12 @@ export function subCatalogEntry(sub) {
     description: sub.description || '',
     version: '',
     ports: (sub.ports || []).map((p) => ({ id: p.id, direction: p.direction, type: 'audio' })),
-    parameters: [],
+    parameters: (sub.public_parameters || []).map((p) => ({
+      ...p,
+      ...(p.direction === 'input'
+        ? { bindable: true, update_policy: p.update_policy || 'immediate' }
+        : { control_source: true, readback: true }),
+    })),
     sub: true,
   };
 }
@@ -173,6 +178,7 @@ export function docToViews(doc, globalComponents) {
     name: s.name || s.id,
     description: s.description || '',
     ports: s.ports || [],
+    public_parameters: s.public_parameters || [],
   }));
   const catalogById = Object.fromEntries(
     mergedCatalog(globalComponents, subsMeta).map((c) => [c.id, c])
@@ -210,6 +216,7 @@ export function viewsToDoc(views, subsMeta, baseDoc) {
         name: s.name,
         description: s.description || '',
         ports: s.ports,
+        ...(s.public_parameters?.length ? { public_parameters: s.public_parameters } : {}),
         graph: flowToGraph(view.nodes, view.edges),
       };
     });

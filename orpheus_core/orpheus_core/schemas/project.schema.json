@@ -78,6 +78,25 @@
               }
             }
           },
+          "public_parameters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "direction", "maps_to"],
+              "properties": {
+                "id": { "type": "string" },
+                "direction": { "enum": ["input", "output"] },
+                "maps_to": { "type": "string" },
+                "name": { "type": "string" },
+                "type": { "enum": ["float", "int", "bool", "string"] },
+                "default": {},
+                "shape": { "type": "array", "items": { "type": ["integer", "string"] } },
+                "update_policy": {
+                  "enum": ["immediate", "block_boundary", "smoothed", "transactional", "restart_required"]
+                }
+              }
+            }
+          },
           "graph": { "$ref": "#/definitions/graph" }
         }
       }

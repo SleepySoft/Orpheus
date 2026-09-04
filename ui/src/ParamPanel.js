@@ -35,35 +35,6 @@ export default function ParamPanel({
   const noteKey = viewKey === 'main' ? node.id : `${viewKey}/${node.id}`;
   const nodeNote = nodeNotes?.[noteKey] || '';
 
-  // Subcomponent instance: no promoted parameters in v1; edit by opening it.
-  if (component?.startsWith('sub:')) {
-    return (
-      <div className="sidebar">
-        <h3>参数面板</h3>
-        <p className="node-ref">
-          <span className="muted">{node.id}</span>
-          <br />
-          <strong>{node.data.label || node.id}</strong>
-          <button className="rename-btn" onClick={() => onRenameNode(node.id)} title="重命名节点（显示名）">
-            重命名
-          </button>
-          <br />
-          <span className="muted">子组件 {component}</span>
-        </p>
-        <NodeNoteSection
-          viewKey={viewKey}
-          nodeId={node.id}
-          note={nodeNote}
-          onChange={onNodeNoteChange}
-        />
-        <p className="muted">子组件实例没有可提升参数（v1）。双击节点打开子组件，在独立视图中编辑内部图。</p>
-        <button className="danger" onClick={() => onDeleteNode(node.id)}>
-          删除节点
-        </button>
-      </div>
-    );
-  }
-
   const schemaIds = new Set((parameters || []).map((p) => p.id));
   const extraKeys = Object.keys(params || {}).filter((k) => !schemaIds.has(k));
   const editable = (parameters || []).filter((p) => !isDisplayOnly(p));

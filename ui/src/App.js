@@ -36,6 +36,7 @@ import Palette from './Palette';
 import ProjectTree from './ProjectTree';
 import SubPortsPanel from './SubPortsPanel';
 import ProjectSettings from './ProjectSettings';
+import LessonPanel from './LessonPanel';
 import { NodeActionsContext } from './NodeActionsContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -128,6 +129,9 @@ function Editor() {
   const [autoSave, setAutoSave] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showParams, setShowParams] = useState(false);
+  const [showLesson, setShowLesson] = useState(false);
+  const [lessonResult, setLessonResult] = useState(null);
+  const [lessonChecking, setLessonChecking] = useState(false);
   const [readmeComponentId, setReadmeComponentId] = useState(null);
   const [readmeContent, setReadmeContent] = useState('');
   const [readmeError, setReadmeError] = useState(null);
@@ -1006,7 +1010,7 @@ const { screenToFlowPosition } = useReactFlow();
   const createSub = useCallback(() => {
     const id = promptSubId();
     if (!id) return;
-    setSubsMeta((prev) => [...prev, { id, name: id, description: '', ports: [] }]);
+    setSubsMeta((prev) => [...prev, { id, name: id, description: '', ports: [], public_parameters: [] }]);
     setViews((prev) => ({ ...prev, [subViewKey(id)]: EMPTY_VIEW }));
     setOpenTabs((tabs) => [...tabs, subViewKey(id)]);
     setActiveView(subViewKey(id));
@@ -1061,7 +1065,9 @@ const { screenToFlowPosition } = useReactFlow();
       subId
     );
 
-    setSubsMeta((prev) => [...prev, { id: subId, name: subId, description: '', ports }]);
+    setSubsMeta((prev) => [...prev, {
+      id: subId, name: subId, description: '', ports, public_parameters: [],
+    }]);
     setViews((prev) => ({
       ...prev,
       [activeView]: {
@@ -1228,6 +1234,84 @@ const { screenToFlowPosition } = useReactFlow();
     [activeSub, views]
   );
 
+  const syncSubParameters = useCallback((subId, publicParameters) => {
+    const componentId = subViewKey(subId);
+    const schemas = publicParameters.map((parameter) => ({
+      ...parameter,
+      ...(parameter.direction === 'input'
+        ? { bindable: true, update_policy: parameter.update_policy || 'immediate' }
+        : { control_source: true, readback: true }),
+    }));
+    setViews((current) => Object.fromEntries(Object.entries(current).map(([key, currentView]) => [
+      key,
+      {
+        ...currentView,
+        nodes: currentView.nodes.map((node) => {
+          if (node.data.component !== componentId) return node;
+          const params = { ...node.data.params };
+          for (const parameter of publicParameters) {
+            if (parameter.direction === 'input' && params[parameter.id] === undefined
+                && parameter.default !== undefined) {
+              params[parameter.id] = parameter.default;
+            }
+          }
+          for (const key of Object.keys(params)) {
+            if (!publicParameters.some((parameter) => parameter.id === key)) delete params[key];
+          }
+          return { ...node, data: { ...node.data, parameters: schemas, params } };
+        }),
+      },
+    ])));
+  }, []);
+
+  const addSubParameter = useCallback((direction, mapsTo, schema) => {
+    if (!activeSub) return;
+    const base = schema.id || mapsTo.split(':').pop() || (direction === 'input' ? 'input' : 'output');
+    let id = base;
+    let suffix = 2;
+    while ((activeSub.public_parameters || []).some((parameter) => parameter.id === id)) {
+      id = `${base}_${suffix++}`;
+    }
+    const parameter = {
+      id,
+      direction,
+      maps_to: mapsTo,
+      name: schema.name || id,
+      type: schema.type || 'float',
+      ...(schema.default !== undefined ? { default: schema.default } : {}),
+      ...(schema.shape?.length ? { shape: schema.shape } : {}),
+      ...(schema.update_policy ? { update_policy: schema.update_policy } : {}),
+    };
+    const next = [...(activeSub.public_parameters || []), parameter];
+    setSubsMeta((current) => current.map((sub) => (
+      sub.id === activeSub.id ? { ...sub, public_parameters: next } : sub
+    )));
+    syncSubParameters(activeSub.id, next);
+    setDirty(true);
+  }, [activeSub, syncSubParameters]);
+
+  const removeSubParameter = useCallback((parameterId) => {
+    if (!activeSub) return;
+    const componentId = subViewKey(activeSub.id);
+    const used = Object.values(views).some((currentView) => currentView.edges.some((edge) => {
+      if (edge.type !== 'control') return false;
+      const source = currentView.nodes.find((node) => node.id === edge.source);
+      const target = currentView.nodes.find((node) => node.id === edge.target);
+      return (source?.data.component === componentId && ctlParamId(edge.sourceHandle) === parameterId)
+        || (target?.data.component === componentId && ctlParamId(edge.targetHandle) === parameterId);
+    }));
+    if (used) {
+      setStatus(`公开参数 ${parameterId} 仍被控制链路引用，无法删除`);
+      return;
+    }
+    const next = (activeSub.public_parameters || []).filter((parameter) => parameter.id !== parameterId);
+    setSubsMeta((current) => current.map((sub) => (
+      sub.id === activeSub.id ? { ...sub, public_parameters: next } : sub
+    )));
+    syncSubParameters(activeSub.id, next);
+    setDirty(true);
+  }, [activeSub, syncSubParameters, views]);
+
   // ---------------------------------------------------------- actions
 
   const ensureSaved = useCallback(async () => {
@@ -1264,6 +1348,23 @@ const { screenToFlowPosition } = useReactFlow();
       setLog({ title: '编译错误', lines: [api.errorDetail(e)] });
     }
   }, [current, ensureSaved]);
+
+  const checkLesson = useCallback(async () => {
+    if (!current || !doc?.lesson) return;
+    setLessonChecking(true);
+    try {
+      await ensureSaved();
+      const result = await api.checkLesson(current);
+      setLessonResult(result);
+      setStatus(result.passed
+        ? `教学检查通过：${result.passed_count}/${result.total}`
+        : `教学检查：${result.passed_count}/${result.total} 通过`);
+    } catch (error) {
+      setStatus(`教学检查失败: ${api.errorDetail(error)}`);
+    } finally {
+      setLessonChecking(false);
+    }
+  }, [current, doc, ensureSaved]);
 
   const refreshSerialPorts = useCallback(async () => {
     try {
@@ -1608,6 +1709,11 @@ const { screenToFlowPosition } = useReactFlow();
           <button onClick={() => setShowSettings(true)} disabled={!current || !doc} title="工程全局设置（采样率/块长度/缓冲）">
             ⚙ 设置
           </button>
+          {doc?.lesson && (
+            <button onClick={() => { setLessonResult(null); setShowLesson(true); }} title="查看教学步骤并检查当前工程">
+              教学
+            </button>
+          )}
           <button
             onClick={() => setShowParams(true)}
             disabled={!current || !doc}
@@ -1856,6 +1962,8 @@ const { screenToFlowPosition } = useReactFlow();
                 catalogById={catalogById}
                 onAddPort={addSubPort}
                 onRemovePort={removeSubPort}
+                onAddParameter={addSubParameter}
+                onRemoveParameter={removeSubParameter}
               />
             )}
             <ParamPanel
@@ -1889,6 +1997,15 @@ const { screenToFlowPosition } = useReactFlow();
             setDirty(true);
             setShowSettings(false);
           }}
+        />
+      )}
+      {showLesson && doc?.lesson && (
+        <LessonPanel
+          lesson={doc.lesson}
+          result={lessonResult}
+          checking={lessonChecking}
+          onCheck={checkLesson}
+          onClose={() => setShowLesson(false)}
         />
       )}
       {showParams && doc && (

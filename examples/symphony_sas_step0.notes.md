@@ -183,7 +183,7 @@ part2_fdp 还分出 fdp_lo_ro → audiopilot
 - `asd_router`：32→22 `channel_router`，取前 22 路。
 - `post_eq`：22 通道 13 阶 IIR bank，系数未填。
 - `limiter`：22 通道限幅器，threshold=-1 dB，所有通道攻击/释放/系数相同。
-- `sclip`：`soft_clipper`，默认 drive=0 dB。
+- `sclip`：`baf_soft_clipper`，逐样本执行生成代码的二次分段曲线；Model 1.1 默认 `xmin=0.65`、`xmax=1.35`、`p2=0.714285731`，high/low 两档当前相同。
 - `mute_ramp`：`gain_ramper`，100ms 斜坡，默认 0 dB。
 - `calib`：22→22 `output_router`，identity。
 - `freq_comp`：22 通道 13 阶 IIR bank，系数未填。

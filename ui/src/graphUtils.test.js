@@ -166,4 +166,30 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
     const out = viewsToDoc(views, subsMeta, noCtl);
     expect('control_connections' in out).toBe(false);
   });
+
+  test('子组件公开参数成为控制 handle 并无损往返', () => {
+    const subDoc = {
+      ...doc,
+      graph: {
+        nodes: [{ id: 'chain1', component: 'sub:chain', params: { gain: -12 } }],
+        connections: [],
+      },
+      control_connections: [{ from: 'chain1:level', to: 'chain1:gain' }],
+      subcomponents: [{
+        id: 'chain',
+        ports: [],
+        public_parameters: [
+          { id: 'level', direction: 'output', maps_to: 'meter:level', type: 'float' },
+          { id: 'gain', direction: 'input', maps_to: 'gain:gain_db', type: 'float', default: -6 },
+        ],
+        graph: { nodes: [], connections: [] },
+      }],
+    };
+    const { views, subsMeta } = docToViews(subDoc, catalog);
+    const params = views.main.nodes[0].data.parameters;
+    expect(params.find((p) => p.id === 'level').control_source).toBe(true);
+    expect(params.find((p) => p.id === 'gain').bindable).toBe(true);
+    const out = viewsToDoc(views, subsMeta, subDoc);
+    expect(out.subcomponents[0].public_parameters).toEqual(subDoc.subcomponents[0].public_parameters);
+  });
 });

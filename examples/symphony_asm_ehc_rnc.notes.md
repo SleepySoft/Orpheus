@@ -1,7 +1,7 @@
 # Symphony ASM EHC/RNC step0 工程笔记
 
 > 对应文件：`examples/symphony_asm_ehc_rnc.yaml`
-> 蒸馏来源：`C:\D\Work\Project\EREV\cart-cicd-erev-asm\components\symphony` 中的 `Model_Target` 生成 C 代码
+> 蒸馏来源：`cart-cicd-erev-asm/components/baf/src/out/baremetalgul/slx/code/Model_Target_ert_shrlib_rtw` 中的生成 C 代码
 > 最后更新：2026-08
 
 ---
@@ -14,10 +14,10 @@
 
 1. 对齐顶层 I/O：25 路 `asm_in`、22 路 `audio_in`、24 路 `audio_out`、18 路 `ref_out`。
 2. 对齐 7 个同步任务率（TID0~TID6）。
-3. 把 EHC/RNC 内部子系统用 Orpheus 内置组件占位，建立可编译、可运行的拓扑基线。
+3. 把 EHC/RNC 内部子系统映射到 Orpheus 组件，建立可编译、可运行的多 Task 拓扑基线。
 4. 保留 TOP 参数分区元数据，便于后续从 `Model_Target_*_TOP.c` 回填系数。
 
-**当前算法全是占位**：谐波振荡器用 `sine_mod`、FxLMS/NLMS 用 `gain`+`mixer`、自适应滤波器用 `fir`+`matrix_mul`。声音效果不对，但结构和通道数是对的。
+**当前仍是分阶段蒸馏模型**：EHC 谐波/FxLMS、RNC Wiener filtered-error 与发散状态机仍有占位；RNC 的 12 参考×8 输出×125 taps MIMO NLMS 更新核心及 SAS 分段 SoftClipper 已按 out 生成代码落地并有 C golden。
 
 ---
 
@@ -82,7 +82,7 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 
 - `input_router`：从 25ch 中选出 8 路（与 EHC 类似，后续应独立映射）。
 - `anti_alias_iir` + `rnc_gain`：占位抗混叠与输入缩放。
-- `nlms_gain` + `nlms_mix` + `nlms_probe`：NLMS 系数更新占位，监控 RMS。
+- `rnc_mimo_nlms`：按生成代码实现 12 参考×8 输出×125 taps 更新核心，权值布局为 output→reference→tap；`filtered_error` 仍由 8 路占位信号代替真实 Wiener 路径。
 - `control_fir` + `control_matrix`：ControlFilter 占位，对参考信号做 FIR 后矩阵混音。
 - `output_mix` + `output_router`：合并并输出 8 路反噪声。
 - `downrate_to_tid4` + `slow_*`：RNC 慢速监控支路，落在 TID4。
@@ -115,7 +115,8 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 | `sub:output_processing/limiter` | `threshold_db` | `Rnc_p15_b2.SsSpeakerOutputLim` | 2.0 线性 → 6 dB |
 | `sub:ehc_sub/sine_mod` | `freq_hz/depth` | `Ehc_p0_b0.OnOff=0` | EHC 关闭，freq=0、depth=0 时输出直通 |
 | `sub:ehc_sub/blade_gain` | `gain_db` | `Ehc_p0_b0.BladeMicMuMuliplierLimitLow` | 0.1 线性 → -20 dB |
-| `sub:rnc_sub/rnc_nlms` | `step_size` | `Rnc_p15_b2.NlmsStepSize` | 0.01 占位，后续按源模型标定量回填 |
+| `sub:rnc_sub/rnc_nlms` | `step_sizes` | `Rnc_p15_b2.NlmsStepSize[8]` | 当前参考 TOP 实值为全 0；通过公开参数或 BULK 写入 |
+| `sub:rnc_sub/rnc_nlms` | `initial_weights` | `Rnc_p15_b5.NlmsAdaptiveFilterCoeffsInit[12000]` | 用 `scripts/extract_baf_top.py` 提取；规范化 SHA-256=`0e908d3303747c0b7f03332f8961dfd66903f29653184d0a63902fec38fdf725` |
 | `sub:rnc_sub/anti_alias_iir` | `coefs` | `Rnc_p15_b0.ReconFilterpooliirCoeffs` | 8ch×6stages pooliir → SOS，经 `scripts/pooliir2sos.py` 转换 |
 
 ### 5.2 子图化占位组件
@@ -123,7 +124,7 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 为了尽量不新增专用组件，先把三个核心算法展开为子组件（subcomponent），内部仍用 Orpheus 内置组件占位：
 
 - **`ehc_core`**：封装 `input_router → sine_mod → core_gain → leakage_lpf → harmonic_mix → output_router`。后续把真正的谐波生成/FxLMS 逻辑填进去即可，不必替换为新的原子组件。
-- **`rnc_nlms`**：已替换为 `orpheus.builtin.nlms` 原子组件，直接接收 `ref`（参考信号）和 `err`（误差信号），输出 `out` 供监控。保留 `rnc_nlms` 节点 id 以维持现有连接。
+- **`rnc_nlms`**：已替换为 `orpheus.builtin.rnc_mimo_nlms`，接口为 12ch `ref` + 8ch `filtered_error` → 8ch `out`。核心卷积、跨参考归一化、逐输出更新和轮转 leakage 与 `<S724>/AdaptFilter` 对齐。
 - **`rnc_control_filter`**：封装 `fir → matrix_mul → output_router`。后续把 Wiener/自适应 FIR 系数灌入即可。
 
 `ehc_sub` 与 `rnc_sub` 中原来的零散节点已替换为这三个子组件节点。
@@ -182,7 +183,7 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
    - `rnc_divergence_detector` 已用同样链路替换车顶麦克风探针。
 3. **提取 TOP 系数**：从 `Model_Target_Ehc_p0_b*.c`、`Model_Target_Rnc_p15_b*.c`、`Model_Target_Sys_p2_b0.c` 中把表写入对应组件参数。
 4. **明确通道语义**：25ch `asm_in` 中哪些是 RPM、扭矩、车速、加速度计、麦克风；22ch `audio_in` 中哪些是座椅/车顶麦克风。
-5. **实现真实子图**：`ehc_core`、`ehc_blade`、`rnc_control_filter`、`rnc_noise_floor`、`rnc_divergence_detector`；`rnc_nlms` 已完成。
+5. **实现剩余真实子图**：`ehc_core`、`ehc_blade`、`rnc_control_filter` 的 200-tap Wiener 路径、`rnc_noise_floor` 冗余检测、`rnc_divergence_detector` 双阶段状态机；`rnc_nlms` 核心已完成。
 6. **控制闭环**：让 `rnc_noise_floor` 的 `nf_est`、`rnc_divergence_detector` 的 `divergence_flag` 等能够调制 `rnc_gain`/`ehc_gain`。
 7. **一致性验证**：与源模型参考输出逐样本对比。
 
@@ -193,7 +194,7 @@ audio_in (22ch @1.5kHz)┘              │                          ref_out   (
 - 先编译：`python -m orpheus_core.cli compile examples/symphony_asm_ehc_rnc.yaml`
 - 再运行：`build/orpheus_runtime.exe examples/symphony_asm_ehc_rnc.plan.json build/components`
 - 检查 WAV：`outputs/symphony_asm_audio_out.wav`（24ch）和 `outputs/symphony_asm_ref_out.wav`（18ch）。
-- 注意：当前 step0 占位工程在运行时会因 `ehc_sub` 的 AutoStabilizer 支路（与本次改动无关）发生访问冲突，属于已知问题；编译和 STFT 链路单元测试已通过。
+- 多 Task 边界均已插入 `async_bridge`；ASM 生成工程全局入口及 TID1/TID5/TID6 独立入口均已实测返回 0。
 - 任务 rate 验证：查看 plan.json 中各节点所属 task 与预期 TID 是否一致。
 - 探针：关注 `ehc_sub/autostab_probe`、`rnc_sub/nlms_probe`、`rnc_sub/slow_probe` 是否随输入变化。
 
@@ -252,7 +253,7 @@ subcomponents:
 1. **修复编译阻断**：对齐 rnc_divergence_detector 的 error_mix 有效块长，恢复可编译、可运行。
 2. **接入控制链路**：把可标量化的诊断参数用 control_connections 闭环（至少一条演示闭环），让非音频数据链路真正生效。
 3. **补齐子图控制端口能力**：实现/验证「子图导出控制点」，使跨子图控制连接成为一等语法。
-4. **同步 baf 路径**：更新 yaml / notes / 蒸馏提纲中的 components/symphony 引用为 components/baf/...。
+4. ✅ **同步 baf 路径**：yaml / notes 已指向 `components/baf/src/out/...` 的真实生成代码。
 5. **一致性验证**：与参考模型逐样本对比（保持双路径一致性测试基线）。
 
 

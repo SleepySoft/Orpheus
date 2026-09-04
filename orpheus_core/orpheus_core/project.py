@@ -71,12 +71,26 @@ class SubPort:
 
 
 @dataclass
+class SubParameter:
+    """Public control parameter mapped to an internal atomic node parameter."""
+    id: str
+    direction: str  # "input" (bindable) | "output" (control source)
+    maps_to: str
+    name: str = ""
+    type: str = "float"
+    default: Any = None
+    shape: list[Any] = field(default_factory=list)
+    update_policy: str = "immediate"
+
+
+@dataclass
 class Subcomponent:
     """A project-private composite component wrapping a subgraph."""
     id: str
     name: str = ""
     description: str = ""
     ports: list[SubPort] = field(default_factory=list)
+    public_parameters: list[SubParameter] = field(default_factory=list)
     graph: Graph = field(default_factory=Graph)
 
 
@@ -200,6 +214,21 @@ def project_to_dict(project: Project) -> dict[str, Any]:
                     {"id": p.id, "direction": p.direction, "maps_to": p.maps_to}
                     for p in s.ports
                 ],
+                **({
+                    "public_parameters": [
+                        {
+                            "id": p.id,
+                            "direction": p.direction,
+                            "maps_to": p.maps_to,
+                            **({"name": p.name} if p.name else {}),
+                            "type": p.type,
+                            **({"default": p.default} if p.default is not None else {}),
+                            **({"shape": p.shape} if p.shape else {}),
+                            "update_policy": p.update_policy,
+                        }
+                        for p in s.public_parameters
+                    ]
+                } if s.public_parameters else {}),
                 "graph": _graph_to_dict(s.graph),
             }
             for s in project.subcomponents
@@ -259,6 +288,15 @@ class ProjectLoader:
                 ports=[
                     SubPort(id=p["id"], direction=p["direction"], maps_to=p["maps_to"])
                     for p in s.get("ports", [])
+                ],
+                public_parameters=[
+                    SubParameter(
+                        id=p["id"], direction=p["direction"], maps_to=p["maps_to"],
+                        name=p.get("name", p["id"]), type=p.get("type", "float"),
+                        default=p.get("default"), shape=list(p.get("shape", []) or []),
+                        update_policy=p.get("update_policy", "immediate"),
+                    )
+                    for p in s.get("public_parameters", [])
                 ],
                 graph=_parse_graph(s.get("graph", {"nodes": [], "connections": []})),
             )
