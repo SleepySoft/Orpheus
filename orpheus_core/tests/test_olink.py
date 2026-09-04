@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from orpheus_core.builder import run_cmake_with_msvc_env
+from orpheus_core.builder import configured_c_compiler, run_cmake_with_msvc_env
 from orpheus_core.link import olink
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,8 +26,10 @@ def _build_cli() -> bool:
     cache = BUILD / "CMakeCache.txt"
     if not cache.exists():
         return False
-    text = cache.read_text(encoding="utf-8", errors="replace")
-    msvc = "cl.exe" in text
+    compiler = configured_c_compiler(BUILD)
+    if not compiler:
+        return False
+    msvc = "cl.exe" in compiler.lower()
     obj_dir = BUILD / "olink_obj"
     obj_dir.mkdir(exist_ok=True)
     if msvc:
@@ -36,7 +38,7 @@ def _build_cli() -> bool:
                 "/Fe:" + str(CLI_EXE)]
         r = run_cmake_with_msvc_env(args, obj_dir, BUILD)
     else:
-        args = ["gcc", "-O1", "-std=c11", "-I", str(ROOT / "orpheus_abi" / "include"),
+        args = [compiler, "-O1", "-std=c11", "-I", str(ROOT / "orpheus_abi" / "include"),
                 str(ROOT / "tests" / "olink_cli.c"), str(ROOT / "orpheus_abi" / "src" / "olink.c"),
                 "-o", str(CLI_EXE)]
         r = run_cmake_with_msvc_env(args, ROOT, BUILD)

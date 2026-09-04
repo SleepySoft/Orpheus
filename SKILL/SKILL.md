@@ -76,7 +76,7 @@ cd ui; npm run build               # 前端改动后必须重新构建，serve �
 | 工程 YAML 格式、子组件（sub:）、workspace 布局 | `references/project-format.md` |
 | 模型蒸馏：分析 C 代码 → 还原滤波器树与参数 → 生成可导入工程 | `references/distill-model.md` |
 
-> 注：`write-component` / `architecture` / `run-debug` / `project-format` 四个 reference 尚未落盘，当前以仓库实际代码与 `docs/` 为准。
+> 当前状态与待办以 `docs/ROADMAP.md` 为准；实现历史见 `docs/implementation_log.md`。
 
 ## 最小工作流
 

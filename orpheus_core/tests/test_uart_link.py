@@ -23,7 +23,6 @@ from orpheus_core.registry import Registry
 from orpheus_core.server.serial_session import SerialSession
 
 ROOT = Path(__file__).resolve().parents[2]
-MAIN_BUILD = ROOT / "build"
 
 
 @pytest.fixture(scope="module")
@@ -154,9 +153,9 @@ def _build_generated(gen: Path) -> Path:
     if exe.exists():
         return exe
     r = run_cmake_with_msvc_env(["cmake", "-S", str(gen), "-B", str(bdir), "-G", "Ninja"],
-                                gen, MAIN_BUILD)
+                                gen, bdir)
     assert r.returncode == 0, (r.stdout or "")[-2000:] + (r.stderr or "")[-2000:]
-    r = run_cmake_with_msvc_env(["cmake", "--build", str(bdir)], bdir, MAIN_BUILD)
+    r = run_cmake_with_msvc_env(["cmake", "--build", str(bdir)], bdir, bdir)
     assert r.returncode == 0, (r.stdout or "")[-2000:] + (r.stderr or "")[-2000:]
     assert exe.exists()
     return exe

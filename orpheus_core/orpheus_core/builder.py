@@ -52,18 +52,24 @@ def _find_vcvars64() -> str | None:
     return None
 
 
-def _configured_compiler_is_msvc(build_dir: Path) -> bool:
-    """Check whether the configured C compiler is MSVC (cl.exe)."""
+def configured_c_compiler(build_dir: Path) -> str | None:
+    """Return the configured C compiler path from CMakeCache, if available."""
     cache = Path(build_dir) / "CMakeCache.txt"
     if not cache.exists():
-        return False
+        return None
     try:
         for line in cache.read_text(encoding="utf-8", errors="ignore").splitlines():
             if line.startswith("CMAKE_C_COMPILER:") and "=" in line:
-                return "MSVC" in line.split("=", 1)[1] or "cl.exe" in line.lower()
+                return line.split("=", 1)[1].strip()
     except OSError:
         pass
-    return False
+    return None
+
+
+def _configured_compiler_is_msvc(build_dir: Path) -> bool:
+    """Check whether the configured C compiler is MSVC (cl.exe)."""
+    compiler = configured_c_compiler(build_dir)
+    return bool(compiler and ("MSVC" in compiler or "cl.exe" in compiler.lower()))
 
 
 def run_cmake_with_msvc_env(
@@ -76,19 +82,32 @@ def run_cmake_with_msvc_env(
     shells work too; MinGW/gcc builds are unaffected.
     """
     env = os.environ.copy()
-    if _configured_compiler_is_msvc(build_dir):
+    cache = Path(build_dir) / "CMakeCache.txt"
+    command: str | list[str] = args
+    shell = False
+    if _configured_compiler_is_msvc(build_dir) or not cache.exists():
         vcvars = _find_vcvars64()
         if vcvars:
             quoted = " ".join(f'"{a}"' for a in args)
-            cmd_line = f'call "{vcvars}" >nul && {quoted}'
-            return subprocess.run(
-                cmd_line, cwd=cwd, env=env, shell=True, capture_output=True,
-                text=True, encoding="utf-8", errors="replace",
-            )
-    return subprocess.run(
-        args, cwd=cwd, env=env, capture_output=True, text=True,
+            command = f'call "{vcvars}" >nul && {quoted}'
+            shell = True
+    result = subprocess.run(
+        command, cwd=cwd, env=env, shell=shell, capture_output=True, text=True,
         encoding="utf-8", errors="replace",
     )
+    output = (result.stdout or "") + (result.stderr or "")
+    transient_archive_lock = (
+        os.name == "nt"
+        and len(args) >= 2
+        and args[0] == "cmake"
+        and args[1] == "--build"
+        and "-j1" not in args
+        and "could not create temporary file whilst writing archive: Permission denied" in output
+    )
+    if result.returncode != 0 and transient_archive_lock:
+        retry_args = [*args, "--", "-j1"]
+        return run_cmake_with_msvc_env(retry_args, cwd, build_dir)
+    return result
 
 
 class ComponentBuilder:
@@ -137,7 +156,7 @@ class ComponentBuilder:
             "-G", self.cmake_generator,
             "-DORPHEUS_BUILD_RUNTIME=ON",
             "-DORPHEUS_BUILD_COMPONENTS=ON",
-            "-DORPHEUS_BUILD_TESTS=OFF",
+            "-DORPHEUS_BUILD_TESTS=ON",
         ]
         if extra_cmake_args:
             args.extend(extra_cmake_args)

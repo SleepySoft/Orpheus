@@ -1,5 +1,5 @@
 #include "orpheus_abi.h"
 
-int main() {
-    return (ORPHEUS_ABI_VERSION == 1) ? 0 : 1;
+int main(void) {
+    return (ORPHEUS_ABI_VERSION == 3) ? 0 : 1;
 }

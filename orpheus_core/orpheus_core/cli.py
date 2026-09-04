@@ -107,12 +107,14 @@ def build(ctx: click.Context, component_ids: tuple[str, ...], build_dir: Path | 
     if full_build:
         # 完整构建：组件 + runtime/宿主（README 承诺 cli build = 全部组件 + runtime）。
         # 曾因只建组件导致 runtime 停留在旧 ABI，新组件读 config->state_block 越界（balance 异常）。
-        for target in ("orpheus_runtime", "orpheus_rt_host"):
+        for target in ("orpheus_runtime", "orpheus_rt_host", "abi_smoke", "olink_cli"):
             result = builder._run_cmake(["cmake", "--build", str(build_dir), "--target", target])
             if result.returncode != 0:
                 click.echo(f"build error for {target}:\n{result.stderr}", err=True)
                 sys.exit(1)
-            click.echo(f"{target} -> {build_dir / (target + '.exe')}")
+            candidates = [build_dir / (target + ".exe"), build_dir / "tests" / (target + ".exe")]
+            output = next((path for path in candidates if path.exists()), candidates[0])
+            click.echo(f"{target} -> {output}")
 
 
 @cli.command()

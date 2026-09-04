@@ -6,6 +6,7 @@ An intuitive, easily extensible audio processing framework based on visual progr
 
 - [`docs/WHAT.md`](docs/WHAT.md) — 产品目标、核心需求、成功标准与范围边界。
 - [`docs/HOW.md`](docs/HOW.md) — 技术栈、架构方案、关键机制与落地路线图。
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — 当前实现状态、近期优先级与验收进度。
 - [`docs/design_draft.txt`](docs/design_draft.txt) — 历史设计草案与详细子系统分解。
 - [`docs/design_v1.md`](docs/design_v1.md) — 高层概念草稿。
 
@@ -24,6 +25,14 @@ An intuitive, easily extensible audio processing framework based on visual progr
 - **编译器**，二选一：
   - **方案 A（MinGW，推荐）**：安装 Strawberry Perl（自带 GCC）：https://strawberryperl.com/ ，并把 `C:\Strawberry\c\bin` 加入 PATH。注意：PATH 里 Perl 自带的老 gcc 4.9.2 不可用，请用 Strawberry 的版本。
   - **方案 B（MSVC）**：Visual Studio 2022 Build Tools：https://my.visualstudio.com/Downloads?q=visual%20studio%202022&wt.mc_id=o~msft~vscom~older-downloads（勾选「使用 C++ 的桌面开发」）。**首次**配置请在「x64 Native Tools Command Prompt for VS 2022」中运行一次 `python -m orpheus_core.cli build`；之后任意终端均可——`cli build` 检测到 MSVC 会自动加载 VS 环境（`vcvars64.bat`），无需手动切换。项目已支持 MSVC 构建（UTF-8 源码与 DLL 命名已兼容）。
+
+仓库完整验证固定使用 **Python 3.12 + Node.js 20 + MSVC x64**。安装这些工具后可在普通 PowerShell 中运行：
+
+```powershell
+./scripts/verify.ps1 -Python C:\path\to\python.exe
+```
+
+该脚本依次安装依赖、构建组件/runtime/C 测试工具、运行 CTest 与 pytest、运行前端测试并生成生产构建；Windows CI 执行同一入口。Python 包本身仍声明兼容 3.10+，但提交前基线以 3.12 为准。
 
 ```powershell
 # 1. 安装 Python 工具链（含 HTTP 服务依赖）
