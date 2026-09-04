@@ -1121,7 +1121,7 @@
 }
 
 .level-label {
-  width: 44px;
+  width: 32px;
   color: #868e96;
 }
 
@@ -1261,8 +1261,7 @@ button.danger {
 
 .orpheus-node {
   background: white;
-  border: 1px solid #8ecbc4;
-  border-left: 4px solid #16877c;
+  border: 1px solid #ced4da;
   border-radius: 8px;
   min-width: 140px;
   width: 100%;
@@ -1274,8 +1273,8 @@ button.danger {
 }
 
 .orpheus-node.selected {
-  border-color: #087f73;
-  box-shadow: 0 0 0 2px rgba(22, 135, 124, 0.28);
+  border-color: #4cc9f0;
+  box-shadow: 0 0 0 2px rgba(76, 201, 240, 0.3);
 }
 
 .orpheus-node.sub {
@@ -1319,7 +1318,7 @@ button.danger {
 .node-header {
   position: relative;
   padding: 8px 12px;
-  background: #e7f5f2;
+  background: #e9ecef;
   border-radius: 8px 8px 0 0;
 }
 
@@ -1402,28 +1401,24 @@ button.danger {
 }
 
 .port-row .react-flow__handle {
-  width: 9px;
-  height: 9px;
-  background: #16877c;
-  border: 2px solid #f8fffe;
-  box-shadow: 0 0 0 1px #0b5f57;
+  width: 8px;
+  height: 8px;
+  background: #4cc9f0;
+  border: 1px solid #1a1a2e;
 }
 
 .port-row .react-flow__handle:hover {
-  background: #35b9aa;
+  background: #ffd166;
 }
 
-.node-ports.inputs .port-row { color: #126a55; }
-.node-ports.outputs .port-row { color: #165d85; }
-
-/* 子组件实例导出引脚：电路图式长引线 + 外端空心圈。输入绿色、输出蓝色。 */
+/* 子组件内部导出的原子端点：电路图式长引线 + 外端空心圈。 */
 .export-pin { cursor: pointer; }
 .export-pin::before,
 .export-pin::after {
   content: '';
   position: absolute;
   top: 50%;
-  width: 32px;
+  width: 44px;
   height: 2px;
   transform: translateY(-50%);
   pointer-events: none;

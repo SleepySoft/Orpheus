@@ -1585,8 +1585,35 @@ const { screenToFlowPosition } = useReactFlow();
     [view.edges, view.nodes, showControlLinks]
   );
 
-  const revealSubExport = useCallback((componentId, kind, id) => {
-    const subId = subIdOf(componentId);
+  const displayNodes = useMemo(() => {
+    if (!activeSub) return view.nodes;
+    const audioByNode = {};
+    const controlByNode = {};
+    const addExport = (table, exported) => {
+      const separator = exported.maps_to?.indexOf(':') ?? -1;
+      if (separator < 1) return;
+      const nodeId = exported.maps_to.slice(0, separator);
+      const endpointId = exported.maps_to.slice(separator + 1);
+      if (!table[nodeId]) table[nodeId] = {};
+      table[nodeId][endpointId] = { id: exported.id, direction: exported.direction };
+    };
+    activeSub.ports.forEach((port) => addExport(audioByNode, port));
+    (activeSub.public_parameters || []).forEach((parameter) => addExport(controlByNode, parameter));
+    return view.nodes.map((node) => {
+      if (!audioByNode[node.id] && !controlByNode[node.id]) return node;
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          exportSubId: activeSub.id,
+          exportedAudioPorts: audioByNode[node.id] || {},
+          exportedControlParameters: controlByNode[node.id] || {},
+        },
+      };
+    });
+  }, [activeSub, view.nodes]);
+
+  const revealSubExport = useCallback((subId, kind, id) => {
     const viewKey = subViewKey(subId);
     setOpenTabs((tabs) => (tabs.includes(viewKey) ? tabs : [...tabs, viewKey]));
     setActiveView(viewKey);
@@ -1934,7 +1961,7 @@ const { screenToFlowPosition } = useReactFlow();
           </div>
           <NodeActionsContext.Provider value={{ showReadme: handleShowReadme, showControlLinks, revealSubExport }}>
             <ReactFlow
-            nodes={view.nodes}
+            nodes={displayNodes}
             edges={displayEdges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}

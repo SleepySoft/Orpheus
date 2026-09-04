@@ -70,10 +70,10 @@ const BodyWidget = NODE_WIDGETS[data.component];
   const { showReadme, showControlLinks, revealSubExport } = React.useContext(NodeActionsContext);
   const updateNodeInternals = useUpdateNodeInternals();
   const handleSignature = [
-    ...ports.map((port) => `audio:${port.direction}:${port.id}`),
+    ...ports.map((port) => `audio:${port.direction}:${port.id}:${data.exportedAudioPorts?.[port.id]?.id || ''}`),
     ...(data.parameters || [])
       .filter((parameter) => parameter.control_source || parameter.bindable)
-      .map((parameter) => `control:${parameter.control_source ? 'source' : ''}:${parameter.bindable ? 'target' : ''}:${parameter.id}`),
+      .map((parameter) => `control:${parameter.control_source ? 'source' : ''}:${parameter.bindable ? 'target' : ''}:${parameter.id}:${data.exportedControlParameters?.[parameter.id]?.id || ''}`),
   ].join('|');
 
   React.useEffect(() => {
@@ -107,25 +107,27 @@ const BodyWidget = NODE_WIDGETS[data.component];
   })();
 
   const revealExport = (event, kind, id) => {
-    if (!isSub) return;
+    if (!data.exportSubId) return;
     event.stopPropagation();
-    revealSubExport(data.component, kind, id);
+    revealSubExport(data.exportSubId, kind, id);
   };
 
-  const renderRow = (p, isInput) => (
-    <div
-      key={p.id}
-      className={`port-row audio-port-row ${isSub ? `export-pin ${isInput ? 'export-input' : 'export-output'}` : ''}`}
-      onClick={isSub ? (event) => revealExport(event, 'audio', p.id) : undefined}
-      title={isSub ? `导出${isInput ? '输入' : '输出'} ${p.id}：点击定位接口定义` : undefined}
-    >
+  const renderRow = (p, isInput) => {
+    const exported = data.exportedAudioPorts?.[p.id];
+    return (
+      <div
+        key={p.id}
+        className={`port-row audio-port-row ${exported ? `export-pin ${exported.direction === 'input' ? 'export-input' : 'export-output'}` : ''}`}
+        onClick={exported ? (event) => revealExport(event, 'audio', exported.id) : undefined}
+        title={exported ? `导出${exported.direction === 'input' ? '输入' : '输出'} ${exported.id}：点击定位接口定义` : undefined}
+      >
       {isInput && (
         <Handle
           type="target"
           position={Position.Left}
           id={p.id}
-          className={isSub ? 'export-handle' : ''}
-          style={{ ...handleStyle, left: isSub ? -50 : -11 }}
+          className={exported ? 'export-handle' : ''}
+          style={{ ...handleStyle, left: exported ? -50 : -11 }}
         />
       )}
       <span>{p.id}</span>
@@ -135,12 +137,13 @@ const BodyWidget = NODE_WIDGETS[data.component];
           type="source"
           position={Position.Right}
           id={p.id}
-          className={isSub ? 'export-handle' : ''}
-          style={{ ...handleStyle, right: isSub ? -50 : -11 }}
+          className={exported ? 'export-handle' : ''}
+          style={{ ...handleStyle, right: exported ? -50 : -11 }}
         />
       )}
-    </div>
-  );
+      </div>
+    );
+  };
 
   return (
     <>
@@ -229,20 +232,22 @@ const BodyWidget = NODE_WIDGETS[data.component];
             <div className="control-dock-title">控制</div>
             {(data.parameters || [])
               .filter((p) => p.control_source || p.bindable)
-              .map((p) => (
-                <div
+              .map((p) => {
+                const exported = data.exportedControlParameters?.[p.id];
+                return (
+                  <div
                   key={p.id}
-                  className={`port-row ctl-row ${p.control_source && !p.bindable ? 'src' : ''} ${isSub ? `export-control-pin ${p.bindable ? 'export-control-input' : 'export-control-output'}` : ''}`}
-                  onClick={isSub ? (event) => revealExport(event, 'control', p.id) : undefined}
-                  title={isSub ? `导出控制${p.bindable ? '输入' : '输出'} ${p.id}：点击定位接口定义` : undefined}
+                  className={`port-row ctl-row ${p.control_source && !p.bindable ? 'src' : ''} ${exported ? `export-control-pin ${exported.direction === 'input' ? 'export-control-input' : 'export-control-output'}` : ''}`}
+                  onClick={exported ? (event) => revealExport(event, 'control', exported.id) : undefined}
+                  title={exported ? `导出控制${exported.direction === 'input' ? '输入' : '输出'} ${exported.id}：点击定位接口定义` : undefined}
                 >
                   {p.bindable && (
                     <Handle
                       type="target"
                       position={Position.Left}
                       id={`${CTL_PREFIX}${p.id}`}
-                      className={isSub ? 'export-control-handle' : ''}
-                      style={{ ...handleStyle, left: isSub ? -18 : -11 }}
+                      className={exported ? 'export-control-handle' : ''}
+                      style={{ ...handleStyle, left: exported ? -18 : -11 }}
                     />
                   )}
                   <span className="ctl-name">{p.name || p.id}</span>
@@ -254,12 +259,13 @@ const BodyWidget = NODE_WIDGETS[data.component];
                       type="source"
                       position={Position.Right}
                       id={`${CTL_PREFIX}${p.id}`}
-                      className={isSub ? 'export-control-handle' : ''}
-                      style={{ ...handleStyle, right: isSub ? -18 : -11 }}
+                      className={exported ? 'export-control-handle' : ''}
+                      style={{ ...handleStyle, right: exported ? -18 : -11 }}
                     />
                   )}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
           </div>
         )}
       {BodyWidget && <BodyWidget data={data} />}

@@ -123,25 +123,28 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   await page.screenshot({ path: testInfo.outputPath('control-links-on.png'), fullPage: true });
   await expect(page.locator('.control-edge-path')).toHaveCount(1);
 
-  const exportedInput = page.locator('.react-flow__node').filter({ hasText: 'chain1' })
-    .locator('.export-input .export-handle');
-  const exportedOutput = page.locator('.react-flow__node').filter({ hasText: 'chain1' })
-    .locator('.export-output .export-handle');
+  const chainInstance = page.locator('.react-flow__node').filter({ hasText: 'chain1' });
+  await expect(chainInstance.locator('.export-pin, .export-control-pin')).toHaveCount(0);
+  await chainInstance.dblclick();
+  await expect(page.locator('.tab.active').filter({ hasText: 'Gain Chain' })).toBeVisible();
+
+  const internalGain = page.locator('.react-flow__node').filter({ hasText: 'gain' });
+  const exportedInput = internalGain.locator('.export-input .export-handle');
+  const exportedOutput = internalGain.locator('.export-output .export-handle');
   await expect(exportedInput).toBeVisible();
   await expect(exportedOutput).toBeVisible();
-  const chainBox = await page.locator('.react-flow__node').filter({ hasText: 'chain1' })
-    .locator('.orpheus-node').boundingBox();
+  const internalGainBox = await internalGain.locator('.orpheus-node').boundingBox();
   const inputBox = await exportedInput.boundingBox();
   const outputBox = await exportedOutput.boundingBox();
-  expect(chainBox.x - (inputBox.x + inputBox.width / 2)).toBeGreaterThan(28);
-  expect(outputBox.x + outputBox.width / 2 - (chainBox.x + chainBox.width)).toBeGreaterThan(28);
+  expect(internalGainBox.x - (inputBox.x + inputBox.width / 2)).toBeGreaterThan(28);
+  expect(outputBox.x + outputBox.width / 2 - (internalGainBox.x + internalGainBox.width)).toBeGreaterThan(28);
   await exportedInput.click();
   await expect(page.locator('.subports')).toBeVisible();
   await expect(page.locator('.subport-row.export-highlight').filter({ hasText: 'in' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('audio-export-revealed.png'), fullPage: true });
 
-  await page.locator('.tab').filter({ hasText: '主图' }).click();
-  await page.locator('.react-flow__node').filter({ hasText: 'chain1' })
-    .locator('.export-control-input .export-control-handle').click();
+  await exportedOutput.click();
+  await expect(page.locator('.subport-row.export-highlight').filter({ hasText: 'out' })).toBeVisible();
+  await internalGain.locator('.export-control-input .export-control-handle').click();
   await expect(page.locator('.control-export-row.export-highlight').filter({ hasText: 'gain' })).toBeVisible();
 });

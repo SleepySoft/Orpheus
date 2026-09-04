@@ -6,5 +6,5 @@ import { createContext } from 'react';
 export const NodeActionsContext = createContext({
   showReadme: () => {},
   showControlLinks: false, // 「控制链路」显示开关：关闭时节点不渲染控制 handle
-  revealSubExport: () => {}, // 点击子组件实例导出引脚：打开定义视图并定位接口条目
+  revealSubExport: () => {}, // 点击子组件内部导出端点：定位对应接口条目
 });
