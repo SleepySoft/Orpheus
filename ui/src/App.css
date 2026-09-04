@@ -1121,7 +1121,7 @@
 }
 
 .level-label {
-  width: 32px;
+  width: 44px;
   color: #868e96;
 }
 
@@ -1416,20 +1416,20 @@ button.danger {
 .node-ports.inputs .port-row { color: #126a55; }
 .node-ports.outputs .port-row { color: #165d85; }
 
-/* 子组件实例导出引脚：短引线 + 空心圈。输入绿色、输出蓝色。 */
+/* 子组件实例导出引脚：电路图式长引线 + 外端空心圈。输入绿色、输出蓝色。 */
 .export-pin { cursor: pointer; }
 .export-pin::before,
 .export-pin::after {
   content: '';
   position: absolute;
   top: 50%;
-  width: 12px;
+  width: 32px;
   height: 2px;
   transform: translateY(-50%);
   pointer-events: none;
 }
-.export-input::before { left: -12px; background: #2b8a3e; }
-.export-output::after { right: -12px; background: #1971c2; }
+.export-input::before { left: -44px; background: #2b8a3e; }
+.export-output::after { right: -44px; background: #1971c2; }
 .export-input .export-handle,
 .export-output .export-handle {
   width: 11px;

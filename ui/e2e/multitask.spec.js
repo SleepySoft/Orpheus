@@ -129,6 +129,12 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
     .locator('.export-output .export-handle');
   await expect(exportedInput).toBeVisible();
   await expect(exportedOutput).toBeVisible();
+  const chainBox = await page.locator('.react-flow__node').filter({ hasText: 'chain1' })
+    .locator('.orpheus-node').boundingBox();
+  const inputBox = await exportedInput.boundingBox();
+  const outputBox = await exportedOutput.boundingBox();
+  expect(chainBox.x - (inputBox.x + inputBox.width / 2)).toBeGreaterThan(28);
+  expect(outputBox.x + outputBox.width / 2 - (chainBox.x + chainBox.width)).toBeGreaterThan(28);
   await exportedInput.click();
   await expect(page.locator('.subports')).toBeVisible();
   await expect(page.locator('.subport-row.export-highlight').filter({ hasText: 'in' })).toBeVisible();

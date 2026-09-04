@@ -125,7 +125,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
           position={Position.Left}
           id={p.id}
           className={isSub ? 'export-handle' : ''}
-          style={{ ...handleStyle, left: isSub ? -18 : -11 }}
+          style={{ ...handleStyle, left: isSub ? -50 : -11 }}
         />
       )}
       <span>{p.id}</span>
@@ -136,7 +136,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
           position={Position.Right}
           id={p.id}
           className={isSub ? 'export-handle' : ''}
-          style={{ ...handleStyle, right: isSub ? -18 : -11 }}
+          style={{ ...handleStyle, right: isSub ? -50 : -11 }}
         />
       )}
     </div>
