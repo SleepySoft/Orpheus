@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { isSubRef, resolvePorts } from './graphUtils';
 
 /**
@@ -7,11 +7,18 @@ import { isSubRef, resolvePorts } from './graphUtils';
  */
 export default function SubPortsPanel({
   sub, viewNodes, catalogById, onAddPort, onRemovePort, onAddParameter, onRemoveParameter,
+  highlightedExport,
 }) {
   const [direction, setDirection] = useState('input');
   const [mapsTo, setMapsTo] = useState('');
   const [paramDirection, setParamDirection] = useState('input');
   const [paramMapsTo, setParamMapsTo] = useState('');
+  const highlightedRef = useRef(null);
+
+  useEffect(() => {
+    if (!highlightedExport || !highlightedRef.current) return;
+    highlightedRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [highlightedExport]);
 
   // candidate internal endpoints: atomic nodes' ports matching the direction
   // (resolved per node params so variable pins like out0..outN-1 appear)
@@ -40,7 +47,11 @@ export default function SubPortsPanel({
       <h4>接口端口（{sub.name}）</h4>
       {sub.ports.length === 0 && <p className="muted">尚无端口。添加端口后上层才能连线。</p>}
       {sub.ports.map((p) => (
-        <div key={p.id} className="subport-row">
+        <div
+          key={`${p.id}-${highlightedExport?.kind === 'audio' && highlightedExport.id === p.id ? highlightedExport.nonce : 'idle'}`}
+          ref={highlightedExport?.kind === 'audio' && highlightedExport.id === p.id ? highlightedRef : null}
+          className={`subport-row audio-export-row ${highlightedExport?.kind === 'audio' && highlightedExport.id === p.id ? 'export-highlight' : ''}`}
+        >
           <span className={`subport-dir ${p.direction}`}>
             {p.direction === 'input' ? '入' : '出'}
           </span>
@@ -71,7 +82,11 @@ export default function SubPortsPanel({
       <h4>公开参数</h4>
       {(sub.public_parameters || []).length === 0 && <p className="muted">尚无公开参数。</p>}
       {(sub.public_parameters || []).map((p) => (
-        <div key={p.id} className="subport-row">
+        <div
+          key={`${p.id}-${highlightedExport?.kind === 'control' && highlightedExport.id === p.id ? highlightedExport.nonce : 'idle'}`}
+          ref={highlightedExport?.kind === 'control' && highlightedExport.id === p.id ? highlightedRef : null}
+          className={`subport-row control-export-row ${highlightedExport?.kind === 'control' && highlightedExport.id === p.id ? 'export-highlight' : ''}`}
+        >
           <span className={`subport-dir ${p.direction}`}>{p.direction === 'input' ? '控入' : '控出'}</span>
           <span className="subport-id">{p.id}</span>
           <span className="subport-maps">→ {p.maps_to}</span>

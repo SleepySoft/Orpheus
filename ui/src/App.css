@@ -1261,7 +1261,8 @@ button.danger {
 
 .orpheus-node {
   background: white;
-  border: 1px solid #ced4da;
+  border: 1px solid #8ecbc4;
+  border-left: 4px solid #16877c;
   border-radius: 8px;
   min-width: 140px;
   width: 100%;
@@ -1273,8 +1274,8 @@ button.danger {
 }
 
 .orpheus-node.selected {
-  border-color: #4cc9f0;
-  box-shadow: 0 0 0 2px rgba(76, 201, 240, 0.3);
+  border-color: #087f73;
+  box-shadow: 0 0 0 2px rgba(22, 135, 124, 0.28);
 }
 
 .orpheus-node.sub {
@@ -1318,7 +1319,7 @@ button.danger {
 .node-header {
   position: relative;
   padding: 8px 12px;
-  background: #e9ecef;
+  background: #e7f5f2;
   border-radius: 8px 8px 0 0;
 }
 
@@ -1401,15 +1402,45 @@ button.danger {
 }
 
 .port-row .react-flow__handle {
-  width: 8px;
-  height: 8px;
-  background: #4cc9f0;
-  border: 1px solid #1a1a2e;
+  width: 9px;
+  height: 9px;
+  background: #16877c;
+  border: 2px solid #f8fffe;
+  box-shadow: 0 0 0 1px #0b5f57;
 }
 
 .port-row .react-flow__handle:hover {
-  background: #ffd166;
+  background: #35b9aa;
 }
+
+.node-ports.inputs .port-row { color: #126a55; }
+.node-ports.outputs .port-row { color: #165d85; }
+
+/* 子组件实例导出引脚：短引线 + 空心圈。输入绿色、输出蓝色。 */
+.export-pin { cursor: pointer; }
+.export-pin::before,
+.export-pin::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 2px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.export-input::before { left: -12px; background: #2b8a3e; }
+.export-output::after { right: -12px; background: #1971c2; }
+.export-input .export-handle,
+.export-output .export-handle {
+  width: 11px;
+  height: 11px;
+  background: #fff !important;
+  border: 2px solid currentColor !important;
+  box-shadow: none;
+}
+.export-input .export-handle { color: #2b8a3e; }
+.export-output .export-handle { color: #1971c2; }
+.export-pin:hover { background: rgba(25, 113, 194, 0.08); }
 
 /* ---------------------------------------------------------- control links */
 
@@ -1418,8 +1449,24 @@ button.danger {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 4px 0 6px;
-  border-top: 1px dashed #e9ecef;
+  padding: 5px 0 7px;
+  margin: 4px 5px 5px;
+  background: #fff4df;
+  border: 1px solid #e6a23c;
+  border-left: 4px solid #d97706;
+  border-radius: 4px;
+}
+
+.control-dock-title {
+  padding: 0 8px 3px;
+  color: #8f4b00;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.orpheus-node.control-mode:has(.node-controls) {
+  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.24), 0 3px 8px rgba(0, 0, 0, 0.1);
 }
 
 .ctl-row {
@@ -1433,14 +1480,41 @@ button.danger {
 }
 
 .ctl-row .react-flow__handle {
-  background: #f0a24c;
-  border: 1px solid #1a1a2e;
-  border-radius: 2px; /* 方形 */
+  background: #d97706;
+  border: 1px solid #7c3f00;
+  border-radius: 1px;
+  box-shadow: none;
 }
 
 .ctl-row .react-flow__handle:hover {
-  background: #ffd8a8;
+  background: #ffb454;
 }
+
+/* 子组件公开控制点：短引线 + 空心方块。 */
+.export-control-pin { cursor: pointer; }
+.export-control-pin::before,
+.export-control-pin::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 2px;
+  background: #d97706;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.export-control-input::before { left: -12px; }
+.export-control-output::after { right: -12px; }
+.export-control-handle {
+  width: 10px !important;
+  height: 10px !important;
+  background: #fffaf0 !important;
+  border: 2px solid #d97706 !important;
+}
+
+/* 音频边：冷色实线；控制边保持琥珀虚线动画。 */
+.audio-edge-path .react-flow__edge-path { stroke: #16877c; }
+.react-flow__edge.selected .audio-edge-path .react-flow__edge-path { stroke: #075f57; }
 
 .shape-badge {
   font-size: 10px;
@@ -1448,7 +1522,7 @@ button.danger {
 }
 
 /* 控制边：虚线流动动画；失配时由 ControlEdge 内联改为红色 */
-.control-edge-path {
+.control-edge-path .react-flow__edge-path {
   animation: control-edge-dash 0.8s linear infinite;
 }
 
@@ -1475,6 +1549,37 @@ button.danger {
   color: #e03131;
   border-color: #e03131;
   background: #fff5f5;
+}
+
+.signal-legend {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 5;
+  display: flex;
+  gap: 12px;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 10px;
+  pointer-events: none;
+}
+.signal-legend span { display: flex; align-items: center; gap: 5px; }
+.signal-legend i { display: inline-block; width: 18px; height: 0; }
+.legend-audio { color: #075f57; }
+.legend-audio i { border-top: 2px solid #16877c; }
+.legend-control { color: #9a4e00; }
+.legend-control i { border-top: 2px dashed #d97706; }
+
+.subport-row.audio-export-row { border-left: 3px solid #16877c; }
+.subport-row.control-export-row { border-left: 3px solid #d97706; }
+.subport-row.export-highlight {
+  animation: export-row-flash 1.4s ease-in-out 2;
+}
+@keyframes export-row-flash {
+  0%, 100% { background: transparent; box-shadow: none; }
+  45% { background: #fff3bf; box-shadow: inset 0 0 0 2px #f59f00; }
 }
 
 /* ---------------------------------------------------------- bottom bar */

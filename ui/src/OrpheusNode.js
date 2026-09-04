@@ -1,12 +1,12 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Handle, Position, NodeResizer } from 'reactflow';
+import { Handle, Position, NodeResizer, useUpdateNodeInternals } from 'reactflow';
 import { resolveExprValue, resolveShape, shapeText, CTL_PREFIX } from './graphUtils';
 import { NODE_WIDGETS } from './nodeWidgets';
 import { NodeActionsContext } from './NodeActionsContext';
 
 /** Custom React Flow node: ports come from the component manifest (resolved). */
-export default function OrpheusNode({ data, selected }) {
+export default function OrpheusNode({ id, data, selected }) {
   const [enlarged, setEnlarged] = React.useState(false);
   const ports = data.ports || [];
   const inputs = ports.filter((p) => p.direction === 'input');
@@ -67,7 +67,18 @@ function noiseStatusClass(data) {
 }
 
 const BodyWidget = NODE_WIDGETS[data.component];
-  const { showReadme, showControlLinks } = React.useContext(NodeActionsContext);
+  const { showReadme, showControlLinks, revealSubExport } = React.useContext(NodeActionsContext);
+  const updateNodeInternals = useUpdateNodeInternals();
+  const handleSignature = [
+    ...ports.map((port) => `audio:${port.direction}:${port.id}`),
+    ...(data.parameters || [])
+      .filter((parameter) => parameter.control_source || parameter.bindable)
+      .map((parameter) => `control:${parameter.control_source ? 'source' : ''}:${parameter.bindable ? 'target' : ''}:${parameter.id}`),
+  ].join('|');
+
+  React.useEffect(() => {
+    updateNodeInternals(id);
+  }, [handleSignature, id, showControlLinks, updateNodeInternals]);
 
   // compiled rate badge, e.g. "48kHz" or "24kHz ÷2" (visible time tree)
   // 时钟源（信号/扫频/设备/wav 输入）显示 ⏱ 徽标：图采样率以它为准
@@ -95,15 +106,38 @@ const BodyWidget = NODE_WIDGETS[data.component];
     );
   })();
 
+  const revealExport = (event, kind, id) => {
+    if (!isSub) return;
+    event.stopPropagation();
+    revealSubExport(data.component, kind, id);
+  };
+
   const renderRow = (p, isInput) => (
-    <div key={p.id} className="port-row">
+    <div
+      key={p.id}
+      className={`port-row audio-port-row ${isSub ? `export-pin ${isInput ? 'export-input' : 'export-output'}` : ''}`}
+      onClick={isSub ? (event) => revealExport(event, 'audio', p.id) : undefined}
+      title={isSub ? `导出${isInput ? '输入' : '输出'} ${p.id}：点击定位接口定义` : undefined}
+    >
       {isInput && (
-        <Handle type="target" position={Position.Left} id={p.id} style={{ ...handleStyle, left: -11 }} />
+        <Handle
+          type="target"
+          position={Position.Left}
+          id={p.id}
+          className={isSub ? 'export-handle' : ''}
+          style={{ ...handleStyle, left: isSub ? -18 : -11 }}
+        />
       )}
       <span>{p.id}</span>
       {channelBadge(p)}
       {!isInput && (
-        <Handle type="source" position={Position.Right} id={p.id} style={{ ...handleStyle, right: -11 }} />
+        <Handle
+          type="source"
+          position={Position.Right}
+          id={p.id}
+          className={isSub ? 'export-handle' : ''}
+          style={{ ...handleStyle, right: isSub ? -18 : -11 }}
+        />
       )}
     </div>
   );
@@ -118,7 +152,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
           color="#4cc9f0"
         />
       )}
-      <div className={`orpheus-node ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${data.missing ? 'missing' : ''} ${noiseStatusClass(data)}`}>
+      <div className={`orpheus-node audio-node ${showControlLinks ? 'control-mode' : ''} ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${data.missing ? 'missing' : ''} ${noiseStatusClass(data)}`}>
       <div className="node-header">
         <div className="node-title">
           {data.label}
@@ -192,19 +226,23 @@ const BodyWidget = NODE_WIDGETS[data.component];
       {showControlLinks &&
         (data.parameters || []).some((p) => p.control_source || p.bindable) && (
           <div className="node-controls">
+            <div className="control-dock-title">控制</div>
             {(data.parameters || [])
               .filter((p) => p.control_source || p.bindable)
               .map((p) => (
                 <div
                   key={p.id}
-                  className={`port-row ctl-row ${p.control_source && !p.bindable ? 'src' : ''}`}
+                  className={`port-row ctl-row ${p.control_source && !p.bindable ? 'src' : ''} ${isSub ? `export-control-pin ${p.bindable ? 'export-control-input' : 'export-control-output'}` : ''}`}
+                  onClick={isSub ? (event) => revealExport(event, 'control', p.id) : undefined}
+                  title={isSub ? `导出控制${p.bindable ? '输入' : '输出'} ${p.id}：点击定位接口定义` : undefined}
                 >
                   {p.bindable && (
                     <Handle
                       type="target"
                       position={Position.Left}
                       id={`${CTL_PREFIX}${p.id}`}
-                      style={{ ...handleStyle, left: -11 }}
+                      className={isSub ? 'export-control-handle' : ''}
+                      style={{ ...handleStyle, left: isSub ? -18 : -11 }}
                     />
                   )}
                   <span className="ctl-name">{p.name || p.id}</span>
@@ -216,7 +254,8 @@ const BodyWidget = NODE_WIDGETS[data.component];
                       type="source"
                       position={Position.Right}
                       id={`${CTL_PREFIX}${p.id}`}
-                      style={{ ...handleStyle, right: -11 }}
+                      className={isSub ? 'export-control-handle' : ''}
+                      style={{ ...handleStyle, right: isSub ? -18 : -11 }}
                     />
                   )}
                 </div>

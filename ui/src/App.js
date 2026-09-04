@@ -29,6 +29,7 @@ import {
   subViewKey,
 } from './graphUtils';
 import OrpheusNode from './OrpheusNode';
+import AudioEdge from './AudioEdge';
 import ControlEdge from './ControlEdge';
 import ParamPanel from './ParamPanel';
 import ParamBrowser from './ParamBrowser';
@@ -43,7 +44,7 @@ import remarkGfm from 'remark-gfm';
 import NotesPanel from './NotesPanel';
 
 const nodeTypes = { orpheus: OrpheusNode };
-const edgeTypes = { control: ControlEdge };
+const edgeTypes = { audio: AudioEdge, control: ControlEdge };
 const AUTOSAVE_DELAY_MS = 1500;
 const EMPTY_VIEW = { nodes: [], edges: [] };
 
@@ -149,6 +150,7 @@ function Editor() {
     return 200;
   });
   const [rightOpen, setRightOpen] = useState(true); // 参数面板/子组件面板
+  const [highlightedExport, setHighlightedExport] = useState(null);
   // 「控制链路」显示开关（持久化）：关闭时控制 handle/控制边完全不渲染
   const [showControlLinks, setShowControlLinks] = useState(() => {
     try {
@@ -1571,7 +1573,7 @@ const { screenToFlowPosition } = useReactFlow();
       view.edges
         .filter((e) => showControlLinks || e.type !== 'control')
         .map((e) => {
-          if (e.type !== 'control') return e;
+          if (e.type !== 'control') return { ...e, type: 'audio' };
           const src = controlEndpointInfo(view.nodes, e.source, e.sourceHandle);
           const dst = controlEndpointInfo(view.nodes, e.target, e.targetHandle);
           const mismatch = !src || !dst || !shapeEquals(src.shape, dst.shape);
@@ -1582,6 +1584,16 @@ const { screenToFlowPosition } = useReactFlow();
         }),
     [view.edges, view.nodes, showControlLinks]
   );
+
+  const revealSubExport = useCallback((componentId, kind, id) => {
+    const subId = subIdOf(componentId);
+    const viewKey = subViewKey(subId);
+    setOpenTabs((tabs) => (tabs.includes(viewKey) ? tabs : [...tabs, viewKey]));
+    setActiveView(viewKey);
+    setRightOpen(true);
+    setHighlightedExport({ subId, kind, id, nonce: Date.now() });
+    setStatus(`已定位子组件 ${subId} 的${kind === 'audio' ? '音频端口' : '公开参数'} ${id}`);
+  }, []);
 
   // 点击工具栏外关闭展开菜单
   useEffect(() => {
@@ -1915,8 +1927,12 @@ const { screenToFlowPosition } = useReactFlow();
           <div className="side-resizer" onMouseDown={onLeftResizeStart} title="拖拽调整宽度" />
           </>
         )}
-        <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
-          <NodeActionsContext.Provider value={{ showReadme: handleShowReadme, showControlLinks }}>
+        <div className={`canvas ${showControlLinks ? 'control-links-visible' : ''}`} onDrop={onDrop} onDragOver={onDragOver}>
+          <div className="signal-legend" aria-label="链路图例">
+            <span className="legend-audio"><i />音频</span>
+            {showControlLinks && <span className="legend-control"><i />控制</span>}
+          </div>
+          <NodeActionsContext.Provider value={{ showReadme: handleShowReadme, showControlLinks, revealSubExport }}>
             <ReactFlow
             nodes={view.nodes}
             edges={displayEdges}
@@ -1964,6 +1980,7 @@ const { screenToFlowPosition } = useReactFlow();
                 onRemovePort={removeSubPort}
                 onAddParameter={addSubParameter}
                 onRemoveParameter={removeSubParameter}
+                highlightedExport={highlightedExport?.subId === activeSub.id ? highlightedExport : null}
               />
             )}
             <ParamPanel

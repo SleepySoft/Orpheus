@@ -31,16 +31,17 @@ export default function ControlEdge({
   const label = `${shapeText(data?.srcShape)}→${shapeText(data?.dstShape)}`;
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        className="control-edge-path"
-        style={{
-          stroke: color,
-          strokeWidth: selected ? 2.5 : 1.8,
-          strokeDasharray: '6 4',
-        }}
-      />
+      <g className="control-edge-path">
+        <BaseEdge
+          id={id}
+          path={edgePath}
+          style={{
+            stroke: color,
+            strokeWidth: selected ? 2.5 : 1.8,
+            strokeDasharray: '6 4',
+          }}
+        />
+      </g>
       <EdgeLabelRenderer>
         <div
           className={`control-edge-label ${mismatch ? 'mismatch' : ''}`}

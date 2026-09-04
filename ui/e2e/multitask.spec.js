@@ -23,12 +23,53 @@ const project = {
     }],
   },
   graph: {
-    nodes: [{
-      id: 'gain_node', component: 'orpheus.builtin.gain', task: 'producer',
-      params: { gain_db: 0, channels: 1 }, position: { x: 200, y: 160 },
-    }],
-    connections: [],
+    nodes: [
+      {
+        id: 'src', component: 'orpheus.builtin.signal_gen', task: 'producer',
+        params: { frequency: 440, amplitude: 0.2, channels: 1 }, position: { x: 20, y: 80 },
+      },
+      {
+        id: 'meter', component: 'orpheus.builtin.level_detect', task: 'producer',
+        params: { channels: 1 }, position: { x: 220, y: 80 },
+      },
+      {
+        id: 'chain1', component: 'sub:chain', task: 'producer',
+        params: { gain: -6 }, position: { x: 430, y: 80 },
+      },
+      {
+        id: 'sink', component: 'orpheus.builtin.null_sink', task: 'producer',
+        params: { channels: 1 }, position: { x: 650, y: 80 },
+      },
+      {
+        id: 'gain_node', component: 'orpheus.builtin.gain', task: 'producer',
+        params: { gain_db: 0, channels: 1 }, position: { x: 260, y: 300 },
+      },
+    ],
+    connections: [
+      { from: 'src:out', to: 'meter:in' },
+      { from: 'meter:out', to: 'chain1:in' },
+      { from: 'chain1:out', to: 'sink:in' },
+    ],
   },
+  control_connections: [{ from: 'meter:level', to: 'chain1:gain' }],
+  subcomponents: [{
+    id: 'chain', name: 'Gain Chain',
+    ports: [
+      { id: 'in', direction: 'input', maps_to: 'gain:in' },
+      { id: 'out', direction: 'output', maps_to: 'gain:out' },
+    ],
+    public_parameters: [{
+      id: 'gain', name: '增益', direction: 'input', maps_to: 'gain:gain_db',
+      type: 'float', default: -6, update_policy: 'smoothed',
+    }],
+    graph: {
+      nodes: [{
+        id: 'gain', component: 'orpheus.builtin.gain', task: 'producer',
+        params: { gain_db: -6, channels: 1 }, position: { x: 160, y: 120 },
+      }],
+      connections: [],
+    },
+  }],
 };
 
 test.beforeAll(async ({ request }) => {
@@ -42,7 +83,7 @@ test.afterAll(async ({ request }) => {
   await request.delete(`/api/projects/${projectName}`);
 });
 
-test('配置 Task 并保存节点归属', async ({ page, request }) => {
+test('配置 Task、区分链路并定位导出引脚', async ({ page, request }, testInfo) => {
   await page.goto('/');
   await page.locator('.toolbar select').first().selectOption(projectName);
   await expect(page.getByText(`已打开工程 ${projectName}`)).toBeVisible();
@@ -63,10 +104,38 @@ test('配置 Task 并保存节点归属', async ({ page, request }) => {
   const saved = await response.json();
   expect(saved.tasks.map((task) => task.id)).toEqual(['producer', 'consumer', 'task_3']);
   expect(saved.graph.nodes.find((node) => node.id === 'gain_node').task).toBe('task_3');
+  expect(saved.control_connections).toEqual([{ from: 'meter:level', to: 'chain1:gain' }]);
 
   await page.getByRole('button', { name: '教学', exact: true }).click();
   const lesson = page.locator('.lesson-panel');
   await expect(lesson.getByText('多任务检查')).toBeVisible();
   await lesson.getByRole('button', { name: '检查当前工程' }).click();
   await expect(lesson.getByText('1/1 项通过')).toBeVisible();
+  await lesson.getByRole('button', { name: '关闭' }).click();
+
+  const controlToggle = page.locator('label.autosave').filter({ hasText: '控制链路' }).locator('input');
+  await expect(controlToggle).not.toBeChecked();
+  await expect(page.locator('.control-edge-path')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('control-links-off.png'), fullPage: true });
+  await controlToggle.check();
+  await expect(page.locator('.node-controls')).toHaveCount(3);
+  await expect(page.locator('.legend-control')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('control-links-on.png'), fullPage: true });
+  await expect(page.locator('.control-edge-path')).toHaveCount(1);
+
+  const exportedInput = page.locator('.react-flow__node').filter({ hasText: 'chain1' })
+    .locator('.export-input .export-handle');
+  const exportedOutput = page.locator('.react-flow__node').filter({ hasText: 'chain1' })
+    .locator('.export-output .export-handle');
+  await expect(exportedInput).toBeVisible();
+  await expect(exportedOutput).toBeVisible();
+  await exportedInput.click();
+  await expect(page.locator('.subports')).toBeVisible();
+  await expect(page.locator('.subport-row.export-highlight').filter({ hasText: 'in' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('audio-export-revealed.png'), fullPage: true });
+
+  await page.locator('.tab').filter({ hasText: '主图' }).click();
+  await page.locator('.react-flow__node').filter({ hasText: 'chain1' })
+    .locator('.export-control-input .export-control-handle').click();
+  await expect(page.locator('.control-export-row.export-highlight').filter({ hasText: 'gain' })).toBeVisible();
 });
