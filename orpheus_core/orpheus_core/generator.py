@@ -173,31 +173,37 @@ class CodeGenerator:
                               self.uart_link_decls(plan), win_host=win_host,
                               device_in_nodes=device_in_nodes,
                               device_out_nodes=device_out_nodes)
+        task_decls = [
+            f'int orpheus_generated_process_task_{self._sanitized_node_id(task["id"])}(uint32_t frame_count);'
+            for task in getattr(plan, "tasks", [])
+        ]
+        gen_h = [
+            '#ifndef ORPHEUS_GENERATED_H',
+            '#define ORPHEUS_GENERATED_H',
+            '#include "orpheus_abi.h"',
+            '/* 图本体与多 Task 入口；调用方须串行调用 Task 入口。 */',
+            'int orpheus_generated_init(uint32_t sample_rate, uint32_t block_size);',
+            'int orpheus_generated_process(uint32_t frame_count);',
+            *task_decls,
+            'void orpheus_generated_teardown(void);',
+            'void* orpheus_arena_base(void);',
+        ]
         if win_host:
             self._generate_host_config(plan, device_in_nodes, device_out_nodes,
                                        include_dir / "orpheus_host_config.h")
-            # 宿主接口头：init/process + 设备 buffer 访问器 + arena 基址
-            gen_h = [
-                '#ifndef ORPHEUS_GENERATED_H',
-                '#define ORPHEUS_GENERATED_H',
-                '#include "orpheus_abi.h"',
-                '/* 图本体接口（main.c 实现）：win 宿主（host_win.c）与嵌入宿主共用。 */',
-                'int orpheus_generated_init(uint32_t sample_rate, uint32_t block_size);',
-                'int orpheus_generated_process(uint32_t frame_count);',
-                'void orpheus_generated_teardown(void);  /* 逆执行序销毁（宿主退出时调用） */',
+            gen_h.extend([
                 '/* 设备 buffer：宿主在 process 前填 device_in 输出、process 后取 device_out 输入。 */',
                 'OrpheusBuffer* orpheus_host_device_in_buffer(void);   /* 未连接返回 NULL */',
                 'OrpheusBuffer* orpheus_host_device_out_buffer(void);  /* 未连接返回 NULL */',
-                'void* orpheus_arena_base(void);  /* 状态 arena 基址（RESOLVE 用），无状态返回 NULL */',
-                '#endif /* ORPHEUS_GENERATED_H */',
-            ]
-            (include_dir / "orpheus_generated.h").write_text(
-                "\n".join(gen_h) + "\n", encoding="utf-8")
+            ])
             # 宿主模板：仓库内真实 C 文件（单一事实来源），原样复制进生成工程
             template = Path(__file__).parent / "templates" / "host_win.c"
             shutil.copy2(template, src_dir / "host_win.c")
             ma_header = self.project_root / "third_party" / "miniaudio.h"
             shutil.copy2(ma_header, include_dir / "miniaudio.h")
+        gen_h.append('#endif /* ORPHEUS_GENERATED_H */')
+        (include_dir / "orpheus_generated.h").write_text(
+            "\n".join(gen_h) + "\n", encoding="utf-8")
 
         # 嵌入 I/O 适配模板：存在 embed_in/embed_out 节点时生成，用户按硬件填充
         embed_nodes = [
@@ -285,6 +291,19 @@ class CodeGenerator:
         lines.append('#include <stdlib.h>')
         lines.append('#include <string.h>')
         lines.append('#include "orpheus_abi.h"')
+        has_task_bridges = any(buf.get("task_bridge") for buf in plan.buffers.values())
+        if has_task_bridges:
+            lines.append('#ifdef _MSC_VER')
+            lines.append('#include <windows.h>')
+            lines.append('typedef volatile LONG64 OrpheusAtomicU64;')
+            lines.append('#define ORPHEUS_ATOMIC_LOAD(p) ((uint64_t)InterlockedCompareExchange64((p), 0, 0))')
+            lines.append('#define ORPHEUS_ATOMIC_STORE(p, v) ((void)InterlockedExchange64((p), (LONG64)(v)))')
+            lines.append('#else')
+            lines.append('#include <stdatomic.h>')
+            lines.append('typedef _Atomic uint64_t OrpheusAtomicU64;')
+            lines.append('#define ORPHEUS_ATOMIC_LOAD(p) atomic_load_explicit((p), memory_order_acquire)')
+            lines.append('#define ORPHEUS_ATOMIC_STORE(p, v) atomic_store_explicit((p), (v), memory_order_release)')
+            lines.append('#endif')
         if win_host:
             lines.append('#include "orpheus_generated.h"')
         lines.append("")
@@ -386,8 +405,10 @@ class CodeGenerator:
         # 同步点整块读出——与动态路径 Runtime 的 BridgeCopy 同语义。
         bridge_srcs: dict[str, dict[str, Any]] = {}  # "node:port" -> staging 信息
         bridge_copies: list[dict[str, Any]] = []     # 每条桥接边一次滚动拷贝
+        task_bridge_copies: list[dict[str, Any]] = []
         for conn in plan.connections:
-            if not plan.buffers[conn["buffer"]].get("rate_bridge"):
+            buffer_cfg = plan.buffers[conn["buffer"]]
+            if not (buffer_cfg.get("rate_bridge") or buffer_cfg.get("task_bridge")):
                 continue
             src = conn["from"]
             if src not in bridge_srcs:
@@ -401,16 +422,23 @@ class CodeGenerator:
                     "stride": stride,
                     "channels": channels,
                 }
-            bridge_copies.append({
+            copy = {
                 "src": src,
                 "to": conn["to"],
                 "src_node": src.split(":", 1)[0],
+                "dst_node": conn["to"].split(":", 1)[0],
                 "sym": bridge_srcs[src]["sym"],
                 "buf": conn["buffer"].replace("-", "_").replace(".", "_"),
                 "stride": bridge_srcs[src]["stride"],
                 "channels": bridge_srcs[src]["channels"],
-                "depth": int(plan.buffers[conn["buffer"]]["frame_count"]),
-            })
+                "depth": int(buffer_cfg["frame_count"]),
+                "capacity": int(buffer_cfg.get("capacity_frames", buffer_cfg["frame_count"] * 2)),
+                "rate_bridge": bool(buffer_cfg.get("rate_bridge")),
+            }
+            if buffer_cfg.get("rate_bridge"):
+                bridge_copies.append(copy)
+            if buffer_cfg.get("task_bridge"):
+                task_bridge_copies.append(copy)
 
         # Buffer declarations
         for buf_id, buf in plan.buffers.items():
@@ -424,7 +452,64 @@ class CodeGenerator:
             lines.append(f'static OrpheusBuffer g_stage_{info["sym"]} = {{0}};')
         for i in range(len(bridge_copies)):
             lines.append(f'static uint32_t g_bridge_cursor_{i} = 0;')
+        for i, cp in enumerate(task_bridge_copies):
+            lines.append(f'static float g_task_ring_{i}[{cp["capacity"] * cp["channels"]}];')
+            lines.append(f'static OrpheusAtomicU64 g_task_read_{i} = 0;')
+            lines.append(f'static OrpheusAtomicU64 g_task_write_{i} = 0;')
+            lines.append(f'static OrpheusAtomicU64 g_task_underruns_{i} = 0;')
+            lines.append(f'static OrpheusAtomicU64 g_task_overruns_{i} = 0;')
         lines.append("")
+
+        for i, cp in enumerate(task_bridge_copies):
+            lines.append(f'static void orpheus_task_bridge_push_{i}(void) {{')
+            lines.append(f'    const uint32_t frames = g_stage_{cp["sym"]}.frame_count;')
+            lines.append(f'    const uint64_t read = ORPHEUS_ATOMIC_LOAD(&g_task_read_{i});')
+            lines.append(f'    const uint64_t write = ORPHEUS_ATOMIC_LOAD(&g_task_write_{i});')
+            lines.append(f'    if (frames > {cp["capacity"]} || write - read + frames > {cp["capacity"]}) {{')
+            lines.append(f'        ORPHEUS_ATOMIC_STORE(&g_task_overruns_{i}, ORPHEUS_ATOMIC_LOAD(&g_task_overruns_{i}) + 1);')
+            lines.append('        return;')
+            lines.append('    }')
+            lines.append('    for (uint32_t frame = 0; frame < frames; ++frame) {')
+            lines.append(f'        const uint32_t slot = (uint32_t)((write + frame) % {cp["capacity"]});')
+            lines.append(f'        memcpy(g_task_ring_{i} + slot * {cp["channels"]},')
+            lines.append(f'               g_stage_buf_{cp["sym"]} + frame * {cp["channels"]},')
+            lines.append(f'               {cp["channels"]} * sizeof(float));')
+            lines.append('    }')
+            lines.append(f'    ORPHEUS_ATOMIC_STORE(&g_task_write_{i}, write + frames);')
+            lines.append('}')
+            lines.append(f'static void orpheus_task_bridge_pop_{i}(void) {{')
+            lines.append(f'    const uint32_t wanted = g_buffer_{cp["buf"]}.frame_capacity;')
+            lines.append(f'    const uint64_t read = ORPHEUS_ATOMIC_LOAD(&g_task_read_{i});')
+            lines.append(f'    const uint64_t write = ORPHEUS_ATOMIC_LOAD(&g_task_write_{i});')
+            lines.append('    const uint32_t available = (uint32_t)(write - read);')
+            lines.append('    const uint32_t copied = available < wanted ? available : wanted;')
+            lines.append('    for (uint32_t frame = 0; frame < copied; ++frame) {')
+            lines.append(f'        const uint32_t slot = (uint32_t)((read + frame) % {cp["capacity"]});')
+            lines.append(f'        memcpy(g_buf_{cp["buf"]} + frame * {cp["channels"]},')
+            lines.append(f'               g_task_ring_{i} + slot * {cp["channels"]},')
+            lines.append(f'               {cp["channels"]} * sizeof(float));')
+            lines.append('    }')
+            lines.append('    if (copied < wanted) {')
+            lines.append(f'        memset(g_buf_{cp["buf"]} + copied * {cp["channels"]}, 0,')
+            lines.append(f'               (wanted - copied) * {cp["channels"]} * sizeof(float));')
+            lines.append(f'        ORPHEUS_ATOMIC_STORE(&g_task_underruns_{i}, ORPHEUS_ATOMIC_LOAD(&g_task_underruns_{i}) + 1);')
+            lines.append('    }')
+            lines.append(f'    g_buffer_{cp["buf"]}.frame_count = wanted;')
+            lines.append(f'    ORPHEUS_ATOMIC_STORE(&g_task_read_{i}, read + copied);')
+            if plan.node_configs[cp["dst_node"]]["component"] == "orpheus.builtin.async_bridge":
+                dst_sym = self._sanitized_node_id(cp["dst_node"])
+                lines.append('    {')
+                lines.append('        OrpheusValue metric;')
+                lines.append('        metric.type = ORPHEUS_VALUE_INT;')
+                lines.append('        metric.value.i32 = (int32_t)(write - (read + copied));')
+                lines.append(f'        (void)g_iface_{dst_sym}->set_parameter(g_state_{dst_sym}, "level_frames", &metric);')
+                lines.append(f'        metric.value.i32 = (int32_t)ORPHEUS_ATOMIC_LOAD(&g_task_underruns_{i});')
+                lines.append(f'        (void)g_iface_{dst_sym}->set_parameter(g_state_{dst_sym}, "underruns", &metric);')
+                lines.append(f'        metric.value.i32 = (int32_t)ORPHEUS_ATOMIC_LOAD(&g_task_overruns_{i});')
+                lines.append(f'        (void)g_iface_{dst_sym}->set_parameter(g_state_{dst_sym}, "overruns", &metric);')
+                lines.append('    }')
+            lines.append('}')
+            lines.append("")
 
         # Input/output buffer pointer arrays per node, sized by the ordered port
         # lists and bound by port id (unconnected pins stay NULL).
@@ -437,7 +522,8 @@ class CodeGenerator:
             if conn["from"] in bridge_srcs:
                 staging = f'&g_stage_{bridge_srcs[conn["from"]]["sym"]}'
                 port_buffer[conn["from"]] = staging
-                if plan.buffers[conn["buffer"]].get("rate_bridge"):
+                if (plan.buffers[conn["buffer"]].get("rate_bridge")
+                    or plan.buffers[conn["buffer"]].get("task_bridge")):
                     port_buffer[conn["to"]] = f'&g_buffer_{s_buf}'
                 else:
                     port_buffer[conn["to"]] = staging
@@ -563,8 +649,7 @@ class CodeGenerator:
             lines.append("")
 
         # Init function（win 宿主模式下非 static，供 host_win.c 调用）
-        init_qual = '' if win_host else 'static '
-        lines.append(f'{init_qual}int orpheus_generated_init(uint32_t sample_rate, uint32_t block_size) {{')
+        lines.append('int orpheus_generated_init(uint32_t sample_rate, uint32_t block_size) {')
         lines.append('    int rc;')
         lines.append('    OrpheusConfig config;')
         lines.append('    config.sample_rate = sample_rate;')
@@ -672,8 +757,7 @@ class CodeGenerator:
 
         # Process function (multi-rate: per-node frames + schedule-period-gated firing)
         lines.append('static uint64_t g_block_counter = 0;')
-        proc_qual = '' if win_host else 'static '
-        lines.append(f'{proc_qual}int orpheus_generated_process(uint32_t frame_count) {{')
+        lines.append('int orpheus_generated_process(uint32_t frame_count) {')
         lines.append('    int rc;')
         lines.append('    OrpheusProcessContext ctx;')
         lines.append(f'    ctx.sample_rate = {plan.sample_rate};')
@@ -699,6 +783,9 @@ class CodeGenerator:
             if period > 1:
                 lines.append(f'    if ((g_block_counter + 1) % {period} == 0) {{')
             indent = '        ' if period > 1 else '    '
+            for i, cp in enumerate(task_bridge_copies):
+                if cp["dst_node"] == node_id and not cp["rate_bridge"]:
+                    lines.append(f'{indent}orpheus_task_bridge_pop_{i}();')
             lines.append(f'{indent}ctx.state = g_state_{s};')
             node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
             lines.append(f'{indent}ctx.sample_rate = {node_sr};')
@@ -717,6 +804,9 @@ class CodeGenerator:
                 lines.append(f'{indent}memcpy(g_buf_{cp["buf"]} + g_bridge_cursor_{i} * {cp["channels"]},')
                 lines.append(f'{indent}       g_stage_buf_{cp["sym"]}, {cp["stride"] * cp["channels"]} * sizeof(float));')
                 lines.append(f'{indent}g_bridge_cursor_{i} = (g_bridge_cursor_{i} + {cp["stride"]}) % {cp["depth"]};')
+            for i, cp in enumerate(task_bridge_copies):
+                if cp["src_node"] == node_id and not cp["rate_bridge"]:
+                    lines.append(f'{indent}orpheus_task_bridge_push_{i}();')
             if period > 1:
                 lines.append('    }')
         if embed_in_nodes or embed_out_nodes:
@@ -727,6 +817,117 @@ class CodeGenerator:
             lines.append('    control_tick();  /* 控制链路：两相快照（先全读后全写），每图块一次 */')
         lines.append('    g_block_counter++;')
         lines.append('    return ORPHEUS_OK;')
+        lines.append('}')
+        lines.append("")
+
+        # 独立 Task 入口（Phase 1：调用方串行调度）。各入口使用自己的局部 tick 计数，
+        # 同时保留上面的全局兼容入口，旧宿主与逐字节一致性行为不变。
+        for task in getattr(plan, "tasks", []):
+            task_id = task["id"]
+            task_sym = self._sanitized_node_id(task_id)
+            task_nodes = task.get("execution_order", [])
+            task_periods = (task.get("schedule") or {}).get("periods", {})
+            task_node_set = set(task_nodes)
+            task_ctl_links = [
+                (i, link) for i, link in enumerate(ctl_links)
+                if link["src_node"] in task_node_set and link["dst_node"] in task_node_set
+            ]
+            task_has_platform_io = any(
+                nid in task_node_set for nid in (*embed_in_nodes, *embed_out_nodes)
+            )
+            lines.append(f'static uint64_t g_task_counter_{task_sym} = 0;')
+            lines.append(f'int orpheus_generated_process_task_{task_sym}(uint32_t frame_count) {{')
+            lines.append('    int rc;')
+            lines.append('    OrpheusProcessContext ctx;')
+            lines.append(f'    ctx.sample_rate = {int(task.get("sample_rate", plan.sample_rate))};')
+            lines.append('    ctx.scratch = NULL;')
+            lines.append('    ctx.scratch_size = 0;')
+            lines.append('    ctx.timestamp = 0.0;')
+            lines.append('    orpheus_control_commit_bulk();')
+            if task_has_platform_io:
+                lines.append('    orpheus_platform_io_pre_block();')
+            for node_id in task_nodes:
+                cfg = plan.node_configs[node_id]
+                s = self._sanitized_node_id(node_id)
+                n_in = len(cfg.get("input_ports", []))
+                n_out = len(cfg.get("output_ports", []))
+                in_name = f'g_inputs_{s}' if n_in else 'NULL'
+                out_name = f'g_outputs_{s}' if n_out else 'NULL'
+                period = int(task_periods.get(node_id, 1))
+                frames = cfg.get("frames", 0)
+                if period > 1:
+                    lines.append(f'    if ((g_task_counter_{task_sym} + 1) % {period} == 0) {{')
+                indent = '        ' if period > 1 else '    '
+                for i, cp in enumerate(task_bridge_copies):
+                    if cp["dst_node"] == node_id:
+                        lines.append(f'{indent}orpheus_task_bridge_pop_{i}();')
+                lines.append(f'{indent}ctx.state = g_state_{s};')
+                node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
+                lines.append(f'{indent}ctx.sample_rate = {node_sr};')
+                lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
+                lines.append(f'{indent}ctx.inputs = (const OrpheusBuffer* const*){in_name};')
+                lines.append(f'{indent}ctx.outputs = {out_name};')
+                lines.append(f'{indent}ctx.input_count = {n_in};')
+                lines.append(f'{indent}ctx.output_count = {n_out};')
+                lines.append(f'{indent}rc = g_iface_{s}->process(g_state_{s}, &ctx);')
+                lines.append(f'{indent}if (rc != ORPHEUS_OK) return rc;')
+                for i, cp in enumerate(bridge_copies):
+                    if cp["src_node"] != node_id:
+                        continue
+                    lines.append(f'{indent}memcpy(g_buf_{cp["buf"]} + g_bridge_cursor_{i} * {cp["channels"]},')
+                    lines.append(f'{indent}       g_stage_buf_{cp["sym"]}, {cp["stride"] * cp["channels"]} * sizeof(float));')
+                    lines.append(f'{indent}g_bridge_cursor_{i} = (g_bridge_cursor_{i} + {cp["stride"]}) % {cp["depth"]};')
+                for i, cp in enumerate(task_bridge_copies):
+                    if cp["src_node"] == node_id:
+                        lines.append(f'{indent}orpheus_task_bridge_push_{i}();')
+                if period > 1:
+                    lines.append('    }')
+            if task_has_platform_io:
+                lines.append('    orpheus_platform_io_post_block();')
+            if task_ctl_links:
+                lines.append('    /* 本 Task 控制链：两相快照。跨 Task 控制链由全局入口调度。 */')
+                for i, link in task_ctl_links:
+                    if link["type"] != "string" and int(link.get("count", 1)) > 1:
+                        continue
+                    s_src = self._sanitized_node_id(link["src_node"])
+                    lines.append(f'    g_ctl_ok[{i}] = (g_iface_{s_src}->get_parameter != NULL &&')
+                    lines.append(
+                        f'        g_iface_{s_src}->get_parameter(g_state_{s_src}, "{link["src_param"]}",'
+                        f' &g_ctl_snap[{i}]) == ORPHEUS_OK);'
+                    )
+                    if link["type"] == "string":
+                        lines.append(f'    if (g_ctl_ok[{i}]) {{')
+                        lines.append(f'        const char* p_ = g_ctl_snap[{i}].value.str != NULL ? g_ctl_snap[{i}].value.str : "";')
+                        lines.append('        size_t n_ = strlen(p_);')
+                        lines.append(f'        if (n_ >= sizeof(g_ctl_str{i})) n_ = sizeof(g_ctl_str{i}) - 1;')
+                        lines.append(f'        memcpy(g_ctl_str{i}, p_, n_);')
+                        lines.append(f'        g_ctl_str{i}[n_] = \'\\0\';')
+                        lines.append('    }')
+                for i, link in task_ctl_links:
+                    if link["type"] != "string" and int(link.get("count", 1)) > 1:
+                        continue
+                    s_dst = self._sanitized_node_id(link["dst_node"])
+                    lines.append(f'    if (g_ctl_ok[{i}] && g_iface_{s_dst}->set_parameter != NULL) {{')
+                    if link["type"] == "string":
+                        lines.append(f'        g_ctl_snap[{i}].value.str = g_ctl_str{i};')
+                    lines.append(
+                        f'        (void)g_iface_{s_dst}->set_parameter(g_state_{s_dst}, "{link["dst_param"]}",'
+                        f' &g_ctl_snap[{i}]);'
+                    )
+                    lines.append('    }')
+            lines.append(f'    g_task_counter_{task_sym}++;')
+            lines.append('    return ORPHEUS_OK;')
+            lines.append('}')
+            lines.append("")
+
+        if any(self._state_type(nid, plan) for nid in plan.execution_order):
+            lines.append('void* orpheus_arena_base(void) { return &g_arena; }')
+        else:
+            lines.append('void* orpheus_arena_base(void) { return NULL; }')
+        lines.append('void orpheus_generated_teardown(void) {')
+        for node_id in reversed(plan.execution_order):
+            s = self._sanitized_node_id(node_id)
+            lines.append(f'    g_iface_{s}->destroy(g_state_{s});')
         lines.append('}')
         lines.append("")
 
@@ -745,16 +946,6 @@ class CodeGenerator:
             lines.append('}')
             lines.append('OrpheusBuffer* orpheus_host_device_out_buffer(void) {')
             lines.append(f'    return {out_buf if out_buf else "NULL"};')
-            lines.append('}')
-            if any(self._state_type(nid, plan) for nid in plan.execution_order):
-                lines.append('void* orpheus_arena_base(void) { return &g_arena; }')
-            else:
-                lines.append('void* orpheus_arena_base(void) { return NULL; }')
-            # 逆执行序销毁（宿主退出时调用，让 wav_out 等落盘冲刷）
-            lines.append('void orpheus_generated_teardown(void) {')
-            for node_id in reversed(plan.execution_order):
-                s = self._sanitized_node_id(node_id)
-                lines.append(f'    g_iface_{s}->destroy(g_state_{s});')
             lines.append('}')
             lines.append("")
 
@@ -787,6 +978,7 @@ class CodeGenerator:
         """文件时钟缺省宿主 main()：块循环 + 控制 CLI（--write-bulk/--msg 等）。"""
         # 静态调度主步长：宿主按 tick 推进（旧 plan 回退 plan.block_size）
         tick = self._schedule_tick(plan)
+        plan_tasks = getattr(plan, "tasks", [])
         # hex 工具（--msg 二进制消息 CLI）
         lines.append('static const char* orpheus_hex_digits = "0123456789abcdef";')
         lines.append('static int orpheus_from_hex(const char* hx, uint8_t* out, size_t* out_len) {')
@@ -839,6 +1031,9 @@ class CodeGenerator:
         lines.append('    uint32_t rb_id = 0;')
         lines.append('    const char* msg_list[16];')
         lines.append('    int msg_count = 0;')
+        lines.append('    const char* task_ids[256];')
+        lines.append('    int task_blocks[256];')
+        lines.append('    int task_count = 0;')
         if link_nodes:
             lines.append('    int link_stdio = 0;')
         lines.append('    for (int i = start_i; i < argc; ++i) {')
@@ -865,6 +1060,10 @@ class CodeGenerator:
         lines.append('            control_mode = 1;')
         lines.append('        } else if (strcmp(argv[i], "--run") == 0 && i + 1 < argc) {')
         lines.append('            run_blocks = atoi(argv[++i]);')
+        lines.append('        } else if (strcmp(argv[i], "--task") == 0 && i + 2 < argc && task_count < 256) {')
+        lines.append('            task_ids[task_count] = argv[++i];')
+        lines.append('            task_blocks[task_count++] = atoi(argv[++i]);')
+        lines.append('            control_mode = 1;')
         lines.append('        } else if (strcmp(argv[i], "--read-bulk") == 0 && i + 2 < argc) {')
         lines.append('            rb_node = argv[i + 1];')
         lines.append('            rb_key = argv[i + 2];')
@@ -908,6 +1107,22 @@ class CodeGenerator:
             for d in link_nodes:
                 lines.append(f'            orpheus_link_{self._uart_link_sym(d)}_poll(now_ms);')
             lines.append('        }')
+            lines.append('    }')
+        if plan_tasks:
+            lines.append('    if (task_count > 0) {')
+            lines.append('        for (int t = 0; t < task_count; ++t) {')
+            for index, task in enumerate(plan_tasks):
+                task_id = task["id"]
+                task_sym = self._sanitized_node_id(task_id)
+                prefix = 'if' if index == 0 else 'else if'
+                lines.append(f'            {prefix} (strcmp(task_ids[t], "{task_id}") == 0) {{')
+                lines.append('                for (int k = 0; k < task_blocks[t]; ++k) {')
+                lines.append(f'                    if (orpheus_generated_process_task_{task_sym}(0) != ORPHEUS_OK) return 1;')
+                lines.append('                }')
+                lines.append('            }')
+            lines.append('            else { fprintf(stderr, "unknown task: %s\\n", task_ids[t]); return 1; }')
+            lines.append('        }')
+            lines.append('        goto teardown;')
             lines.append('    }')
         lines.append('    if (control_mode) {')
         lines.append('        for (int i = 0; i < run_blocks; ++i) {')
@@ -958,11 +1173,8 @@ class CodeGenerator:
         lines.append('        if (rc != ORPHEUS_OK) return 1;')
         lines.append('    }')
         lines.append('teardown:')
-        lines.append('    // Teardown: destroy instances so sinks flush output')
-        lines.append('    // (e.g. wav_out writes the file in destroy).')
-        for node_id in reversed(plan.execution_order):
-            s = self._sanitized_node_id(node_id)
-            lines.append(f'    g_iface_{s}->destroy(g_state_{s});')
+        lines.append('    // Teardown: destroy instances so sinks flush output (e.g. wav_out).')
+        lines.append('    orpheus_generated_teardown();')
         lines.append('    return 0;')
         lines.append('}')
 

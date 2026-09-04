@@ -3,6 +3,7 @@
 #include "orpheus_runtime/wav_io.h"
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -18,6 +19,8 @@ void print_usage(const char* prog) {
               << "\n       " << prog << " <plan.json> <component_dir> --rw <id> <value> | --rr <id>"
               << "\n       " << prog << " <plan.json> <component_dir> --rwb <id> <n> <v0>... [--run <blocks>] [--rgb <id>]"
               << "\n       " << prog << " <plan.json> <component_dir> --getbulk <node> <key>"
+              << "\n       " << prog << " <plan.json> <component_dir> --task <id> <blocks> [--task ...]"
+              << "\n       " << prog << " <plan.json> <component_dir> --benchmark-task <id> <blocks>"
               << "\n       " << prog << " <plan.json> <component_dir> [--echo-hook <id>] --msg <hex>" << std::endl;
 }
 
@@ -152,6 +155,9 @@ int main(int argc, char** argv) {
     bool have_echo = false, have_msg = false;
     uint32_t echo_id = 0;
     std::vector<std::pair<std::string, std::string>> actions;  // ("msg", hex) / ("run", n)，按命令行顺序执行
+    std::vector<std::pair<std::string, uint32_t>> task_runs;
+    std::string benchmark_task;
+    uint32_t benchmark_blocks = 0;
     for (int i = 3; i < argc; ++i) {
         if (std::string(argv[i]) == "--pace") {
             pace = true;
@@ -179,6 +185,13 @@ int main(int argc, char** argv) {
         } else if (std::string(argv[i]) == "--run" && i + 1 < argc) {
             run_blocks = (uint32_t)std::atoi(argv[++i]);
             actions.push_back({"run", std::to_string(run_blocks)});
+        } else if (std::string(argv[i]) == "--task" && i + 2 < argc) {
+            std::string task_id = argv[++i];
+            uint32_t blocks = (uint32_t)std::atoi(argv[++i]);
+            task_runs.push_back({task_id, blocks});
+        } else if (std::string(argv[i]) == "--benchmark-task" && i + 2 < argc) {
+            benchmark_task = argv[++i];
+            benchmark_blocks = (uint32_t)std::atoi(argv[++i]);
         } else if (std::string(argv[i]) == "--getbulk" && i + 2 < argc) {
             gb_node = argv[++i];
             gb_key = argv[++i];
@@ -203,6 +216,42 @@ int main(int argc, char** argv) {
         if (rc != 0) {
             std::cerr << "Failed to load plan: " << rc << std::endl;
             return 1;
+        }
+
+        if (!task_runs.empty()) {
+            for (const auto& run : task_runs) {
+                for (uint32_t i = 0; i < run.second; ++i) {
+                    rc = runtime.process_task(run.first, 0);
+                    if (rc != ORPHEUS_OK) {
+                        std::cerr << "Task failed: " << run.first << " rc=" << rc << std::endl;
+                        return 1;
+                    }
+                }
+            }
+            return 0;
+        }
+        if (!benchmark_task.empty() && benchmark_blocks > 0) {
+            std::vector<double> samples;
+            samples.reserve(benchmark_blocks);
+            for (uint32_t i = 0; i < benchmark_blocks; ++i) {
+                const auto started = std::chrono::steady_clock::now();
+                rc = runtime.process_task(benchmark_task, 0);
+                const auto finished = std::chrono::steady_clock::now();
+                if (rc != ORPHEUS_OK) return 1;
+                samples.push_back(std::chrono::duration<double, std::micro>(finished - started).count());
+            }
+            std::sort(samples.begin(), samples.end());
+            auto percentile = [&](double p) {
+                const size_t index = static_cast<size_t>((samples.size() - 1) * p);
+                return samples[index];
+            };
+            std::cout << "BENCHMARK task=" << benchmark_task
+                      << " blocks=" << benchmark_blocks
+                      << " p50_us=" << percentile(0.50)
+                      << " p95_us=" << percentile(0.95)
+                      << " p99_us=" << percentile(0.99)
+                      << " max_us=" << samples.back() << std::endl;
+            return 0;
         }
 
         if (dump_map) {
@@ -336,7 +385,7 @@ int main(int argc, char** argv) {
             auto it = cfg.params.find("file_path");
             std::string input_file = it != cfg.params.end() ? it->second : "";
             if (cfg.component == "orpheus.builtin.mp3_in") {
-                OrpheusValue v;
+                OrpheusValue v{};
                 if (!input_file.empty() &&
                     runtime.get_parameter(input_node, "total_frames", &v) == ORPHEUS_OK &&
                     v.type == ORPHEUS_VALUE_INT) {

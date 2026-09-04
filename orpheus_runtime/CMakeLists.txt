@@ -18,7 +18,7 @@ target_include_directories(orpheus_runtime_lib
         ${CMAKE_SOURCE_DIR}/third_party
 )
 
-target_link_libraries(orpheus_runtime_lib PUBLIC orpheus_abi)
+target_link_libraries(orpheus_runtime_lib PUBLIC orpheus_abi ${CMAKE_DL_LIBS})
 
 set_target_properties(orpheus_runtime_lib PROPERTIES
     CXX_STANDARD 11
@@ -44,4 +44,9 @@ set_target_properties(orpheus_rt_host PROPERTIES
 # miniaudio needs some platform libs on Windows
 if(WIN32)
     target_link_libraries(orpheus_rt_host PRIVATE ole32 oleaut32 uuid winmm)
+elseif(APPLE)
+    target_link_libraries(orpheus_rt_host PRIVATE
+        "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox" pthread m)
+elseif(UNIX)
+    target_link_libraries(orpheus_rt_host PRIVATE pthread m ${CMAKE_DL_LIBS})
 endif()

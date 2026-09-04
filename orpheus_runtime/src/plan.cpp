@@ -25,6 +25,28 @@ Plan Plan::load_from_file(const std::string& path) {
     p.task_id = j.value("task_id", "default");
     p.schedule_tick = j.value("schedule", json::object()).value("tick", 0u);
 
+    for (const auto& t : j.value("tasks", json::array())) {
+        TaskConfig tc;
+        tc.id = t.value("id", "default");
+        tc.name = t.value("name", tc.id);
+        tc.sample_rate = t.value("sample_rate", p.sample_rate);
+        tc.block_size = t.value("block_size", p.block_size);
+        tc.priority = t.value("priority", 0);
+        const auto schedule = t.value("schedule", json::object());
+        tc.schedule_tick = schedule.value("tick", tc.block_size);
+        for (const auto& n : t.value("nodes", json::array())) {
+            tc.nodes.push_back(n.get<std::string>());
+        }
+        for (const auto& n : t.value("execution_order", json::array())) {
+            tc.execution_order.push_back(n.get<std::string>());
+        }
+        const auto task_periods = schedule.value("periods", json::object());
+        for (auto it = task_periods.begin(); it != task_periods.end(); ++it) {
+            tc.periods[it.key()] = it.value().get<uint32_t>();
+        }
+        p.tasks.push_back(tc);
+    }
+
     for (const auto& n : j.value("nodes", json::array())) {
         p.nodes.push_back(n.get<std::string>());
     }
@@ -87,6 +109,9 @@ Plan Plan::load_from_file(const std::string& path) {
         bc.channels = it.value().value("channels", 2u);
         bc.frame_count = it.value().value("frame_count", p.block_size);
         bc.rate_bridge = it.value().value("rate_bridge", false);
+        bc.task_bridge = it.value().value("task_bridge", false);
+        bc.producer_frames = it.value().value("producer_frames", 0u);
+        bc.capacity_frames = it.value().value("capacity_frames", 0u);
         p.buffers[it.key()] = bc;
     }
 

@@ -133,6 +133,22 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
     expect(ctlEdge.targetHandle).toBe('ctl:gain_db');
   });
 
+    test('节点 Task 归属往返保持不变', () => {
+      const taskDoc = {
+        ...doc,
+        graph: {
+          ...doc.graph,
+          nodes: doc.graph.nodes.map((node, index) => ({
+            ...node,
+            task: index === 0 ? 'producer' : 'consumer',
+          })),
+        },
+      };
+      const { views, subsMeta } = docToViews(taskDoc, catalog);
+      const out = viewsToDoc(views, subsMeta, taskDoc);
+      expect(out.graph.nodes.map((node) => node.task)).toEqual(['producer', 'consumer']);
+    });
+
   test('写回：控制边剥 ctl: 前缀回 control_connections，音频边进 connections', () => {
     const { views, subsMeta } = docToViews(doc, catalog);
     const out = viewsToDoc(views, subsMeta, doc);

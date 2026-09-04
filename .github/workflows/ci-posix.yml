@@ -1,0 +1,69 @@
+name: POSIX CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+            sanitizers: "OFF"
+          - os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+            sanitizers: "ON"
+          - os: macos-latest
+            cc: clang
+            cxx: clang++
+            sanitizers: "OFF"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      ASAN_OPTIONS: detect_leaks=1
+      UBSAN_OPTIONS: print_stacktrace=1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            orpheus_core/pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -e './orpheus_core[dev]'
+          python -m pip install ninja
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DORPHEUS_BUILD_TESTS=ON
+          -DORPHEUS_STRICT_WARNINGS=ON
+          -DORPHEUS_ENABLE_SANITIZERS=${{ matrix.sanitizers }}
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Native smoke tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Python tests
+        run: python -m pytest orpheus_core/tests/ -q
+
+      - name: Record large-graph benchmark
+        run: python scripts/benchmark_graph.py --nodes 128 --blocks 1000

@@ -110,6 +110,7 @@ export function graphToFlow(graph, catalogById, controlConnections = []) {
         component: n.component,
         missing: !comp,
         params: n.params || {},
+          task: n.task || 'default',
         clockSource: !!comp?.clock_source,
         ports: resolvePorts(comp, n.params),
         parameters: comp?.parameters || [],
@@ -146,7 +147,7 @@ export function flowToGraph(nodes, edges) {
     nodes: nodes.map((n) => ({
       id: n.id,
       component: n.data.component,
-      task: 'default',
+        task: n.data.task || 'default',
       params: n.data.params || {},
       position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
       ...(n.data.label && n.data.label !== n.id ? { label: n.data.label } : {}),

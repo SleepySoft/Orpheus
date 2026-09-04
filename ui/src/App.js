@@ -624,6 +624,7 @@ const { screenToFlowPosition } = useReactFlow();
               label: id,
               component: componentId,
               params,
+              task: doc?.tasks?.[0]?.id || 'default',
               clockSource: !!comp.clock_source,
               ports: resolvePorts(comp, params),
               parameters: comp.parameters || [],
@@ -635,7 +636,7 @@ const { screenToFlowPosition } = useReactFlow();
       setSelectedId(id);
       setDirty(true);
     },
-    [catalogById, activeView, view.nodes, screenToFlowPosition, updateView]
+    [catalogById, activeView, view.nodes, screenToFlowPosition, updateView, doc]
   );
 
   const onParamChange = useCallback(
@@ -675,6 +676,16 @@ const { screenToFlowPosition } = useReactFlow();
     },
     [activeView, selectedId, updateView, catalogById]
   );
+
+  const onTaskChange = useCallback((nodeId, taskId) => {
+    updateView(activeView, (currentView) => ({
+      ...currentView,
+      nodes: currentView.nodes.map((node) => (
+        node.id === nodeId ? { ...node, data: { ...node.data, task: taskId } } : node
+      )),
+    }));
+    setDirty(true);
+  }, [activeView, updateView]);
 
   /** 参数面板专用：更新任意视图（主图/子组件标签）里某节点的参数，并在实时会话中即时推送。 */
   const onNodeParamChange = useCallback(
@@ -1855,6 +1866,8 @@ const { screenToFlowPosition } = useReactFlow();
               nodeNotes={nodeNotes}
               onDeleteNode={onDeleteNode}
               onRenameNode={onRenameNode}
+              tasks={doc?.tasks || []}
+              onTaskChange={onTaskChange}
               ctx={paramCtx}
             />
           </div>

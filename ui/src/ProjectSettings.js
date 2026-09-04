@@ -34,6 +34,12 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
   const [blockSize, setBlockSize] = useState(String(doc?.block_size ?? 128));
   const [doubleBank, setDoubleBank] = useState(doc?.double_bank || 'auto');
   const [target, setTarget] = useState(doc?.target || 'auto');
+  const [tasks, setTasks] = useState(() => (
+    doc?.tasks?.length ? doc.tasks.map((task) => ({ ...task })) : [{
+      id: 'default', name: 'Default', sample_rate: sr0,
+      block_size: parseInt(doc?.block_size ?? 128, 10) || 128, priority: 0,
+    }]
+  ));
 
   const frames0 = parseInt(doc?.buffer_size ?? 0, 10) || 0;
   const autoFrames0 = Math.round(sr0 / 10);
@@ -98,7 +104,34 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
       setError('缓冲帧数范围 1-1048576');
       return;
     }
-    onSave({ sample_rate: srVal, block_size: bs, buffer_size: buf, double_bank: doubleBank, target });
+    const normalizedTasks = tasks.map((task) => ({
+      ...task,
+      sample_rate: parseInt(task.sample_rate, 10),
+      block_size: parseInt(task.block_size, 10),
+      priority: parseInt(task.priority, 10) || 0,
+    }));
+    if (normalizedTasks.some((task) => !task.id || !Number.isFinite(task.sample_rate)
+      || task.sample_rate < 1 || !Number.isFinite(task.block_size) || task.block_size < 1)) {
+      setError('Task 的采样率和块长度必须为正整数');
+      return;
+    }
+    onSave({
+      sample_rate: srVal, block_size: bs, buffer_size: buf,
+      double_bank: doubleBank, target, tasks: normalizedTasks,
+    });
+  };
+
+  const updateTask = (index, key, value) => {
+    setTasks((current) => current.map((task, i) => (i === index ? { ...task, [key]: value } : task)));
+  };
+
+  const addTask = () => {
+    let index = tasks.length + 1;
+    while (tasks.some((task) => task.id === `task_${index}`)) index += 1;
+    setTasks([...tasks, {
+      id: `task_${index}`, name: `Task ${index}`, sample_rate: sr,
+      block_size: parseInt(blockSize, 10) || 128, priority: 0,
+    }]);
   };
 
   return (
@@ -111,6 +144,25 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
           <input type="number" value={sampleRate}
             onChange={(e) => setSampleRate(e.target.value)} />
           <span className="settings-hint">图形编译期采样率。设备源可声明自身采样率覆盖此默认值，运行时按设备实际能力校验。</span>
+        </div>
+
+        <div className="settings-field">
+          <label>任务 (Task)</label>
+          {tasks.map((task, index) => (
+            <div className="task-settings-row" key={task.id}>
+              <code>{task.id}</code>
+              <input value={task.name || ''} aria-label={`${task.id} 名称`}
+                onChange={(e) => updateTask(index, 'name', e.target.value)} />
+              <input type="number" value={task.sample_rate} aria-label={`${task.id} 采样率`}
+                onChange={(e) => updateTask(index, 'sample_rate', e.target.value)} />
+              <input type="number" value={task.block_size} aria-label={`${task.id} 块长度`}
+                onChange={(e) => updateTask(index, 'block_size', e.target.value)} />
+              <input type="number" value={task.priority ?? 0} aria-label={`${task.id} 优先级`}
+                onChange={(e) => updateTask(index, 'priority', e.target.value)} />
+            </div>
+          ))}
+          <button type="button" onClick={addTask}>新增 Task</button>
+          <span className="settings-hint">依次为名称、采样率、块长度和优先级。Task ID 创建后保持稳定。</span>
         </div>
 
         <div className="settings-field">

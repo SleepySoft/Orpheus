@@ -36,3 +36,6 @@ jobs:
       - name: Verify repository
         shell: pwsh
         run: ./scripts/verify.ps1 -Python python
+
+      - name: Record large-graph benchmark
+        run: python scripts/benchmark_graph.py --nodes 128 --blocks 1000

@@ -141,7 +141,6 @@ static int ndab_process(void* state, const OrpheusProcessContext* ctx) {
     /* time-domain residual + click detection over this block */
     float block_thd = 0.0f;
     double acc_tnd = 0.0, acc_sy = 0.0;
-    double acc_ratio = (double)s->time_thres;
 
     bool has_spectral = (n_win > 0);
     if (has_spectral) {
@@ -151,7 +150,6 @@ static int ndab_process(void* state, const OrpheusProcessContext* ctx) {
             for (uint32_t c = 0; c < ch; ++c) {
                 for (uint32_t k = 0; k < fft; ++k) {
                     float xv = ref[(off + k) * ch + c] * s->win[k];
-                    float yv = in [(off + k) * ch + c] * s->win[k];
                     s->rea[k] = xv; s->ima[k] = 0.0f;
                 }
                 fft_radix2(s->rea, s->ima, fft);

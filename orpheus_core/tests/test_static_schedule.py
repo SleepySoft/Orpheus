@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from orpheus_core.compiler import GraphCompiler
+from orpheus_core.generator import CodeGenerator
 from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import Registry
 
@@ -75,6 +76,16 @@ def test_merge_schedule_table(compiler):
     # sink 不再每 tick 触发：每 12 个主 tick 消费一个 96 帧块
     assert plan.node_configs["o"]["frames"] == 96
 
+    tasks = {task["id"]: task for task in plan.tasks}
+    assert list(tasks) == ["tidA", "tidB"]
+    assert tasks["tidA"]["execution_order"] == ["a", "sync", "o"]
+    assert tasks["tidA"]["schedule"] == {
+        "tick": 24,
+        "periods": {"a": 1, "sync": 4, "o": 4},
+    }
+    assert tasks["tidB"]["execution_order"] == ["b"]
+    assert tasks["tidB"]["schedule"] == {"tick": 32, "periods": {"b": 1}}
+
 
 def test_single_rate_schedule_matches_legacy(compiler):
     """单速率图：主步长必须等于 plan.block_size，周期等于旧 divisor（行为不变）。"""
@@ -101,6 +112,22 @@ def test_single_rate_schedule_matches_legacy(compiler):
     assert schedule["tick"] == plan.block_size == 128
     for nid, cfg in plan.node_configs.items():
         assert schedule["periods"][nid] == cfg["divisor"], nid
+
+
+def test_generated_task_entries(compiler, tmp_path):
+    plan = compiler.compile(make_merge_project())
+    out = tmp_path / "generated"
+    CodeGenerator(compiler.registry, ROOT).generate(plan, out)
+
+    header = (out / "include" / "orpheus_generated.h").read_text(encoding="utf-8")
+    source = (out / "src" / "main.c").read_text(encoding="utf-8")
+    for task_id in ("tidA", "tidB"):
+        signature = f"int orpheus_generated_process_task_{task_id}(uint32_t frame_count)"
+        assert signature + ";" in header
+        assert signature + " {" in source
+    assert "(g_task_counter_tidA + 1) % 4 == 0" in source
+    assert "g_task_counter_tidB++;" in source
+    assert "void orpheus_generated_teardown(void)" in header
 
 
 @pytest.mark.skipif(

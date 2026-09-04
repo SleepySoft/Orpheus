@@ -1011,6 +1011,7 @@
 .modal {
   width: 420px;
   max-height: 60vh;
+  overflow-y: auto;
   background: white;
   border-radius: 8px;
   padding: 16px;
@@ -1532,6 +1533,18 @@ pre {
   border: 1px solid #ced4da;
   border-radius: 4px;
   font-size: 14px;
+}
+
+.task-settings-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.8fr) 1.2fr 92px 82px 64px;
+  gap: 6px;
+  align-items: center;
+}
+
+.task-settings-row code {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .settings-hint {
   font-size: 11px;

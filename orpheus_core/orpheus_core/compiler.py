@@ -41,6 +41,7 @@ class ExecutionPlan:
     sample_rate: int
     block_size: int
     task_id: str
+    tasks: list[dict[str, Any]] = field(default_factory=list)
     buffer_size: int = 0
     nodes: list[str] = field(default_factory=list)
     execution_order: list[str] = field(default_factory=list)
@@ -346,6 +347,16 @@ class GraphCompiler:
                 raise CompileError(
                     f"sample rate mismatch: {from_key} ({from_port.sample_rate}) -> {to_key} ({to_port.sample_rate})"
                 )
+            from_task = node_task(graph.nodes[conn.from_ref.node_id]).id
+            to_task = node_task(graph.nodes[conn.to_ref.node_id]).id
+            if from_task != to_task:
+                to_comp = self.registry.get(graph.nodes[conn.to_ref.node_id].component)
+                scheduling = (to_comp.manifest.get("scheduling") or {}) if to_comp else {}
+                if not (scheduling.get("async_bridge") or scheduling.get("merge")):
+                    raise CompileError(
+                        f"跨 Task 连接必须经过异步任务桥：{from_key}（{from_task}）→ "
+                        f"{to_key}（{to_task}）；请在目标 Task 插入 orpheus.builtin.async_bridge"
+                    )
 
         # 2.5 Clock domains: every flow must be driven by exactly one clock
         self._validate_clock_domains(graph)
@@ -447,12 +458,13 @@ class GraphCompiler:
             # 每个节点的速率域调度量子（block_size）：源=其 Task 块长，下游=输入超级块长。
             # 显式落盘到 plan，运行/生成两路按其自身值取 config.block_size，
             # 不依赖工程全局 block_size（后者仅是宿主导入默认/旧版回退）。
-            node_quantum = in_frames.get(node.id, nt.block_size)
+            scheduling = (comp.manifest.get("scheduling") or {}) if comp else {}
+            node_quantum = nt.block_size if scheduling.get("async_bridge") else in_frames.get(node.id, nt.block_size)
             plan.node_configs[node.id] = {
                 "component": node.component,
                 "version": comp.version if comp else "",
                 "params": dict(node.params),
-                "task": node.task,
+                "task": nt.id,
                 "divisor": node_divisor[node.id],
                 "block_size": node_quantum,
                 "frames": node_quantum,
@@ -504,6 +516,33 @@ class GraphCompiler:
         for nid, cfg in plan.node_configs.items():
             cfg["period"] = periods[nid]
 
+        effective_tasks = list(project.tasks.values()) or [resolved_task]
+        for task in effective_tasks:
+            task_nodes = [
+                nid for nid in execution_order
+                if plan.node_configs[nid]["task"] == task.id
+            ]
+            task_tick = 0
+            for nid in task_nodes:
+                task_tick = intervals[nid] if task_tick == 0 else math.gcd(task_tick, intervals[nid])
+            if task_tick <= 0:
+                task_tick = task.block_size
+            plan.tasks.append(
+                {
+                    "id": task.id,
+                    "name": task.name,
+                    "sample_rate": task.sample_rate,
+                    "block_size": task.block_size,
+                    "priority": task.priority,
+                    "nodes": task_nodes,
+                    "execution_order": task_nodes,
+                    "schedule": {
+                        "tick": task_tick,
+                        "periods": {nid: intervals[nid] // task_tick for nid in task_nodes},
+                    },
+                }
+            )
+
         # 离线运行时长：无文件输入时，宿主按时钟源声明的时长跑（信号发生器/扫频发生器/扫频记录
         # 的 duration_s），否则固定 10s 会截断长信号（60s 只跑 10s，或跟着 1s 的 wav 只跑 1s）。
         max_dur = 0.0
@@ -529,6 +568,9 @@ class GraphCompiler:
             to_node_id = conn.to_ref.node_id
             to_comp = self.registry.get(graph.nodes[to_node_id].component)
             merging = bool(to_comp and (to_comp.manifest.get("scheduling") or {}).get("merge"))
+            from_task = node_task(graph.nodes[conn.from_ref.node_id]).id
+            to_task = node_task(graph.nodes[to_node_id]).id
+            task_bridge = from_task != to_task
             frame_count = int(from_port.block_size)
             if merging:
                 # rate-bridge：合流（merge）节点的输入边深度 = 合流量子（各源块长的 LCM，
@@ -544,6 +586,12 @@ class GraphCompiler:
                         f"{frame_count}）；请在分频/重采样之后加一级直通组件（如 gain）再合流"
                     )
                 frame_count = int(in_frames[to_node_id])
+            if task_bridge:
+                frame_count = int(plan.node_configs[to_node_id]["frames"])
+                configured_capacity = int(graph.nodes[to_node_id].params.get("capacity_frames", 0) or 0)
+                capacity_frames = configured_capacity or (math.lcm(
+                    int(plan.node_configs[conn.from_ref.node_id]["frames"]), frame_count
+                ) * 2)
             plan.buffers[key] = {
                 "from": str(conn.from_ref),
                 "to": str(conn.to_ref),
@@ -551,6 +599,11 @@ class GraphCompiler:
                 "channels": from_port.channels,
                 "frame_count": frame_count,
                 **({"rate_bridge": True} if merging else {}),
+                **({
+                    "task_bridge": True,
+                    "producer_frames": int(plan.node_configs[conn.from_ref.node_id]["frames"]),
+                    "capacity_frames": capacity_frames,
+                } if task_bridge else {}),
             }
             plan.connections.append(
                 {

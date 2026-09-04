@@ -36,6 +36,8 @@ ui/node_modules/
 ui/build/
 ui/.cache/
 ui/coverage/
+ui/playwright-report/
+ui/test-results/
 ui/npm-debug.log*
 ui/yarn-debug.log*
 ui/yarn-error.log*

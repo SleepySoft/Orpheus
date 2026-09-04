@@ -33,6 +33,9 @@ struct BufferConfig {
     uint32_t channels;
     uint32_t frame_count;
     bool rate_bridge = false;  // 合流桥接 buffer：深度=合流量子，骨架按写游标滚动填充
+    bool task_bridge = false;  // 跨 Task SPSC：生产任务写、消费任务触发前读取
+    uint32_t producer_frames = 0;
+    uint32_t capacity_frames = 0;
 };
 
 struct ConnectionConfig {
@@ -71,6 +74,18 @@ struct ControlLinkConfig {
     uint32_t count = 1;            // shape 各维乘积（标量为 1）
 };
 
+struct TaskConfig {
+    std::string id;
+    std::string name;
+    uint32_t sample_rate = 48000;
+    uint32_t block_size = 128;
+    int32_t priority = 0;
+    uint32_t schedule_tick = 0;
+    std::vector<std::string> nodes;
+    std::vector<std::string> execution_order;
+    std::map<std::string, uint32_t> periods;
+};
+
 struct Plan {
     uint32_t abi_version = 1;
     uint32_t sample_rate = 48000;
@@ -79,6 +94,7 @@ struct Plan {
     uint32_t duration_frames = 0;  // 离线宿主运行时长提示（0=默认 10s）
     uint32_t schedule_tick = 0;    // 静态调度主步长（图速率帧）；0=回退 block_size（旧 plan）
     std::string task_id;
+    std::vector<TaskConfig> tasks;
     std::vector<std::string> nodes;
     std::vector<std::string> execution_order;
     std::map<std::string, NodeConfig> node_configs;

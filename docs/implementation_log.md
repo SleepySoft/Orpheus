@@ -1,5 +1,15 @@
 # Orpheus 基础版本实施日志
 
+## 2026-09-04（第四十七次：可复现构建 + 多 Task 入口与异步桥）
+
+- Windows CI 与 `scripts/verify.ps1` 统一 Python 3.12、MSVC、CTest、pytest、Jest 和 UI 生产构建；`cli build` 默认构建 ABI/OLINK/loader smoke。
+- 修复 Fresh CMake 编译器选择、OLINK 现场编译误用 PATH 旧 GCC，以及 Windows MinGW 并行归档瞬时锁的单次串行重试。
+- plan 新增 `tasks[]`，记录各 Task 的节点拓扑序与局部静态调度；动态 Runtime 和生成工程新增独立 per-Task process 入口，保留旧全局入口兼容。
+- 新增 `async_bridge`：跨 Task 连接必须经过显式桥节点（`rate_sync` 作为既有同步点兼容），动态/生成两路使用固定容量 SPSC Ring Buffer，提供水位/欠载/溢出探针。
+- UI 工程设置可新增和配置 Task，节点参数面板可切换 Task；修复图文档保存时节点 Task 被重置为 default。
+- 质量基线：动态库加载 CTest、严格警告与 Sanitizer CMake 开关、Linux GCC / Linux Clang Sanitizer / macOS Clang CI，以及 128 节点性能基准脚本。
+- 验证：50 次跨 Task Ring Buffer 回绕，动态/生成输出逐字节一致且非静音；MSVC `/W4` 自有源码零警告（vendored miniaudio 保留 1 条）。
+
 ## 2026-08-26（第四十六次：时钟链静态调度表——修复跨速率合流的 sink 重复写）
 
 - **问题**（design_clock_scheduling.md，rate_sync 落地后暴露）：多速率图各分支块长不同

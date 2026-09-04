@@ -44,13 +44,16 @@ try {
     }
 
     if (-not $SkipUi) {
+        $env:ORPHEUS_PYTHON = $Python
         Push-Location ui
         try {
             if (-not $SkipInstall) {
                 Invoke-Checked "Install UI dependencies" { & npm ci }
+                Invoke-Checked "Install Playwright browser" { & npx playwright install chromium }
             }
             Invoke-Checked "Run UI tests" { & npm test -- --watchAll=false }
             Invoke-Checked "Build UI" { & npm run build }
+            Invoke-Checked "Run browser workflow tests" { & npm run test:e2e }
         }
         finally {
             Pop-Location

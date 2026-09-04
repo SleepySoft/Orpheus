@@ -554,7 +554,7 @@ int main(int argc, char** argv) {
 
     ma_pcm_rb rb;
     bool rb_inited = false;
-    ma_device cap_device, play_device;
+    ma_device cap_device{}, play_device{};
     bool cap_inited = false, play_inited = false;
 
     try {

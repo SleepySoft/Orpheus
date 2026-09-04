@@ -18,6 +18,8 @@ export default function ParamPanel({
   nodeNotes,
   onDeleteNode,
   onRenameNode,
+  tasks,
+  onTaskChange,
   ctx,
 }) {
   if (!node) {
@@ -91,6 +93,12 @@ export default function ParamPanel({
         <br />
         <span className="muted">{component}</span>
       </p>
+      <div className="param-field">
+        <label>所属 Task</label>
+        <select value={node.data.task || 'default'} onChange={(e) => onTaskChange(node.id, e.target.value)}>
+          {(tasks || []).map((task) => <option key={task.id} value={task.id}>{task.name || task.id}</option>)}
+        </select>
+      </div>
       {universal.length > 0 && (
         <>
           <div className="param-section">通用</div>

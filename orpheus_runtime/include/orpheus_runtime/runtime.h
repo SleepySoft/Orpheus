@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <cstdint>
+#include <atomic>
 
 namespace orpheus {
 
@@ -99,6 +100,10 @@ public:
     // Execute one block.
     int process_block(uint32_t frame_count);
 
+    // Execute one declared Task entry. Phase 1 is deterministic and caller-serialized;
+    // task-local counters and periods are independent from the legacy graph scheduler.
+    int process_task(const std::string& task_id, uint32_t frame_count);
+
     // 控制链路：块边界两相快照（先读全部源、再写全部目标），每图块一次。
     // 读快照在上一个块末完成，故每条链固定 1 块延迟，闭环合法（无代数环）。
     void control_tick();
@@ -132,6 +137,22 @@ private:
     std::map<std::string, std::vector<BridgeCopy>> bridge_copies_;  // 生产者节点 → 拷贝列表
     std::vector<std::unique_ptr<OrpheusBuffer>> staging_buffers_;
     std::vector<std::unique_ptr<float[]>> staging_memory_;
+    struct TaskBridge {
+        const OrpheusBuffer* staging = nullptr;
+        OrpheusBuffer* consumer = nullptr;
+        std::string consumer_node;
+        std::unique_ptr<float[]> ring;
+        uint32_t channels = 0;
+        uint32_t capacity_frames = 0;
+        bool legacy_rate_bridge = false;
+        std::atomic<uint64_t> read_pos{0};
+        std::atomic<uint64_t> write_pos{0};
+        std::atomic<uint32_t> underruns{0};
+        std::atomic<uint32_t> overruns{0};
+    };
+    std::vector<std::unique_ptr<TaskBridge>> task_bridges_;
+    std::map<std::string, std::vector<TaskBridge*>> task_bridge_writes_;
+    std::map<std::string, std::vector<TaskBridge*>> task_bridge_reads_;
     std::vector<uint8_t> state_arena_;   // v2：统一内存拼接（每实例一块连续切片）
     std::map<uint32_t, const IdMapEntry*> id_index_;   // 数据 ID → plan.id_map 条目
     std::map<std::string, uint32_t> key_to_id_;        // "node\x1fkey" → 数据 ID
@@ -144,6 +165,7 @@ private:
     struct RegisteredHook { OrpheusHookFn fn; void* ctx; };
     std::map<uint32_t, RegisteredHook> hooks_;         // 外部注册 hook（按 route_id）
     uint64_t block_counter_ = 0;  // for rate-divisor scheduling
+    std::map<std::string, uint64_t> task_counters_;  // per-Task entry scheduling counters
 
     // 控制链路运行态：快照与字符串缓冲在 load_plan 预分配，process 路径零 malloc。
     struct ControlLinkState {
@@ -159,6 +181,14 @@ private:
                     uint8_t* out, size_t out_cap, uint32_t* resp_words, uint32_t* resp_flags);
 
     int prepare_instance(Instance& inst, const NodeConfig& cfg);
+    void commit_bulk();
+    void control_tick_for_task(const std::string* task_id);
+    int process_nodes(const std::vector<std::string>& execution_order,
+                      const std::map<std::string, uint32_t>* periods,
+                      uint64_t counter, uint32_t frame_count, bool task_mode = false);
+    void task_bridge_push(TaskBridge& bridge);
+    void task_bridge_pop(TaskBridge& bridge);
+    void update_task_bridge_probes(TaskBridge& bridge);
 };
 
 } // namespace orpheus

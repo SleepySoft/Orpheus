@@ -23,21 +23,23 @@
 
 ### 多 Task 与异步桥
 
-- [ ] Plan 显式记录 Task 列表、节点归属、各 Task 的入口与周期。
-- [ ] Runtime 与生成工程提供等价的 per-Task process 入口。
-- [ ] `async_bridge` 使用固定容量 SPSC Ring Buffer 连接不同 Task。
-- [ ] 增加欠载、溢出和水位探针及长时间稳定性测试。
+- [x] Plan 显式记录 Task 列表、节点归属、各 Task 的入口与周期。
+- [x] Runtime 与生成工程提供等价的 per-Task process 入口（当前由宿主串行调度）。
+- [x] `async_bridge` 使用固定容量 SPSC Ring Buffer 连接不同 Task。
+- [x] 增加欠载、溢出和水位探针及 Ring Buffer 回绕一致性测试。
 
 ### 质量覆盖
 
-- [ ] 前端核心编辑流程自动化测试。
-- [ ] C/C++ 严格警告、ASan/UBSan 和动态库加载错误路径测试。
-- [ ] 100+ 节点编译/运行基准和实时延迟基线。
+- [x] 前端图文档测试覆盖 Task 归属、控制链与音频边往返。
+- [x] C/C++ 严格警告、ASan/UBSan 构建开关和动态库加载错误路径测试。
+- [x] 128 节点编译/运行及块级 p50/p95/p99/max 延迟基准脚本与 CI 记录。
+- [x] Playwright 覆盖 Task 配置、节点归属与后端持久化流程。
+- [ ] 真实声卡端到端延迟基线（需要固定音频硬件回环测试台）。
 
 ### 跨平台
 
-- [ ] Linux GCC/Clang 构建与测试 CI。
-- [ ] macOS 动态库加载与生成工程验证。
+- [x] Linux GCC、Linux Clang+Sanitizer 与 macOS Clang CI 矩阵。
+- [ ] 首次远端 CI 绿灯后固化平台差异修复。
 - [ ] 将 `win`/`dsp` 扩展为数据驱动的 Target Profile 能力检查。
 
 ## P2 候选

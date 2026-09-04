@@ -1,0 +1,70 @@
+id: orpheus.builtin.async_bridge
+name: 异步任务桥
+category: 基础/路由与时序
+description: 跨 Task 的固定容量 SPSC 缓冲边界；生产任务写入，消费任务按自身块长读取
+version: 1.0.0
+abi_version: 3
+package_type: source
+state_type: AsyncBridgeState
+sources:
+  - src/async_bridge.c
+headers:
+  - include/orpheus_async_bridge.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+    block_size: task:block_size
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 1
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: capacity_frames
+    name: 缓冲容量（帧）
+    type: int
+    default: 0
+    range: [0, 1048576]
+    update_policy: restart_required
+  - id: level_frames
+    name: 当前水位（帧）
+    type: int
+    default: 0
+    readback: true
+    kind: probe
+    update_policy: immediate
+  - id: underruns
+    name: 欠载次数
+    type: int
+    default: 0
+    readback: true
+    kind: probe
+    update_policy: immediate
+  - id: overruns
+    name: 溢出次数
+    type: int
+    default: 0
+    readback: true
+    kind: probe
+    update_policy: immediate
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true
+scheduling:
+  async_bridge: true

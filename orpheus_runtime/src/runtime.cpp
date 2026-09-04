@@ -82,6 +82,8 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
 
 #ifdef _WIN32
         std::string lib_path = abs_component_dir + "\\lib" + lib_name + ".dll";
+#elif defined(__APPLE__)
+    std::string lib_path = abs_component_dir + "/lib" + lib_name + ".dylib";
 #else
         std::string lib_path = abs_component_dir + "/lib" + lib_name + ".so";
 #endif
@@ -97,7 +99,6 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
     // Allocate buffers
     for (const auto& kv : plan_.buffers) {
         const BufferConfig& bc = kv.second;
-        uint32_t sample_count = bc.frame_count * bc.channels;
         auto buf = std::unique_ptr<OrpheusBuffer>(new OrpheusBuffer());
         buf->data = nullptr; // will point into buffer_memory_
         buf->format = ORPHEUS_FORMAT_F32;
@@ -304,7 +305,8 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         PortRef from_ref(conn.from);
         PortRef to_ref(conn.to);
         OrpheusBuffer* edge_buf = buffers_[conn.buffer].get();
-        const bool is_bridge = plan_.buffers[conn.buffer].rate_bridge;
+        const BufferConfig& buffer_cfg = plan_.buffers[conn.buffer];
+        const bool is_bridge = buffer_cfg.rate_bridge || buffer_cfg.task_bridge;
 
         Instance* from_inst = instances_[from_ref.node_id].get();
         Instance* to_inst = instances_[to_ref.node_id].get();
@@ -366,13 +368,30 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             return -1;
         }
 
-        if (is_bridge) {
+        if (buffer_cfg.rate_bridge) {
             BridgeCopy cp;
             cp.staging = src_buf;
             cp.bridge = edge_buf;
             cp.frames = src_buf->frame_capacity;
             cp.channels = src_buf->channels;
             bridge_copies_[from_ref.node_id].push_back(cp);
+        }
+        if (buffer_cfg.task_bridge) {
+            auto bridge = std::unique_ptr<TaskBridge>(new TaskBridge());
+            bridge->staging = src_buf;
+            bridge->consumer = edge_buf;
+            bridge->consumer_node = to_ref.node_id;
+            bridge->channels = edge_buf->channels;
+            bridge->legacy_rate_bridge = buffer_cfg.rate_bridge;
+            bridge->capacity_frames = buffer_cfg.capacity_frames > 0
+                                          ? buffer_cfg.capacity_frames
+                                          : edge_buf->frame_capacity * 2;
+            bridge->ring.reset(new float[static_cast<size_t>(bridge->capacity_frames)
+                                         * bridge->channels]());
+            TaskBridge* ptr = bridge.get();
+            task_bridges_.push_back(std::move(bridge));
+            task_bridge_writes_[from_ref.node_id].push_back(ptr);
+            task_bridge_reads_[to_ref.node_id].push_back(ptr);
         }
     }
 
@@ -1018,11 +1037,18 @@ const OrpheusComponentInterface* Runtime::get_interface(const std::string& node_
 }
 
 void Runtime::control_tick() {
+    control_tick_for_task(nullptr);
+}
+
+void Runtime::control_tick_for_task(const std::string* task_id) {
     if (control_links_.empty()) return;
     /* 第一相：读 —— 全部源参数 → 快照（经 ABI get_parameter / 槽直读）。
        字符串源拷贝进预分配缓冲，process 路径零分配。 */
     for (auto& l : control_links_) {
         if (l.skip) continue;
+        if (task_id != nullptr &&
+            (plan_.node_configs[l.cfg->src_node].task != *task_id ||
+             plan_.node_configs[l.cfg->dst_node].task != *task_id)) continue;
         l.read_ok = get_parameter(l.cfg->src_node, l.cfg->src_param, &l.snapshot) == ORPHEUS_OK;
         if (l.read_ok && l.snapshot.type == ORPHEUS_VALUE_STRING && !l.str_buf.empty()) {
             const char* s = l.snapshot.value.str != nullptr ? l.snapshot.value.str : "";
@@ -1036,6 +1062,9 @@ void Runtime::control_tick() {
        读写分相保证顺序无关：多跳链每链固定 1 块延迟。 */
     for (auto& l : control_links_) {
         if (l.skip || !l.read_ok) continue;
+        if (task_id != nullptr &&
+            (plan_.node_configs[l.cfg->src_node].task != *task_id ||
+             plan_.node_configs[l.cfg->dst_node].task != *task_id)) continue;
         OrpheusValue v = l.snapshot;
         if (v.type == ORPHEUS_VALUE_STRING && !l.str_buf.empty()) {
             v.value.str = l.str_buf.data();
@@ -1044,7 +1073,7 @@ void Runtime::control_tick() {
     }
 }
 
-int Runtime::process_block(uint32_t frame_count) {
+void Runtime::commit_bulk() {
     /* 块边界提交：待写的 BULK 影子区一次性 memcpy 到 active（单控制写者假设） */
     for (auto& kv : bulk_pending_) {
         if (!kv.second) continue;
@@ -1057,18 +1086,89 @@ int Runtime::process_block(uint32_t frame_count) {
         }
         kv.second = false;
     }
+}
 
+void Runtime::task_bridge_push(TaskBridge& bridge) {
+    const uint32_t frames = bridge.staging->frame_count;
+    const uint64_t read = bridge.read_pos.load(std::memory_order_acquire);
+    const uint64_t write = bridge.write_pos.load(std::memory_order_relaxed);
+    if (frames > bridge.capacity_frames || write - read + frames > bridge.capacity_frames) {
+        bridge.overruns.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    for (uint32_t frame = 0; frame < frames; ++frame) {
+        const uint32_t slot = static_cast<uint32_t>((write + frame) % bridge.capacity_frames);
+        std::memcpy(bridge.ring.get() + static_cast<size_t>(slot) * bridge.channels,
+                    static_cast<const float*>(bridge.staging->data)
+                        + static_cast<size_t>(frame) * bridge.channels,
+                    bridge.channels * sizeof(float));
+    }
+    bridge.write_pos.store(write + frames, std::memory_order_release);
+}
+
+void Runtime::task_bridge_pop(TaskBridge& bridge) {
+    const uint32_t wanted = bridge.consumer->frame_capacity;
+    const uint64_t read = bridge.read_pos.load(std::memory_order_relaxed);
+    const uint64_t write = bridge.write_pos.load(std::memory_order_acquire);
+    const uint32_t available = static_cast<uint32_t>(write - read);
+    const uint32_t copied = available < wanted ? available : wanted;
+    float* output = static_cast<float*>(bridge.consumer->data);
+    for (uint32_t frame = 0; frame < copied; ++frame) {
+        const uint32_t slot = static_cast<uint32_t>((read + frame) % bridge.capacity_frames);
+        std::memcpy(output + static_cast<size_t>(frame) * bridge.channels,
+                    bridge.ring.get() + static_cast<size_t>(slot) * bridge.channels,
+                    bridge.channels * sizeof(float));
+    }
+    if (copied < wanted) {
+        std::memset(output + static_cast<size_t>(copied) * bridge.channels, 0,
+                    static_cast<size_t>(wanted - copied) * bridge.channels * sizeof(float));
+        bridge.underruns.fetch_add(1, std::memory_order_relaxed);
+    }
+    bridge.consumer->frame_count = wanted;
+    bridge.read_pos.store(read + copied, std::memory_order_release);
+}
+
+void Runtime::update_task_bridge_probes(TaskBridge& bridge) {
+    auto instance_it = instances_.find(bridge.consumer_node);
+    if (instance_it == instances_.end() || instance_it->second->interface_->set_parameter == nullptr) return;
+    OrpheusValue value;
+    value.type = ORPHEUS_VALUE_INT;
+    value.value.i32 = static_cast<int32_t>(
+        bridge.write_pos.load(std::memory_order_acquire)
+        - bridge.read_pos.load(std::memory_order_acquire));
+    instance_it->second->interface_->set_parameter(instance_it->second->state, "level_frames", &value);
+    value.value.i32 = static_cast<int32_t>(bridge.underruns.load(std::memory_order_relaxed));
+    instance_it->second->interface_->set_parameter(instance_it->second->state, "underruns", &value);
+    value.value.i32 = static_cast<int32_t>(bridge.overruns.load(std::memory_order_relaxed));
+    instance_it->second->interface_->set_parameter(instance_it->second->state, "overruns", &value);
+}
+
+int Runtime::process_nodes(const std::vector<std::string>& execution_order,
+                           const std::map<std::string, uint32_t>* periods,
+                           uint64_t counter, uint32_t frame_count, bool task_mode) {
     OrpheusProcessContext ctx;
     ctx.scratch = nullptr;
     ctx.scratch_size = 0;
     ctx.timestamp = 0.0;
 
-    for (const auto& node_id : plan_.execution_order) {
+    for (const auto& node_id : execution_order) {
         const NodeConfig& cfg = plan_.node_configs[node_id];
-        // 静态调度：优先用编译器推导的 period（主 tick 数）；旧 plan 回退 divisor。
-        const uint32_t period = cfg.period > 0 ? cfg.period : cfg.divisor;
-        if (period > 1 && (block_counter_ + 1) % period != 0) {
+        uint32_t period = cfg.period > 0 ? cfg.period : cfg.divisor;
+        if (periods != nullptr) {
+            const auto period_it = periods->find(node_id);
+            if (period_it != periods->end()) period = period_it->second;
+        }
+        if (period > 1 && (counter + 1) % period != 0) {
             continue;
+        }
+        auto reads = task_bridge_reads_.find(node_id);
+        if (reads != task_bridge_reads_.end()) {
+            for (TaskBridge* bridge : reads->second) {
+                if (task_mode || !bridge->legacy_rate_bridge) {
+                    task_bridge_pop(*bridge);
+                    update_task_bridge_probes(*bridge);
+                }
+            }
         }
         Instance& inst = *instances_[node_id];
         ctx.state = inst.state;
@@ -1085,7 +1185,7 @@ int Runtime::process_block(uint32_t frame_count) {
         }
         // rate-bridge：生产者触发后，把 staging 里的新鲜块按写游标滚入桥接 buffer
         auto bc = bridge_copies_.find(node_id);
-        if (bc != bridge_copies_.end()) {
+        if (!task_mode && bc != bridge_copies_.end()) {
             for (auto& cp : bc->second) {
                 float* dst = static_cast<float*>(cp.bridge->data)
                              + static_cast<size_t>(cp.cursor) * cp.channels;
@@ -1094,10 +1194,42 @@ int Runtime::process_block(uint32_t frame_count) {
                 cp.cursor = (cp.cursor + cp.frames) % cp.bridge->frame_capacity;
             }
         }
+        auto writes = task_bridge_writes_.find(node_id);
+        if (writes != task_bridge_writes_.end()) {
+            for (TaskBridge* bridge : writes->second) {
+                if (task_mode || !bridge->legacy_rate_bridge) task_bridge_push(*bridge);
+            }
+        }
     }
+    return 0;
+}
+
+int Runtime::process_block(uint32_t frame_count) {
+    commit_bulk();
+    const int result = process_nodes(plan_.execution_order, nullptr, block_counter_, frame_count);
+    if (result != 0) return result;
     control_tick();
     block_counter_++;
     return 0;
+}
+
+int Runtime::process_task(const std::string& task_id, uint32_t frame_count) {
+    const TaskConfig* task = nullptr;
+    for (const auto& candidate : plan_.tasks) {
+        if (candidate.id == task_id) {
+            task = &candidate;
+            break;
+        }
+    }
+    if (task == nullptr) return ORPHEUS_ERR_NOT_FOUND;
+
+    commit_bulk();
+    uint64_t& counter = task_counters_[task_id];
+    const int result = process_nodes(task->execution_order, &task->periods, counter, frame_count, true);
+    if (result != 0) return result;
+    control_tick_for_task(&task_id);
+    counter++;
+    return ORPHEUS_OK;
 }
 
 OrpheusBuffer* Runtime::get_input_buffer(const std::string& node_id, const std::string& port_id) {
