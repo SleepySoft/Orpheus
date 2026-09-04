@@ -19,7 +19,7 @@
 | Schema 校验 | **JSON Schema** | 校验 Project、Component Manifest、Target Profile |
 | 运行中间表示 | **二进制 IR（JSON/MsgPack 描述 + 可选二进制 blob）** | Runtime 加载编译后的执行计划，避免运行时解析 YAML |
 | 控制协议 | **自定义二进制消息协议** | 请求/响应/事件/流数据分离，与 Transport 解耦 |
-| 测试 | **GoogleTest（C++）+ pytest（Python）+ Playwright（UI）** | 单元、集成、端到端、Golden Vector |
+| 测试 | **CTest（C/C++ smoke/golden）+ pytest（Python）+ Jest/Playwright（UI）** | 单元、集成、端到端、Golden Vector |
 | 代码质量 | **Clang-Tidy、Cppcheck、AddressSanitizer、ThreadSanitizer** | 静态分析与动态检测 |
 | 文档 | **Markdown** | 与代码仓库共存 |
 
@@ -147,11 +147,13 @@ execution:
   realtime_safe: true
 ```
 
-### 3.3 C ABI v1（核心接口）
+### 3.3 C ABI 演进（当前 v3）
+
+下方代码是最初 v1 契约的历史简化快照，用于说明 ABI 的基本形状，**不是当前可复制的头文件**。当前唯一契约以 `orpheus_abi/include/orpheus_abi.h` 为准：v2 追加统一 state arena 与 `register_slots`，v3 在接口表尾部追加消息 `hook`；当前 `ORPHEUS_ABI_VERSION` 为 3。
 
 ```c
 // orpheus_abi.h
-#define ORPHEUS_ABI_VERSION 1
+#define ORPHEUS_ABI_VERSION 1  /* 历史 v1 快照；当前头文件为 v3 */
 
 typedef struct OrpheusComponentDescriptor {
     const char* id;
@@ -660,7 +662,7 @@ orpheus_platform_memory_section_bind(...);
 
 当前实现的后端与持久化模型，对应「UI 与 Runtime 完全解耦」原则的落地形态：
 
-- **HTTP 服务**：`orpheus-cli serve`（FastAPI + uvicorn，默认 `127.0.0.1:8000`），代码在 `orpheus_core/server/`。API 前缀 `/api`：`components`（全局只读组件库）、`projects`（工程 CRUD / compile / run / files / download）、`examples`（可导入示例）。
+- **HTTP 服务**：`orpheus-cli serve`（FastAPI + uvicorn，默认 `127.0.0.1:8000`），代码在 `orpheus_core/orpheus_core/server/`。API 前缀 `/api`：`components`（全局只读组件库）、`projects`（工程 CRUD / compile / run / files / download / lesson check）、`examples`（可导入示例）。
 - **内存模型**：`Registry` 启动时扫描缓存组件；`ProjectManager` 持有 `dict[name -> ProjectRecord]`，工程以 `Project` 对象常驻内存，读写、编译、运行均直接操作内存对象。
 - **同步策略**：前端编辑态本地优先（React 状态），整文档写回；触发时机为 1.5s 防抖自动保存 + Ctrl+S/保存按钮 + 运行前强制保存。后端写穿（write-through）：PUT 即校验并落盘。
 - **持久化**：`workspace/<工程名>/project.yaml` 为唯一事实来源，`project.plan.json` 与 `outputs/` 为可再生产物；`GET /api/projects/{name}/download` 打包 zip 下载。工程内 WAV 路径相对工程目录（运行子进程 `cwd` 设为工程目录），导入示例时自动把绝对路径改写为相对路径并拷贝输入文件。
@@ -668,12 +670,13 @@ orpheus_platform_memory_section_bind(...);
 
 ---
 
-## 16. 工程内子组件（已实现 v1）
+## 16. 工程内子组件（已实现）
 
-- **模型**：子组件定义内嵌在工程文档 `subcomponents:` 键中（id / ports / graph），工程私有；实例以 `component: "sub:<id>"` 引用。
-- **边界端口**：每个对外端口声明 `maps_to: "内部原子节点:端口"`；v1 要求映射到原子节点端口，不做参数提升（mask）。
+- **模型**：子组件定义内嵌在工程文档 `subcomponents:` 键中（id / ports / public_parameters / graph），工程私有；实例以 `component: "sub:<id>"` 引用。
+- **边界端口**：每个音频端口声明 `maps_to: "内部原子节点:端口"`；映射目标必须是原子节点。一个内部信号要映射到多个端点时，应声明多个边界端口并由上层显式扇出。
+- **公开参数/控制点**：`public_parameters` 声明 `direction: input|output` 与 `maps_to: "内部原子节点:参数"`。input 可由实例 `params` 覆盖内部默认值并作为控制目标；output 映射内部可读参数并作为控制源。顶层 `control_connections` 经 flatten 映射为 `<实例>__<节点>:<参数>`。
 - **编译时展开（Flatten）**：`orpheus_core.subgraph.flatten_project()` 在编译前把 `sub:` 实例递归展开为纯原子图（内部节点 id 加 `<实例>__` 前缀、边界连接按 maps_to 重接），编译器/Runtime/代码生成对层级完全无感知。校验：未定义引用、循环引用、非法 maps_to、重复端口 id 均抛 CompileError。
-- **UI**：多视图标签页（主图 + 每个打开的子组件一个平铺标签，无层级嵌套显示）；框选节点 →「包装为子组件」自动推导边界端口；双击实例打开子组件标签；子组件视图右侧可编辑接口端口。
+- **UI**：多视图标签页（主图 + 每个打开的子组件一个平铺标签）；框选节点 →「包装为子组件」自动推导边界端口；双击实例打开子组件标签；子组件视图右侧可编辑音频端口和公开参数。
 
 ## 17. 单命令启动（已实现）
 
@@ -695,7 +698,7 @@ orpheus_platform_memory_section_bind(...);
 
 - **设备选择 + Loopback**：rt_host 支持 `--list-devices`（JSON 输出，供 `GET /api/devices` 使用）；device_in/device_out 新增 `device` 参数（设备名子串匹配，空=默认设备）；device_in 的 `source` 可选 `microphone`（duplex）或 `loopback`（WASAPI 环回采集系统混音，`ma_pcm_rb` 环形缓冲桥接到播放设备主时钟）。配合 VB-Cable 等现成虚拟声卡即可做应用间路由（不自研内核驱动）。
 - **参数控件定制**：manifest 参数支持 `widget`（number/text/slider/select/checkbox/file，缺省按 type 推断）、`options`、`options_source`（动态下拉如设备列表）、`readonly`。前端 `widgets.js` 为控件注册表，新组件个性化控件 = 注册 widget + manifest 声明。file 控件走工程内文件浏览/上传（`POST /api/projects/{name}/uploads`），保持工程可移植。
-- **探针回读**：probe 组件 readback 参数经 `Runtime::get_parameter` 透传；离线宿主跑完打印 `PROBE <node> <param> <value>`，run 响应携带 `probes`；前端 `nodeWidgets` 注册表按组件 id 定制节点本体（电平条）。运行中实时回读/节点当场操作待实时宿主 UI 化后提供。
+- **探针回读**：probe 组件 readback 参数经 `Runtime::get_parameter` 透传；离线宿主跑完打印 `PROBE <node> <param> <value>`，run 响应携带 `probes`；实时会话周期上报标量/JSON 探针，前端 `nodeWidgets` 注册表按组件 id 定制电平、波形、频谱、相干矩阵等节点本体。
 
 ---
 
@@ -713,9 +716,9 @@ orpheus_platform_memory_section_bind(...);
 ## 21. 两条执行路径（设计澄清）
 
 - **动态加载（UI 运行所走）**：图编译只产出 plan.json 数据（拓扑、Buffer 分配、签名），不含任何代码生成；组件 DLL 预编译（缺了才补建）；基座程序（orpheus_runtime / orpheus_rt_host）LoadLibrary 动态加载，经 C ABI 函数表调用。图改动零 C 编译，编辑-运行循环快，面向 PC 设计/调试。
-- **代码生成（部署路径）**：`orpheus-cli generate` 展开为独立 C 工程，静态编译，无 DLL 依赖，可交叉编译到嵌入式目标。目前仅支持单 Task、无探针。
+- **代码生成（部署路径）**：`orpheus-cli generate` 展开为独立 C 工程，静态编译，无 DLL 依赖，可交叉编译到嵌入式目标。生成工程包含 PROBE/ID map/control tick、多 Task 的 `orpheus_generated_process_task_<id>` 入口、task bridge SPSC 数据面与旧全局兼容入口。
   - **宿主形态按平台解析结果选择**（2026-08-20）：解析为 win（图含 device_in/device_out）→ 生成 miniaudio 实时宿主（`templates/host_win.c` 模板原样复制 + `orpheus_host_config.h` 注入设备参数），产出 exe 在 PC 直连声卡运行，stdin/stdout 协议与 rt_host 一致（可直接接入 RtSession/UI 实时面板）；解析为 dsp（embed_in/embed_out）→ 文件时钟骨架 + `platform_io.c` 适配模板。alter 替代组（§见 design_registry 19）让同一工程可按 `--target` 生成两种形态。
-- 两条路径共享同一份组件 C 源码与 ABI 契约，设计原则要求结果一致（自动化一致性测试待补）。
+- 两条路径共享同一份组件 C 源码与 ABI 契约；离线音频、控制链、静态调度、异步桥等均有动态/生成一致性自动化测试。
 
 ---
 
@@ -731,14 +734,15 @@ orpheus_platform_memory_section_bind(...);
 
 ## 23. 时钟域与多速率模型（已实现 v1）
 
-- **时钟源打标**：组件 manifest 声明 `clock_source: true` + `clock_domain`（device/file）。task 不显式建模——时钟源组件即时钟域的根。
+- **时钟源与 Task**：组件 manifest 声明 `clock_source: true` + `clock_domain`（device/file），时钟源组件是域根。plan 显式保存 `tasks[]`，每个 Task 有独立节点序、tick、period 与 process 入口；旧 `task_id`/全局调度保留兼容。
 - **编译期校验**：无时钟源的图走隐式宿主时钟（旧行为）；有时钟源时，任何不含时钟源的连通流报错（"算法流没有时钟驱动，无法启动"）；同一连通流混入两个强时钟域（非 file）报错并提示异步桥。
-- **速率调整**：组件可声明 `scheduling.divisor: <expr>`——节点本身每块都跑，其输出域（及下游）每 N 块触发一次。表达式求值支持整数乘除链（`in:block_size*param:factor`、`task:sample_rate/param:factor`）；速率变换组件（downrate/resample）的输出块长从实际输入推导（`in:block_size`），不是全局 task 块长。）。
+- **速率调整**：组件可声明 `scheduling.divisor: <expr>`——节点及其下游速率域按静态 period 每 N 个调度 tick 触发一次。表达式求值支持整数乘除链（`in:block_size*param:factor`、`task:sample_rate/param:factor`）；速率变换组件（downrate/resample）的输出块长从实际输入推导（`in:block_size`），不是全局 task 块长。
 - **新组件**：`downrate`（分频/重缓冲，超块 N×块长，速率不变，供控制速率算法）、`resample`（整数倍降采样 N:1，滑动平均抗混叠，输出速率=task/N）。
-- **Runtime/生成器**：plan 每节点携带 `divisor` 与 `frames`（处理量子=上游 buffer 帧数）；执行时块计数相位触发（`(counter+1)%divisor==0`）。动态/生成两路径一致（逐字节一致性测试覆盖重采样链）。
+- **Runtime/生成器**：plan 每节点携带 `divisor`/`period` 与 `frames`；执行时按 Task 局部计数相位触发。动态 Runtime 提供 `process_task`，生成工程导出等价 Task 入口。
+- **跨 Task**：普通跨 Task 音频边编译期拒绝；目标必须是 `async_bridge`（或既有 `rate_sync` 合流点）。`async_bridge` 使用固定容量 SPSC Ring Buffer，提供水位/欠载/溢出探针；生成和动态路径等价。
 - **时间树可视化**：编译响应携带每节点 `node_rates`（采样率/分频比/帧量子），UI 节点头部显示速率徽标（如 `24kHz ÷2`）。逻辑速率编译期可知；物理设备协商速率运行时由 rt_host 日志给出。
 - 边界行为：块式抽取在输入块数为奇数倍时丢弃末尾未完成的输出块（≤1 个输出块）。
-- 待做：async_bridge 组件（跨时钟域，rt_host 的 ma_pcm_rb 模式下沉）、timer 时钟源组件（控制周期任务）、升采样。
+- 待做：timer 时钟源组件、升采样，以及固定硬件回环测试台上的端到端延迟基线。
 
 ## 24. 组件自定义 UI 与波形回读（已实现 v1）
 
@@ -918,8 +922,8 @@ orpheus_platform_memory_section_bind(...);
 > 详见 `docs/design_serial_link.md`（分层设计与实现状态表）。
 
 - **分层**：UI → L4 后端适配层（ControlPlane）→ L3 OLINK 成帧（COBS+CRC16）→ L2 §18 消息信封 → L1 传输（stdio 管道 / UART）。
-- **OLINK**（`orpheus_abi/src/olink.c` + `orpheus_core/link/olink.py`，帧级互测）：`线上帧 = COBS(消息 || CRC16-CCITT) || 0x00`；0x00 恒为帧界、自同步恢复、空消息帧丢弃。
-- **SerialSession**（`orpheus_core/server/serial_session.py`）：与 RtSession 同构——CALL 按 call_id 匹配（300ms 超时+重发）、NOTIFICATION 进探针缓存（/rt/status 形状不变）、resolve/map 由 plan.id_map 本地回答。REST：`rt/start {target,port,baud}`、`GET /api/link/ports`；UI 工具栏目标下拉（本机/COMx+波特率）。
+- **OLINK**（`orpheus_abi/src/olink.c` + `orpheus_core/orpheus_core/link/olink.py`，帧级互测）：`线上帧 = COBS(消息 || CRC16-CCITT) || 0x00`；0x00 恒为帧界、自同步恢复、空消息帧丢弃。
+- **SerialSession**（`orpheus_core/orpheus_core/server/serial_session.py`）：与 RtSession 同构——CALL 按 call_id 匹配（300ms 超时+重发）、NOTIFICATION 进探针缓存（/rt/status 形状不变）、resolve/map 由 plan.id_map 本地回答。REST：`rt/start {target,port,baud}`、`GET /api/link/ports`；UI 工具栏目标下拉（本机/COMx+波特率）。
 - **uart_link 组件**（`orpheus.builtin.uart_link`，execution.none）：拖入即给生成工程加设备侧链路段——`orpheus_link_<名>.c/h`（feed=OLINK 解码→`orpheus_control_message` 分发→send 回发；poll=探针泵，内部读 CALL 包 NOTIFICATION 上行）+ `orpheus_link_hooks_<名>.c`（用户只填 init/send，接收回调里调 feed）。manifest 新字段 `codegen_template` 使生成器模板分发通用化（platform_hook 硬编码已消除）。
 - **PC 冒烟**：`orpheus_generated_app --link-stdio`（stdin/stdout 二进制即链路，真实时间驱动探针泵），e2e 测试 `test_uart_link.py`（SerialSession 经管道完成标量/BULK/msg/探针全链路）。
 - alter 语义结论：uart_link 不用 alter（无音频边、生成路径专用）；PC 串口调试由后端适配层承担。
@@ -933,7 +937,41 @@ orpheus_platform_memory_section_bind(...);
 
 - **声明模型**：工程顶层 `control_connections: [{from: "node:param", to: "node:param"}]`；manifest 参数新增 `bindable`（目标，与 affects_signature/restart_required 互斥）/ `control_source`（源，须 readback 可读）/ `shape`（维度表达式，复用 `param:` 语法，如 `matrix_mul.matrix: [param:rows, param:cols]`）。
 - **双平面语义**：签名平面（shape/采样率）编译期拓扑求值、结构性无环；控制平面运行期值流动，**每条链 = 1 块单位延迟，闭环合法**（如 level_detect → gain 的 AGC 反馈环）。
-- **编译**：compiler 校验两端存在性/bindable/control_source/update_policy/类型严格相同/shape 求值后严格相等（全中文错误），并拒绝重复目标（同一参数只允许一个控制源），产出 `plan.control_links`；子图 flatten 与 alter 解析同步重映射。
+- **编译**：compiler 校验两端存在性/bindable/control_source/update_policy/类型严格相同/shape 求值后严格相等（全中文错误），并拒绝重复目标（同一参数只允许一个控制源），产出 `plan.control_links`；子图通过 `public_parameters` 公开 input/output 控制点，flatten 与 alter 解析同步重映射。
 - **运行（双路径一致）**：动态路径 `Runtime::control_tick` 与生成路径 `orpheus_generated_process` 末尾的 `control_tick()` 同语义——每图块末尾两相快照（先全读后全写，顺序无关），经 ABI get/set_parameter 投递；float/int/bool 标量 + string 透传（256B），count>1 数组链仅编译期校验。一致性测试 `test_generated_run_matches_dynamic_run_with_control_link` 逐字节相等。
 - **UI**：工具栏「控制链路」开关（默认关，界面与旧版完全一致）；开启后节点显示橙色方形控制 handle（`ctl:<param>`），控制边为虚线动画 + 形状标注（`[2]→[2]`，失配标红 ⚠），onConnect 做源/目标/类型/shape 全量校验；参数改动后失配边标红保留、恢复匹配自动复原。
-- **示例/测试**：`examples/control_link_demo.yaml`（电平闭环 AGC）；`orpheus_core/tests/test_control_links.py`（schema/校验/子图/codegen 14 项）。
+- **示例/测试**：`examples/control_link_demo.yaml`（电平闭环 AGC）；`orpheus_core/tests/test_control_links.py` 覆盖 schema、方向/形状校验、公开参数、持久化与 codegen。
+
+
+---
+
+## 36. 静态调度、多 Task 与异步桥（已实现）
+
+> 详见 `docs/design_clock_scheduling.md` 与 `docs/design_multitask_runtime.md`。
+
+- compiler 将每个节点的处理量子折算为图速率帧，生成全局 `schedule.tick/periods`；跨速率合流边使用 `rate_bridge` staging + 滚动 FIFO，避免 sink 重复消费。
+- plan 同时保存兼容全局入口和 `tasks[]`；每个 Task 记录采样率、块长、优先级、节点拓扑序、局部 tick 与 periods。
+- 动态 Runtime 提供 `process_task(task_id, frame_count)`；生成工程导出 `orpheus_generated_process_task_<id>`。文件宿主可用重复的 `--task <id> <blocks>` 驱动入口。
+- 普通音频边禁止跨 Task 直接共享内存；`async_bridge` 以固定容量 SPSC Ring Buffer 连接生产/消费 Task，提供 `level_frames/underruns/overruns` 探针。动态与生成路径有 50 周期回绕和逐字节一致性测试。
+
+
+---
+
+## 37. BAF 生成模型对齐（持续完善）
+
+> 实证路径、字段数量、哈希与剩余算法见 `docs/baf_model_alignment.md`。
+
+- ASM out 的执行图已映射为 TID0~TID6，多任务边界全部显式接入 `async_bridge`。
+- `rnc_mimo_nlms` 对齐 `<S724>/AdaptFilter` 的 12 reference × 8 speaker × 125 taps 核心；12000 初始权值通过 `scripts/extract_baf_top.py` 从 TOP 文件提取，不把外部模型源码或大表作为仓库依赖。
+- `baf_soft_clipper` 对齐 EREV-1 PostProcess 的二次分段曲线，SAS 示例已替换原 tanh 占位。
+- 生成器补齐多行 C 字符串转义、同 key 参数/BULK ID 去重、悬空输出 discard buffer 与节点级 process 错误诊断；ASM/SAS 独立生成工程均通过构建运行验证。
+
+
+---
+
+## 38. 教学包（最小闭环已实现）
+
+- 工程顶层 `lesson` 声明 `title/description/steps/checks`；普通工程无该字段时 UI 不出现教学入口。
+- `POST /api/projects/{name}/lesson/check` 在扁平图与 plan 上检查编译、节点组件、参数值、音频/控制连接和异步桥数量；畸形规则返回失败项，不中断核心服务。
+- UI「教学」面板展示步骤与逐项结果。`symphony_asm_ehc_rnc.yaml` 自带 5 条检查，覆盖 MIMO NLMS、125 taps、跨子图控制链和多 Task 桥。
+- 当前未实现教师答案和学习进度持久化，见 `docs/ROADMAP.md`。

@@ -24,10 +24,10 @@ surround_index(0-255, 用户控制)
 拆分为多组件不可行的原因：
 
 1. **逐样本耦合**：IIR 渐变和矩阵乘在同一个 sample 循环内交替执行。Orpheus 组件间按块（32样本）通信，无法实现逐样本的数据传递。
-2. **无控制端口**：Orpheus 是纯音频数据流图，`ORPHEUS_PORT_CONTROL` 在 ABI 中定义但未实现。166 个矩阵系数无法作为控制信号在组件间路由。
-3. **参数 vs 端口不匹配**：surround_index 是标量控制值，矩阵系数是 bulk 数组，两者都无法通过音频端口传递并用作另一组件的参数。
+2. **无连续 control-rate 端口**：Orpheus 已支持参数级 `control_connections`（块边界两相快照，每链 1 块延迟），但尚未实现逐样本 control-rate 缓冲端口。166 个矩阵系数也不能在每个样本间通过参数链重写。
+3. **时序与数据量不匹配**：`interp_index` 是块边界标量控制值，矩阵系数是 bulk 数组；即使参数控制链可用，也不能替代同一 sample loop 内的插值、IIR 渐变和矩阵乘。
 
-因此必须做一体化组件，控制信号（`interp_index`）从图外通过 `SET` 命令注入，插值/渐变/乘法全在 `process` 内部逐样本完成。
+因此仍需一体化组件。`interp_index` 可从图外通过 `SET` 注入，也可在 manifest 声明为 bindable 后由参数控制链在块边界驱动；插值/渐变/乘法继续在 `process` 内逐样本完成。
 
 ## 端口
 

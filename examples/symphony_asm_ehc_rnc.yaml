@@ -1401,7 +1401,7 @@ subcomponents:
           to: importance_sink:in
 model_tree:
   name: Symphony ASM EHC/RNC 蒸馏（step0）
-  source: cart-cicd-erev-asm/components/symphony/Model_Target*.c
+  source: cart-cicd-erev-asm/components/baf/src/out/baremetalgul/slx/code/Model_Target_ert_shrlib_rtw/Model_Target*.c
   base_rate: 6000
   task_flows:
     - tid: 0

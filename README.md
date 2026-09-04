@@ -33,7 +33,7 @@ An intuitive, easily extensible audio processing framework based on visual progr
 ./scripts/verify.ps1 -Python C:\path\to\python.exe
 ```
 
-该脚本依次安装依赖、构建组件/runtime/C 测试工具、运行 CTest 与 pytest、运行前端测试并生成生产构建；Windows CI 执行同一入口。Python 包本身仍声明兼容 3.10+，但提交前基线以 3.12 为准。
+该脚本依次安装依赖、构建组件/runtime/C 测试工具、运行 CTest 与 pytest、运行 Jest、生成 UI 生产构建并执行 Playwright；Windows CI 执行同一入口。Python 包本身仍声明兼容 3.10+，但提交前基线以 3.12 为准。
 
 ```powershell
 # 1. 安装 Python 工具链（含 HTTP 服务依赖）
@@ -50,7 +50,7 @@ python serve.py --open        # 或: python -m orpheus_core.cli serve --open
 # → http://127.0.0.1:8000 同时提供 API (/api) 和 UI (/)
 ```
 
-PyCharm 调试：直接对根目录 `serve.py` 右键 Debug 即可，断点可命中 `orpheus_core/server/` 内所有路由与编译代码。
+PyCharm 调试：直接对根目录 `serve.py` 右键 Debug 即可，断点可命中 `orpheus_core/orpheus_core/server/` 内所有路由与编译代码。
 
 前端开发调试时改用热更新模式：`cd ui && npm start`（:3000，自动代理到 :8000 的 API）。
 
@@ -70,7 +70,9 @@ UI 使用流程：左上角「导入示例…」导入示例工程 → 画布编
 
 **子组件（复合组件）**：在画布中框选一组节点 → 工具栏「包装为子组件」→ 自动生成边界端口并替换为单个实例节点；**双击实例**在独立标签页中平铺打开内部图编辑（类 Simulink 子系统）；子组件属于当前工程，可拖拽复用、多层嵌套，编译时递归展开为原子图（Runtime 无感知）。
 
+子组件还可通过 `public_parameters` 公开内部参数与控制点；实例参数可覆盖内部默认值，顶层控制链可跨子图映射。工程支持多 Task 独立入口，跨 Task 音频通过 `async_bridge` 固定容量 SPSC Ring Buffer 传递。带 `lesson` 的课程工程会显示「教学」入口，可执行结构化自动检查。
+
 - 工程持久化在 `workspace/<工程名>/`（`project.yaml` 为唯一事实来源，已 gitignore）；WAV 路径相对工程目录，可移植。
 - 组件是全局只读库（`components/` 扫描），工程是用户文档（`workspace/`），子组件定义内嵌于工程文档。
-- 后端 API：`GET/PUT /api/projects/{name}`、`POST .../compile`、`POST .../run`、`GET .../download`、`GET /api/components` 等，见 `orpheus_core/server/app.py`。
-- 后端测试：`python -m pytest orpheus_core/tests/`（server API + 子组件展开）。
+- 后端 API：`GET/PUT /api/projects/{name}`、`POST .../compile`、`POST .../run`、`GET .../download`、`GET /api/components` 等，见 `orpheus_core/orpheus_core/server/app.py`。
+- 当前验证基线：pytest 232 项通过、CTest 4 项通过、Jest 13 项通过、Playwright 核心流程通过；以 CI 实际结果为准。

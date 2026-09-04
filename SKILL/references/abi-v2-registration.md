@@ -1,6 +1,6 @@
 # ABI v2：资源槽注册与统一内存拼接（组件写法）
 
-> 2026-08-06 落地。设计全文见 `docs/design_registry.md`；试点组件：`gain`、`probe_rms`、`probe_waveform`。
+> 2026-08-06 首次落地，设计全文见 `docs/design_registry.md`。标题中的“ABI v2”指 state arena + `register_slots` 机制；当前整体 ABI 已为 v3。`gain`、`probe_rms`、`probe_waveform` 是最初试点，现有新组件应直接按本文机制实现。
 
 ## 一、组件侧要改四件事
 

@@ -53,7 +53,8 @@
 | `Failed to initialize audio device` | 设备不支持该配置(通道/采样率/独占模式) | 改参数或换设备；先看前面的 will convert 告警 |
 | 运行失败无原因 | 进程死在被轮询发现前 | 已实现：退出时自动展开日志面板显示 exit code + 末尾日志 |
 | 编译报 "not driven by any clock source" | 图中有不含时钟源的连通流 | 把该流接入时钟域（device_in/wav_in 驱动）或删除 |
-| 编译报 "conflicting clock domains" | 同一连通流混入两个强时钟域 | 拆分或加异步桥（async_bridge 组件待实现） |
+| 编译报 "conflicting clock domains" | 同一连通流混入两个强时钟域 | 拆分时钟域；跨 Task 数据在目标 Task 插入 `async_bridge` |
+| 编译报“跨 Task 连接必须经过异步任务桥” | 普通音频边跨 Task 直接共享 buffer | 在目标 Task 插入 `orpheus.builtin.async_bridge`；多速率合流可用 `rate_sync` |
 | 编译报 "rate mismatch at node" | 节点两个输入分频比不同 | 用速率组件（downrate/resample）统一后再合流 |
 | 重采样输出尾部少一截 | 块式抽取丢弃未完成的末尾输出块（≤1 块） | 正常边界行为；输入块数凑成 divisor 整数倍可避免 |
 | 组件编译了但 scan 找不到 | manifest 校验失败（Registry 打印 skip 原因） | 看扫描输出，按 schema 修正 component.yaml |

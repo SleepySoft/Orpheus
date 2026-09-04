@@ -4,7 +4,7 @@
 
 ## 结论（TL;DR）
 
-**可行，且基础设施已预留一半。** 但必须明确：这不是纯 UI 特性，而是贯穿 manifest schema → registry/compiler → runtime/generator → UI 的横向特性。建议分三期落地，**第 0 期（UI 可视化 + 静态匹配检查）可独立交付**，运行时语义（第 1/2 期）可后续叠加。
+**第 0/1 期及跨子图公开参数已落地。** 本文前九节保留最初的可行性分析与分期设计，当前实现状态以第十节为准：manifest/schema、compiler、runtime、generator、UI、子组件公开控制点和双路径一致性均已接通；连续 control-rate sidechain 仍属后续。
 
 ---
 
@@ -293,10 +293,11 @@ static void control_tick(void) {          /* 块边界调用一次 */
 
 - **schema/registry**：parameters 新增 `bindable`/`control_source`/`shape`（component_manifest.schema.json）；工程 schema 新增顶层 `control_connections`；`/api/components` 经 `parameters` 原样透传，UI 零后端改动拿到新字段。
 - **compiler**：`_validate_control_links()` 全量中文校验（存在性/bindable/control_source/update_policy/非 affects_signature/类型严格相同/shape 两端求值后严格相等），并拒绝**重复目标**（同一参数被多条链驱动——两相快照下同块两写属模糊行为），产出 `plan.control_links`；subgraph flatten 与 resolve.py（alter）同步处理控制连接。
+- **跨子图**：`subcomponents[].public_parameters` 声明 input/output 控制点及 `maps_to`。input 可由实例参数覆盖并作为控制目标，output 映射内部可读参数并作为控制源；flatten 后端点变为 `<实例>__<原子节点>:<参数>`，方向错误编译期拒绝。
 - **runtime 动态路径**：`Runtime::control_tick`（runtime.cpp）挂载于 `process_block` 节点循环之后、块计数之前——rt_host 按 block_size 分块驱动，tick 恰为每图块一次；两相快照、字符串缓冲 load_plan 预分配（256B），process 路径零分配。
 - **代码生成路径**：generator 在 `orpheus_generated_process` 末尾生成等价 `control_tick()`（快照静态数组 + 直线 get/set 代码，每链一行 `src [shape] -> dst` 注释）；win 宿主/dsp 骨架/文件时钟共用同一挂载点，模板零改动。
 - **UI**：`ui/src/ControlEdge.js`（虚线动画 + 形状 label + 失配红）；OrpheusNode 控制区（`ctl:<param>` 方形橙 handle，开关门控）；App.js 工具栏开关（localStorage `orpheus.showControlLinks`，默认关）、onConnect 全量校验、参数改动后失配边标红保留；graphUtils `resolveShape`/`shapeText`/`shapeEquals` 与 `control_connections` 往返序列化。
 - **试点组件**：gain.gain_db（bindable）、level_detect.level / probe_rms.rms（control_source）、matrix_mul.matrix（shape=[param:rows, param:cols]）。
 - **测试**：`test_control_links.py` 16 项（含重复目标拒绝、扇出、多跳中继）+ `test_server.py` compile API 2 项（非法链 400 中文报错、合法链响应含 control_links）+ `ui/src/graphUtils.test.js`（jest 11 项：resolveShape/shapeText/shapeEquals/控制 handle/doc↔views 往返）+ `test_generated_run_matches_dynamic_run_with_control_link`（双路径逐字节一致 + 无链基线对照证明控制生效）；示例 `examples/control_link_demo.yaml`（电平闭环 AGC）。compile API 响应新增 `control_links` 字段（增量兼容）。
 
-**本期边界（设计内限制）**：运行期仅执行 float/int/bool 标量 + string 透传；count>1 数值数组链与 bulk 槽投递仅编译期校验、运行期跳过（prepare 时中文提示 / 生成侧注释）；跨子图边界的控制连接不支持（校验报错）；零延迟链（`latency: 0`）未实现。第 2 期（control 速率缓冲端口 sidechain）未动工。
+**当前边界**：运行期执行 float/int/bool 标量 + string 透传；count>1 数值数组链与 bulk 槽投递仍仅做编译期校验、运行期跳过；零延迟链（`latency: 0`）未实现；第 2 期 control-rate 缓冲端口 sidechain 未动工。跨子图标量/string 控制连接已通过 `public_parameters` 实现。

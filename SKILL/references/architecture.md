@@ -14,7 +14,7 @@
 运行方式只有两种；**WAV 还是设备音频是图的输入输出组件决定的，与执行模式无关**（可自由组合：系统声音→处理→WAV = 录制）。
 
 1. **基座动态加载**（UI「▶ 运行」）：图编译只产出 plan.json 数据；组件 DLL 预编译；基座程序 LoadLibrary 加载后经 ABI 函数表调用。图改动零 C 编译。
-2. **代码生成**（UI「⚙ 编译后运行」/ `orpheus-cli generate`）：`CodeGenerator` 展开为自包含 C 工程（组件源码 + 生成的 main.c + vendored orpheus_abi.h），静态编译运行。面向嵌入式部署。限制：单 Task、无探针、不支持设备组件。
+2. **代码生成**（UI「⚙ 编译后运行」/ `orpheus-cli generate`）：`CodeGenerator` 展开为自包含 C 工程（组件源码 + 生成的 main.c + vendored orpheus_abi.h），静态编译运行。支持 PROBE/ID map/control tick、多 Task 独立入口和 task bridge；win 目标可生成 miniaudio 实时宿主，dsp 目标生成平台适配骨架。
 
 设计原则：两种模式输出必须一致。自动化保障：`orpheus_core/tests/test_server_devices_files.py::test_generated_run_matches_dynamic_run` 逐字节比较输出 WAV。
 
@@ -22,20 +22,22 @@
 
 ```
 project.yaml ──ProjectLoader──> Project（含 subcomponents）
-  ──flatten_project──> 纯原子图（sub: 实例递归展开，节点 id 加 "实例__" 前缀）
+  ──flatten_project──> 纯原子图（sub: 实例递归展开，音频端口/公开参数/控制点映射，节点 id 加 "实例__" 前缀）
   ──GraphCompiler.compile──> ExecutionPlan
       解析端口签名（channels: "param:xxx"、count 可变端口展开、整数乘除链表达式）
       → 校验（方向/类型/格式/通道数/采样率/输入唯一驱动/时钟域/速率合并）
       → 拓扑排序 → 速率比传播（scheduling.divisor）→ 每连接一个 Buffer
       节点附加属性：divisor（每 N 块触发一次，相位 (counter+1)%d==0）、
       frames（处理量子=上游 buffer 帧数）、sample_rate
+      Task 附加属性：局部 execution_order、schedule.tick、periods
   ──plan.json──> 宿主执行
 ```
 
 ### 时钟域与多速率
 
-- 时钟源组件（manifest `clock_source: true` + `clock_domain`）：device_in/device_out=device、wav_in=file。无时钟源的图=隐式宿主时钟；有时钟源的图中，不含时钟源的连通流编译报错（无法启动）；同流混入两个强时钟域报错（需异步桥）。
-- 多速率：组件声明 `scheduling.divisor`（如 downrate 分频/重缓冲、resample 整数降采样）。节点自身每块执行，其输出域每 N 块触发一次。
+- 时钟源组件（manifest `clock_source: true` + `clock_domain`）：device_in=device，wav_in=file，signal_gen 等主动源按 manifest 声明；device_out 是汇，不是时钟源。无时钟源的图=隐式宿主时钟；有时钟源的图中，不含时钟源的连通流编译报错；同流混入两个强时钟域报错。
+- 多速率：组件声明 `scheduling.divisor`（如 downrate 分频/重缓冲、resample 整数降采样）。编译器生成静态 schedule。
+- 多 Task：plan 保存 `tasks[]`；动态 Runtime 提供 `process_task`，生成工程导出 `orpheus_generated_process_task_<id>`。跨 Task 音频经 `async_bridge` 固定容量 SPSC Ring Buffer。
 
 ## C ABI 要点（orpheus_abi.h）
 
@@ -54,11 +56,12 @@ project.yaml ──ProjectLoader──> Project（含 subcomponents）
 
 rt_host 设备拓扑按图内容：in+out 双默认设备=duplex；in+out 指定设备或 loopback=异步桥（capture→ma_pcm_rb→playback 主时钟，带欠载/溢出侦测）；仅 out=播放时钟；仅 in=采集/环回时钟。回调按 block_size 分块（设备周期可能更大，不分块会溢出崩溃）。
 
-## 后端 API 面（orpheus_core/server/app.py，前缀 /api）
+## 后端 API 面（orpheus_core/orpheus_core/server/app.py，前缀 /api）
 
 - `GET /components`（含 manifest 端口/参数/widget 元数据）、`POST /components/rescan`
 - `GET/POST /projects`、`GET/PUT/DELETE /projects/{name}`、`GET /projects/{name}/download`（zip）
 - `POST /projects/{name}/compile`、`POST .../run`（按图分流 offline/realtime）、`POST .../run_generated`
+- `POST /projects/{name}/lesson/check`（课程包结构化自动检查）
 - `POST .../rt/start|stop`、`GET .../rt/status`、`POST .../rt/param`
 - `GET /projects/{name}/files[?ext=]`、`GET .../files/{relpath}`、`POST .../uploads`
 - `GET /devices`（rt_host --list-devices，30s 缓存）

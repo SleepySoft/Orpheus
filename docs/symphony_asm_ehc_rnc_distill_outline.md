@@ -1,7 +1,7 @@
 # ASM（EHC + RNC）蒸馏提纲
 
-> 源工程：`C:\D\Work\Project\EREV\cart-cicd-erev-asm\components\symphony`
-> 目标：在 Orpheus 中建立 `examples/symphony_asm_ehc_rnc.yaml` step0 骨架，拓扑/任务/参数分区与源模型对齐，算法先用占位组件近似。
+> 源工程：`C:\D\Work\Project\EREV\cart-cicd-erev-asm\components\baf`；生成代码位于 `src\out\baremetalgul\slx\code\Model_Target_ert_shrlib_rtw\`
+> 目标：在 Orpheus 中建立 `examples/symphony_asm_ehc_rnc.yaml` 蒸馏工程。本文保留 step0 规划过程；当前 RNC MIMO NLMS、跨 Task 桥、跨子图控制点和教学检查已落地，实时状态见 `docs/baf_model_alignment.md`。
 
 ---
 

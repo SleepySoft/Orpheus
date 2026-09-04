@@ -23,8 +23,9 @@ description: Orpheus 音频图引擎的开发指南：编写/修改 C 组件（C
 ```powershell
 python serve.py                    # 启动后端+UI（http://127.0.0.1:8000），PyCharm 可直接 Debug
 python -m orpheus_core.cli build   # 构建全部组件 + runtime（cmake -G Ninja）
-python -m pytest orpheus_core/tests/   # 全部测试（当前 44 项）
+python -m pytest orpheus_core/tests/   # 后端全量测试（数量以 CI 输出为准）
 cd ui; npm run build               # 前端改动后必须重新构建，serve 才托管新版本
+cd ui; npm run test:e2e            # Playwright：真实后端 + 浏览器核心流程
 ```
 
 环境注意（2026-08-06）：
@@ -49,8 +50,8 @@ cd ui; npm run build               # 前端改动后必须重新构建，serve �
 
 统一内存拼接分配：动态路径按 `descriptor.state_size` 切片下发，生成路径按 `state_type` 类型拼接 `g_arena`；组件在 `register_slots` 里用一行宏把"地址/类型/说明"注册给 Runtime，Runtime 建槽表并做边界校验。
 
-- 设计全文：`docs/design_registry.md`（槽模型、64 位 ID、边界检测、聚合布局、实证修正）。
-- 试点组件：`gain` / `probe_rms` / `probe_waveform`（其余组件仍是 v1 回调路径）。
+- 设计全文：`docs/design_registry.md`（槽模型、32 位 ID、边界检测、聚合布局、实证修正）。
+- 现有内置组件均遵循公开状态/arena 契约；资源槽按组件需要注册，旧回调仅作为兼容兜底。
 - 写新组件：见 `references/abi-v2-registration.md` 的检查清单。
 
 ## 模型蒸馏：分析 C 代码 → 还原滤波器树 → 一键导入

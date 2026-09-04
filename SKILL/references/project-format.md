@@ -28,7 +28,7 @@ graph:
     - { from: "wav_in:out", to: "gain:in" }   # "节点:端口" 字符串
 ```
 
-校验：`orpheus_core/schemas/project.schema.json`（jsonschema draft-07）。解析入口 `ProjectLoader`。
+校验：`orpheus_core/orpheus_core/schemas/project.schema.json`（jsonschema draft-07）。解析入口 `ProjectLoader`。
 
 工程级全局参数：`sample_rate`/`block_size` 为图形编译期采样率与调度量子（整图单一，由 task 决定）；`buffer_size` 为实时异步环形缓冲容量（帧，0=自动约 100ms）。device_in/device_out 可在节点 params 声明 `sample_rate`（0=继承工程默认）覆盖工程采样率——编译期采用为图形采样率，运行时 rt_host 按设备 nativeDataFormats 校验（不支持报错、需转换告警）。block_size 为每个速率域的调度量子：编译期按节点所属 task 的块长解析，下游经 downrate/resample 等分频组件后按其实际输入超级块长展开，plan 逐节点落盘 block_size/frames（非整图单一值；工程级 block_size 仅是默认/宿主导入回退）。设备周期已与 block_size 解耦。UI「⚙ 设置」编辑这三项。
 
@@ -43,14 +43,26 @@ subcomponents:
     ports:                        # 对外接口；maps_to 必须指向内部【原子】节点端口
       - { id: in,  direction: input,  maps_to: "gain:in" }
       - { id: out, direction: output, maps_to: "biquad:out" }
+    public_parameters:             # 公开实例参数/控制点，目标须为内部原子节点参数
+      - { id: gain_db, direction: input, maps_to: "gain:gain_db", type: float, default: -6.0, update_policy: smoothed }
+      - { id: level, direction: output, maps_to: "meter:rms", type: float }
     graph: { nodes: [...], connections: [...] }   # 与主图同格式
 ```
 
 - 主图引用：`component: "sub:chain"`；可多实例、可嵌套（内层可含其他 sub: 实例）
 - 编译前 `flatten_project()` 递归展开：内部节点 id 加 `<实例>__` 前缀，边界按 maps_to 重接
 - 校验错误（均为 CompileError → API 400）：引用未定义、循环引用、maps_to 指向不存在或非原子节点、端口 id 重复、实例连接不存在的端口
-- v1 限制：无参数提升（mask）；maps_to 不允许指向内层子组件实例
-- UI：框选节点→「包装为子组件」自动推导边界端口；双击实例开独立标签页编辑
+- `public_parameters` 的 input 可由实例 `params` 覆盖，并可作为顶层控制连接目标；output 映射内部 readback/control_source，可作为控制源
+- 顶层 `control_connections` 可引用 `实例:公开参数`；flatten 后映射为 `<实例>__<内部节点>:<参数>`，方向不匹配会报错
+- 限制：音频端口和公开参数的 `maps_to` 仍须指向原子节点，不允许直接指向内层子组件实例
+- UI：框选节点→「包装为子组件」自动推导边界端口；双击实例开独立标签页编辑；右侧可添加公开控制参数
+
+## 多 Task 与跨任务桥
+
+- `tasks[]` 为显式执行域；plan 为每个 Task 记录节点序、tick 与 period
+- 节点以 `task` 归属执行域，Runtime/生成工程均提供独立 Task process 入口
+- 普通音频连接不可直接跨 Task；目标 Task 应插入 `orpheus.builtin.async_bridge`，或在多速率合流处使用 `rate_sync`
+- `async_bridge` 使用固定容量 SPSC Ring Buffer，`capacity_frames: 0` 时由编译器按上下游块长自动计算
 
 ## workspace 布局
 

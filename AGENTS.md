@@ -56,7 +56,7 @@
 
 ### 运行时与宿主
 
-- 时钟域：组件 manifest 声明 `clock_source: true` + `clock_domain`（device/file）；task 不显式建模，时钟源组件即时钟域根。
+- 时钟域：组件 manifest 声明 `clock_source: true` + `clock_domain`（device/file）；时钟源组件是域根。Task 在 plan 中显式建模为 `tasks[]`，各自有节点拓扑序、tick 与 period；旧全局调度入口继续保留。
 - 速率调整：`scheduling.divisor` 表达式让节点每 N 块触发一次（`downrate` / `resample` 组件）。
 - **静态调度表**：compiler 把每个节点的触发间隔折算为图速率帧（`frames×图速率/节点流速率`），推导 `plan.schedule = {tick: GCD, periods: {node: 周期}}` 落入 plan；宿主（main/rt_host/生成宿主）按 `tick` 推进，runtime/生成代码按 `(block_counter+1) % period == 0` 触发。单速率图 tick==block_size、period==divisor（行为不变）。跨速率合流（`scheduling.merge`，如 rate_sync）的输入边标记 `rate_bridge`：深度=合流量子（LCM），生产者写 staging、骨架按写游标滚入桥接 buffer，merge 节点同步点整块读。时钟链不匹配编译期报错。设计：`docs/design_clock_scheduling.md`；测试 `orpheus_core/tests/test_static_schedule.py`。
 - **多 Task 与异步桥**：plan 同时保留全局兼容调度和 `tasks[]` 局部入口；Runtime 提供 `process_task`，生成工程导出 `orpheus_generated_process_task_<id>`。普通跨 Task 音频边编译期拒绝，必须接入 `async_bridge`（或既有 `rate_sync` 合流点）；桥接数据面为固定容量 SPSC Ring Buffer，带水位/欠载/溢出探针。设计：`docs/design_multitask_runtime.md`；测试 `orpheus_core/tests/test_async_bridge.py`。

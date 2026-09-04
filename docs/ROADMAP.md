@@ -11,12 +11,19 @@
 - 多速率静态调度与 `rate_sync` 合流；动态和生成路径一致性测试。
 - 72 个内置组件，均有组件 README。
 
+## 当前验证基线
+
+- pytest：232 passed，1 skipped（可选演示组件未安装）。
+- CTest：4/4（ABI、loader、RNC MIMO NLMS、BAF SoftClipper）。
+- 前端：Jest 13/13、生产构建、Playwright 核心流程通过。
+- BAF：ASM 48-target、SAS 68-target 独立生成工程构建成功；ASM 全局及关键 Task 入口运行通过。
+
 ## P0 工程基线
 
 - [x] `cli build` 构建组件、runtime、ABI smoke test 和 OLINK CLI。
 - [x] Fresh CMake 构建优先使用可用 MSVC 环境，不依赖 PATH 猜测编译器。
 - [x] Windows CI 固定 Python 3.12、Node 20 和 MSVC。
-- [x] `scripts/verify.ps1` 统一执行安装、构建、CTest、pytest、Jest 和 UI 构建。
+- [x] `scripts/verify.ps1` 统一执行安装、构建、CTest、pytest、Jest、UI 构建和 Playwright。
 - [x] 当前状态文档成为待办的唯一入口。
 
 ## P1 框架完善

@@ -1,6 +1,6 @@
 # Symphony SAS 完整信号流（基于 Model_1_1.c）
 
-> 来源：`cart-cicd-erev/components/symphony/src/out/baremetalgxp/slx/code/Model_1_1_ert_shrlib_rtw/Model_1_1.c`（20 641 行）+ `PostProcess.c`  
+> 来源：`cart-cicd-erev-1/components/baf/src/out/baremetalgxp/slx/code/Model_1_1_ert_shrlib_rtw/Model_1_1.c`（20 641 行）及同目录 PostProcess 生成文件
 > 采样率 48 kHz，块大小 32，帧率 1.5 kHz。
 
 ## 1. 顶层 TID 调用顺序
