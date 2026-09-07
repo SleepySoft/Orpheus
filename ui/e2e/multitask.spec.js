@@ -96,6 +96,15 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
 
   const debugToggle = page.locator('label.debug-toggle').getByRole('checkbox');
   await debugToggle.check();
+  await expect(page.getByText('已开启并保存调试旁路')).toBeVisible();
+  await page.reload();
+  await page.locator('.toolbar select').first().selectOption(projectName);
+  await expect(page.getByText(`已打开工程 ${projectName}`)).toBeVisible();
+  await expect(page.locator('label.debug-toggle').getByRole('checkbox')).toBeChecked();
+
+  await page.getByTitle('更多运行/生成操作').click();
+  await page.getByRole('button', { name: '编译', exact: true }).click();
+  await expect(page.getByText(/编译成功:.*调试旁路跳过 1 个节点/)).toBeVisible();
 
   await page.locator('.react-flow__node').filter({ hasText: 'gain_node' }).click();
   await page.locator('.param-field').filter({ hasText: '所属 Task' }).locator('select').selectOption('task_3');

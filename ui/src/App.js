@@ -200,6 +200,7 @@ const { screenToFlowPosition } = useReactFlow();
 
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  const pendingSaveRef = useRef(Promise.resolve());
 
   const fullCatalog = useMemo(() => mergedCatalog(catalog, subsMeta), [catalog, subsMeta]);
   const catalogById = useMemo(
@@ -415,11 +416,18 @@ const { screenToFlowPosition } = useReactFlow();
     setSaving(true);
     try {
       const document = viewsToDoc(views, subsMeta, doc);
-      await api.saveProject(current, document);
       setDoc(document);
       setDirty(false);
+      dirtyRef.current = false;
+      const request = pendingSaveRef.current
+        .catch(() => {})
+        .then(() => api.saveProject(current, document));
+      pendingSaveRef.current = request;
+      await request;
       setStatus(`已保存 ${current} · ${new Date().toLocaleTimeString()}`);
     } catch (e) {
+      setDirty(true);
+      dirtyRef.current = true;
       setStatus(`保存失败: ${api.errorDetail(e)}`);
     } finally {
       setSaving(false);
@@ -1317,8 +1325,34 @@ const { screenToFlowPosition } = useReactFlow();
   // ---------------------------------------------------------- actions
 
   const ensureSaved = useCallback(async () => {
+    await pendingSaveRef.current.catch(() => {});
     if (dirtyRef.current) await doSave();
   }, [doSave]);
+
+  const setDebugMode = useCallback(async (enabled) => {
+    if (!current || !doc) return;
+    const nextDoc = { ...doc, debug_mode: enabled };
+    const document = viewsToDoc(views, subsMeta, nextDoc);
+    setDoc(document);
+    setDirty(false);
+    dirtyRef.current = false;
+    setSaving(true);
+    setStatus(enabled ? '正在开启调试旁路…' : '正在关闭调试旁路…');
+    try {
+      const request = pendingSaveRef.current
+        .catch(() => {})
+        .then(() => api.saveProject(current, document));
+      pendingSaveRef.current = request;
+      await request;
+      setStatus(enabled ? '已开启并保存调试旁路' : '已关闭并保存调试旁路');
+    } catch (error) {
+      setDirty(true);
+      dirtyRef.current = true;
+      setStatus(`调试旁路保存失败: ${api.errorDetail(error)}`);
+    } finally {
+      setSaving(false);
+    }
+  }, [current, doc, views, subsMeta]);
 
   const doCompile = useCallback(async () => {
     if (!current) return;
@@ -1771,12 +1805,8 @@ const { screenToFlowPosition } = useReactFlow();
             <input
               type="checkbox"
               checked={!!doc?.debug_mode}
-              disabled={!current || !doc}
-              onChange={(e) => {
-                setDoc((currentDoc) => ({ ...currentDoc, debug_mode: e.target.checked }));
-                setDirty(true);
-                setStatus(e.target.checked ? '已开启调试旁路' : '已关闭调试旁路');
-              }}
+              disabled={!current || !doc || saving}
+              onChange={(e) => setDebugMode(e.target.checked)}
             />
             调试旁路
           </label>
