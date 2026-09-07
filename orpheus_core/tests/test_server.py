@@ -130,6 +130,35 @@ def test_import_example_and_compile(client):
         client.delete(f"/api/projects/{name}")
 
 
+def test_compile_debug_mode_reports_ignored_flow(client, project):
+    doc = client.get(f"/api/projects/{project}").json()
+    doc["debug_mode"] = True
+    doc["graph"] = {
+        "nodes": [
+            {"id": "sweep", "component": "orpheus.builtin.sweep_gen",
+             "params": {"sample_rate": 48000, "channels": 2}},
+            {"id": "record", "component": "orpheus.builtin.sweep_record",
+             "params": {"channels": 2}},
+            {"id": "mute", "component": "orpheus.builtin.mute",
+             "params": {"mute": 0, "channels": 2}},
+            {"id": "rms", "component": "orpheus.builtin.probe_rms",
+             "params": {"channels": 2}},
+        ],
+        "connections": [
+            {"from": "sweep:out", "to": "record:in"},
+            {"from": "mute:out", "to": "rms:in"},
+        ],
+    }
+    assert client.put(f"/api/projects/{project}", json=doc).status_code == 200
+
+    response = client.post(f"/api/projects/{project}/compile")
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["execution_order"] == ["sweep", "record"]
+    assert result["ignored_nodes"] == ["mute", "rms"]
+
+
 def test_node_label_roundtrip(client):
     """节点重命名（label）随工程文档持久化：PUT → GET 保留。"""
     name = f"test_{uuid.uuid4().hex[:8]}"

@@ -1325,8 +1325,16 @@ const { screenToFlowPosition } = useReactFlow();
     await ensureSaved();
     try {
       const r = await api.compileProject(current);
-      setStatus(`编译成功: ${r.nodes} 节点, ${r.buffers} buffers`);
-      setLog({ title: '编译结果', lines: [`执行顺序: ${r.execution_order.join(' → ')}`, r.plan_path] });
+      const ignored = r.ignored_nodes || [];
+      setStatus(`编译成功: ${r.nodes} 节点, ${r.buffers} buffers${ignored.length ? `，调试旁路跳过 ${ignored.length} 个节点` : ''}`);
+      setLog({
+        title: '编译结果',
+        lines: [
+          `执行顺序: ${r.execution_order.join(' → ')}`,
+          ignored.length ? `调试旁路跳过: ${ignored.join(', ')}` : null,
+          r.plan_path,
+        ].filter(Boolean),
+      });
       // annotate nodes with compiled rate info (time-tree badges)
       if (r.node_rates) {
         setViews((prev) => {
@@ -1402,17 +1410,20 @@ const { screenToFlowPosition } = useReactFlow();
     setStatus('运行中…');
     try {
       const r = await api.runProject(current, paceRun);
+      const ignoredSuffix = r.ignored_nodes?.length
+        ? `，调试旁路跳过 ${r.ignored_nodes.length} 个节点`
+        : '';
       if (r.mode === 'realtime' || r.mode === 'offline_live') {
         // device graph: base host started a realtime session
         setRt({ running: true, logs: [], probes: {} });
         setStatus(
           r.mode === 'offline_live'
-            ? '离线实时播放中（按真实时长，可观察进度/曲线）'
-            : '实时运行中（含设备组件，调参数即时生效）'
+            ? `离线实时播放中（按真实时长，可观察进度/曲线）${ignoredSuffix}`
+            : `实时运行中（含设备组件，调参数即时生效）${ignoredSuffix}`
         );
         return;
       }
-      setStatus(r.status === 'ok' ? '运行成功' : `运行失败 (exit ${r.returncode})`);
+      setStatus(r.status === 'ok' ? `运行成功${ignoredSuffix}` : `运行失败 (exit ${r.returncode})`);
       setOutputs(r.outputs || []);
       // inject probe readback values into node bodies (e.g. level meters)
       if (r.probes?.length) {
@@ -1437,6 +1448,7 @@ const { screenToFlowPosition } = useReactFlow();
         title: '运行输出',
         lines: [
           r.built_components?.length ? `新构建组件: ${r.built_components.join(', ')}` : null,
+          r.ignored_nodes?.length ? `调试旁路跳过: ${r.ignored_nodes.join(', ')}` : null,
           r.stdout,
           r.stderr ? `stderr:\n${r.stderr}` : null,
         ].filter(Boolean),
@@ -1453,8 +1465,13 @@ const { screenToFlowPosition } = useReactFlow();
     setStatus('生成代码并构建中…');
     try {
       const r = await api.runGenerated(current);
+      const ignoredSuffix = r.ignored_nodes?.length
+        ? `，调试旁路跳过 ${r.ignored_nodes.length} 个节点`
+        : '';
       setStatus(
-        r.status === 'ok' ? `编译后运行成功（${r.blocks} 块）` : `编译后运行失败 (exit ${r.returncode})`
+        r.status === 'ok'
+          ? `编译后运行成功（${r.blocks} 块）${ignoredSuffix}`
+          : `编译后运行失败 (exit ${r.returncode})`
       );
       setOutputs(r.outputs || []);
       if (r.generated_path) {
@@ -1465,7 +1482,11 @@ const { screenToFlowPosition } = useReactFlow();
       }
       setLog({
         title: '编译后运行输出',
-        lines: [r.stdout, r.stderr ? `stderr:\n${r.stderr}` : null].filter(Boolean),
+        lines: [
+          r.ignored_nodes?.length ? `调试旁路跳过: ${r.ignored_nodes.join(', ')}` : null,
+          r.stdout,
+          r.stderr ? `stderr:\n${r.stderr}` : null,
+        ].filter(Boolean),
       });
     } catch (e) {
       setStatus('编译后运行失败');
@@ -1479,7 +1500,7 @@ const { screenToFlowPosition } = useReactFlow();
     setStatus('生成独立 C 工程中…');
     try {
       const r = await api.generateProject(current);
-      setStatus(`已生成独立 C 工程：${r.generated_dir}`);
+      setStatus(`已生成独立 C 工程：${r.generated_dir}${r.ignored_nodes?.length ? `（调试旁路跳过 ${r.ignored_nodes.length} 个节点）` : ''}`);
       setGeneratedInfo({
         path: r.generated_path,
         url: api.downloadGeneratedUrl(current),
@@ -1488,9 +1509,10 @@ const { screenToFlowPosition } = useReactFlow();
         title: '生成结果',
         lines: [
           `生成目录（工程目录下）: ${r.generated_path}`,
+          r.ignored_nodes?.length ? `调试旁路跳过: ${r.ignored_nodes.join(', ')}` : null,
           '嵌入部署：改 src/platform_io.c 的 USER CODE 段接入实际 DMA/编解码器后，按目标工具链交叉编译。',
           `PC 冒烟运行默认块数: ${r.blocks_default}`,
-        ],
+        ].filter(Boolean),
       });
     } catch (e) {
       setStatus(`生成失败: ${api.errorDetail(e)}`);
@@ -1741,6 +1763,22 @@ const { screenToFlowPosition } = useReactFlow();
               onChange={(e) => setShowControlLinks(e.target.checked)}
             />
             控制链路
+          </label>
+          <label
+            className={`autosave debug-toggle ${doc?.debug_mode ? 'active' : ''}`}
+            title="忽略完全孤立节点和未接入有效时钟源的残留音频流；保留执行的有效链路仍执行完整类型、通道、Task 和平台校验"
+          >
+            <input
+              type="checkbox"
+              checked={!!doc?.debug_mode}
+              disabled={!current || !doc}
+              onChange={(e) => {
+                setDoc((currentDoc) => ({ ...currentDoc, debug_mode: e.target.checked }));
+                setDirty(true);
+                setStatus(e.target.checked ? '已开启调试旁路' : '已关闭调试旁路');
+              }}
+            />
+            调试旁路
           </label>
         </span>
         <span className="toolbar-sep" />

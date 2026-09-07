@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from orpheus_core.compiler import CompileError, GraphCompiler
-from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
+from orpheus_core.project import Connection, Graph, Node, PortRef, Project, ProjectLoader, Task
 from orpheus_core.registry import Registry
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,6 +55,54 @@ def test_undriven_flow_rejected(compiler):
         [conn("din:out", "dout:in"), conn("flt:out", "m:in")],
     )
     with pytest.raises(CompileError, match="not driven by any clock"):
+        compiler.compile(project)
+
+
+def test_debug_mode_ignores_unconnected_and_undriven_flows(compiler):
+    """调试旁路只执行有效时钟流，旧链与未连接源汇留在工程中但不进 plan。"""
+    project = make_project(
+        [
+            Node(id="sweep", component="orpheus.builtin.sweep_gen",
+                 params={"sample_rate": 48000, "channels": 2}),
+            Node(id="record", component="orpheus.builtin.sweep_record",
+                 params={"channels": 2}),
+            Node(id="mute", component="orpheus.builtin.mute",
+                 params={"mute": 0.0, "channels": 2}),
+            Node(id="rms", component="orpheus.builtin.probe_rms", params={"channels": 2}),
+            sig("old_source", channels=2),
+            Node(id="old_sink", component="orpheus.builtin.null_sink", params={"channels": 2}),
+        ],
+        [conn("sweep:out", "record:in"), conn("mute:out", "rms:in")],
+    )
+    project.debug_mode = True
+
+    plan = compiler.compile(project)
+
+    assert plan.nodes == ["sweep", "record"]
+    assert plan.execution_order == ["sweep", "record"]
+    assert plan.ignored_nodes == ["mute", "old_sink", "old_source", "rms"]
+    assert set(project.graph.nodes) == {"sweep", "record", "mute", "rms", "old_source", "old_sink"}
+
+
+def test_debug_mode_roundtrips_through_yaml(tmp_path):
+    project = Project(metadata={"name": "debug"}, debug_mode=True)
+    path = tmp_path / "project.yaml"
+
+    ProjectLoader().save(project, path)
+    loaded = ProjectLoader().load(path)
+
+    assert loaded.debug_mode is True
+
+
+def test_debug_mode_still_rejects_invalid_connected_flow(compiler):
+    project = make_project(
+        [sig("source", channels=2),
+         Node(id="sink", component="orpheus.builtin.null_sink", params={"channels": 1})],
+        [conn("source:out", "sink:in")],
+    )
+    project.debug_mode = True
+
+    with pytest.raises(CompileError, match="channels mismatch"):
         compiler.compile(project)
 
 

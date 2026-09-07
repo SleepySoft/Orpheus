@@ -94,6 +94,9 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   await modal.getByRole('button', { name: '新增 Task' }).click();
   await modal.getByRole('button', { name: '保存' }).click();
 
+  const debugToggle = page.locator('label.debug-toggle').getByRole('checkbox');
+  await debugToggle.check();
+
   await page.locator('.react-flow__node').filter({ hasText: 'gain_node' }).click();
   await page.locator('.param-field').filter({ hasText: '所属 Task' }).locator('select').selectOption('task_3');
   await page.getByRole('button', { name: '保存', exact: true }).click();
@@ -104,6 +107,7 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   const saved = await response.json();
   expect(saved.tasks.map((task) => task.id)).toEqual(['producer', 'consumer', 'task_3']);
   expect(saved.graph.nodes.find((node) => node.id === 'gain_node').task).toBe('task_3');
+  expect(saved.debug_mode).toBe(true);
   expect(saved.control_connections).toEqual([{ from: 'meter:level', to: 'chain1:gain' }]);
 
   await page.getByRole('button', { name: '教学', exact: true }).click();

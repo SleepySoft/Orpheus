@@ -67,14 +67,15 @@
 - **子组件公开参数**：`subcomponents[].public_parameters` 把实例参数/控制点映射到内部原子节点参数；input 支持实例默认值覆盖，input/output 均可作为顶层控制连接端点，flatten 后映射为 `<实例>__<节点>:<参数>`。
 - **BAF 模型对齐**：ASM 与 EREV-1 out 生成代码的已验证映射、字段数量和哈希见 `docs/baf_model_alignment.md`。新增 `rnc_mimo_nlms`（12×8×125）与 `baf_soft_clipper`，TOP 数组统一用 `scripts/extract_baf_top.py` 提取。
 - **教学包**：工程顶层 `lesson` 可声明 `steps` 与结构检查 `checks`；后端 `/api/projects/{name}/lesson/check` 在扁平图/plan 上执行规则，UI 仅对含 lesson 的工程显示「教学」入口。Symphony ASM 示例自带 5 条可执行检查。
+- **调试旁路**：工程顶层 `debug_mode: true` 时，compiler 在工程副本上裁剪完全孤立节点和未接入有效时钟源的残留流，plan 通过 `ignored_nodes` 报告；画布/YAML 不删除节点，保留执行的有效流仍走完整硬校验。默认关闭。
 
 ## 常用命令（Windows PowerShell）
 
 ```powershell
 python serve.py                       # 启动后端+UI：http://127.0.0.1:8000（同域 API + ui/build）
 python -m orpheus_core.cli build      # 构建全部组件 + runtime（cmake -G Ninja）
-python -m orpheus_core.cli compile <project.yaml> [--target win|dsp]
-python -m orpheus_core.cli generate <project.yaml> <out_dir> [--target win|dsp]   # 生成独立 C 工程
+python -m orpheus_core.cli compile <project.yaml> [--target win|dsp] [--debug|--strict]
+python -m orpheus_core.cli generate <project.yaml> <out_dir> [--target win|dsp] [--debug|--strict]   # 生成独立 C 工程
 python -m pytest orpheus_core/tests/  # 全部后端测试
 cd ui; npm run build                  # 前端改动后必须重新构建，serve 才托管新版本
 cd ui; npm test -- --watchAll=false   # 前端纯函数测试（jest，如 graphUtils.test.js）

@@ -736,6 +736,7 @@ orpheus_platform_memory_section_bind(...);
 
 - **时钟源与 Task**：组件 manifest 声明 `clock_source: true` + `clock_domain`（device/file），时钟源组件是域根。plan 显式保存 `tasks[]`，每个 Task 有独立节点序、tick、period 与 process 入口；旧 `task_id`/全局调度保留兼容。
 - **编译期校验**：无时钟源的图走隐式宿主时钟（旧行为）；有时钟源时，任何不含时钟源的连通流报错（"算法流没有时钟驱动，无法启动"）；同一连通流混入两个强时钟域（非 file）报错并提示异步桥。
+- **调试旁路**：工程顶层 `debug_mode: true` 时，编译前在副本上忽略完全孤立节点，以及存在有效时钟源时未接入任何时钟源的残留音频流；原图/YAML 不变，plan 的 `ignored_nodes` 与 UI/CLI 日志明确列出跳过项。保留执行的流继续执行端口签名、通道、Task、时钟域和平台校验。默认 `false`，即严格模式。
 - **速率调整**：组件可声明 `scheduling.divisor: <expr>`——节点及其下游速率域按静态 period 每 N 个调度 tick 触发一次。表达式求值支持整数乘除链（`in:block_size*param:factor`、`task:sample_rate/param:factor`）；速率变换组件（downrate/resample）的输出块长从实际输入推导（`in:block_size`），不是全局 task 块长。
 - **新组件**：`downrate`（分频/重缓冲，超块 N×块长，速率不变，供控制速率算法）、`resample`（整数倍降采样 N:1，滑动平均抗混叠，输出速率=task/N）。
 - **Runtime/生成器**：plan 每节点携带 `divisor`/`period` 与 `frames`；执行时按 Task 局部计数相位触发。动态 Runtime 提供 `process_task`，生成工程导出等价 Task 入口。

@@ -30,6 +30,11 @@
       "default": "auto",
       "description": "期望目标平台：auto 自动判定 / win（Windows PC）/ dsp（通用 DSP）"
     },
+    "debug_mode": {
+      "type": "boolean",
+      "default": false,
+      "description": "调试旁路：忽略完全孤立节点，以及存在显式时钟源时未接入任何时钟源的残留音频流"
+    },
     "tasks": {
       "type": "array",
       "items": {

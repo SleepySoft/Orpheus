@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import copy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,7 @@ class ExecutionPlan:
     target: str = ""             # 平台解析选定的目标平台（win/dsp/...；空=未解析）
     # 控制链路：编译期校验通过的参数驱动关系（运行时块边界两相快照投递）
     control_links: list[dict[str, Any]] = field(default_factory=list)
+    ignored_nodes: list[str] = field(default_factory=list)  # debug_mode 裁剪但仍保留在工程中的节点
     # 静态调度表：主步长 tick（图速率帧）+ 每节点触发周期 period（= 节点间隔 / tick）。
     # 宿主按 tick 推进；runtime/生成路径按 (block_counter+1) % period == 0 触发。
     # 单速率图下 tick==block_size、period==divisor，与旧行为逐字节一致。
@@ -220,11 +222,93 @@ class GraphCompiler:
             return replace(task, sample_rate=next(iter(rates)))
         return task
 
+    def prepare_debug_project(self, project: Project) -> tuple[Project, list[str]]:
+        """复制工程并裁剪调试时不参与执行的游离节点/无时钟残留流。"""
+        if not project.debug_mode:
+            return project, []
+
+        prepared = copy.deepcopy(project)
+        graph = prepared.graph
+        if any(
+            connection.from_ref.node_id not in graph.nodes
+            or connection.to_ref.node_id not in graph.nodes
+            for connection in graph.connections
+        ) or any(
+            connection.from_ref.node_id not in graph.nodes
+            or connection.to_ref.node_id not in graph.nodes
+            for connection in prepared.control_connections
+        ):
+            # 无效引用必须由常规校验明确报错，不能被调试裁剪静默吞掉。
+            return prepared, []
+        connected = {
+            node_id
+            for connection in graph.connections
+            for node_id in (connection.from_ref.node_id, connection.to_ref.node_id)
+        }
+
+        parent = {node_id: node_id for node_id in connected}
+
+        def find(node_id: str) -> str:
+            while parent[node_id] != node_id:
+                parent[node_id] = parent[parent[node_id]]
+                node_id = parent[node_id]
+            return node_id
+
+        for connection in graph.connections:
+            source_id, target_id = connection.from_ref.node_id, connection.to_ref.node_id
+            source_root, target_root = find(source_id), find(target_id)
+            if source_root != target_root:
+                parent[source_root] = target_root
+
+        components: dict[str, set[str]] = {}
+        for node_id in connected:
+            components.setdefault(find(node_id), set()).add(node_id)
+
+        clocked_components: list[set[str]] = []
+        for members in components.values():
+            if any((info := self.registry.get(graph.nodes[node_id].component)) is not None
+                   and info.manifest.get("clock_source") for node_id in members):
+                clocked_components.append(members)
+
+        active = set().union(*clocked_components) if clocked_components else set(connected)
+
+        # alter 候选和当前激活节点属于同一逻辑槽位，平台解析前必须一起保留。
+        changed = True
+        while changed:
+            changed = False
+            for node in graph.nodes.values():
+                group = {node.id, *node.alters}
+                if active & group and not group <= active:
+                    active.update(group)
+                    changed = True
+
+        # execution.none 节点是平台声明，不是音频流，即使无连线也必须保留。
+        for node in graph.nodes.values():
+            info = self.registry.get(node.component)
+            if info and info.manifest.get("execution", {}).get("none"):
+                active.add(node.id)
+
+        ignored = sorted(set(graph.nodes) - active)
+        if not ignored:
+            return prepared, []
+
+        graph.nodes = {node_id: node for node_id, node in graph.nodes.items() if node_id in active}
+        graph.connections = [
+            connection for connection in graph.connections
+            if connection.from_ref.node_id in active and connection.to_ref.node_id in active
+        ]
+        prepared.control_connections = [
+            connection for connection in prepared.control_connections
+            if connection.from_ref.node_id in active and connection.to_ref.node_id in active
+        ]
+        return prepared, ignored
+
     def compile(self, project: Project, target: str | None = None) -> ExecutionPlan:
         # 目标平台与 alter 组解析：先把工程解析为选定平台下的等价副本
         # （替换 alter 成员、剔除未激活成员、重映射边），再走现有编译管线。
         from orpheus_core.resolve import resolve_project
 
+        project, ignored_nodes = self.prepare_debug_project(project)
         resolved, _resolution = resolve_project(project, self.registry, target)
         project = resolved
         graph = project.graph
@@ -383,6 +467,7 @@ class GraphCompiler:
         plan.declarations = declarations
         plan.target = resolved_platform
         plan.control_links = control_links
+        plan.ignored_nodes = ignored_nodes
 
         # per-node processing quantum: the producer buffer's frame count
         # (differs from task block size in rate-shifted domains)

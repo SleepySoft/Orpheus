@@ -44,8 +44,11 @@ def scan(ctx: click.Context) -> None:
 @click.argument("project_file", type=click.Path(exists=True, path_type=Path))
 @click.option("--target", "target", default=None,
               help="目标平台覆盖（auto/win/dsp）；缺省读工程 target 字段")
+@click.option("--debug/--strict", "debug_mode", default=None,
+              help="临时覆盖工程调试旁路设置；缺省读工程 debug_mode 字段")
 @click.pass_context
-def compile(ctx: click.Context, project_file: Path, target: str | None) -> None:
+def compile(ctx: click.Context, project_file: Path, target: str | None,
+            debug_mode: bool | None) -> None:
     """Compile a project YAML into an execution plan JSON."""
     root = ctx.obj["project_root"]
     registry = Registry()
@@ -54,6 +57,8 @@ def compile(ctx: click.Context, project_file: Path, target: str | None) -> None:
 
     loader = ProjectLoader()
     project = loader.load(project_file)
+    if debug_mode is not None:
+        project.debug_mode = debug_mode
 
     compiler = GraphCompiler(registry)
     try:
@@ -65,6 +70,8 @@ def compile(ctx: click.Context, project_file: Path, target: str | None) -> None:
     output = project_file.with_suffix(".plan.json")
     with open(output, "w", encoding="utf-8") as f:
         json.dump(plan.__dict__, f, indent=2, ensure_ascii=False)
+    if plan.ignored_nodes:
+        click.echo(f"debug bypass ignored nodes: {', '.join(plan.ignored_nodes)}")
     click.echo(f"execution plan written to {output}")
 
 
@@ -125,9 +132,11 @@ def build(ctx: click.Context, component_ids: tuple[str, ...], build_dir: Path | 
 @click.argument("output_dir", type=click.Path(path_type=Path))
 @click.option("--target", "target", default=None,
               help="目标平台覆盖（auto/win/dsp）；缺省读工程 target 字段")
+@click.option("--debug/--strict", "debug_mode", default=None,
+              help="临时覆盖工程调试旁路设置；缺省读工程 debug_mode 字段")
 @click.pass_context
 def generate(ctx: click.Context, project_file: Path, output_dir: Path,
-             target: str | None) -> None:
+             target: str | None, debug_mode: bool | None) -> None:
     """Generate a standalone C project from a project YAML."""
     root = ctx.obj["project_root"]
     registry = Registry()
@@ -136,6 +145,8 @@ def generate(ctx: click.Context, project_file: Path, output_dir: Path,
 
     loader = ProjectLoader()
     project = loader.load(project_file)
+    if debug_mode is not None:
+        project.debug_mode = debug_mode
 
     compiler = GraphCompiler(registry)
     try:
@@ -146,6 +157,8 @@ def generate(ctx: click.Context, project_file: Path, output_dir: Path,
 
     generator = CodeGenerator(registry, root)
     generator.generate(plan, output_dir)
+    if plan.ignored_nodes:
+        click.echo(f"debug bypass ignored nodes: {', '.join(plan.ignored_nodes)}")
     click.echo(f"generated project written to {output_dir}")
 
 

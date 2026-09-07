@@ -539,6 +539,7 @@ def create_app(project_root: Path) -> FastAPI:
             "execution_order": plan.execution_order,
             "buffers": len(plan.buffers),
             "connections": len(plan.connections),
+            "ignored_nodes": plan.ignored_nodes,
             # 控制链路（编译期已校验），供 UI 显示与测试断言；空图为 []
             "control_links": plan.control_links,
             # per-node rate info for UI badges (time-tree visualization)
@@ -564,9 +565,10 @@ def create_app(project_root: Path) -> FastAPI:
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         flat = flattened_project(rec)
-        has_device = any(n.component in DEVICE_COMPONENTS for n in flat.graph.nodes.values())
+        active_flat, _ = GraphCompiler(registry).prepare_debug_project(flat)
+        has_device = any(n.component in DEVICE_COMPONENTS for n in active_flat.graph.nodes.values())
 
-        built = ensure_components_built(flat)
+        built = ensure_components_built(active_flat)
         # 动态路径只在 PC 上运行：含设备组件时锁定 win 解析（即使工程 target=dsp，
         # alter 组也会在 win 下激活 device_in/out，保证「▶ 运行」语义直观）
         plan, plan_path = compile_record(rec, target="win" if has_device else None)
@@ -584,7 +586,7 @@ def create_app(project_root: Path) -> FastAPI:
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             return {"mode": "realtime", "status": "started", "pid": session.proc.pid,
-                    "built_components": built}
+                    "built_components": built, "ignored_nodes": plan.ignored_nodes}
 
         if pace:
             # 离线实时播放：宿主按真实时长处理，探针每 200ms 流式上报（会话方式，UI 轮询）
@@ -597,7 +599,7 @@ def create_app(project_root: Path) -> FastAPI:
                 cwd=rec.directory,
             )
             return {"mode": "offline_live", "status": "started", "pid": session.proc.pid,
-                    "built_components": built}
+                    "built_components": built, "ignored_nodes": plan.ignored_nodes}
 
         exe = ensure_runtime_built()
         project_dir = rec.directory
@@ -627,6 +629,7 @@ def create_app(project_root: Path) -> FastAPI:
             "stdout": result.stdout,
             "stderr": result.stderr,
             "built_components": built,
+            "ignored_nodes": plan.ignored_nodes,
             "outputs": outputs,
             "probes": _parse_probe_lines(result.stdout),
         }
@@ -681,6 +684,7 @@ def create_app(project_root: Path) -> FastAPI:
                 "status": "started",
                 "pid": session.proc.pid,
                 "generated": True,
+                "ignored_nodes": plan.ignored_nodes,
                 "generated_path": str(gen_dir.relative_to(rec.directory)),
                 "download_url": f"/api/projects/{name}/generated/archive",
             }
@@ -728,6 +732,7 @@ def create_app(project_root: Path) -> FastAPI:
             "stdout": result.stdout,
             "stderr": result.stderr,
             "blocks": blocks,
+            "ignored_nodes": plan.ignored_nodes,
             "outputs": outputs,
             "generated_path": str(gen_dir.relative_to(rec.directory)),
             "download_url": f"/api/projects/{name}/generated/archive",
@@ -750,6 +755,7 @@ def create_app(project_root: Path) -> FastAPI:
             "blocks_default": plan.duration_frames > 0
             and (plan.duration_frames + tick - 1) // tick
             or 1000,
+            "ignored_nodes": plan.ignored_nodes,
         }
 
     @app.get("/api/projects/{name}/generated/archive")

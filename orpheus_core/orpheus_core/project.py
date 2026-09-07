@@ -112,6 +112,7 @@ class Project:
     buffer_size: int = 0
     double_bank: str = "auto"  # BULK 双 bank：auto=按组件声明 / on=全部 / off=关闭（直写即时生效）
     target: str = "auto"  # 期望目标平台：auto / win / dsp（解析与警告用，缺省自动）
+    debug_mode: bool = False  # 调试旁路：忽略孤立节点和未接入有效时钟源的残留流
     tasks: dict[str, Task] = field(default_factory=dict)
     graph: Graph = field(default_factory=Graph)
     subcomponents: list[Subcomponent] = field(default_factory=list)
@@ -187,6 +188,7 @@ def project_to_dict(project: Project) -> dict[str, Any]:
         "buffer_size": project.buffer_size,
         "double_bank": project.double_bank,
         "target": project.target,
+        "debug_mode": project.debug_mode,
         "tasks": [
             {
                 "id": t.id,
@@ -254,6 +256,7 @@ class ProjectLoader:
         project.buffer_size = data.get("buffer_size", 0)
         project.double_bank = data.get("double_bank", "auto")
         project.target = data.get("target", "auto")
+        project.debug_mode = bool(data.get("debug_mode", False))
 
         for t in data.get("tasks", []):
             task = Task(
@@ -304,7 +307,7 @@ class ProjectLoader:
         # 保留未知顶层字段（presets / model_tree 等），往返不丢
         known = {
             "version", "metadata", "sample_rate", "block_size", "buffer_size",
-            "double_bank", "target", "tasks", "graph", "subcomponents",
+            "double_bank", "target", "debug_mode", "tasks", "graph", "subcomponents",
             "control_connections",
         }
         for key, value in data.items():

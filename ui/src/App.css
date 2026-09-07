@@ -208,6 +208,11 @@
   color: #ced4da;
 }
 
+.debug-toggle.active {
+  color: #ffd166;
+  font-weight: 600;
+}
+
 .status {
   margin-left: auto;
   font-size: 12px;

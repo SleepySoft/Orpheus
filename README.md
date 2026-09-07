@@ -72,7 +72,10 @@ UI 使用流程：左上角「导入示例…」导入示例工程 → 画布编
 
 子组件还可通过 `public_parameters` 公开内部参数与控制点；实例参数可覆盖内部默认值，顶层控制链可跨子图映射。工程支持多 Task 独立入口，跨 Task 音频通过 `async_bridge` 固定容量 SPSC Ring Buffer 传递。带 `lesson` 的课程工程会显示「教学」入口，可执行结构化自动检查。
 
+调试临时改线时可开启工具栏「调试旁路」：完全孤立的节点，以及存在有效时钟源时未接入任何时钟源的残留音频流，会保留在画布与 `project.yaml` 中但不进入执行计划。保留执行的有效链路仍执行端口类型、通道、Task、时钟与平台校验；编译/运行日志会列出跳过的节点，关闭开关即恢复严格编译。
+命令行可用 `python -m orpheus_core.cli compile <project.yaml> --debug` 临时开启，或用 `--strict` 临时覆盖工程设置；两者都不会改写工程文件。
+
 - 工程持久化在 `workspace/<工程名>/`（`project.yaml` 为唯一事实来源，已 gitignore）；WAV 路径相对工程目录，可移植。
 - 组件是全局只读库（`components/` 扫描），工程是用户文档（`workspace/`），子组件定义内嵌于工程文档。
 - 后端 API：`GET/PUT /api/projects/{name}`、`POST .../compile`、`POST .../run`、`GET .../download`、`GET /api/components` 等，见 `orpheus_core/orpheus_core/server/app.py`。
-- 当前验证基线：pytest 232 项通过、CTest 4 项通过、Jest 13 项通过、Playwright 核心流程通过；以 CI 实际结果为准。
+- 当前验证基线：pytest 236 项通过、1 项跳过、CTest 4 项通过、Jest 13 项通过、Playwright 核心流程通过；以 CI 实际结果为准。
