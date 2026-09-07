@@ -6,6 +6,7 @@ version: 1.0.0
 abi_version: 1
 package_type: source
 codegen_template: uart_link
+ui_hidden: true
 parameters:
   - id: link_name
     name: 符号前缀

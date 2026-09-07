@@ -52,7 +52,8 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
   const [collapsed, setCollapsed] = useState({});
   const [query, setQuery] = useState('');
 
-  const tree = useMemo(() => buildTree(components), [components]);
+  const visibleComponents = useMemo(() => components.filter((component) => !component.ui_hidden), [components]);
+  const tree = useMemo(() => buildTree(visibleComponents), [visibleComponents]);
 
   const onDragStart = (event, componentId) => {
     event.dataTransfer.setData('application/orpheus-component', componentId);
@@ -205,7 +206,7 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
         </div>
       )}
       {tree.children.size > 0 && renderNode(tree, '', 0)}
-      {components.length === 0 && <p className="muted">后端未连接或无组件</p>}
+      {visibleComponents.length === 0 && <p className="muted">后端未连接或无组件</p>}
         </>
       )}
     </div>

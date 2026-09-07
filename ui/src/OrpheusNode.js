@@ -12,9 +12,12 @@ export default function OrpheusNode({ id, data, selected }) {
   const inputs = ports.filter((p) => p.direction === 'input');
   const outputs = ports.filter((p) => p.direction === 'output');
   const isSub = (data.component || '').startsWith('sub:');
+  const isBridge = !!data.bridgeConfig;
   const shortName = data.missing
     ? '未映射组件'
-    : isSub
+    : isBridge
+      ? 'Bridge 配置'
+      : isSub
       ? '📦 子组件（双击打开）'
       : (data.component || '').split('.').pop();
 
@@ -155,7 +158,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
           color="#4cc9f0"
         />
       )}
-      <div className={`orpheus-node audio-node ${showControlLinks ? 'control-mode' : ''} ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${data.missing ? 'missing' : ''} ${noiseStatusClass(data)}`}>
+      <div className={`orpheus-node audio-node ${showControlLinks ? 'control-mode' : ''} ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${isBridge ? 'bridge-config-node' : ''} ${data.missing ? 'missing' : ''} ${noiseStatusClass(data)}`}>
       <div className="node-header">
         <div className="node-title">
           {data.label}

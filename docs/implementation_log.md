@@ -11,6 +11,7 @@
 - 定案 `design_observation_adapter.md`：观测点不绑定传输；UART/共享内存/用户回调由 `execution.none` Adapter 提供。纯观测 probe 后续可迁移为 `observations` 元数据并从部署源码裁剪，参与控制语义的观测计算必须保留。
 - 定案 `design_access_bridge.md`：Runtime/生成图库作为统一 Access Backend，BridgeSession 经 Pipe/UART/USB/TCP/SHM Transport 访问同一 §18 消息与 ID 空间；本地 Runtime 不再被视作特殊协议路径。
 - `smoke_big6` 重新生成：最小 app 与 CLI 均完成 1875 块运行；Strawberry GCC 13 `-Wall -Wextra -Wpedantic` 零警告构建。生成路径结构/控制/BULK/消息/Task/UART/BAF 专项 49 项通过。
+- Bridge 配置统一：工程顶层 `bridges` 成为部署事实；新增无音频端口「访问桥」节点作为 UI 投影，保存时抽回顶层；legacy `uart_link` 自动映射迁移。当前启用 `uart + olink` Adapter，逻辑 `resource` 随生成头输出供 Target Profile 绑定。
 
 ## 2026-09-04（第四十八次：P2 子组件公开参数 + BAF 真实算法对齐）
 

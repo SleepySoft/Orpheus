@@ -66,7 +66,7 @@ UI 使用流程：左上角「导入示例…」导入示例工程 → 画布编
 - **▶ 运行**（基座动态加载）：按图内容自动分流——含设备组件的图进入实时会话（声卡/系统声音，底部实时日志滚动，**运行中调参即时生效**，探针电平每秒刷新，「■ 停止」结束）；纯文件图走离线处理（WAV 进 WAV 出，产物在线试听/下载）。输入输出自由组合：系统声音→处理→WAV 就是录制，WAV→处理→声卡就是播放。
 - **⚙ 编译后运行**（代码生成路径）：生成独立 C 工程 → 静态编译 → 运行；与动态加载路径的输出有逐字节一致性测试保障。
 
-生成工程将产品图实现编成 `orpheus_graph` 静态库：`include/orpheus_graph.h` 是用户 main/音频中断需要的唯一图入口，`src/orpheus_graph.c` 是直线初始化链与调用链且不做宿主 IO。`src/main.c` 仅为最小集成示例；BULK、消息、Task、stdio 链路等 PC 验证能力独立放在 `src/host_cli.c` / `orpheus_generated_cli`。当前 `uart_link` 已提供串口控制/探针 Adapter；统一 Pipe/UART/SHM/callback Bridge 与纯观测点迁移是后续目标，设计见 `docs/design_access_bridge.md` 和 `docs/design_observation_adapter.md`。
+生成工程将产品图实现编成 `orpheus_graph` 静态库：`include/orpheus_graph.h` 是用户 main/音频中断需要的唯一图入口，`src/orpheus_graph.c` 是直线初始化链与调用链且不做宿主 IO。`src/main.c` 仅为最小集成示例；BULK、消息、Task、stdio 链路等 PC 验证能力独立放在 `src/host_cli.c` / `orpheus_generated_cli`。画布中的无端口「访问桥」节点保存为顶层 `bridges`，当前支持 `uart + olink`；旧 `uart_link` 自动兼容迁移。统一 Pipe/UART/SHM/callback Bridge 与纯观测点迁移按路线图继续实现，设计见 `docs/design_access_bridge.md` 和 `docs/design_observation_adapter.md`。
 
 「下载 zip」可导出整个工程目录。
 
@@ -82,4 +82,4 @@ UI 使用流程：左上角「导入示例…」导入示例工程 → 画布编
 - 工程持久化在 `workspace/<工程名>/`（`project.yaml` 为唯一事实来源，已 gitignore）；WAV 路径相对工程目录，可移植。
 - 组件是全局只读库（`components/` 扫描），工程是用户文档（`workspace/`），子组件定义内嵌于工程文档。
 - 后端 API：`GET/PUT /api/projects/{name}`、`POST .../compile`、`POST .../run`、`GET .../download`、`GET /api/components` 等，见 `orpheus_core/orpheus_core/server/app.py`。
-- 当前验证基线：pytest 236 项通过、1 项跳过、CTest 4 项通过、Jest 13 项通过、Playwright 核心流程通过；以 CI 实际结果为准。
+- 当前验证基线：pytest 242 项通过、1 项跳过、CTest 4 项通过、Jest 15 项通过、Playwright 核心流程通过；以 CI 实际结果为准。

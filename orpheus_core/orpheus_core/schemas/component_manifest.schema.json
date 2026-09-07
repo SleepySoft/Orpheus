@@ -26,6 +26,16 @@
       "type": "string",
       "description": "execution.none 组件的代码生成模板（如 platform_hooks / uart_link）；缺省按组件 id 回退，未匹配则跳过代码生成"
     },
+    "bridge_config": {
+      "type": "boolean",
+      "default": false,
+      "description": "无端口 Bridge 配置节点；UI 保存时投影为工程顶层 bridges"
+    },
+    "ui_hidden": {
+      "type": "boolean",
+      "default": false,
+      "description": "从组件 Palette 隐藏；已存在工程仍可加载（用于兼容迁移组件）"
+    },
     "sources": {
       "type": "array",
       "items": { "type": "string" }

@@ -19,6 +19,10 @@ from orpheus_core.project import Connection, ControlConnection, Graph, Node, Por
 
 SUB_PREFIX = "sub:"
 NODE_SEP = "__"
+BRIDGE_COMPONENTS = {
+    "orpheus.builtin.access_bridge",
+    "orpheus.builtin.uart_link",
+}
 
 
 def is_subcomponent_ref(component: str) -> bool:
@@ -31,6 +35,11 @@ def subcomponent_id(component: str) -> str:
 
 
 def _validate_subcomponent(sub: Subcomponent) -> None:
+    bridge_nodes = [node.id for node in sub.graph.nodes.values() if node.component in BRIDGE_COMPONENTS]
+    if bridge_nodes:
+        raise CompileError(
+            f"subcomponent {sub.id}: Bridge 配置只能位于工程主图：{sorted(bridge_nodes)}"
+        )
     seen: set[str] = set()
     for port in sub.ports:
         if port.id in seen:
@@ -181,6 +190,7 @@ def flatten_project(project: Project) -> Project:
 
     flat = copy.copy(project)  # shallow: tasks/metadata shared, graph replaced
     flat.graph = _expand_graph(project.graph, subs, prefix="", stack=())
+    flat.bridges = copy.deepcopy(project.bridges)
     flat.subcomponents = []
     flat.control_connections = flat_control
     return flat

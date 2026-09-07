@@ -144,6 +144,8 @@ def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
         "parameters": m.get("parameters", []),
         "bulk_slots": m.get("bulk_slots", []),
         "custom_handles": m.get("custom_handles", []),
+        "bridge_config": m.get("bridge_config", False),
+        "ui_hidden": m.get("ui_hidden", False),
         "user_owned": m.get("user_owned", False),
     }
 
@@ -540,6 +542,7 @@ def create_app(project_root: Path) -> FastAPI:
             "buffers": len(plan.buffers),
             "connections": len(plan.connections),
             "ignored_nodes": plan.ignored_nodes,
+            "bridges": plan.bridges,
             # 控制链路（编译期已校验），供 UI 显示与测试断言；空图为 []
             "control_links": plan.control_links,
             # per-node rate info for UI badges (time-tree visualization)

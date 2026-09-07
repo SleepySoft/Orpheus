@@ -50,6 +50,30 @@ const catalog = [
       { id: 'matrix', type: 'string', default: '1, 0, 0, 1', shape: ['param:rows', 'param:cols'] },
     ],
   },
+  {
+    id: 'orpheus.builtin.access_bridge',
+    name: '访问桥',
+    bridge_config: true,
+    ports: [],
+    parameters: [
+      { id: 'transport', type: 'string', default: 'uart' },
+      { id: 'codec', type: 'string', default: 'olink' },
+      { id: 'enabled', type: 'bool', default: true },
+      { id: 'resource', type: 'string', default: '' },
+      { id: 'baud', type: 'int', default: 921600 },
+      { id: 'probe_interval_ms', type: 'float', default: 200 },
+    ],
+  },
+  {
+    id: 'orpheus.builtin.uart_link',
+    name: '串口链路',
+    ports: [],
+    parameters: [
+      { id: 'link_name', type: 'string', default: '' },
+      { id: 'baud', type: 'int', default: 921600 },
+      { id: 'probe_interval_ms', type: 'float', default: 200 },
+    ],
+  },
 ];
 
 describe('resolveShape', () => {
@@ -191,5 +215,48 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
     expect(params.find((p) => p.id === 'gain').bindable).toBe(true);
     const out = viewsToDoc(views, subsMeta, subDoc);
     expect(out.subcomponents[0].public_parameters).toEqual(subDoc.subcomponents[0].public_parameters);
+  });
+
+  test('顶层 bridges 投影为无端口节点并保存回顶层', () => {
+    const bridgeDoc = {
+      ...doc,
+      graph: { nodes: [], connections: [] },
+      bridges: [{
+        id: 'debug_uart', transport: 'uart', codec: 'olink', enabled: true,
+        params: { resource: 'uart2', baud: 115200, probe_interval_ms: 50 },
+        position: { x: 40, y: 80 },
+      }],
+    };
+    const { views, subsMeta } = docToViews(bridgeDoc, catalog);
+    const node = views.main.nodes[0];
+    expect(node.id).toBe('debug_uart');
+    expect(node.data.component).toBe('orpheus.builtin.access_bridge');
+    expect(node.data.ports).toEqual([]);
+    expect(node.data.params.transport).toBe('uart');
+    const out = viewsToDoc(views, subsMeta, bridgeDoc);
+    expect(out.graph.nodes).toEqual([]);
+    expect(out.bridges).toEqual(bridgeDoc.bridges);
+  });
+
+  test('旧 uart_link 节点首次保存迁移到 bridges', () => {
+    const legacy = {
+      ...doc,
+      graph: {
+        nodes: [{
+          id: 'legacy_link', component: 'orpheus.builtin.uart_link',
+          params: { link_name: 'uart0', baud: 921600, probe_interval_ms: 100 },
+          position: { x: 20, y: 30 },
+        }],
+        connections: [],
+      },
+    };
+    const { views, subsMeta } = docToViews(legacy, catalog);
+    const out = viewsToDoc(views, subsMeta, legacy);
+    expect(out.graph.nodes).toEqual([]);
+    expect(out.bridges[0]).toMatchObject({
+      id: 'legacy_link', transport: 'uart', codec: 'olink', enabled: true,
+      params: { link_name: 'uart0', baud: 921600, probe_interval_ms: 100 },
+      position: { x: 20, y: 30 },
+    });
   });
 });

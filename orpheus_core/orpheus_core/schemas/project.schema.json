@@ -49,6 +49,25 @@
         }
       }
     },
+    "bridges": {
+      "type": "array",
+      "description": "声明式外部访问桥；由无端口配置节点编辑，不进入音频执行图",
+      "items": {
+        "type": "object",
+        "required": ["id", "transport"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },
+          "transport": { "type": "string", "enum": ["uart", "pipe", "shm", "tcp", "callback"] },
+          "codec": { "type": "string", "enum": ["olink", "length_prefixed", "datagram", "none"], "default": "olink" },
+          "enabled": { "type": "boolean", "default": true },
+          "params": { "type": "object" },
+          "position": {
+            "type": "object",
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+          }
+        }
+      }
+    },
     "graph": { "$ref": "#/definitions/graph" },
     "control_connections": {
       "type": "array",

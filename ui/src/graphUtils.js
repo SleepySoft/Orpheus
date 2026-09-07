@@ -28,6 +28,8 @@ export function resolveExprValue(expr, params, component) {
 
 /** 控制链路 handle id 前缀：ctl:<paramId>（与音频端口 handle 严格区分）。 */
 export const CTL_PREFIX = 'ctl:';
+export const BRIDGE_COMPONENT = 'orpheus.builtin.access_bridge';
+export const LEGACY_UART_COMPONENT = 'orpheus.builtin.uart_link';
 export const isControlHandle = (h) => typeof h === 'string' && h.startsWith(CTL_PREFIX);
 export const ctlParamId = (h) => (isControlHandle(h) ? h.slice(CTL_PREFIX.length) : h);
 
@@ -103,7 +105,7 @@ export function mergedCatalog(globalComponents, subsMeta) {
 }
 
 /** graph {nodes, connections} + 顶层 control_connections -> { nodes, edges } for React Flow. */
-export function graphToFlow(graph, catalogById, controlConnections = []) {
+export function graphToFlow(graph, catalogById, controlConnections = [], bridges = []) {
   const nodes = (graph?.nodes || []).map((n) => {
     const comp = catalogById[n.component];
     return {
@@ -122,9 +124,36 @@ export function graphToFlow(graph, catalogById, controlConnections = []) {
         // 替代组声明（同图内节点 id 列表）与组件平台标签，往返保留
         alters: Array.isArray(n.alters) ? n.alters : [],
         platforms: comp?.platforms || [],
+        bridgeConfig: !!comp?.bridge_config || n.component === LEGACY_UART_COMPONENT,
       },
     };
   });
+  for (const bridge of bridges || []) {
+    const comp = catalogById[BRIDGE_COMPONENT];
+    nodes.push({
+      id: bridge.id,
+      type: 'orpheus',
+      position: { x: bridge.position?.x ?? 100, y: bridge.position?.y ?? 100 },
+      data: {
+        label: bridge.id,
+        component: BRIDGE_COMPONENT,
+        missing: !comp,
+        params: {
+          transport: bridge.transport,
+          codec: bridge.codec || 'olink',
+          enabled: bridge.enabled !== false,
+          ...(bridge.params || {}),
+        },
+        task: 'default',
+        clockSource: false,
+        ports: [],
+        parameters: comp?.parameters || [],
+        alters: [],
+        platforms: [],
+        bridgeConfig: true,
+      },
+    });
+  }
   const edges = (graph?.connections || []).map((c) => {
     const [source, sourceHandle] = c.from.split(':');
     const [target, targetHandle] = c.to.split(':');
@@ -183,7 +212,7 @@ export function docToViews(doc, globalComponents) {
   const catalogById = Object.fromEntries(
     mergedCatalog(globalComponents, subsMeta).map((c) => [c.id, c])
   );
-  const views = { main: graphToFlow(doc.graph, catalogById, doc.control_connections) };
+  const views = { main: graphToFlow(doc.graph, catalogById, doc.control_connections, doc.bridges) };
   for (const s of doc.subcomponents || []) {
     views[subViewKey(s.id)] = graphToFlow(s.graph, catalogById);
   }
@@ -192,10 +221,45 @@ export function docToViews(doc, globalComponents) {
 
 /** views + subsMeta + base document -> full project document. */
 export function viewsToDoc(views, subsMeta, baseDoc) {
+  const mainNodes = views.main?.nodes || [];
+  const isBridgeNode = (node) => node.data.component === BRIDGE_COMPONENT
+    || node.data.component === LEGACY_UART_COMPONENT;
+  const bridgeNodes = mainNodes.filter(isBridgeNode);
+  const graphNodes = mainNodes.filter((node) => !isBridgeNode(node));
+  const graphNodeIds = new Set(graphNodes.map((node) => node.id));
   const doc = {
     ...baseDoc,
-    graph: flowToGraph(views.main?.nodes || [], views.main?.edges || []),
+    graph: flowToGraph(
+      graphNodes,
+      (views.main?.edges || []).filter(
+        (edge) => graphNodeIds.has(edge.source) && graphNodeIds.has(edge.target)
+      )
+    ),
   };
+  if (bridgeNodes.length > 0) {
+    doc.bridges = bridgeNodes.map((node) => {
+      const params = { ...(node.data.params || {}) };
+      const legacy = node.data.component === LEGACY_UART_COMPONENT;
+      const transport = legacy ? 'uart' : String(params.transport || 'uart');
+      const codec = legacy ? 'olink' : String(params.codec || 'olink');
+      const enabled = legacy ? true : params.enabled !== false;
+      if (!legacy) {
+        delete params.transport;
+        delete params.codec;
+        delete params.enabled;
+      }
+      return {
+        id: node.id,
+        transport,
+        codec,
+        enabled,
+        ...(Object.keys(params).length ? { params } : {}),
+        position: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
+      };
+    });
+  } else {
+    delete doc.bridges;
+  }
   // 控制连接只存在于主图（子组件视图不参与）：剥掉 ctl: 前缀写回顶层段，空则省略
   const controlEdges = (views.main?.edges || []).filter(
     (e) => e.type === 'control' && isControlHandle(e.sourceHandle) && isControlHandle(e.targetHandle)

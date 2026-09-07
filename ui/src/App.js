@@ -618,6 +618,10 @@ const { screenToFlowPosition } = useReactFlow();
       const componentId = event.dataTransfer.getData('application/orpheus-component');
       const comp = catalogById[componentId];
       if (!comp) return;
+      if (comp.bridge_config && activeView !== 'main') {
+        setStatus('访问桥属于工程部署配置，只能放在主图');
+        return;
+      }
       if (componentId === activeView) {
         setStatus('子组件不能包含自身');
         return;
@@ -643,6 +647,7 @@ const { screenToFlowPosition } = useReactFlow();
               ports: resolvePorts(comp, params),
               parameters: comp.parameters || [],
               platforms: comp.platforms || [],
+              bridgeConfig: !!comp.bridge_config,
             },
           },
         ],

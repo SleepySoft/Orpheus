@@ -1,5 +1,7 @@
 # orpheus.builtin.uart_link — 串口链路（生成代码的串口控制通道）
 
+> 兼容入口：新工程请使用「访问桥」配置节点。旧 `uart_link` 在编译时自动映射为顶层 `bridges[].transport: uart`，首次经 UI 保存后完成迁移。
+
 ## 功能
 
 **非音频组件**：不进执行计划、没有端口、不能连线。把它拖入工程，「生成独立 C 工程」时就会在产物里加入一条 **OLINK 串口控制链路**：
@@ -40,13 +42,13 @@ orpheus_link_<名>_poll(HAL_GetTick());       /* 主循环周期调用（探针�
 
 ## PC 冒烟（无硬件验证整条链路）
 
-生成的 `orpheus_generated_app` 带 `--link-stdio` 模式：stdin/stdout 就是链路（二进制模式）：
+生成的 `orpheus_generated_cli` 带 `--link-stdio` 模式：stdin/stdout 就是链路（二进制模式）：
 
 ```
-orpheus_generated_app --link-stdio
+orpheus_generated_cli --link-stdio
 ```
 
-此时 hooks 里的 `send` 默认实现为 `fwrite(stdout)`（`ORPHEUS_LINK_STDIO` 已在 CMake 定义），主循环自动跑图块、喂 stdin、驱动探针泵。Python 侧（`orpheus_core.server.serial_session.SerialSession`）接管道即可端到端调通，测试 `orpheus_core/tests/test_uart_link.py` 就是这么做的。
+此时 hooks 里的 `send` 默认实现为 `fwrite(stdout)`（`ORPHEUS_LINK_STDIO` 已在 CMake 定义），CLI 宿主自动跑图块、喂 stdin、驱动探针泵。Python 侧（`orpheus_core.server.serial_session.SerialSession`）接管道即可端到端调通，测试 `orpheus_core/tests/test_uart_link.py` 就是这么做的。
 
 ## 注意事项
 

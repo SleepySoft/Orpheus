@@ -104,6 +104,17 @@ class Task:
 
 
 @dataclass
+class Bridge:
+    """声明式外部访问桥；不参与音频执行图。"""
+    id: str
+    transport: str
+    codec: str = "olink"
+    enabled: bool = True
+    params: dict[str, Any] = field(default_factory=dict)
+    position: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
 class Project:
     version: str = "0.1.0"
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -114,6 +125,7 @@ class Project:
     target: str = "auto"  # 期望目标平台：auto / win / dsp（解析与警告用，缺省自动）
     debug_mode: bool = False  # 调试旁路：忽略孤立节点和未接入有效时钟源的残留流
     tasks: dict[str, Task] = field(default_factory=dict)
+    bridges: list[Bridge] = field(default_factory=list)
     graph: Graph = field(default_factory=Graph)
     subcomponents: list[Subcomponent] = field(default_factory=list)
     # 控制连接（顶层段）：编译期校验后进入 plan.control_links，运行期块边界两相快照投递
@@ -201,6 +213,18 @@ def project_to_dict(project: Project) -> dict[str, Any]:
         ],
         "graph": _graph_to_dict(project.graph),
     }
+    if project.bridges:
+        doc["bridges"] = [
+            {
+                "id": bridge.id,
+                "transport": bridge.transport,
+                "codec": bridge.codec,
+                "enabled": bridge.enabled,
+                **({"params": bridge.params} if bridge.params else {}),
+                **({"position": bridge.position} if bridge.position else {}),
+            }
+            for bridge in project.bridges
+        ]
     if project.control_connections:
         doc["control_connections"] = [
             {"from": str(c.from_ref), "to": str(c.to_ref)}
@@ -275,6 +299,18 @@ class ProjectLoader:
                 block_size=project.block_size,
             )
 
+        project.bridges = [
+            Bridge(
+                id=bridge["id"],
+                transport=bridge["transport"],
+                codec=bridge.get("codec", "olink"),
+                enabled=bool(bridge.get("enabled", True)),
+                params=dict(bridge.get("params", {}) or {}),
+                position=dict(bridge.get("position", {}) or {}),
+            )
+            for bridge in data.get("bridges", []) or []
+        ]
+
         project.graph = _parse_graph(data.get("graph", {"nodes": [], "connections": []}))
         for c in data.get("control_connections", []) or []:
             project.control_connections.append(
@@ -307,7 +343,7 @@ class ProjectLoader:
         # 保留未知顶层字段（presets / model_tree 等），往返不丢
         known = {
             "version", "metadata", "sample_rate", "block_size", "buffer_size",
-            "double_bank", "target", "debug_mode", "tasks", "graph", "subcomponents",
+            "double_bank", "target", "debug_mode", "tasks", "bridges", "graph", "subcomponents",
             "control_connections",
         }
         for key, value in data.items():

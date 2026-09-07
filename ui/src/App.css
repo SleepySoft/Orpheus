@@ -1286,6 +1286,15 @@ button.danger {
   border-color: #b197fc;
 }
 
+.orpheus-node.bridge-config-node {
+  border-color: #5c7cfa;
+  border-left: 4px solid #4263eb;
+}
+
+.orpheus-node.bridge-config-node .node-header {
+  background: #edf2ff;
+}
+
 
 .orpheus-node.node-alert-warn {
   border-color: #f0b429;

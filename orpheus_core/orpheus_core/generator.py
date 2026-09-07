@@ -182,7 +182,7 @@ class CodeGenerator:
 
         # 图实现与宿主解耦：orpheus_graph.c 只放状态/初始化链/调用链；main.c 是最小
         # 集成示例，复杂命令行验证能力独立放在 host_cli.c。
-        link_nodes = self.uart_link_decls(plan)
+        link_nodes = self.uart_bridges(plan)
         self._generate_graph_c(plan, component_ids, src_dir / "orpheus_graph.c",
                                link_nodes, win_host=win_host,
                                device_in_nodes=device_in_nodes,
@@ -260,6 +260,8 @@ class CodeGenerator:
         # 声明式平台节点（execution.none）：按 codegen_template 分发代码生成模板
         if plan.declarations:
             self._generate_declarations(plan, src_dir, include_dir)
+        if self.uart_bridges(plan):
+            self._generate_uart_link(plan, src_dir, include_dir)
 
         # 数据 ID（32 位宏）+ ID map + 内存布局（模块嵌套 arena 定义在 include/orpheus_arena.h）
         self._generate_ids(plan, include_dir, src_dir, output_dir)
@@ -1461,8 +1463,6 @@ class CodeGenerator:
             self._generate_platform_hooks(
                 plan, src_dir / "platform_hooks.c", include_dir / "orpheus_platform_hooks.h"
             )
-        if "uart_link" in templates:
-            self._generate_uart_link(plan, src_dir, include_dir)
 
     def _generate_platform_hooks(self, plan: ExecutionPlan, src_path: Path, hdr_path: Path) -> None:
         """声明式平台节点（platform_hook）→ init/read/write 钩子（USER CODE 填充）。
@@ -1537,17 +1537,24 @@ class CodeGenerator:
         hdr_path.write_text("\n".join(hdr), encoding="utf-8")
         src_path.write_text("\n".join(src), encoding="utf-8")
 
-    def uart_link_decls(self, plan: ExecutionPlan) -> list[dict[str, Any]]:
-        """plan.declarations 中模板为 uart_link 的节点（main.c/CMake 也用）。"""
-        return [d for d in plan.declarations if self._decl_template(d) == "uart_link"]
+    def uart_bridges(self, plan: ExecutionPlan) -> list[dict[str, Any]]:
+        """统一 Bridge 声明中的 uart+olink；兼容读取旧 plan.declarations。"""
+        bridges = [
+            bridge for bridge in getattr(plan, "bridges", [])
+            if bridge.get("enabled", True)
+            and bridge.get("transport") == "uart"
+            and bridge.get("codec") == "olink"
+        ]
+        legacy = [d for d in plan.declarations if self._decl_template(d) == "uart_link"]
+        return [*bridges, *legacy]
 
     def _uart_link_sym(self, decl: dict[str, Any]) -> str:
         name = str(decl["params"].get("link_name") or decl["id"])
         return self._sanitized_node_id(name)
 
     def _generate_uart_link(self, plan: ExecutionPlan, src_dir: Path, include_dir: Path) -> None:
-        """uart_link 节点 → OLINK 串口链路段（feed/poll 生成物 + init/send USER CODE 骨架）。"""
-        nodes = self.uart_link_decls(plan)
+        """UART Bridge → OLINK Endpoint（feed/poll + init/send 平台 Adapter 骨架）。"""
+        nodes = self.uart_bridges(plan)
         if not nodes:
             return
         # 自包含：OLINK 成帧层随工程复制
@@ -1562,6 +1569,7 @@ class CodeGenerator:
             params = d["params"]
             baud = int(float(params.get("baud", 921600) or 921600))
             interval = float(params.get("probe_interval_ms", 200.0) or 0.0)
+            resource = str(params.get("resource") or params.get("link_name") or d["id"])
             note = str(params.get("note") or "")
             hdr = [
                 f'#ifndef ORPHEUS_LINK_{s.upper()}_H',
@@ -1571,8 +1579,9 @@ class CodeGenerator:
                 'extern "C" {',
                 '#endif',
                 '',
-                f'/* uart_link 节点 {d["id"]} · 声明波特率 {baud}（实际由 init 的实现决定）'
+                f'/* UART Bridge {d["id"]} · resource={resource} · 声明波特率 {baud}（实际由平台 Adapter 决定）'
                 + (f' · {note}' if note else '') + ' */',
+                f'#define ORPHEUS_LINK_{s.upper()}_RESOURCE "{self._c_escape(resource)}"',
                 f'#define ORPHEUS_LINK_{s.upper()}_PROBE_INTERVAL_MS {interval:.1f}f',
                 '',
                 f'void orpheus_link_{s}_init(void);                      /* USER CODE：串口/DMA 初始化 */',
@@ -2398,7 +2407,7 @@ class CodeGenerator:
             lines.append('target_link_libraries(orpheus_generated_app PRIVATE orpheus_graph)')
             lines.append('add_executable(orpheus_generated_cli src/host_cli.c)')
             lines.append('target_link_libraries(orpheus_generated_cli PRIVATE orpheus_graph)')
-        if self.uart_link_decls(plan):
+        if self.uart_bridges(plan):
             # 冒烟 harness 的 stdio 链路默认实现；上设备时移除该定义并实现自己的 send
             lines.append('target_compile_definitions(orpheus_graph PRIVATE ORPHEUS_LINK_STDIO)')
             lines.append('if(NOT WIN32)')

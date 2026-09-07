@@ -10,6 +10,11 @@ const project = {
   buffer_size: 0,
   double_bank: 'auto',
   target: 'auto',
+  bridges: [{
+    id: 'debug_uart', transport: 'uart', codec: 'olink', enabled: true,
+    params: { resource: 'uart2', baud: 921600, probe_interval_ms: 200 },
+    position: { x: 850, y: 300 },
+  }],
   tasks: [
     { id: 'producer', name: 'Producer', sample_rate: 48000, block_size: 24, priority: 1 },
     { id: 'consumer', name: 'Consumer', sample_rate: 48000, block_size: 32, priority: 0 },
@@ -87,6 +92,17 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   await page.goto('/');
   await page.locator('.toolbar select').first().selectOption(projectName);
   await expect(page.getByText(`已打开工程 ${projectName}`)).toBeVisible();
+  const paletteSearch = page.getByPlaceholder('搜索组件（中/英文模糊）');
+  await paletteSearch.fill('访问桥');
+  await expect(page.locator('.palette-item').filter({ hasText: '访问桥' })).toBeVisible();
+  await paletteSearch.fill('orpheus.builtin.uart_link');
+  await expect(page.locator('.palette-item')).toHaveCount(0);
+  await paletteSearch.fill('');
+  const bridgeNode = page.locator('.react-flow__node').filter({ hasText: 'debug_uart' });
+  await expect(bridgeNode).toBeVisible();
+  await expect(bridgeNode.locator('.react-flow__handle')).toHaveCount(0);
+  await bridgeNode.click();
+  await expect(page.locator('.param-field').filter({ hasText: '所属 Task' })).toHaveCount(0);
 
   await page.getByRole('button', { name: '⚙ 设置' }).click();
   const modal = page.locator('.modal');
@@ -117,6 +133,12 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   expect(saved.tasks.map((task) => task.id)).toEqual(['producer', 'consumer', 'task_3']);
   expect(saved.graph.nodes.find((node) => node.id === 'gain_node').task).toBe('task_3');
   expect(saved.debug_mode).toBe(true);
+  expect(saved.graph.nodes.some((node) => node.id === 'debug_uart')).toBe(false);
+  expect(saved.bridges).toEqual([{
+    id: 'debug_uart', transport: 'uart', codec: 'olink', enabled: true,
+    params: { resource: 'uart2', baud: 921600, probe_interval_ms: 200 },
+    position: { x: 850, y: 300 },
+  }]);
   expect(saved.control_connections).toEqual([{ from: 'meter:level', to: 'chain1:gain' }]);
 
   await page.getByRole('button', { name: '教学', exact: true }).click();
@@ -147,10 +169,13 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   await expect(exportedInput).toBeVisible();
   await expect(exportedOutput).toBeVisible();
   const internalGainBox = await internalGain.locator('.orpheus-node').boundingBox();
+  const flowScale = await internalGain.locator('.orpheus-node').evaluate((node) => (
+    node.getBoundingClientRect().width / node.offsetWidth
+  ));
   const inputBox = await exportedInput.boundingBox();
   const outputBox = await exportedOutput.boundingBox();
-  expect(internalGainBox.x - (inputBox.x + inputBox.width / 2)).toBeGreaterThan(28);
-  expect(outputBox.x + outputBox.width / 2 - (internalGainBox.x + internalGainBox.width)).toBeGreaterThan(28);
+  expect((internalGainBox.x - (inputBox.x + inputBox.width / 2)) / flowScale).toBeGreaterThan(40);
+  expect((outputBox.x + outputBox.width / 2 - (internalGainBox.x + internalGainBox.width)) / flowScale).toBeGreaterThan(40);
   await exportedInput.click();
   await expect(page.locator('.subports')).toBeVisible();
   await expect(page.locator('.subport-row.export-highlight').filter({ hasText: 'in' })).toBeVisible();
@@ -160,7 +185,7 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   await expect(page.locator('.subport-row.export-highlight').filter({ hasText: 'out' })).toBeVisible();
   const exportedControlInput = internalGain.locator('.export-control-input .export-control-handle');
   const controlInputBox = await exportedControlInput.boundingBox();
-  expect(internalGainBox.x - (controlInputBox.x + controlInputBox.width / 2)).toBeGreaterThan(28);
+  expect((internalGainBox.x - (controlInputBox.x + controlInputBox.width / 2)) / flowScale).toBeGreaterThan(30);
   const controlLineGeometry = await internalGain.locator('.export-control-input').evaluate((row) => {
     const rowBox = row.getBoundingClientRect();
     const nodeBox = row.closest('.orpheus-node').getBoundingClientRect();

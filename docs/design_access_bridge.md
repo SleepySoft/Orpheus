@@ -1,6 +1,6 @@
 # Access Bridge 统一访问桥设计
 
-> 状态：设计定案（v1）。本文的 Access Bridge 专指控制/观测访问桥，与音频 Task 间的 `async_bridge` 无关。
+> 状态：设计定案（v1）；顶层 `bridges`、画布配置节点及 legacy `uart_link` 迁移已落地。本文的 Access Bridge 专指控制/观测访问桥，与音频 Task 间的 `async_bridge` 无关。
 
 ## 1. 问题
 
@@ -95,9 +95,33 @@ Adapter 不改变消息语义，只实现传输：
 | `shm` | 本机共享内存 | SPSC 槽 | 高频波形/音频观测 |
 | `callback` | 用户平台 | 用户保证帧边界 | RTOS mailbox、厂商 IPC、自有驱动 |
 
-生成工程中的 Adapter 继续采用 `execution.none: true` 声明组件。它们不进入音频拓扑和 `orpheus_graph_process()` 调用链，只给生成项目增加 endpoint/transport 文件及平台钩子。
+工程顶层 `bridges` 是部署配置的唯一事实来源。UI 将其投影为 `execution.none: true`、无端口的「访问桥」配置节点；保存时节点抽回顶层，不进入 `graph.nodes`。它们不进入音频拓扑和 `orpheus_graph_process()` 调用链，只给生成项目增加 endpoint/transport 文件及平台钩子。
 
-建议组件命名：`bridge_uart`、`bridge_shm`、`bridge_callback`；既有 `uart_link` 作为 `bridge_uart` 的兼容实现。
+```yaml
+bridges:
+    - id: debug_uart
+        transport: uart
+        codec: olink
+        enabled: true
+        params:
+            resource: uart2
+            baud: 921600
+            probe_interval_ms: 200
+        position: {x: 80, y: 320}
+```
+
+旧 `orpheus.builtin.uart_link` 节点由 loader/compiler 兼容映射为同一标准 Bridge；首次经 UI 保存后迁移到顶层 `bridges`。
+
+画布统一使用 `orpheus.builtin.access_bridge`，`transport` 参数选择 Adapter。当前 UI/生成器仅开放已实现的 `uart + olink`；未安装的 transport 在编译期明确报错，不生成半成品。既有 `uart_link` 仅作为兼容入口。
+
+### 5.1 两层选择，不手改生成代码
+
+界面中有两个不同层次的选择：
+
+1. **工程 Bridge 节点**配置目标侧逻辑资源：`transport=uart`、`resource=uart2`、codec、波特率和观测周期。这些配置进入顶层 `bridges`，决定生成哪些 Endpoint/Adapter 文件。
+2. **运行工具栏目标**选择主机本次连接的实际端点：例如 `COM5`。它是本机环境状态，不写进可移植工程。
+
+`resource: uart2` 到 STM32 HAL、TI DriverLib 或 Linux termios 的绑定由 Target Profile 提供。一个平台 Adapter 包实现一次，所有工程复用；只有未知/自定义平台才回退到生成 callback 桩，由用户 main 注册函数指针，而不是修改 `orpheus_graph.c` 或每次覆盖的生成文件。
 
 ## 6. 控制面与观测面的带宽分离
 

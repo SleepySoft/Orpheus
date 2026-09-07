@@ -16,9 +16,9 @@ from pathlib import Path
 import pytest
 
 from orpheus_core.builder import run_cmake_with_msvc_env
-from orpheus_core.compiler import GraphCompiler
+from orpheus_core.compiler import CompileError, GraphCompiler
 from orpheus_core.generator import CodeGenerator
-from orpheus_core.project import Connection, Graph, Node, PortRef, Project
+from orpheus_core.project import Bridge, Connection, Graph, Node, PortRef, Project, ProjectLoader
 from orpheus_core.registry import Registry
 from orpheus_core.server.serial_session import SerialSession
 
@@ -45,8 +45,6 @@ def _project() -> Project:
                 Node(id="eq", component="orpheus.builtin.biquad_bank", params={"channels": 1}),
                 Node(id="mon", component="orpheus.builtin.probe_rms", params={"channels": 1}),
                 Node(id="sink", component="orpheus.builtin.null_sink", params={"channels": 1}),
-                Node(id="link", component="orpheus.builtin.uart_link",
-                     params={"link_name": "uart0", "probe_interval_ms": 100.0}),
             ]
         },
         connections=[
@@ -56,6 +54,10 @@ def _project() -> Project:
             Connection(PortRef.parse("mon:out"), PortRef.parse("sink:in")),
         ],
     )
+    project.bridges = [Bridge(
+        id="link", transport="uart", codec="olink",
+        params={"link_name": "uart0", "probe_interval_ms": 100.0},
+    )]
     return project
 
 
@@ -76,8 +78,87 @@ def gen_dir(tmp_path_factory, plan, registry):
 def test_uart_link_excluded_from_plan(plan):
     assert "link" not in plan.nodes
     assert "link" not in plan.execution_order
-    assert len(plan.declarations) == 1
-    assert plan.declarations[0]["component"] == "orpheus.builtin.uart_link"
+    assert plan.declarations == []
+    assert plan.bridges == [{
+        "id": "link",
+        "transport": "uart",
+        "codec": "olink",
+        "enabled": True,
+        "params": {"link_name": "uart0", "probe_interval_ms": 100.0},
+    }]
+
+
+def test_legacy_uart_link_node_maps_to_bridge(registry):
+    project = _project()
+    project.bridges = []
+    project.graph.nodes["link"] = Node(
+        id="link", component="orpheus.builtin.uart_link",
+        params={"link_name": "uart0", "probe_interval_ms": 100.0},
+    )
+
+    plan = GraphCompiler(registry).compile(project)
+
+    assert plan.declarations == []
+    assert plan.bridges[0]["id"] == "link"
+    assert plan.bridges[0]["transport"] == "uart"
+
+
+def test_top_level_bridge_roundtrip_and_compile(registry, tmp_path):
+    project = _project()
+    project.bridges = [Bridge(
+        id="device_debug", transport="uart", codec="olink",
+        params={"resource": "uart2", "baud": 115200, "probe_interval_ms": 50.0},
+        position={"x": 80, "y": 320},
+    )]
+    path = tmp_path / "project.yaml"
+    ProjectLoader().save(project, path)
+    loaded = ProjectLoader().load(path)
+
+    assert loaded.bridges == project.bridges
+    plan = GraphCompiler(registry).compile(loaded)
+    assert plan.bridges[0]["id"] == "device_debug"
+    assert plan.bridges[0]["transport"] == "uart"
+    assert plan.bridges[0]["params"]["resource"] == "uart2"
+    generated = tmp_path / "generated"
+    CodeGenerator(registry, ROOT).generate(plan, generated)
+    header = (generated / "include" / "orpheus_link_device_debug.h").read_text(encoding="utf-8")
+    assert '#define ORPHEUS_LINK_DEVICE_DEBUG_RESOURCE "uart2"' in header
+
+
+def test_access_bridge_node_normalizes_to_plan_bridge(registry):
+    project = _project()
+    project.bridges = []
+    project.graph.nodes["link"] = Node(
+        id="link", component="orpheus.builtin.access_bridge",
+        params={
+            "transport": "uart", "codec": "olink", "enabled": True,
+            "resource": "uart3", "baud": 460800, "probe_interval_ms": 25.0,
+        },
+    )
+
+    plan = GraphCompiler(registry).compile(project)
+
+    assert plan.declarations == []
+    assert plan.bridges == [{
+        "id": "link", "transport": "uart", "codec": "olink", "enabled": True,
+        "params": {"resource": "uart3", "baud": 460800, "probe_interval_ms": 25.0},
+    }]
+
+
+def test_duplicate_bridge_id_rejected(registry):
+    project = _project()
+    project.graph.nodes["link"] = Node(
+        id="link", component="orpheus.builtin.uart_link",
+    )
+    with pytest.raises(CompileError, match="Bridge ID 重复"):
+        GraphCompiler(registry).compile(project)
+
+
+def test_unavailable_bridge_adapter_rejected(registry):
+    project = _project()
+    project.bridges = [Bridge(id="telemetry", transport="shm", codec="none")]
+    with pytest.raises(CompileError, match="Adapter 尚未安装"):
+        GraphCompiler(registry).compile(project)
 
 
 def test_generated_files(plan, gen_dir):

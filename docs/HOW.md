@@ -484,6 +484,8 @@ generated/
 
 外部控制与观测统一走 Access Bridge（注意不是音频 Task 的 `async_bridge`）：Runtime 与生成图库分别实现同一 Access Backend，Pipe/UART/USB/TCP/SHM 只是可替换 Transport；UI 最终只面对 BridgeSession。协议握手、工程/ID map hash、订阅与限流设计见 `design_access_bridge.md`。
 
+Transport 在界面分两层配置：主图无端口「访问桥」节点决定目标侧 transport/codec/resource 并保存到顶层 `bridges`；运行工具栏选择本机此次连接的 COM/网络/SHM 端点。逻辑 resource 到硬件驱动的绑定属于可复用 Target Profile，不能要求用户逐工程手改生成源码。
+
 ### 7.2 生成原则
 
 1. **源码复制**：组件算法源码原样复制到 `components/`。
@@ -926,9 +928,9 @@ orpheus_platform_memory_section_bind(...);
 - **分层**：UI → L4 后端适配层（ControlPlane）→ L3 OLINK 成帧（COBS+CRC16）→ L2 §18 消息信封 → L1 传输（stdio 管道 / UART）。
 - **OLINK**（`orpheus_abi/src/olink.c` + `orpheus_core/orpheus_core/link/olink.py`，帧级互测）：`线上帧 = COBS(消息 || CRC16-CCITT) || 0x00`；0x00 恒为帧界、自同步恢复、空消息帧丢弃。
 - **SerialSession**（`orpheus_core/orpheus_core/server/serial_session.py`）：与 RtSession 同构——CALL 按 call_id 匹配（300ms 超时+重发）、NOTIFICATION 进探针缓存（/rt/status 形状不变）、resolve/map 由 plan.id_map 本地回答。REST：`rt/start {target,port,baud}`、`GET /api/link/ports`；UI 工具栏目标下拉（本机/COMx+波特率）。
-- **uart_link 组件**（`orpheus.builtin.uart_link`，execution.none）：拖入即给生成工程加设备侧链路段——`orpheus_link_<名>.c/h`（feed=OLINK 解码→`orpheus_control_message` 分发→send 回发；poll=探针泵，内部读 CALL 包 NOTIFICATION 上行）+ `orpheus_link_hooks_<名>.c`（用户只填 init/send，接收回调里调 feed）。manifest 新字段 `codegen_template` 使生成器模板分发通用化（platform_hook 硬编码已消除）。
-- **PC 冒烟**：`orpheus_generated_app --link-stdio`（stdin/stdout 二进制即链路，真实时间驱动探针泵），e2e 测试 `test_uart_link.py`（SerialSession 经管道完成标量/BULK/msg/探针全链路）。
-- alter 语义结论：uart_link 不用 alter（无音频边、生成路径专用）；PC 串口调试由后端适配层承担。
+- **访问桥**（`orpheus.builtin.access_bridge`，execution.none）：画布无端口节点只是顶层 `bridges` 的配置投影；当前 `transport=uart, codec=olink` 生成 `orpheus_link_<名>.c/h`（feed=OLINK 解码→`orpheus_control_message` 分发→send 回发；poll=探针泵）与平台 Adapter 桩。legacy `uart_link` 自动映射并在首次 UI 保存后迁移。
+- **PC 冒烟**：`orpheus_generated_cli --link-stdio`（stdin/stdout 二进制即链路，真实时间驱动探针泵），e2e 测试 `test_uart_link.py` 使用 canonical 顶层 Bridge，经 SerialSession 管道完成标量/BULK/msg/探针全链路。
+- Bridge 不使用 alter、不进入音频图；平台差异由 `transport + resource + Target Profile` 选择 Adapter，PC 本次连接的 COM 端点由运行工具栏选择。
 
 
 ---

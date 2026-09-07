@@ -51,6 +51,7 @@ class ExecutionPlan:
     connections: list[dict[str, str]] = field(default_factory=list)
     duration_frames: int = 0   # 离线宿主运行时长提示（纯时钟图按扫频 duration_s 推导；0=宿主默认）
     declarations: list[dict[str, Any]] = field(default_factory=list)  # 声明式平台节点（execution.none）
+    bridges: list[dict[str, Any]] = field(default_factory=list)  # 外部访问桥（不参与音频执行）
     modules: list[dict[str, Any]] = field(default_factory=list)  # 模块内存布局（ID 寻址：模块 id + 槽）
     id_map: list[dict[str, Any]] = field(default_factory=list)   # 数据点 ID 表（动态/生成两路共用）
     target: str = ""             # 平台解析选定的目标平台（win/dsp/...；空=未解析）
@@ -325,6 +326,16 @@ class GraphCompiler:
         # 声明式平台节点（execution.none，如 platform_hook）：不参与执行计划，
         # 仅作为声明进入 plan.declarations，生成器据此产出用户钩子（不连线）。
         declarations: list[dict[str, Any]] = []
+        bridges: list[dict[str, Any]] = [
+            {
+                "id": bridge.id,
+                "transport": bridge.transport,
+                "codec": bridge.codec,
+                "enabled": bridge.enabled,
+                "params": dict(bridge.params),
+            }
+            for bridge in project.bridges
+        ]
         for nid in list(graph.nodes):
             decl_comp = self.registry.get(graph.nodes[nid].component)
             if decl_comp and decl_comp.manifest.get("execution", {}).get("none"):
@@ -333,14 +344,51 @@ class GraphCompiler:
                         raise CompileError(
                             f"平台资源节点 {nid}（{graph.nodes[nid].component}）不支持连线"
                         )
-                declarations.append(
-                    {
+                node = graph.nodes[nid]
+                if node.component == "orpheus.builtin.uart_link":
+                    bridges.append({
                         "id": nid,
-                        "component": graph.nodes[nid].component,
-                        "params": dict(graph.nodes[nid].params),
-                    }
-                )
+                        "transport": "uart",
+                        "codec": "olink",
+                        "enabled": True,
+                        "params": dict(node.params),
+                    })
+                elif decl_comp.manifest.get("bridge_config"):
+                    params = dict(node.params)
+                    bridges.append({
+                        "id": nid,
+                        "transport": str(params.pop("transport", "uart")),
+                        "codec": str(params.pop("codec", "olink")),
+                        "enabled": bool(params.pop("enabled", True)),
+                        "params": params,
+                    })
+                else:
+                    declarations.append(
+                        {
+                            "id": nid,
+                            "component": node.component,
+                            "params": dict(node.params),
+                        }
+                    )
                 graph.nodes.pop(nid)
+
+        bridge_ids: set[str] = set()
+        for bridge in bridges:
+            bridge_id = bridge["id"]
+            if bridge_id in bridge_ids:
+                raise CompileError(f"Bridge ID 重复：{bridge_id}")
+            if bridge_id in graph.nodes:
+                raise CompileError(f"Bridge ID 与音频节点重复：{bridge_id}")
+            bridge_ids.add(bridge_id)
+            if not bridge.get("enabled", True):
+                continue
+            transport = bridge.get("transport")
+            codec = bridge.get("codec")
+            if transport != "uart" or codec != "olink":
+                raise CompileError(
+                    f"Bridge {bridge_id} 的 Adapter 尚未安装：transport={transport}, codec={codec}；"
+                    "当前支持 uart + olink"
+                )
 
         # 0.5 wav_out 输入采样率自动跟随源端口（免手填）：
         #     先解析所有输出端口，把源端口采样率注入 wav_out 的 sample_rate 参数，
@@ -465,6 +513,7 @@ class GraphCompiler:
             execution_order=execution_order,
         )
         plan.declarations = declarations
+        plan.bridges = bridges
         plan.target = resolved_platform
         plan.control_links = control_links
         plan.ignored_nodes = ignored_nodes

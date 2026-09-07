@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from orpheus_core.compiler import CompileError, GraphCompiler
 from orpheus_core.project import (
-    Connection, Graph, Node, PortRef, Project, SubParameter, SubPort, Subcomponent,
+    Bridge, Connection, Graph, Node, PortRef, Project, SubParameter, SubPort, Subcomponent,
 )
 from orpheus_core.registry import Registry
 from orpheus_core.server.app import create_app
@@ -44,6 +44,33 @@ def make_sub(sub_id: str = "chain") -> Subcomponent:
             connections=[conn("gain:out", "biquad:in")],
         ),
     )
+
+
+def test_bridge_config_rejected_inside_subcomponent() -> None:
+    sub = Subcomponent(
+        id="bad_bridge",
+        graph=Graph(nodes={
+            "bridge": Node(
+                id="bridge", component="orpheus.builtin.access_bridge",
+                params={"transport": "uart", "codec": "olink"},
+            ),
+        }),
+    )
+    project = Project(subcomponents=[sub])
+
+    with pytest.raises(CompileError, match="Bridge 配置只能位于工程主图"):
+        flatten_project(project)
+
+
+def test_flatten_copies_top_level_bridges() -> None:
+    project = Project(bridges=[Bridge(
+        id="debug", transport="uart", params={"resource": "uart2"},
+    )])
+
+    flat = flatten_project(project)
+    flat.bridges[0].params["resource"] = "uart3"
+
+    assert project.bridges[0].params["resource"] == "uart2"
 
 
 def make_project() -> Project:
