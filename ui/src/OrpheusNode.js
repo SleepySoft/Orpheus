@@ -247,7 +247,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
                       position={Position.Left}
                       id={`${CTL_PREFIX}${p.id}`}
                       className={exported ? 'export-control-handle' : ''}
-                      style={{ ...handleStyle, left: exported ? -18 : -11 }}
+                      style={{ ...handleStyle, left: exported ? -50 : -11 }}
                     />
                   )}
                   <span className="ctl-name">{p.name || p.id}</span>
@@ -260,7 +260,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
                       position={Position.Right}
                       id={`${CTL_PREFIX}${p.id}`}
                       className={exported ? 'export-control-handle' : ''}
-                      style={{ ...handleStyle, right: exported ? -18 : -11 }}
+                      style={{ ...handleStyle, right: exported ? -50 : -11 }}
                     />
                   )}
                   </div>

@@ -145,6 +145,20 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
 
   await exportedOutput.click();
   await expect(page.locator('.subport-row.export-highlight').filter({ hasText: 'out' })).toBeVisible();
-  await internalGain.locator('.export-control-input .export-control-handle').click();
+  const exportedControlInput = internalGain.locator('.export-control-input .export-control-handle');
+  const controlInputBox = await exportedControlInput.boundingBox();
+  expect(internalGainBox.x - (controlInputBox.x + controlInputBox.width / 2)).toBeGreaterThan(28);
+  const controlLineGeometry = await internalGain.locator('.export-control-input').evaluate((row) => {
+    const rowBox = row.getBoundingClientRect();
+    const nodeBox = row.closest('.orpheus-node').getBoundingClientRect();
+    const lineStyle = getComputedStyle(row, '::before');
+    const scale = rowBox.width / row.offsetWidth;
+    const lineEnd = rowBox.left
+      + (parseFloat(lineStyle.left) + parseFloat(lineStyle.width)) * scale;
+    return { lineEnd, nodeLeft: nodeBox.left };
+  });
+  expect(Math.abs(controlLineGeometry.lineEnd - controlLineGeometry.nodeLeft)).toBeLessThan(2);
+  await exportedControlInput.click();
   await expect(page.locator('.control-export-row.export-highlight').filter({ hasText: 'gain' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('control-export-revealed.png'), fullPage: true });
 });

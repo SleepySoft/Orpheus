@@ -1485,21 +1485,21 @@ button.danger {
   background: #ffb454;
 }
 
-/* 子组件公开控制点：短引线 + 空心方块。 */
+/* 子组件内部导出的控制点：补偿控制坞内缩后，从组件边框向外伸出长引线。 */
 .export-control-pin { cursor: pointer; }
 .export-control-pin::before,
 .export-control-pin::after {
   content: '';
   position: absolute;
   top: 50%;
-  width: 12px;
+  width: 44px;
   height: 2px;
   background: #d97706;
   transform: translateY(-50%);
   pointer-events: none;
 }
-.export-control-input::before { left: -12px; }
-.export-control-output::after { right: -12px; }
+.export-control-input::before { left: -53px; }
+.export-control-output::after { right: -50px; }
 .export-control-handle {
   width: 10px !important;
   height: 10px !important;
