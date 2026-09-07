@@ -293,7 +293,8 @@ static int register_slots(void* state, const OrpheusRegistry* reg) {
 }
 
 static const OrpheusComponentInterface iface = {
-    get_desc, create, destroy, prepare, reset, process, set_param, get_param, NULL, register_slots
+    get_desc, create, destroy, prepare, reset, process, set_param, get_param,
+    NULL, register_slots, NULL
 };
 
 #ifndef ORPHEUS_ENTRY_NAME

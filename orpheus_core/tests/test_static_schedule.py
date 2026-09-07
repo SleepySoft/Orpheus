@@ -119,8 +119,8 @@ def test_generated_task_entries(compiler, tmp_path):
     out = tmp_path / "generated"
     CodeGenerator(compiler.registry, ROOT).generate(plan, out)
 
-    header = (out / "include" / "orpheus_generated.h").read_text(encoding="utf-8")
-    source = (out / "src" / "main.c").read_text(encoding="utf-8")
+    header = (out / "include" / "orpheus_graph.h").read_text(encoding="utf-8")
+    source = (out / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
     for task_id in ("tidA", "tidB"):
         signature = f"int orpheus_generated_process_task_{task_id}(uint32_t frame_count)"
         assert signature + ";" in header

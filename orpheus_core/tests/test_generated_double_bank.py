@@ -62,7 +62,7 @@ def _build(gen_dir: Path, cwd: Path) -> Path:
         ["cmake", "--build", str(build_dir)], cwd=cwd, build_dir=ROOT / "build"
     )
     assert b.returncode == 0, b.stderr
-    return build_dir / "orpheus_generated_app.exe"
+    return build_dir / "orpheus_generated_cli.exe"
 
 
 def _run(exe: Path, cwd: Path, *args: str) -> subprocess.CompletedProcess:

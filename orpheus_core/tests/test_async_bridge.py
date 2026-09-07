@@ -115,7 +115,7 @@ def test_runtime_task_entries_transfer_through_spsc(compiler: GraphCompiler, tmp
 
     generated = tmp_path / "generated"
     CodeGenerator(compiler.registry, ROOT).generate(plan, generated)
-    generated_source = (generated / "src" / "main.c").read_text(encoding="utf-8")
+    generated_source = (generated / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
     assert "static OrpheusAtomicU64 g_task_underruns_0" in generated_source
     assert "static OrpheusAtomicU64 g_task_overruns_0" in generated_source
     build_dir = generated / "build"
@@ -129,7 +129,7 @@ def test_runtime_task_entries_transfer_through_spsc(compiler: GraphCompiler, tmp
         ["cmake", "--build", str(build_dir)], build_dir, build_dir
     )
     assert build.returncode == 0, build.stdout + build.stderr
-    executable = build_dir / "orpheus_generated_app.exe"
+    executable = build_dir / "orpheus_generated_cli.exe"
     generated_run = subprocess.run(
         [
             str(executable),

@@ -1,6 +1,6 @@
 """uart_link 组件测试：生成断言 + 生成工程构建 + stdio 链路端到端（无硬件全链路）。
 
-端到端：orpheus_generated_app --link-stdio（stdin/stdout 二进制即链路），
+端到端：orpheus_generated_cli --link-stdio（stdin/stdout 二进制即链路），
 Python 侧经 ProcessTransport 接 SerialSession，验证标量读写 / BULK / 探针上行 / msg 透传。
 """
 from __future__ import annotations
@@ -101,10 +101,13 @@ def test_generated_files(plan, gen_dir):
     assert "src/orpheus_link_uart0.c" in cmake
     assert "src/orpheus_link_hooks_uart0.c" in cmake
     assert "ORPHEUS_LINK_STDIO" in cmake
-    # main.c：init 调用 + --link-stdio 模式
+    # 图实现负责 adapter 初始化；复杂 stdio 验证入口与最小 main 分离。
+    graph_c = (gen_dir / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
+    host_cli = (gen_dir / "src" / "host_cli.c").read_text(encoding="utf-8")
     main_c = (gen_dir / "src" / "main.c").read_text(encoding="utf-8")
-    assert "orpheus_link_uart0_init();" in main_c
-    assert "--link-stdio" in main_c
+    assert "orpheus_link_uart0_init();" in graph_c
+    assert "--link-stdio" in host_cli
+    assert "--link-stdio" not in main_c
 
 
 # ------------------------------------------------------------------ 构建 + 端到端
@@ -148,8 +151,8 @@ class ProcessTransport:
 
 def _build_generated(gen: Path) -> Path:
     bdir = gen / "build"
-    exe = bdir / ("orpheus_generated_app.exe" if __import__("sys").platform == "win32"
-                  else "orpheus_generated_app")
+    exe = bdir / ("orpheus_generated_cli.exe" if __import__("sys").platform == "win32"
+                  else "orpheus_generated_cli")
     if exe.exists():
         return exe
     r = run_cmake_with_msvc_env(["cmake", "-S", str(gen), "-B", str(bdir), "-G", "Ninja"],

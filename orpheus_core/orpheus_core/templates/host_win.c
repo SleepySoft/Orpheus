@@ -30,7 +30,7 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 
-#include "orpheus_generated.h"
+#include "orpheus_graph.h"
 #include "orpheus_host_config.h"
 #include "orpheus_control.h"
 #include "orpheus_id_map.h"

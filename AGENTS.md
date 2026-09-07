@@ -43,7 +43,7 @@
 ### 两条执行路径（共享同一份组件源码与 ABI）
 
 1. **动态加载路径（UI「▶ 运行」）**：图编译只产出 plan.json（拓扑、Buffer 分配、端口签名），组件预编译为 DLL，`orpheus_runtime` / `orpheus_rt_host` LoadLibrary 经 C ABI 调用。编辑-运行循环零 C 编译。
-2. **代码生成路径（UI「⚙ 编译后运行」）**：`cli generate [--target win|dsp]` 展开为独立 C 工程（CMake），静态编译，无 DLL、无 Python 依赖，可交叉编译。宿主形态由平台解析决定：**win**（图含 device_in/out）→ miniaudio 实时宿主（`orpheus_core/orpheus_core/templates/host_win.c` 模板，协议与 rt_host 一致，生成即可 PC 直连声卡运行）；**dsp**（embed_in/out）→ 文件时钟骨架 + `platform_io.c` 适配模板。
+2. **代码生成路径（UI「⚙ 编译后运行」）**：`cli generate [--target win|dsp]` 展开为独立 C 工程（CMake），静态编译，无 DLL、无 Python 依赖，可交叉编译。产品图实现为独立 `orpheus_graph` 静态库（`orpheus_graph.c/.h`，无宿主 IO）；`main.c` 是最小示例，复杂 PC 验证在 `host_cli.c`。宿主形态由平台解析决定：**win**（图含 device_in/out）→ miniaudio 实时宿主（`orpheus_core/orpheus_core/templates/host_win.c` 模板，协议与 rt_host 一致，生成即可 PC 直连声卡运行）；**dsp**（embed_in/out）→ 文件时钟骨架 + `platform_io.c` 适配模板。观测边界见 `docs/design_observation_adapter.md`，Runtime/生成代码统一访问桥见 `docs/design_access_bridge.md`。
 
 两条路径要求**逐字节一致**（有自动化一致性测试：`test_generated_run_matches_dynamic_run`）。
 

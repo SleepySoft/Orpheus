@@ -466,22 +466,23 @@ Runtime
 generated/
 ├── CMakeLists.txt
 ├── include/
-│   └── orpheus_config.h
+│   ├── orpheus_graph.h      # 用户 main/中断使用的唯一图接口
+│   ├── orpheus_control.h    # 可选控制与观测读取接口
+│   └── orpheus_abi.h
 ├── src/
-│   ├── main.c              # 可选 PC 可执行入口
-│   ├── task_entries.c      # 任务入口与执行列表
-│   ├── buffers.c           # Buffer 与内存布局
-│   ├── control_registry.c  # 参数注册表
-│   └── probe_registry.c    # Probe 注册表
+│   ├── orpheus_graph.c      # 状态、Buffer、初始化链、调用链（无宿主 IO）
+│   ├── main.c               # 最小集成示例，可删除
+│   ├── host_cli.c           # PC 验证宿主（消息/BULK/Task/stdio 链路）
+│   ├── orpheus_control.c    # 参数/状态/观测读取
+│   └── orpheus_id_map.c     # 稳定数据 ID
 ├── components/
 │   └── orpheus_builtin_gain/  # 复制组件源码
-├── platform/
-│   └── generic/            # 平台适配层
-├── tests/
-└── reports/
-    ├── memory_report.md
-    └── latency_report.md
+└── memory_map.md
 ```
+
+`orpheus_graph` 被编成独立静态库；最小 app、Windows 声卡宿主及 CLI 验证宿主均只链接该库。图处理路径不调用 printf/文件/串口，错误以返回码和 `orpheus_graph_last_error()` 的结构化上下文交给外部宿主处理。当前已实现 `uart_link` 串口控制/探针 Adapter；纯观测点及 SHM/callback Adapter 为后续阶段，见 `design_observation_adapter.md`。
+
+外部控制与观测统一走 Access Bridge（注意不是音频 Task 的 `async_bridge`）：Runtime 与生成图库分别实现同一 Access Backend，Pipe/UART/USB/TCP/SHM 只是可替换 Transport；UI 最终只面对 BridgeSession。协议握手、工程/ID map hash、订阅与限流设计见 `design_access_bridge.md`。
 
 ### 7.2 生成原则
 

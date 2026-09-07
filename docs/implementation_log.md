@@ -2,6 +2,16 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/ROADMAP.md`，不要把旧条目当作现状。
 
+## 2026-09-07（第四十九次：生成图模块与宿主解耦 + 外部观测 Adapter 定案）
+
+- 生成工程将产品图实现拆为独立 `orpheus_graph` 静态库：`orpheus_graph.c` 只含静态状态、Buffer、直线初始化链/调用链/销毁链，`orpheus_graph.h` 为用户 main、音频回调或中断调度器的唯一集成接口。
+- `main.c` 缩为最小调用示例；原 BULK/message/Task/stdio-link 验证能力迁入 `host_cli.c` 与 `orpheus_generated_cli`，Windows `host_win.c` 同样只链接 `orpheus_graph`。
+- 图实时路径删除 `fprintf` 等宿主 IO；失败以返回码和 `orpheus_graph_last_error()` 的 `operation/node/component/code` 结构化上下文交给外部处理。旧 `orpheus_generated.h` 与 `orpheus_generated_*` 符号继续兼容。
+- 图模块增加生命周期保护：重复 init/process-before-init 明确报错，部分初始化失败逆序回滚，teardown 可重复且支持后续重新 init；正式头导出 sample-rate/block-size/tick 常量供用户中断调度。
+- 定案 `design_observation_adapter.md`：观测点不绑定传输；UART/共享内存/用户回调由 `execution.none` Adapter 提供。纯观测 probe 后续可迁移为 `observations` 元数据并从部署源码裁剪，参与控制语义的观测计算必须保留。
+- 定案 `design_access_bridge.md`：Runtime/生成图库作为统一 Access Backend，BridgeSession 经 Pipe/UART/USB/TCP/SHM Transport 访问同一 §18 消息与 ID 空间；本地 Runtime 不再被视作特殊协议路径。
+- `smoke_big6` 重新生成：最小 app 与 CLI 均完成 1875 块运行；Strawberry GCC 13 `-Wall -Wextra -Wpedantic` 零警告构建。生成路径结构/控制/BULK/消息/Task/UART/BAF 专项 49 项通过。
+
 ## 2026-09-04（第四十八次：P2 子组件公开参数 + BAF 真实算法对齐）
 
 - 子组件新增 `public_parameters`：实例参数提升、UI 编辑、控制 handle 与跨子图控制连接 flatten 全链路落地。

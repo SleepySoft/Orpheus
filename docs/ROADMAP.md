@@ -9,11 +9,12 @@
 - ABI v3、统一 arena、32 位数据 ID、BULK 双 Bank、消息协议。
 - 子组件递归展开、目标平台/alter、OLINK/串口会话、控制参数链路。
 - 多速率静态调度与 `rate_sync` 合流；动态和生成路径一致性测试。
+- 生成图本体 `orpheus_graph` 静态库与宿主解耦；最小 main、PC CLI、Windows 宿主各自独立。
 - 72 个内置组件，均有组件 README。
 
 ## 当前验证基线
 
-- pytest：232 passed，1 skipped（可选演示组件未安装）。
+- pytest：236 passed，1 skipped（可选演示组件未安装）。
 - CTest：4/4（ABI、loader、RNC MIMO NLMS、BAF SoftClipper）。
 - 前端：Jest 13/13、生产构建、Playwright 核心流程通过。
 - BAF：ASM 48-target、SAS 68-target 独立生成工程构建成功；ASM 全局及关键 Task 入口运行通过。
@@ -60,3 +61,15 @@
 - [ ] EHC 谐波参考/FxLMS 与 SAS FDP 双速率 STFT。
 - [ ] 含代码的封装型复合组件库与动态数量运行槽。
 - [ ] 教师答案/进度持久化和 Tauri 桌面封装。
+
+## P3 观测点与 Adapter
+
+- [x] 图本体与宿主分离，实时调用链无 printf/文件/串口 IO；结构化错误由外部处理。
+- [x] `uart_link` 作为 `execution.none` 控制/探针传输 Adapter，UI 经 SerialSession 复用同一 ControlPlane。
+- [x] Access Bridge 分层定案：Backend / Endpoint / Codec / Transport / BridgeSession，明确与音频 `async_bridge` 无关。
+- [ ] RuntimeBackend + GeneratedBackend 共用 §18 dispatch；rt_host 增加二进制 PipeTransport，文本协议降为兼容入口。
+- [ ] BridgeSession 统一 RtSession/SerialSession，增加 HELLO、能力位、plan/id_map hash 与订阅服务。
+- [ ] 工程顶层 `observations`、稳定观测 ID 与只读音频 Buffer view API。
+- [ ] 本地 Runtime Adapter 与 UI 观察端点编辑，传输层对 UI 透明。
+- [ ] `observation_uart` / shared-memory / callback Adapter，固定容量快照、限流与丢弃计数。
+- [ ] 纯观测 probe 迁移 pass：`observability: none|metadata|embedded`；参与控制链的观测计算禁止裁剪。

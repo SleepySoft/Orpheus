@@ -99,18 +99,31 @@ def test_device_graph_generates_win_host(registry, tmp_path) -> None:
 
     assert (tmp_path / "include" / "miniaudio.h").is_file()
 
-    main_c = (tmp_path / "src" / "main.c").read_text(encoding="utf-8")
-    assert "int main(" not in main_c  # main() 在 host_win.c（设备时钟）
-    assert "OrpheusBuffer* orpheus_host_device_in_buffer(void)" in main_c
-    assert "OrpheusBuffer* orpheus_host_device_out_buffer(void)" in main_c
-    assert "void orpheus_generated_teardown(void)" in main_c
-    assert "int orpheus_generated_process(uint32_t frame_count) {" in main_c
-    assert "static int orpheus_generated_process" not in main_c
+    graph_c = (tmp_path / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
+    assert "int main(" not in graph_c
+    assert "fprintf(" not in graph_c
+    assert "OrpheusBuffer* orpheus_host_device_in_buffer(void)" in graph_c
+    assert "OrpheusBuffer* orpheus_host_device_out_buffer(void)" in graph_c
+    assert "void orpheus_generated_teardown(void)" in graph_c
+    assert "int orpheus_generated_process(uint32_t frame_count) {" in graph_c
+    assert "static int orpheus_generated_process" not in graph_c
 
-    gen_h = (tmp_path / "include" / "orpheus_generated.h").read_text(encoding="utf-8")
+    main_c = (tmp_path / "src" / "main.c").read_text(encoding="utf-8")
+    assert "orpheus_graph_init" in main_c
+    assert "orpheus_graph_process" in main_c
+    assert "orpheus_graph_teardown" in main_c
+    assert "--write-bulk" not in main_c
+
+    gen_h = (tmp_path / "include" / "orpheus_graph.h").read_text(encoding="utf-8")
     assert "orpheus_host_device_in_buffer" in gen_h
+    assert "orpheus_graph_last_error" in gen_h
+    assert "#define ORPHEUS_GRAPH_TICK" in gen_h
+    compat_h = (tmp_path / "include" / "orpheus_generated.h").read_text(encoding="utf-8")
+    assert '#include "orpheus_graph.h"' in compat_h
 
     cmake = (tmp_path / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "src/orpheus_graph.c" in cmake
+    assert "add_library(orpheus_graph STATIC" in cmake
     assert "src/host_win.c" in cmake
     assert "winmm" in cmake
 
@@ -139,8 +152,11 @@ def test_alter_pair_target_dsp_keeps_embed_skeleton(registry, tmp_path) -> None:
     assert plan.target == "dsp"
     assert (tmp_path / "src" / "platform_io.c").is_file()
     assert not (tmp_path / "src" / "host_win.c").exists()
+    graph_c = (tmp_path / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
+    assert "int main(" not in graph_c
+    assert "fprintf(" not in graph_c
     main_c = (tmp_path / "src" / "main.c").read_text(encoding="utf-8")
-    assert "int main(" in main_c  # 文件时钟缺省宿主保留
+    assert "int main(" in main_c
 
 
 def test_alter_pair_target_win_generates_win_host(registry, tmp_path) -> None:
@@ -201,7 +217,19 @@ def test_file_graph_unchanged(registry, tmp_path) -> None:
     _generate(registry, project, tmp_path)
     assert not (tmp_path / "src" / "host_win.c").exists()
     assert not (tmp_path / "include" / "orpheus_host_config.h").exists()
+    graph_c = (tmp_path / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
+    assert "int main(" not in graph_c
     main_c = (tmp_path / "src" / "main.c").read_text(encoding="utf-8")
+    host_cli = (tmp_path / "src" / "host_cli.c").read_text(encoding="utf-8")
     assert "int main(" in main_c
+    assert "--write-bulk" not in main_c
+    assert "--write-bulk" in host_cli
+    assert "g_created_nodes" in graph_c
+    assert "orpheus_control_reset();" in graph_c
+    assert "if (!g_graph_initialized)" in graph_c
+    cmake = (tmp_path / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "add_library(orpheus_graph STATIC" in cmake
+    assert "add_executable(orpheus_generated_app src/main.c)" in cmake
+    assert "add_executable(orpheus_generated_cli src/host_cli.c)" in cmake
     cmake = (tmp_path / "CMakeLists.txt").read_text(encoding="utf-8")
     assert "winmm" not in cmake

@@ -410,7 +410,7 @@ def test_codegen_control_tick_emission(compiler, registry, tmp_path):
     from orpheus_core.generator import CodeGenerator
 
     CodeGenerator(registry, ROOT).generate(plan, tmp_path / "gen")
-    main_c = (tmp_path / "gen" / "src" / "main.c").read_text(encoding="utf-8")
+    main_c = (tmp_path / "gen" / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
 
     # 两相快照函数 + 块末尾挂载
     assert "static void control_tick(void)" in main_c

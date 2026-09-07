@@ -161,7 +161,7 @@ def test_generated_message_protocol() -> None:
     assert run_cmake_with_msvc_env(
         ["cmake", "--build", str(build_dir)], cwd=cwd, build_dir=ROOT / "build"
     ).returncode == 0
-    exe = build_dir / "orpheus_generated_app.exe"
+    exe = build_dir / "orpheus_generated_cli.exe"
 
     by_key = {(e["node"], e["key"]): e for e in plan["id_map"]}
     gain_id = by_key[("front__trim", "gain_db")]["id"]

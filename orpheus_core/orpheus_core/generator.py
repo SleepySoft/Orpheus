@@ -180,25 +180,50 @@ class CodeGenerator:
                 if ma_header.exists():
                     shutil.copy2(ma_header, comp_out / "include" / "miniaudio.h")
 
-        # Generate main.c
-        self._generate_main_c(plan, component_ids, src_dir / "main.c",
-                              self.uart_link_decls(plan), win_host=win_host,
-                              device_in_nodes=device_in_nodes,
-                              device_out_nodes=device_out_nodes)
+        # 图实现与宿主解耦：orpheus_graph.c 只放状态/初始化链/调用链；main.c 是最小
+        # 集成示例，复杂命令行验证能力独立放在 host_cli.c。
+        link_nodes = self.uart_link_decls(plan)
+        self._generate_graph_c(plan, component_ids, src_dir / "orpheus_graph.c",
+                               link_nodes, win_host=win_host,
+                               device_in_nodes=device_in_nodes,
+                               device_out_nodes=device_out_nodes)
+        self._generate_minimal_main_c(plan, src_dir / "main.c")
+        if not win_host:
+            self._generate_host_cli_c(plan, link_nodes, src_dir / "host_cli.c")
         task_decls = [
             f'int orpheus_generated_process_task_{self._sanitized_node_id(task["id"])}(uint32_t frame_count);'
             for task in getattr(plan, "tasks", [])
         ]
         gen_h = [
-            '#ifndef ORPHEUS_GENERATED_H',
-            '#define ORPHEUS_GENERATED_H',
+            '#ifndef ORPHEUS_GRAPH_H',
+            '#define ORPHEUS_GRAPH_H',
             '#include "orpheus_abi.h"',
-            '/* 图本体与多 Task 入口；调用方须串行调用 Task 入口。 */',
+            '/* 图模块唯一公开接口；可从用户 main、音频回调或中断调度器调用。 */',
+            'typedef struct OrpheusGraphError {',
+            '    const char* operation;',
+            '    const char* node;',
+            '    const char* component;',
+            '    int code;',
+            '} OrpheusGraphError;',
+            f'#define ORPHEUS_GRAPH_SAMPLE_RATE {plan.sample_rate}u',
+            f'#define ORPHEUS_GRAPH_BLOCK_SIZE {plan.block_size}u',
+            f'#define ORPHEUS_GRAPH_TICK {self._schedule_tick(plan)}u',
             'int orpheus_generated_init(uint32_t sample_rate, uint32_t block_size);',
+            '/* 每次调用推进一个编译期调度 tick；设备回调帧数不同时由宿主分块。 */',
             'int orpheus_generated_process(uint32_t frame_count);',
             *task_decls,
             'void orpheus_generated_teardown(void);',
             'void* orpheus_arena_base(void);',
+            'const OrpheusGraphError* orpheus_graph_last_error(void);',
+            '/* 推荐名称；orpheus_generated_* 保留为二进制兼容入口。 */',
+            '#define orpheus_graph_init orpheus_generated_init',
+            '#define orpheus_graph_process orpheus_generated_process',
+            '#define orpheus_graph_teardown orpheus_generated_teardown',
+            *[
+                f'#define orpheus_graph_process_task_{self._sanitized_node_id(task["id"])} '
+                f'orpheus_generated_process_task_{self._sanitized_node_id(task["id"])}'
+                for task in getattr(plan, "tasks", [])
+            ],
         ]
         if win_host:
             self._generate_host_config(plan, device_in_nodes, device_out_nodes,
@@ -213,9 +238,15 @@ class CodeGenerator:
             shutil.copy2(template, src_dir / "host_win.c")
             ma_header = self.project_root / "third_party" / "miniaudio.h"
             shutil.copy2(ma_header, include_dir / "miniaudio.h")
-        gen_h.append('#endif /* ORPHEUS_GENERATED_H */')
-        (include_dir / "orpheus_generated.h").write_text(
+        gen_h.append('#endif /* ORPHEUS_GRAPH_H */')
+        (include_dir / "orpheus_graph.h").write_text(
             "\n".join(gen_h) + "\n", encoding="utf-8")
+        (include_dir / "orpheus_generated.h").write_text(
+            '#ifndef ORPHEUS_GENERATED_H\n#define ORPHEUS_GENERATED_H\n'
+            '#include "orpheus_graph.h"\n'
+            '#endif /* ORPHEUS_GENERATED_H */\n',
+            encoding="utf-8",
+        )
 
         # 嵌入 I/O 适配模板：存在 embed_in/embed_out 节点时生成，用户按硬件填充
         embed_nodes = [
@@ -290,17 +321,15 @@ class CodeGenerator:
         ]
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    def _generate_main_c(self, plan: ExecutionPlan, component_ids: list[str], path: Path,
-                         link_nodes: list[dict[str, Any]] | None = None,
-                         win_host: bool = False,
-                         device_in_nodes: list[str] | None = None,
-                         device_out_nodes: list[str] | None = None) -> None:
+    def _generate_graph_c(self, plan: ExecutionPlan, component_ids: list[str], path: Path,
+                          link_nodes: list[dict[str, Any]] | None = None,
+                          win_host: bool = False,
+                          device_in_nodes: list[str] | None = None,
+                          device_out_nodes: list[str] | None = None) -> None:
         link_nodes = link_nodes or []
         device_in_nodes = device_in_nodes or []
         device_out_nodes = device_out_nodes or []
         lines: list[str] = []
-        lines.append('#include <stdio.h>')
-        lines.append('#include <stdlib.h>')
         lines.append('#include <string.h>')
         lines.append('#include "orpheus_abi.h"')
         has_task_bridges = any(buf.get("task_bridge") for buf in plan.buffers.values())
@@ -316,8 +345,7 @@ class CodeGenerator:
             lines.append('#define ORPHEUS_ATOMIC_LOAD(p) atomic_load_explicit((p), memory_order_acquire)')
             lines.append('#define ORPHEUS_ATOMIC_STORE(p, v) atomic_store_explicit((p), (v), memory_order_release)')
             lines.append('#endif')
-        if win_host:
-            lines.append('#include "orpheus_generated.h"')
+        lines.append('#include "orpheus_graph.h"')
         lines.append("")
 
         # Include component headers
@@ -334,12 +362,6 @@ class CodeGenerator:
         if link_nodes:
             for d in link_nodes:
                 lines.append(f'#include "orpheus_link_{self._uart_link_sym(d)}.h"')
-            lines.append('#include <threads.h>')
-            lines.append('#include <time.h>')
-            lines.append('#ifdef _WIN32')
-            lines.append('#include <io.h>')
-            lines.append('#include <fcntl.h>')
-            lines.append('#endif')
         lines.append("")
 
         # Per-component entry points: each component lib is compiled with
@@ -369,6 +391,36 @@ class CodeGenerator:
             s = self._sanitized_node_id(node_id)
             lines.append(f'static void* g_state_{s} = NULL;')
             lines.append(f'static const OrpheusComponentInterface* g_iface_{s} = NULL;')
+        lines.append("")
+        lines.append('static OrpheusGraphError g_graph_error = {"", "", "", ORPHEUS_OK};')
+        lines.append('static uint32_t g_graph_initialized = 0;')
+        lines.append('static size_t g_created_nodes = 0;')
+        lines.append('static uint64_t g_block_counter = 0;')
+        for task in getattr(plan, "tasks", []):
+            lines.append(
+                f'static uint64_t g_task_counter_{self._sanitized_node_id(task["id"])} = 0;'
+            )
+        lines.append('static void orpheus_graph_clear_error(void) {')
+        lines.append('    g_graph_error.operation = "";')
+        lines.append('    g_graph_error.node = "";')
+        lines.append('    g_graph_error.component = "";')
+        lines.append('    g_graph_error.code = ORPHEUS_OK;')
+        lines.append('}')
+        lines.append('static int orpheus_graph_fail(const char* operation, const char* node,')
+        lines.append('                              const char* component, int code) {')
+        lines.append('    g_graph_error.operation = operation;')
+        lines.append('    g_graph_error.node = node;')
+        lines.append('    g_graph_error.component = component;')
+        lines.append('    g_graph_error.code = code;')
+        lines.append('    return code;')
+        lines.append('}')
+        lines.append('const OrpheusGraphError* orpheus_graph_last_error(void) { return &g_graph_error; }')
+        lines.append('static int orpheus_graph_init_fail(const char* operation, const char* node,')
+        lines.append('                                   const char* component, int code) {')
+        lines.append('    orpheus_graph_fail(operation, node, component, code);')
+        lines.append('    orpheus_generated_teardown();')
+        lines.append('    return code;')
+        lines.append('}')
         lines.append("")
 
         # v2 统一内存拼接：按模块嵌套结构体（每个子模块实例一块连续内存），
@@ -692,6 +744,20 @@ class CodeGenerator:
         lines.append('int orpheus_generated_init(uint32_t sample_rate, uint32_t block_size) {')
         lines.append('    int rc;')
         lines.append('    OrpheusConfig config;')
+        lines.append('    orpheus_graph_clear_error();')
+        lines.append('    if (g_graph_initialized || g_created_nodes != 0)')
+        lines.append('        return orpheus_graph_fail("init", "", "", ORPHEUS_ERR_INVALID_ARG);')
+        lines.append('    orpheus_control_reset();')
+        lines.append('    g_block_counter = 0;')
+        for task in getattr(plan, "tasks", []):
+            lines.append(f'    g_task_counter_{self._sanitized_node_id(task["id"])} = 0;')
+        for i in range(len(bridge_copies)):
+            lines.append(f'    g_bridge_cursor_{i} = 0;')
+        for i in range(len(task_bridge_copies)):
+            lines.append(f'    ORPHEUS_ATOMIC_STORE(&g_task_read_{i}, 0);')
+            lines.append(f'    ORPHEUS_ATOMIC_STORE(&g_task_write_{i}, 0);')
+            lines.append(f'    ORPHEUS_ATOMIC_STORE(&g_task_underruns_{i}, 0);')
+            lines.append(f'    ORPHEUS_ATOMIC_STORE(&g_task_overruns_{i}, 0);')
         lines.append('    config.sample_rate = sample_rate;')
         lines.append('    config.block_size = block_size;')
         lines.append('    config.param_ids = NULL;')
@@ -700,6 +766,7 @@ class CodeGenerator:
         lines.append("")
 
         # Assign interface getters
+        lines.append('    /* 1. 绑定组件接口（拓扑执行顺序）。 */')
         for node_id in plan.execution_order:
             cfg = plan.node_configs[node_id]
             s = self._sanitized_node_id(node_id)
@@ -708,6 +775,7 @@ class CodeGenerator:
         lines.append("")
 
         # Assign buffer pointer arrays by port id -> slot index
+        lines.append('    /* 2. 绑定 Buffer 路由：同一输出的多个消费者共享只读块。 */')
         for node_id in plan.execution_order:
             s = self._sanitized_node_id(node_id)
             cfg = plan.node_configs[node_id]
@@ -722,6 +790,7 @@ class CodeGenerator:
         lines.append("")
 
         # Initialize buffer structs
+        lines.append('    /* 3. 初始化静态 Buffer 描述符。 */')
         for buf_id, buf in plan.buffers.items():
             s_buf = buf_id.replace("-", "_").replace(".", "_")
             lines.append(f'    g_buffer_{s_buf}.data = g_buf_{s_buf};')
@@ -748,11 +817,15 @@ class CodeGenerator:
         lines.append("")
 
         # Create and prepare instances (with per-node parameter tables)
-        for node_id in plan.execution_order:
+        lines.append('    /* 4. 按执行顺序创建并 prepare 节点。 */')
+        for node_index, node_id in enumerate(plan.execution_order):
             cfg = plan.node_configs[node_id]
             s = self._sanitized_node_id(node_id)
             params = cfg.get("params", {})
             channels = int(float(params.get("channels", 2)))
+            lines.append(
+                f'    /* {self._c_escape(node_id)}: {self._c_escape(cfg["component"])} */'
+            )
             lines.append(f'    config.channels = {channels};')
             node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
             node_bs = cfg.get("block_size", 0) or cfg.get("frames", 0) or plan.block_size
@@ -772,14 +845,21 @@ class CodeGenerator:
             else:
                 lines.append('    config.state_block = NULL;')
             lines.append(f'    rc = g_iface_{s}->create(&g_state_{s}, &config);')
-            lines.append(f'    if (rc != ORPHEUS_OK) return rc;')
+            lines.append(
+                f'    if (rc != ORPHEUS_OK) return orpheus_graph_init_fail("create", '
+                f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);'
+            )
+            lines.append(f'    g_created_nodes = {node_index + 1};')
             lines.append(f'    if (g_iface_{s}->get_descriptor()->abi_version >= 2 && g_iface_{s}->register_slots) {{')
             lines.append(f'        g_reg.ctx = g_state_{s};')
             lines.append(f'        orpheus_control_set_reg_node("{node_id}", g_state_{s});')
             lines.append(f'        g_iface_{s}->register_slots(g_state_{s}, &g_reg);')
             lines.append('    }')
             lines.append(f'    rc = g_iface_{s}->prepare(g_state_{s}, &config);')
-            lines.append(f'    if (rc != ORPHEUS_OK) return rc;')
+            lines.append(
+                f'    if (rc != ORPHEUS_OK) return orpheus_graph_init_fail("prepare", '
+                f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);'
+            )
         for nid in embed_in_nodes:
             s = self._sanitized_node_id(nid)
             cfg = plan.node_configs[nid]
@@ -798,15 +878,18 @@ class CodeGenerator:
             lines.append('    orpheus_platform_io_init();')
         for d in link_nodes:
             lines.append(f'    orpheus_link_{self._uart_link_sym(d)}_init();')
+        lines.append('    g_graph_initialized = 1;')
         lines.append('    return ORPHEUS_OK;')
         lines.append('}')
         lines.append("")
 
         # Process function (multi-rate: per-node frames + schedule-period-gated firing)
-        lines.append('static uint64_t g_block_counter = 0;')
         lines.append('int orpheus_generated_process(uint32_t frame_count) {')
         lines.append('    int rc;')
         lines.append('    OrpheusProcessContext ctx;')
+        lines.append('    orpheus_graph_clear_error();')
+        lines.append('    if (!g_graph_initialized)')
+        lines.append('        return orpheus_graph_fail("process", "", "", ORPHEUS_ERR_INVALID_ARG);')
         lines.append(f'    ctx.sample_rate = {plan.sample_rate};')
         lines.append('    ctx.scratch = NULL;')
         lines.append('    ctx.scratch_size = 0;')
@@ -830,6 +913,9 @@ class CodeGenerator:
             if period > 1:
                 lines.append(f'    if ((g_block_counter + 1) % {period} == 0) {{')
             indent = '        ' if period > 1 else '    '
+            lines.append(
+                f'{indent}/* {self._c_escape(node_id)}: {self._c_escape(cfg["component"])} */'
+            )
             for i, cp in enumerate(task_bridge_copies):
                 if cp["dst_node"] == node_id and not cp["rate_bridge"]:
                     lines.append(f'{indent}orpheus_task_bridge_pop_{i}();')
@@ -842,13 +928,10 @@ class CodeGenerator:
             lines.append(f'{indent}ctx.input_count = {n_in};')
             lines.append(f'{indent}ctx.output_count = {n_out};')
             lines.append(f'{indent}rc = g_iface_{s}->process(g_state_{s}, &ctx);')
-            lines.append(f'{indent}if (rc != ORPHEUS_OK) {{')
             lines.append(
-                f'{indent}    fprintf(stderr, "process failed: node={self._c_escape(node_id)} '
-                f'component={self._c_escape(cfg["component"])} rc=%d\\n", rc);'
+                f'{indent}if (rc != ORPHEUS_OK) return orpheus_graph_fail("process", '
+                f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);'
             )
-            lines.append(f'{indent}    return rc;')
-            lines.append(f'{indent}}}')
             # rate-bridge：本节点是桥接源时，触发后把 staging 的新鲜块滚入桥接 buffer
             for i, cp in enumerate(bridge_copies):
                 if cp["src_node"] != node_id:
@@ -888,10 +971,15 @@ class CodeGenerator:
             task_has_platform_io = any(
                 nid in task_node_set for nid in (*embed_in_nodes, *embed_out_nodes)
             )
-            lines.append(f'static uint64_t g_task_counter_{task_sym} = 0;')
             lines.append(f'int orpheus_generated_process_task_{task_sym}(uint32_t frame_count) {{')
             lines.append('    int rc;')
             lines.append('    OrpheusProcessContext ctx;')
+            lines.append('    orpheus_graph_clear_error();')
+            lines.append('    if (!g_graph_initialized)')
+            lines.append(
+                f'        return orpheus_graph_fail("process_task:{self._c_escape(task_id)}", '
+                f'"", "", ORPHEUS_ERR_INVALID_ARG);'
+            )
             lines.append(f'    ctx.sample_rate = {int(task.get("sample_rate", plan.sample_rate))};')
             lines.append('    ctx.scratch = NULL;')
             lines.append('    ctx.scratch_size = 0;')
@@ -911,6 +999,9 @@ class CodeGenerator:
                 if period > 1:
                     lines.append(f'    if ((g_task_counter_{task_sym} + 1) % {period} == 0) {{')
                 indent = '        ' if period > 1 else '    '
+                lines.append(
+                    f'{indent}/* {self._c_escape(node_id)}: {self._c_escape(cfg["component"])} */'
+                )
                 for i, cp in enumerate(task_bridge_copies):
                     if cp["dst_node"] == node_id:
                         lines.append(f'{indent}orpheus_task_bridge_pop_{i}();')
@@ -923,13 +1014,10 @@ class CodeGenerator:
                 lines.append(f'{indent}ctx.input_count = {n_in};')
                 lines.append(f'{indent}ctx.output_count = {n_out};')
                 lines.append(f'{indent}rc = g_iface_{s}->process(g_state_{s}, &ctx);')
-                lines.append(f'{indent}if (rc != ORPHEUS_OK) {{')
                 lines.append(
-                    f'{indent}    fprintf(stderr, "process failed: task={self._c_escape(task_id)} '
-                    f'node={self._c_escape(node_id)} component={self._c_escape(cfg["component"])} rc=%d\\n", rc);'
+                    f'{indent}if (rc != ORPHEUS_OK) return orpheus_graph_fail("process_task:{self._c_escape(task_id)}", '
+                    f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);'
                 )
-                lines.append(f'{indent}    return rc;')
-                lines.append(f'{indent}}}')
                 for i, cp in enumerate(bridge_copies):
                     if cp["src_node"] != node_id:
                         continue
@@ -984,9 +1072,15 @@ class CodeGenerator:
         else:
             lines.append('void* orpheus_arena_base(void) { return NULL; }')
         lines.append('void orpheus_generated_teardown(void) {')
-        for node_id in reversed(plan.execution_order):
+        for node_index, node_id in reversed(list(enumerate(plan.execution_order))):
             s = self._sanitized_node_id(node_id)
-            lines.append(f'    g_iface_{s}->destroy(g_state_{s});')
+            lines.append(
+                f'    if (g_created_nodes > {node_index} && g_iface_{s} != NULL && g_state_{s} != NULL) '
+                f'g_iface_{s}->destroy(g_state_{s});'
+            )
+            lines.append(f'    g_state_{s} = NULL;')
+        lines.append('    g_created_nodes = 0;')
+        lines.append('    g_graph_initialized = 0;')
         lines.append('}')
         lines.append("")
 
@@ -1008,29 +1102,68 @@ class CodeGenerator:
             lines.append('}')
             lines.append("")
 
-        if link_nodes:
-            first = self._uart_link_sym(link_nodes[0])
-            lines.append('/* --link-stdio：stdin/stdout 即链路（PC 冒烟）。读线程把 stdin 字节喂给链路层；')
-            lines.append('   多个 uart_link 节点时 stdio 冒烟只接第一个（嵌入式由用户把各实例接各自 UART）。 */')
-            lines.append('static int orpheus_link_stdio_reader(void* arg) {')
-            lines.append('    (void)arg;')
-            lines.append('    for (;;) {')
-            lines.append('        /* 逐字节读：fread(512) 会等满缓冲才返回，getchar 来一个字节喂一个字节 */')
-            lines.append('        int c = getchar();')
-            lines.append('        if (c == EOF) break;')
-            lines.append('        uint8_t b = (uint8_t)c;')
-            lines.append(f'        orpheus_link_{first}_feed(&b, 1);')
-            lines.append('    }')
-            lines.append('    return 0;')
-            lines.append('}')
-            lines.append("")
-
-        if not win_host:
-            # 文件时钟缺省宿主 main()；win 宿主模式的 main() 在 host_win.c（设备时钟）
-            self._emit_file_clock_main(lines, plan, link_nodes)
-
         with open(path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
+
+    def _generate_minimal_main_c(self, plan: ExecutionPlan, path: Path) -> None:
+        """最小集成示例：用户可删除此文件，在自己的 main/中断中调用同一组入口。"""
+        tick = self._schedule_tick(plan)
+        lines = [
+            '#include <stdlib.h>',
+            '#include "orpheus_graph.h"',
+            '',
+            '/* 最小宿主示例。实际产品可删除本文件，在自己的 main/音频中断中调用图入口。 */',
+            'int main(int argc, char** argv) {',
+            '    const int blocks = argc > 1 ? atoi(argv[1]) : 1000;',
+            '    int rc = orpheus_graph_init(ORPHEUS_GRAPH_SAMPLE_RATE, ORPHEUS_GRAPH_BLOCK_SIZE);',
+            '    if (rc != ORPHEUS_OK) return 1;',
+            '    for (int i = 0; i < blocks; ++i) {',
+            '        rc = orpheus_graph_process(ORPHEUS_GRAPH_TICK);',
+            '        if (rc != ORPHEUS_OK) break;',
+            '    }',
+            '    orpheus_graph_teardown();',
+            '    return rc == ORPHEUS_OK ? 0 : 1;',
+            '}',
+        ]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _generate_host_cli_c(
+        self, plan: ExecutionPlan, link_nodes: list[dict[str, Any]], path: Path
+    ) -> None:
+        """PC 验证宿主：保留 BULK/message/Task/stdio-link 等完整命令行能力。"""
+        lines = [
+            '#include <stdio.h>',
+            '#include <stdlib.h>',
+            '#include <string.h>',
+            '#include "orpheus_graph.h"',
+            '#include "orpheus_control.h"',
+        ]
+        if link_nodes:
+            for declaration in link_nodes:
+                lines.append(f'#include "orpheus_link_{self._uart_link_sym(declaration)}.h"')
+            lines.extend([
+                '#include <threads.h>',
+                '#include <time.h>',
+                '#ifdef _WIN32',
+                '#include <io.h>',
+                '#include <fcntl.h>',
+                '#endif',
+                '',
+                '/* stdin/stdout 链路仅用于 PC 验证；设备侧由 adapter 的 send/feed 接硬件。 */',
+                'static int orpheus_link_stdio_reader(void* arg) {',
+                '    (void)arg;',
+                '    for (;;) {',
+                '        int c = getchar();',
+                '        if (c == EOF) break;',
+                '        uint8_t byte = (uint8_t)c;',
+                f'        orpheus_link_{self._uart_link_sym(link_nodes[0])}_feed(&byte, 1);',
+                '    }',
+                '    return 0;',
+                '}',
+            ])
+        lines.append('')
+        self._emit_file_clock_main(lines, plan, link_nodes)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _emit_file_clock_main(self, lines: list[str], plan: ExecutionPlan,
                               link_nodes: list[dict[str, Any]]) -> None:
@@ -1845,6 +1978,7 @@ class CodeGenerator:
             ' * 常规无毛刺调音惯例：mute → 更新系数 → unmute；双 bank 仅用于必须边跑边更的少数场景。 */',
             'void orpheus_control_set_reg_node(const char* node, void* state);',
             'void orpheus_control_slot_register(void* state, const OrpheusSlotInfo* info);',
+            'void orpheus_control_reset(void);',
             'void orpheus_control_commit_bulk(void);',
             'size_t orpheus_control_bulk_count(const char* node, const char* key);',
             'size_t orpheus_control_bulk_count_id(uint32_t id);',
@@ -1905,6 +2039,9 @@ class CodeGenerator:
         c.append('}')
         c.append('')
         c.append('static void* orpheus_control_shadow_of(const char* node, const char* key) {')
+        if not db_entries:
+            c.append('    (void)node;')
+            c.append('    (void)key;')
         for e in db_entries:
             c.append(f'    if (strcmp(node, "{e["node"]}") == 0 && strcmp(key, "{e["key"]}") == 0) return {shadow_var(e)};')
         c.append('    return NULL;')
@@ -2087,6 +2224,14 @@ class CodeGenerator:
         c.append('static struct { uint32_t id; OrpheusHookFn fn; void* ctx; } g_hooks[ORPHEUS_GEN_MAX_HOOKS];')
         c.append('static size_t g_hook_count = 0;')
         c.append('')
+        c.append('void orpheus_control_reset(void) {')
+        c.append('    memset(g_gen_slots, 0, sizeof(g_gen_slots));')
+        c.append('    g_gen_slot_count = 0;')
+        c.append('    g_reg_node = NULL;')
+        c.append('    memset(g_hooks, 0, sizeof(g_hooks));')
+        c.append('    g_hook_count = 0;')
+        c.append('}')
+        c.append('')
         c.append('int orpheus_control_register_hook(uint32_t id, OrpheusHookFn fn, void* ctx) {')
         c.append('    if (!fn || g_hook_count >= ORPHEUS_GEN_MAX_HOOKS) return -1;')
         c.append('    g_hooks[g_hook_count].id = id;')
@@ -2225,34 +2370,39 @@ class CodeGenerator:
             )
             lines.append("")
 
-        app_sources = "src/main.c"
+        graph_sources = "src/orpheus_graph.c"
         if (output_dir / "src" / "platform_io.c").exists():
-            app_sources += " src/platform_io.c"
+            graph_sources += " src/platform_io.c"
         if (output_dir / "src" / "platform_hooks.c").exists():
-            app_sources += " src/platform_hooks.c"
+            graph_sources += " src/platform_hooks.c"
         if (output_dir / "src" / "orpheus_id_map.c").exists():
-            app_sources += " src/orpheus_id_map.c"
+            graph_sources += " src/orpheus_id_map.c"
         if (output_dir / "src" / "orpheus_control.c").exists():
-            app_sources += " src/orpheus_control.c"
-        if (output_dir / "src" / "host_win.c").exists():
-            app_sources += " src/host_win.c"
+            graph_sources += " src/orpheus_control.c"
         if (output_dir / "src" / "olink.c").exists():
-            app_sources += " src/olink.c"
+            graph_sources += " src/olink.c"
         for f in sorted((output_dir / "src").glob("orpheus_link_*.c")):
-            app_sources += f" src/{f.name}"
-        lines.append(f'add_executable(orpheus_generated_app {app_sources})')
+            graph_sources += f" src/{f.name}"
         libs = " ".join(self._component_target_name(cid) for cid in component_ids)
-        lines.append(f'target_link_libraries(orpheus_generated_app {libs})')
+        lines.append(f'add_library(orpheus_graph STATIC {graph_sources})')
+        lines.append(f'target_link_libraries(orpheus_graph PUBLIC {libs})')
         if (output_dir / "src" / "host_win.c").exists():
+            lines.append('add_executable(orpheus_generated_app src/host_win.c)')
+            lines.append('target_link_libraries(orpheus_generated_app PRIVATE orpheus_graph)')
             # win 实时宿主：miniaudio 在 Windows 需要的系统库（与 rt_host 一致）
             lines.append('if(WIN32)')
             lines.append('  target_link_libraries(orpheus_generated_app ole32 oleaut32 uuid winmm)')
             lines.append('endif()')
+        else:
+            lines.append('add_executable(orpheus_generated_app src/main.c)')
+            lines.append('target_link_libraries(orpheus_generated_app PRIVATE orpheus_graph)')
+            lines.append('add_executable(orpheus_generated_cli src/host_cli.c)')
+            lines.append('target_link_libraries(orpheus_generated_cli PRIVATE orpheus_graph)')
         if self.uart_link_decls(plan):
             # 冒烟 harness 的 stdio 链路默认实现；上设备时移除该定义并实现自己的 send
-            lines.append('target_compile_definitions(orpheus_generated_app PRIVATE ORPHEUS_LINK_STDIO)')
+            lines.append('target_compile_definitions(orpheus_graph PRIVATE ORPHEUS_LINK_STDIO)')
             lines.append('if(NOT WIN32)')
-            lines.append('  target_link_libraries(orpheus_generated_app pthread)')
+            lines.append('  target_link_libraries(orpheus_graph PUBLIC pthread)')
             lines.append('endif()')
 
         with open(output_dir / "CMakeLists.txt", "w", encoding="utf-8") as f:

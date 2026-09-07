@@ -58,10 +58,10 @@ def test_asm_codegen_allocates_discard_outputs(compiler: GraphCompiler, tmp_path
     plan = compile_example(compiler, "symphony_asm_ehc_rnc.yaml")
     output = tmp_path / "generated"
     CodeGenerator(compiler.registry, ROOT).generate(plan, output)
-    source = (output / "src" / "main.c").read_text(encoding="utf-8")
+    source = (output / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
     assert "g_discard_rnc_noise_floor__nf_probe_out" in source
     assert "g_discard_rnc_divergence_detector__spkr_probe_out" in source
-    assert "process failed: task=tid5 node=rnc_noise_floor__nf_probe" in source
+    assert 'orpheus_graph_fail("process_task:tid5", "rnc_noise_floor__nf_probe"' in source
 
 
 def test_asm_lesson_checks_pass(compiler: GraphCompiler) -> None:
