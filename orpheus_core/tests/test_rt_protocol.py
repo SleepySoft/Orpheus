@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 
+from orpheus_core.bridge import AsyncFileLogSink
 from orpheus_core.server.rt import RtSession
 
 
@@ -31,3 +32,14 @@ def test_write_bulk_single_value() -> None:
     session = RtSession(proc)
     session.write_bulk("eq1", "taps", [64.0])
     assert proc.stdin.getvalue() == "BULK eq1 taps 1 64.0\n"
+
+
+def test_runtime_logs_persist_without_probe_lines(tmp_path) -> None:
+    proc = _FakeProc()
+    proc.stdout = io.StringIO("LOG runtime ready\nPROBE mon rms 0.5\n")
+    path = tmp_path / "runtime.log"
+    session = RtSession(proc, log_sink=AsyncFileLogSink(path))
+    session._reader.join(timeout=1.0)
+
+    assert path.read_text(encoding="utf-8").splitlines() == ["LOG runtime ready"]
+    assert session.snapshot()["probes"]["mon"]["rms"] == 0.5

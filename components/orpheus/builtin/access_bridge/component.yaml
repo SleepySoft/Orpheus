@@ -24,6 +24,16 @@ parameters:
     options:
       - {value: olink, label: OLINK (COBS + CRC16)}
     update_policy: restart_required
+  - id: duplex
+    name: 双工能力
+    description: 半双工使用单请求和主机轮询；全双工允许主动观测与请求流水化
+    type: string
+    default: half
+    widget: select
+    options:
+      - {value: half, label: 半双工（兼容基线）}
+      - {value: full, label: 全双工}
+    update_policy: restart_required
   - id: enabled
     name: 启用
     type: bool
@@ -44,7 +54,8 @@ parameters:
     unit: bps
     update_policy: restart_required
   - id: probe_interval_ms
-    name: 探针上报周期
+    name: 观测周期
+    description: 半双工为主机轮询周期，全双工为设备主动上报周期；0 表示关闭周期观测
     type: float
     default: 200.0
     range: [0.0, 10000.0]

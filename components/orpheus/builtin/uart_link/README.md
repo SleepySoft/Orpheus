@@ -8,7 +8,7 @@
 
 - **成帧**：COBS + CRC16（OLINK，见 `orpheus_olink.h`），自同步、抗干扰；
 - **分发**：收到的完整帧交给生成工程自带的 `orpheus_control_message()`——标量/BULK 读写、探针只读、CUSTOM hook，与 PC 动态路径语义完全一致；
-- **探针泵**：按 `probe_interval_ms` 周期把工程里所有 PROBE 数据点以 NOTIFICATION 帧主动发出。
+- **观测**：半双工由主机按 `probe_interval_ms` 串行读取 PROBE；全双工才由设备按该周期主动发送 NOTIFICATION。
 
 于是 PC 上 Orpheus 界面（运行目标选「串口」）就能对跑生成代码的真实设备调音调参、看探针。
 
@@ -28,7 +28,7 @@ void orpheus_link_<名>_init(void);
 
 ```c
 orpheus_link_<名>_feed(rx_buf, rx_len);      /* 收到的字节喂给链路层 */
-orpheus_link_<名>_poll(HAL_GetTick());       /* 主循环周期调用（探针泵心跳） */
+orpheus_link_<名>_poll(HAL_GetTick());       /* 全双工主动观测时周期调用 */
 ```
 
 ## 参数
@@ -37,7 +37,8 @@ orpheus_link_<名>_poll(HAL_GetTick());       /* 主循环周期调用（探针�
 |---|---|---|---|
 | `link_name` | string | `""` | C 符号前缀（缺省用节点 id）；决定生成函数名 `orpheus_link_<前缀>_*` |
 | `baud` | int | 921600 | 仅作意图声明写进生成代码注释，真实波特率由你的串口初始化决定 |
-| `probe_interval_ms` | float | 200.0 | 探针上行周期（毫秒）；0 = 关闭探针泵 |
+| `duplex` | string | `half` | `half`=半双工兼容基线；`full`=允许主动通知和请求流水化 |
+| `probe_interval_ms` | float | 200.0 | 半双工主机轮询/全双工主动上报周期（毫秒）；0 = 关闭周期观测 |
 | `note` | string | `""` | 自由备注，写进生成代码注释 |
 
 ## PC 冒烟（无硬件验证整条链路）
@@ -48,11 +49,11 @@ orpheus_link_<名>_poll(HAL_GetTick());       /* 主循环周期调用（探针�
 orpheus_generated_cli --link-stdio
 ```
 
-此时 hooks 里的 `send` 默认实现为 `fwrite(stdout)`（`ORPHEUS_LINK_STDIO` 已在 CMake 定义），CLI 宿主自动跑图块、喂 stdin、驱动探针泵。Python 侧（`orpheus_core.server.serial_session.SerialSession`）接管道即可端到端调通，测试 `orpheus_core/tests/test_uart_link.py` 就是这么做的。
+此时 hooks 里的 `send` 默认实现为 `fwrite(stdout)`（`ORPHEUS_LINK_STDIO` 已在 CMake 定义），CLI 宿主自动跑图块并喂 stdin。Python 侧通过统一 `BridgeSession` 接管该字节通道；默认半双工由主机轮询 Probe，测试 `orpheus_core/tests/test_uart_link.py` 覆盖完整链路。
 
 ## 注意事项
 
 - 不能连线（编译期报错）；只在代码生成路径有意义，动态路径完全惰性。
 - 重新 `generate` 会覆盖 `src/orpheus_link_<名>.c`（生成物），但 `orpheus_link_hooks_<名>.c` 的 USER CODE 段属于你的实现——重新生成也会覆盖整个文件，请另存副本（与 platform_io.c 同一约定）。
-- 链路层无重传：CRC 错丢帧，靠 PC 侧 call_id 超时重发兜底；NOTIFICATION 探针允许丢失（周期性的）。
+- 链路层无重传：CRC 错丢帧，靠 PC 侧 call_id 超时重发兜底；半双工一次只有一个 CALL，全双工 NOTIFICATION 允许丢失。
 - 一个工程可放多个 uart_link 节点（各自独立实例，符号前缀不同）。

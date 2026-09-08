@@ -13,6 +13,13 @@ import time
 
 import pytest
 
+from orpheus_core.bridge import (
+    AsyncFileLogSink,
+    BridgeCapabilities,
+    BridgeSession,
+    DuplexMode,
+    OlinkCodec,
+)
 from orpheus_core.link import message, olink
 from orpheus_core.server.serial_session import SerialSession
 
@@ -53,22 +60,60 @@ class PipeTransport:
         self.closed = True
 
 
+class BlockingWriteTransport(PipeTransport):
+    """放大并发发送窗口，检测两个编码帧是否同时进入 Transport。"""
+
+    def __init__(self):
+        super().__init__()
+        self._write_guard = threading.Lock()
+        self.overlapped_writes = 0
+
+    def write(self, data: bytes) -> int:
+        if not self._write_guard.acquire(blocking=False):
+            self.overlapped_writes += 1
+            self._write_guard.acquire()
+        try:
+            time.sleep(0.03)
+            return super().write(data)
+        finally:
+            self._write_guard.release()
+
+
 class FakeDevice:
     """极简生成代码侧：id->4 字节标量 / bulk 数组，CALL→RESPONSE。"""
 
     def __init__(self, transport: PipeTransport):
         self.t = transport
         self.decoder = olink.Decoder()
+        self._lock = threading.Lock()
         self.scalars = {GAIN_ID: struct.pack("<f", 0.0)}
+        self.probes = {RMS_ID: struct.pack("<f", 0.0)}
         self.bulks = {COEFS_ID: [1.0, 0.0, 0.0, 0.0, 0.0]}
         self.drop_next = 0  # 丢弃接下来 N 个 CALL（模拟线路丢帧）
+        self.response_delay = 0.0
+        self.inflight = 0
+        self.max_inflight = 0
         transport.on_write = self._on_bytes
 
     def _on_bytes(self, data: bytes) -> None:
-        for frame in self.decoder.feed(data):
-            rsp = self._handle(frame)
-            if rsp is not None:
-                self.t.rx.put(olink.encode(rsp))
+        with self._lock:
+            responses = [self._handle(frame) for frame in self.decoder.feed(data)]
+        for response in responses:
+            if response is None:
+                continue
+            with self._lock:
+                self.inflight += 1
+                self.max_inflight = max(self.max_inflight, self.inflight)
+
+            def send_response(frame=response):
+                self.t.rx.put(olink.encode(frame))
+                with self._lock:
+                    self.inflight -= 1
+
+            if self.response_delay > 0:
+                threading.Timer(self.response_delay, send_response).start()
+            else:
+                send_response()
 
     def _handle(self, frame: bytes) -> bytes | None:
         msg = message.parse_frame(frame)
@@ -95,7 +140,10 @@ class FakeDevice:
             else:
                 resp_payload = struct.pack(f"<{len(self.bulks[route])}f", *self.bulks[route])
         elif route == RMS_ID:
-            error = write  # PROBE 只读
+            if write:
+                error = True
+            else:
+                resp_payload = self.probes[route]
         else:
             error = True
         flags = message.FLAG_ERROR if error else 0
@@ -151,16 +199,60 @@ def test_msg_passthrough_call_id_match(session):
     assert rsp["route"] == GAIN_ID and not rsp["error"]
 
 
-def test_notification_feeds_probe_cache(session):
+def test_half_duplex_rejects_unsolicited_notification(session):
     s, dev = session
     dev.emit_probe(0.432)
     deadline = time.time() + 1.0
     while time.time() < deadline:
-        snap = s.snapshot()
-        if snap["probes"].get("front__mon", {}).get("rms") is not None:
+        if any("未协商" in line for line in s.snapshot()["logs"]):
             break
         time.sleep(0.02)
-    assert s.snapshot()["probes"]["front__mon"]["rms"] == pytest.approx(0.432)
+    assert "front__mon" not in s.snapshot()["probes"]
+
+
+def test_full_duplex_accepts_unsolicited_notification():
+    transport = PipeTransport()
+    device = FakeDevice(transport)
+    bridge = BridgeSession(
+        transport,
+        OlinkCodec(),
+        ID_MAP,
+        capabilities=BridgeCapabilities(
+            duplex=DuplexMode.FULL,
+            unsolicited=True,
+            pipelined_calls=True,
+        ),
+    )
+    try:
+        device.emit_probe(0.432)
+        deadline = time.time() + 1.0
+        while time.time() < deadline:
+            value = bridge.snapshot()["probes"].get("front__mon", {}).get("rms")
+            if value is not None:
+                break
+            time.sleep(0.02)
+        assert bridge.snapshot()["probes"]["front__mon"]["rms"] == pytest.approx(0.432)
+    finally:
+        bridge.close()
+
+
+def test_half_duplex_polls_observations(session):
+    bridge, device = session
+    device.probes[RMS_ID] = struct.pack("<f", 0.625)
+    assert bridge.poll_observations() == 1
+    assert bridge.snapshot()["probes"]["front__mon"]["rms"] == pytest.approx(0.625)
+
+
+def test_unmatched_response_is_logged_without_blocking(session):
+    s, dev = session
+    frame = message.make_frame(GAIN_ID, 0x7777, message.RESPONSE)
+    dev.t.rx.put(olink.encode(frame))
+    deadline = time.time() + 1.0
+    while time.time() < deadline:
+        if any("无匹配" in line for line in s.snapshot()["logs"]):
+            break
+        time.sleep(0.02)
+    assert any("call_id=30583" in line for line in s.snapshot()["logs"])
 
 
 def test_timeout_retry_succeeds(session):
@@ -186,7 +278,7 @@ def test_device_error_flag_raises(session):
 def test_resolve_and_map_local(session):
     s, _ = session
     r = s.resolve(GAIN_ID)
-    assert r["kind"] == "RTC" and r["node"] == "front__trim" and r["base"] == "device"
+    assert r["kind"] == "RTC" and r["node"] == "front__trim" and r["base"] == "endpoint"
     assert len(s.map_all()) == len(ID_MAP)
     with pytest.raises(RuntimeError, match="未知数据 ID"):
         s.resolve(0x7FFFFFFF)
@@ -195,10 +287,95 @@ def test_resolve_and_map_local(session):
 def test_snapshot_shape(session):
     s, _ = session
     snap = s.snapshot()
-    assert set(snap) == {"running", "exit_code", "started_at", "logs", "probes"}
+    assert set(snap) == {"running", "exit_code", "started_at", "logs", "probes", "bridge"}
     assert snap["running"] is True and snap["exit_code"] is None
+    assert snap["bridge"]["duplex"] == "half"
+    assert snap["bridge"]["pipelined_calls"] is False
     s.stop()
     assert s.snapshot()["running"] is False
+
+
+@pytest.mark.parametrize(
+    ("capabilities", "expected_max_inflight"),
+    [
+        (BridgeCapabilities(), 1),
+        (
+            BridgeCapabilities(
+                duplex=DuplexMode.FULL,
+                unsolicited=True,
+                pipelined_calls=True,
+            ),
+            2,
+        ),
+    ],
+)
+def test_duplex_capability_controls_call_pipelining(capabilities, expected_max_inflight):
+    transport = PipeTransport()
+    device = FakeDevice(transport)
+    device.response_delay = 0.08
+    bridge = BridgeSession(
+        transport,
+        OlinkCodec(),
+        ID_MAP,
+        capabilities=capabilities,
+        call_timeout=0.5,
+    )
+    results: list[float] = []
+    threads = [threading.Thread(target=lambda: results.append(bridge.read_id(GAIN_ID)))
+               for _ in range(2)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert results == [pytest.approx(0.0), pytest.approx(0.0)]
+        assert device.max_inflight == expected_max_inflight
+    finally:
+        bridge.close()
+
+
+def test_half_duplex_rejects_pipelined_calls():
+    with pytest.raises(ValueError, match="全双工"):
+        BridgeCapabilities(duplex=DuplexMode.HALF, pipelined_calls=True)
+    with pytest.raises(ValueError, match="全双工"):
+        BridgeCapabilities(duplex=DuplexMode.HALF, unsolicited=True)
+
+
+def test_full_duplex_serializes_frames_on_byte_transport():
+    transport = BlockingWriteTransport()
+    device = FakeDevice(transport)
+    bridge = BridgeSession(
+        transport,
+        OlinkCodec(),
+        ID_MAP,
+        capabilities=BridgeCapabilities(
+            duplex=DuplexMode.FULL,
+            pipelined_calls=True,
+        ),
+    )
+    threads = [threading.Thread(target=bridge.read_id, args=(GAIN_ID,)) for _ in range(2)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert transport.overlapped_writes == 0
+        assert device.max_inflight >= 1
+    finally:
+        bridge.close()
+
+
+def test_async_file_log_sink(tmp_path):
+    path = tmp_path / "runtime.log"
+    sink = AsyncFileLogSink(path, capacity=4)
+    assert sink.emit("LOG runtime ready")
+    assert sink.emit("LOG runtime stopped")
+    sink.close()
+    assert path.read_text(encoding="utf-8").splitlines() == [
+        "LOG runtime ready",
+        "LOG runtime stopped",
+    ]
+    assert sink.stats()["written"] == 2
 
 
 # ------------------------------------------------------------------ REST 端点

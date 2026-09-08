@@ -2,6 +2,14 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/ROADMAP.md`，不要把旧条目当作现状。
 
+## 2026-09-08（第五十二次：Bridge 半双工基线与日志 Sink）
+
+- 定案完整 Bridge 的最低能力为双向半双工：单 outstanding CALL、RESPONSE 优先、Observation 轮询/授权窗口；全双工通过能力开启主动通知和请求流水化，SoC/HLOS 的多 Lane、credit、SHM 零拷贝与多客户端保持正交。
+- 新增 Python `bridge` 核心：`BridgeSession`、`BridgeCapabilities`、`ByteTransport`、`FrameCodec/OlinkCodec`；串口会话删除重复协议状态机。
+- 新增并发测试，证明半双工最大一个未完成请求、全双工流水化可同时存在两个请求；保留超时重试、错误、BULK、Probe 与原始消息覆盖。
+- 新增有界非阻塞 `AsyncFileLogSink`：长驻动态/生成/串口会话异步落盘，一次性运行结束后归档 stdout/stderr，路径为工程 `logs/*.log`；实时音频线程仍禁止 IO。
+- 当前本机 `RtSession` 仍是文本协议适配层。下一阶段实现 HELLO/IDENTITY 与 C Endpoint，再以二进制 Pipe 覆盖动态/生成和主动推进宿主，随后直接删除文本协议，不承担开发期兼容成本。
+
 ## 2026-09-08（第五十一次：绝对块时间 P0 基础）
 
 - ABI 升至 v4，在 `OrpheusProcessContext` 尾部追加 `frame_index / epoch / valid_frames / timeline_flags`，保留既有字段布局；`timestamp` 改为由整数帧位置和节点采样率派生。

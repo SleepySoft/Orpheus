@@ -1613,7 +1613,9 @@ class CodeGenerator:
             s = self._uart_link_sym(d)
             params = d["params"]
             baud = int(float(params.get("baud", 921600) or 921600))
-            interval = float(params.get("probe_interval_ms", 200.0) or 0.0)
+            duplex = str(params.get("duplex", "half"))
+            interval = float(params.get("probe_interval_ms", 200.0) or 0.0) \
+                if duplex == "full" else 0.0
             resource = str(params.get("resource") or params.get("link_name") or d["id"])
             note = str(params.get("note") or "")
             hdr = [
@@ -1624,9 +1626,10 @@ class CodeGenerator:
                 'extern "C" {',
                 '#endif',
                 '',
-                f'/* UART Bridge {d["id"]} · resource={resource} · 声明波特率 {baud}（实际由平台 Adapter 决定）'
+                f'/* UART Bridge {d["id"]} · resource={resource} · duplex={duplex} · 声明波特率 {baud}（实际由平台 Adapter 决定）'
                 + (f' · {note}' if note else '') + ' */',
                 f'#define ORPHEUS_LINK_{s.upper()}_RESOURCE "{self._c_escape(resource)}"',
+                f'#define ORPHEUS_LINK_{s.upper()}_FULL_DUPLEX {1 if duplex == "full" else 0}',
                 f'#define ORPHEUS_LINK_{s.upper()}_PROBE_INTERVAL_MS {interval:.1f}f',
                 '',
                 f'void orpheus_link_{s}_init(void);                      /* USER CODE：串口/DMA 初始化 */',

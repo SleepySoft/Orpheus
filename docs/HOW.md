@@ -482,7 +482,7 @@ generated/
 
 `orpheus_graph` 被编成独立静态库；最小 app、Windows 声卡宿主及 CLI 验证宿主均只链接该库。图处理路径不调用 printf/文件/串口，错误以返回码和 `orpheus_graph_last_error()` 的结构化上下文交给外部宿主处理。当前已实现 `uart_link` 串口控制/探针 Adapter；纯观测点及 SHM/callback Adapter 为后续阶段，见 `design_observation_adapter.md`。
 
-外部控制与观测统一走 Access Bridge（注意不是音频 Task 的 `async_bridge`）：Runtime 与生成图库分别实现同一 Access Backend，Pipe/UART/USB/TCP/SHM 只是可替换 Transport；UI 最终只面对 BridgeSession。协议握手、工程/ID map hash、订阅与限流设计见 `design_access_bridge.md`。
+外部控制与观测统一走 Access Bridge（注意不是音频 Task 的 `async_bridge`）：Runtime 与生成图库分别实现同一 Access Backend，Pipe/UART/USB/TCP/SHM 只是可替换 Transport；UI 最终只面对 BridgeSession。完整 Bridge 以半双工单 outstanding CALL 为最低基线，全双工按能力开启主动通知/流水化；双工 Profile、Adapter 和日志契约见 `design_bridge_protocol.md`，协议握手、工程/ID map hash、订阅与限流分层见 `design_access_bridge.md`。
 
 Transport 在界面分两层配置：主图无端口「访问桥」节点决定目标侧 transport/codec/resource 并保存到顶层 `bridges`；运行工具栏选择本机此次连接的 COM/网络/SHM 端点。逻辑 resource 到硬件驱动的绑定属于可复用 Target Profile，不能要求用户逐工程手改生成源码。
 
@@ -709,7 +709,7 @@ orpheus_platform_memory_section_bind(...);
 
 - **架构**：`POST /api/projects/{name}/rt/start` 由后端拉起 `rt_host` 子进程（stdin/stdout 管道），`RtSession` 读线程解析输出；UI 轮询 `rt/status` 刷新日志与探针值。
 - **stdin 控制协议**：`SET <node> <param> <value>`（运行中调参，OK/ERR 回显）、`GET <node> <param>`（VALUE 回显）、`STOP`（或回车/stdin EOF 退出）。
-- **日志机制**：约定 stdout 行为日志流——`LOG ...` 为主机生命周期事件；组件在**非实时函数**（create/prepare/destroy/set_parameter）中可 printf，输出被捕获进 UI 日志窗口；实时过程中的组件输出走 PROBE 轮询（每 200ms 上报 readback 参数），实时线程内禁止 printf/IO。
+- **日志机制**：约定 stdout 行为日志流——`LOG ...` 为主机生命周期事件；组件在**非实时函数**（create/prepare/destroy/set_parameter）中可 printf，输出被捕获进 UI 日志窗口。后端为长驻本机/串口会话配置异步文件 Sink，一次性运行结束后归档 stdout/stderr，统一写入工程 `logs/`；实时过程中的组件输出走 PROBE/Observation，实时线程内禁止 printf/文件 IO。
 - **UI**：工具栏「⏺ 实时运行 / ■ 停止」；底部实时日志窗口；运行中修改非 `restart_required` 参数（如 gain_db）即时推送到 rt_host 生效；探针节点电平条每秒刷新。
 - **关键修复**：设备回调周期可大于图 block_size（如 480 vs 128 帧）导致缓冲溢出崩溃——回调内按 block_size 分块处理；MinGW 管道输出需 setvbuf(_IONBF)+unitbuf；Python 侧用 readline() 而非迭代读子进程管道（迭代有预读缓冲）。
 - **错误定位**：Runtime `load_plan` 的 prepare 失败会打印失败节点与组件（如 `[Runtime] prepare failed for node wav (orpheus.builtin.wav_in): -6`），实时/离线日志可直接定位到具体组件；-6 = ORPHEUS_ERR_NOT_FOUND（wav_in/mp3_in 多为文件路径不存在，路径相对工程目录）。
@@ -931,9 +931,9 @@ orpheus_platform_memory_section_bind(...);
 
 - **分层**：UI → L4 后端适配层（ControlPlane）→ L3 OLINK 成帧（COBS+CRC16）→ L2 §18 消息信封 → L1 传输（stdio 管道 / UART）。
 - **OLINK**（`orpheus_abi/src/olink.c` + `orpheus_core/orpheus_core/link/olink.py`，帧级互测）：`线上帧 = COBS(消息 || CRC16-CCITT) || 0x00`；0x00 恒为帧界、自同步恢复、空消息帧丢弃。
-- **SerialSession**（`orpheus_core/orpheus_core/server/serial_session.py`）：与 RtSession 同构——CALL 按 call_id 匹配（300ms 超时+重发）、NOTIFICATION 进探针缓存（/rt/status 形状不变）、resolve/map 由 plan.id_map 本地回答。REST：`rt/start {target,port,baud}`、`GET /api/link/ports`；UI 工具栏目标下拉（本机/COMx+波特率）。
-- **访问桥**（`orpheus.builtin.access_bridge`，execution.none）：画布无端口节点只是顶层 `bridges` 的配置投影；当前 `transport=uart, codec=olink` 生成 `orpheus_link_<名>.c/h`（feed=OLINK 解码→`orpheus_control_message` 分发→send 回发；poll=探针泵）与平台 Adapter 桩。legacy `uart_link` 自动映射并在首次 UI 保存后迁移。
-- **PC 冒烟**：`orpheus_generated_cli --link-stdio`（stdin/stdout 二进制即链路，真实时间驱动探针泵），e2e 测试 `test_uart_link.py` 使用 canonical 顶层 Bridge，经 SerialSession 管道完成标量/BULK/msg/探针全链路。
+- **BridgeSession**（`orpheus_core/orpheus_core/bridge/core.py`）：统一 CALL 匹配、超时重试、数据点访问和 Probe 缓存；`SerialSession` 只是 `SerialTransport + OlinkCodec + BridgeSession` 薄组合。REST：`rt/start {target,port,baud}`、`GET /api/link/ports`；UI 工具栏目标下拉（本机/COMx+波特率）。
+- **访问桥**（`orpheus.builtin.access_bridge`，execution.none）：画布无端口节点只是顶层 `bridges` 的配置投影；`duplex=half` 时设备仅应答 CALL、主机串行轮询 Probe，`duplex=full` 时才启用主动 NOTIFICATION 和请求流水化。legacy `uart_link` 自动映射并在首次 UI 保存后迁移。
+- **PC 冒烟**：`orpheus_generated_cli --link-stdio`（stdin/stdout 二进制即链路），e2e 测试 `test_uart_link.py` 使用 canonical 顶层 Bridge，经半双工主机轮询完成标量/BULK/msg/Probe 全链路。
 - Bridge 不使用 alter、不进入音频图；平台差异由 `transport + resource + Target Profile` 选择 Adapter，PC 本次连接的 COM 端点由运行工具栏选择。
 
 

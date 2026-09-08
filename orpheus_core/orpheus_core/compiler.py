@@ -389,6 +389,13 @@ class GraphCompiler:
                     f"Bridge {bridge_id} 的 Adapter 尚未安装：transport={transport}, codec={codec}；"
                     "当前支持 uart + olink"
                 )
+            params = bridge.setdefault("params", {})
+            duplex = str(params.get("duplex", "half"))
+            if duplex not in ("half", "full"):
+                raise CompileError(
+                    f"Bridge {bridge_id} 的 duplex 无效：{duplex}；可选 half / full"
+                )
+            params["duplex"] = duplex
 
         # 0.5 wav_out 输入采样率自动跟随源端口（免手填）：
         #     先解析所有输出端口，把源端口采样率注入 wav_out 的 sample_rate 参数，

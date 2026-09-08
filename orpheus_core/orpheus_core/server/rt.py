@@ -16,6 +16,8 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+from orpheus_core.bridge import LogSink, NullLogSink
+
 MAX_LOG_LINES = 500
 
 _KIND_NAMES = {0: "RTC", 1: "TUNE", 2: "PROBE", 3: "STATE", 4: "CUSTOM"}
@@ -55,8 +57,9 @@ def parse_probe_line(line: str) -> tuple[str, str, Any] | None:
 
 
 class RtSession:
-    def __init__(self, proc: subprocess.Popen):
+    def __init__(self, proc: subprocess.Popen, *, log_sink: LogSink | None = None):
         self.proc = proc
+        self._log_sink = log_sink or NullLogSink()
         self.started_at = time.time()
         self._logs: deque[str] = deque(maxlen=MAX_LOG_LINES)
         self._probes: dict[str, dict[str, Any]] = {}
@@ -80,6 +83,7 @@ class RtSession:
                     with self._lock:
                         self._probes.setdefault(node, {})[param] = value
                 else:
+                    is_log = False
                     with self._lock:
                         if (
                             line.startswith("RESOLVED ")
@@ -98,8 +102,13 @@ class RtSession:
                             self._cmd_lines.append(line)
                         else:
                             self._logs.append(line)
+                            is_log = True
+                    if is_log:
+                        self._log_sink.emit(line)
         except (ValueError, OSError):
             pass  # stream closed
+        finally:
+            self._log_sink.close()
 
     @property
     def running(self) -> bool:
@@ -261,6 +270,7 @@ class RtSession:
             "started_at": self.started_at,
             "logs": logs,
             "probes": probes,
+            "log_sink": self._log_sink.stats(),
         }
 
 
@@ -271,23 +281,31 @@ class RtSessionManager:
         self._sessions: dict[str, RtSession] = {}
         self._lock = threading.Lock()
 
-    def start(self, name: str, argv: list[str], cwd: Path) -> RtSession:
+    def start(self, name: str, argv: list[str], cwd: Path,
+              *, log_sink: LogSink | None = None) -> RtSession:
         with self._lock:
             old = self._sessions.get(name)
             if old and old.running:
+                if log_sink is not None:
+                    log_sink.close()
                 raise RuntimeError(f"realtime session already running for {name}")
-            proc = subprocess.Popen(
-                argv,
-                cwd=cwd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-            )
-            session = RtSession(proc)
+            try:
+                proc = subprocess.Popen(
+                    argv,
+                    cwd=cwd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                )
+            except Exception:
+                if log_sink is not None:
+                    log_sink.close()
+                raise
+            session = RtSession(proc, log_sink=log_sink)
             self._sessions[name] = session
             return session
 

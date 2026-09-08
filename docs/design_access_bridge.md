@@ -1,6 +1,6 @@
 # Access Bridge 统一访问桥设计
 
-> 状态：设计定案（v1）；顶层 `bridges`、画布配置节点及 legacy `uart_link` 迁移已落地。本文的 Access Bridge 专指控制/观测访问桥，与音频 Task 间的 `async_bridge` 无关。
+> 状态：设计定案（v1）；顶层 `bridges`、画布配置节点、主机 BridgeSession 核心及 `uart + olink` 已落地。双工 Profile、能力和日志契约见 `design_bridge_protocol.md`。本文的 Access Bridge 专指控制/观测访问桥，与音频 Task 间的 `async_bridge` 无关。
 
 “访问端点”是运行三轴层级模型中的一个维度，只决定 UI/SDK 连到哪个实例；它不决定执行实现、执行触发、主动推进 pacing 或图时间线。定义见 `design_execution_model.md` 与 `design_timeline.md`。
 
@@ -87,6 +87,8 @@ typedef struct OrpheusAccessBackend {
 
 Adapter 不改变消息语义，只实现传输：
 
+所有完整 Adapter 必须支持双向半双工 Core Profile；全双工仅按能力升级主动通知和请求流水化。真正单工只允许显式的只读遥测或无确认写入子集。双工状态机、协议级流控和多 Lane 属于 Bridge，不得塞入 Transport。完整约束见 `design_bridge_protocol.md`。
+
 | Adapter | 边界 | Framing | 用途 |
 |---|---|---|---|
 | `inproc` | 同进程 | 无 | 单测、桌面一体化、直接嵌入 Runtime |
@@ -149,9 +151,9 @@ UART 可以复用一条 OLINK 物理链路，但 Control RESPONSE 优先于 Obse
 
 ## 7. 与动态 Runtime 的有机结合
 
-### 7.1 本地运行
+### 7.1 本地运行（目标架构）
 
-rt_host 内创建 `RuntimeBackend + BridgeEndpoint`。后端进程使用 `PipeTransport` 的二进制帧；Python 使用统一 `BridgeSession`。现有文本 `SET/GET/PROBE` 暂时保留为兼容 shell，UI 不再依赖其解析。
+目标是 rt_host 内创建 `RuntimeBackend + BridgeEndpoint`，后端进程使用 `PipeTransport` 的二进制帧，Python 使用统一 `BridgeSession`。当前本机仍由文本 `RtSession` 适配；项目处于开发阶段，二进制 Pipe 落地后直接删除该文本协议，不保留兼容 shell。
 
 ```text
 UI -> BridgeSession -> PipeTransport -> rt_host BridgeEndpoint -> Runtime::message
@@ -175,7 +177,7 @@ UI -> BridgeSession -> SerialTransport/OLINK -> device Endpoint -> orpheus_contr
 
 ## 8. 主机侧统一接口
 
-将现有 `RtSession` 与 `SerialSession` 收敛到：
+P0 已实现统一 Python `BridgeSession`，串口路径已迁移；当前文本 `RtSession` 将随二进制 Pipe Endpoint 落地后删除。稳定接口为：
 
 ```python
 class BridgeSession:
@@ -190,7 +192,7 @@ class BridgeSession:
     def close(self): ...
 ```
 
-`Transport` 只需 `open/read/write/close`；OLINK 是可组合 Codec，不写进 SerialSession。REST `/rt/*` 和 UI 保持现有形状，由 Session 工厂选择 local-pipe、serial、shm 等实现。
+`ByteTransport` 只需 `read/write/close`（构造/工厂负责打开）；OLINK 是可组合 Codec，不写进 BridgeSession。REST `/rt/*` 和 UI 保持现有形状，由 Session 工厂选择 local-pipe、serial、shm 等实现。
 
 ## 9. 多 Bridge 与权限
 
@@ -215,12 +217,14 @@ void orpheus_bridge_<name>_deinit(void);
 
 ## 11. 实施顺序
 
-1. 定义 `OrpheusAccessBackend` 与 Bridge 系统服务路由、HELLO/IDENTITY/hash；
-2. 用 GeneratedBackend 包装现有 `orpheus_control_message`，将 `uart_link` 改造为 Endpoint + UartTransport；
-3. 实现 RuntimeBackend，rt_host 增加二进制 PipeTransport，保留文本协议兼容；
-4. Python 抽出 BridgeSession、Codec、Transport，令 RtSession/SerialSession 成为兼容 facade；
-5. 接入 `observations` 与 subscribe/capture/poll；先标量 probe，再音频 Buffer view；
-6. 增加 SHM/callback Adapter、多 Bridge、写租约与故障统计。
+1. [x] Python 抽出 BridgeSession、Codec、Transport；串口迁移到半双工 Core Profile；
+2. [x] 增加可选异步文件 Log Sink，运行日志与实时处理解耦；
+3. [ ] 定义 `OrpheusAccessBackend` 与 Bridge 系统服务路由、HELLO/IDENTITY/hash；
+4. [ ] 用 GeneratedBackend 包装现有 `orpheus_control_message`，将 UART 链路改造为正式 Endpoint + UartTransport；
+5. [ ] 实现 RuntimeBackend，rt_host/host_win 增加二进制 PipeTransport，删除文本协议；
+6. [ ] 主动推进动态/生成宿主会话化，统一 START/RUN_BLOCKS/STOP 生命周期；
+7. [ ] 接入 `observations` 与 subscribe/capture/poll；先标量 probe，再音频 Buffer view；
+8. [ ] 增加 RPMsg/TCP/SHM/callback、多 Lane、写租约与故障统计。
 
 ## 12. 验收标准
 

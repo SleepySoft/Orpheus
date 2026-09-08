@@ -10,6 +10,7 @@ An intuitive, easily extensible audio processing framework based on visual progr
 - [`docs/baf_model_alignment.md`](docs/baf_model_alignment.md) — ASM/EREV-1 BAF out 生成代码的实证映射与剩余缺口。
 - [`docs/design_observation_adapter.md`](docs/design_observation_adapter.md) — 观测点、外部 Adapter 与生成图模块边界。
 - [`docs/design_access_bridge.md`](docs/design_access_bridge.md) — Runtime/生成代码共用的控制与观测访问桥。
+- [`docs/design_bridge_protocol.md`](docs/design_bridge_protocol.md) — 半双工基线、全双工升级、可替换 Adapter 与日志 Sink。
 - [`docs/design_execution_model.md`](docs/design_execution_model.md) — 执行实现、执行触发（含主动推进 pacing）与访问端点的统一术语。
 - [`docs/design_timeline.md`](docs/design_timeline.md) — 绝对样本时间、epoch、EOS、延迟与跨域漂移的时间线演进。
 - [`docs/design_draft.txt`](docs/design_draft.txt) — 历史设计草案与详细子系统分解。

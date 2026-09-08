@@ -56,7 +56,7 @@ def _project() -> Project:
     )
     project.bridges = [Bridge(
         id="link", transport="uart", codec="olink",
-        params={"link_name": "uart0", "probe_interval_ms": 100.0},
+        params={"link_name": "uart0", "duplex": "half", "probe_interval_ms": 100.0},
     )]
     return project
 
@@ -84,7 +84,7 @@ def test_uart_link_excluded_from_plan(plan):
         "transport": "uart",
         "codec": "olink",
         "enabled": True,
-        "params": {"link_name": "uart0", "probe_interval_ms": 100.0},
+        "params": {"link_name": "uart0", "duplex": "half", "probe_interval_ms": 100.0},
     }]
 
 
@@ -107,7 +107,8 @@ def test_top_level_bridge_roundtrip_and_compile(registry, tmp_path):
     project = _project()
     project.bridges = [Bridge(
         id="device_debug", transport="uart", codec="olink",
-        params={"resource": "uart2", "baud": 115200, "probe_interval_ms": 50.0},
+        params={"resource": "uart2", "baud": 115200, "duplex": "full",
+            "probe_interval_ms": 50.0},
         position={"x": 80, "y": 320},
     )]
     path = tmp_path / "project.yaml"
@@ -123,6 +124,8 @@ def test_top_level_bridge_roundtrip_and_compile(registry, tmp_path):
     CodeGenerator(registry, ROOT).generate(plan, generated)
     header = (generated / "include" / "orpheus_link_device_debug.h").read_text(encoding="utf-8")
     assert '#define ORPHEUS_LINK_DEVICE_DEBUG_RESOURCE "uart2"' in header
+    assert "ORPHEUS_LINK_DEVICE_DEBUG_FULL_DUPLEX 1" in header
+    assert "ORPHEUS_LINK_DEVICE_DEBUG_PROBE_INTERVAL_MS 50.0" in header
 
 
 def test_access_bridge_node_normalizes_to_plan_bridge(registry):
@@ -132,7 +135,8 @@ def test_access_bridge_node_normalizes_to_plan_bridge(registry):
         id="link", component="orpheus.builtin.access_bridge",
         params={
             "transport": "uart", "codec": "olink", "enabled": True,
-            "resource": "uart3", "baud": 460800, "probe_interval_ms": 25.0,
+            "resource": "uart3", "baud": 460800, "duplex": "half",
+            "probe_interval_ms": 25.0,
         },
     )
 
@@ -141,7 +145,8 @@ def test_access_bridge_node_normalizes_to_plan_bridge(registry):
     assert plan.declarations == []
     assert plan.bridges == [{
         "id": "link", "transport": "uart", "codec": "olink", "enabled": True,
-        "params": {"resource": "uart3", "baud": 460800, "probe_interval_ms": 25.0},
+        "params": {"resource": "uart3", "baud": 460800, "duplex": "half",
+               "probe_interval_ms": 25.0},
     }]
 
 
@@ -161,6 +166,15 @@ def test_unavailable_bridge_adapter_rejected(registry):
         GraphCompiler(registry).compile(project)
 
 
+def test_invalid_bridge_duplex_rejected(registry):
+    project = _project()
+    project.bridges = [Bridge(
+        id="debug", transport="uart", codec="olink", params={"duplex": "quad"},
+    )]
+    with pytest.raises(CompileError, match="duplex 无效"):
+        GraphCompiler(registry).compile(project)
+
+
 def test_generated_files(plan, gen_dir):
     assert (gen_dir / "src" / "olink.c").is_file()
     assert (gen_dir / "include" / "orpheus_olink.h").is_file()
@@ -172,7 +186,8 @@ def test_generated_files(plan, gen_dir):
     assert "orpheus_link_uart0_send" in hdr
     assert "orpheus_link_uart0_feed" in hdr
     assert "orpheus_link_uart0_poll" in hdr
-    assert "ORPHEUS_LINK_UART0_PROBE_INTERVAL_MS 100.0" in hdr
+    assert "ORPHEUS_LINK_UART0_FULL_DUPLEX 0" in hdr
+    assert "ORPHEUS_LINK_UART0_PROBE_INTERVAL_MS 0.0" in hdr
     # 探针表含工程内 PROBE 数据点
     probe_ids = [e for e in plan.id_map if e["kind"] == "PROBE"]
     assert probe_ids and all(f"0x{e['id']:08X}U" in core for e in probe_ids)
@@ -251,7 +266,10 @@ def link_session(gen_dir, plan):
         pytest.skip("cmake 不可用")
     exe = _build_generated(gen_dir)
     transport = ProcessTransport([str(exe), "--link-stdio"], cwd=gen_dir)
-    session = SerialSession(transport, plan.id_map, call_timeout=0.5, call_retries=3)
+    session = SerialSession(
+        transport, plan.id_map, call_timeout=0.5, call_retries=3,
+        probe_interval=0.1,
+    )
     yield session, plan
     session.close()
     transport.close()
@@ -284,8 +302,8 @@ def test_e2e_msg_passthrough(link_session):
     assert s.read_id(e["id"]) == pytest.approx(-1.0, abs=1e-3)
 
 
-def test_e2e_probe_notifications(link_session):
-    """探针泵上行：probe_rms 的 NOTIFICATION 应进 snapshot probes（幅度≈0.5 正弦的 RMS）。"""
+def test_e2e_half_duplex_probe_polling(link_session):
+    """半双工主机轮询：probe_rms 应进入 snapshot（幅度约为 0.5 正弦的 RMS）。"""
     s, plan = link_session
     e = next(e for e in plan.id_map if e["key"] == "rms")
     # 模块级会话：前序测试改过 gain 与 bq0 系数，先归位（0 dB + 直通 biquad）再断言基准 RMS

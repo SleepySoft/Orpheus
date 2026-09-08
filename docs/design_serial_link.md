@@ -1,9 +1,9 @@
 # 串行链路设计：PC 界面直连嵌入式设备调音（设计草案）
 
-> 状态：**全部落地**（L1-L3 OLINK 2026-08-15；L4 后端适配层与 uart_link 组件 2026-08-16，见下「实现状态」）。
+> 状态：历史 v1 已落地，2026-09-08 已纳入统一 Bridge Core Profile；当前双工、Session、Adapter 与日志契约以 `design_bridge_protocol.md` 为准。
 > 目标：让本系统的 UI/后端经串口对运行**生成代码**的真实设备调音调参，且用户侧只需实现两个平台函数（send / onRecv）。
 
-> 2026-09-07 更新：工程现以顶层 `bridges` 为唯一部署事实，画布「访问桥」节点是配置投影；旧 `uart_link` 自动映射为 `uart + olink` Bridge。下文保留旧名称用于说明兼容实现。
+> 2026-09-08 更新：工程以顶层 `bridges` 为部署事实；`duplex=half` 默认使用单 outstanding CALL 和主机轮询，`duplex=full` 才允许主动 NOTIFICATION。下文保留部分 v1 历史描述用于解释演进，不作为当前协议依据。
 
 ## 0. 现状盘点（调查结论）
 
@@ -53,14 +53,14 @@
 - **COBS**（Consistent Overhead Byte Stuffing）：0x00 做帧定界，天然同步恢复（任何错位最多丢一帧），无转义状态机，开销 ≤ 0.4%，MCU 上几十行实现。选它而不是 HDLC/0x7E 转义（实现更繁、开销更大）或裸流+长度前缀（无法自同步）。
 - **CRC16-CCITT**（poly 0x1021，初值 0xFFFF）：对 ≤4KB 帧足够，MCU 有硬件 CRC 时可直用；校验失败静默丢帧（恢复靠上层 call_id 超时重发）。
 - 消息自身已自描述长度（§18.2），故帧内不再加长度字段；crc 追加在消息尾部再整体 COBS。
-- **可靠性语义 v1 从简**：链路层无 ACK/重传；请求-响应由后端 call_id 超时（如 300ms，重试 2 次）兜底；NOTIFICATION 允许丢失（探针流本来就是周期性的）。
+- **可靠性语义**：链路层无 ACK/重传；请求-响应由 BridgeSession 使用 call_id 超时重试。半双工默认不接受主动 NOTIFICATION，Probe 由主机轮询；全双工主动 Observation 允许丢失。
 - 双实现：`orpheus_runtime/src/olink.c`（C，同时被生成器复制进生成工程）与 `orpheus_core/orpheus_core/link/olink.py`（Python），互测帧级一致。
 
 ## 3. L4 后端设备适配层
 
-- 抽象现有 rt 会话接口为 ControlPlane：`start/stop/status/set_parameter/msg/write_id/read_id/write_bulk/read_bulk/map/resolve`。现有 `RtSession`（子进程管道）即 Local 实现；新增 `SerialSession`：
+- 统一主机接口为 `BridgeSession`：`stop/status/set_parameter/msg/write_id/read_id/write_bulk/read_bulk/map/resolve`。`SerialSession` 只是串口 Transport 与 OLINK Codec 的组合：
   - pyserial 打开串口（默认 921600 8N1，可配）；
-  - 发送：OLINK 编码帧；接收：后台线程字节流→OLINK 解码→按 type 分派：RESPONSE 按 call_id 匹配等待者，NOTIFICATION 进探针缓存（与 PROBE 行同构，`/rt/status` 形状不变）；
+  - 发送：OLINK 编码帧；接收：后台线程字节流→OLINK 解码→按 type 分派；半双工串行 CALL 并轮询 Probe，全双工按 call_id 匹配并接受主动 NOTIFICATION；
   - 超时重试、断链检测（写失败/读超时计数）。
 - REST 扩展：
   - `GET /api/link/ports`：枚举串口（pyserial `list_ports`，仿照现有 `/api/devices` 缓存 30s）；
@@ -70,13 +70,13 @@
 
 ## 4. 串口通信组件 `orpheus.builtin.uart_link`（非音频，拖入即加通信支持）
 
-- manifest：`execution.none: true`、无 ports；参数：`link_name`（符号前缀）、`baud`（仅注释/意图声明，实际由用户平台代码决定）、`probe_interval_ms`（探针泵周期，0=不上报）、`note`。
+- manifest：`execution.none: true`、无 ports；参数：`link_name`、`baud`、`duplex`、`probe_interval_ms`（半双工轮询/全双工上报周期，0=关闭）与 `note`。
 - 生成器：泛化 declarations 模板分发（消除 generator.py:719 的硬编码），manifest 新增 `codegen_template: uart_link` 字段（§21.2 预留位）。模板产出：
   - `orpheus_link_<name>.c/h`：OLINK 编解码 + 重组缓冲 + 收到完整帧即调 `orpheus_control_message()`，RESPONSE 经 send 回发；
   - `orpheus_link_hooks_<name>.c`：USER CODE 段，两个平台函数——
     - `int orpheus_link_<name>_send(const uint8_t* data, uint32_t len)`：链路层**调用方**，用户填（UART 阻塞写/DMA 入队均可，同步异步不限）；
     - 用户在自己的 UART RX 中断/回调（onRecv）里调 `orpheus_link_<name>_feed(const uint8_t* data, uint32_t len)`：响应式入口，与用户点名的风格一致。
-  - `orpheus_link_<name>_poll()`：协作式环境（无中断）在主循环里周期调用：驱动探针泵（把注册的 PROBE 槽读数按 `probe_interval_ms` 以 NOTIFICATION 帧发出）+ 可选的轮询 RX 钩子。探针泵顺带补齐了"runtime 无 emit 通道"的缺口（通知帧在此层直接发出，不过 runtime）。
+  - `orpheus_link_<name>_poll()`：仅在 `duplex=full` 时按周期主动发送 Probe NOTIFICATION；半双工生成物中该周期为 0，由主机读 CALL 获取 Probe。
 - 动态路径：组件不进执行计划，完全惰性（同 platform_hook）。
 
 ## 5. alter 语义问题的结论
@@ -93,7 +93,7 @@
 1. OLINK 双实现 + 互测（纯算法，无外部依赖）；
 2. 后端 SerialSession + `/api/link/ports` + rt/start target 参数 + UI 目标选择（先用 loopback 假串口或 com0com 自环验证）；
 3. 生成器模板泛化 + uart_link 组件 + 生成工程在 PC 上以虚拟串口对跑通（生成代码侧 olink.c + 桩 send/feed）；
-4. 探针泵（NOTIFICATION 上行）与 UI 探针显示打通；
+4. 半双工 Probe 轮询与全双工 NOTIFICATION 均与 UI 探针显示打通；
 5. 真实设备联调；HOW.md §8 旧协议草案标记废止。
 
 ## 7. 明确不做（v1）
@@ -111,7 +111,7 @@
 | L3 OLINK C 实现 | ✅ | `orpheus_abi/include/orpheus_olink.h` + `orpheus_abi/src/olink.c`（纯 C99 无依赖，静态库 `orpheus_olink`；生成工程可直接复制源码） |
 | L3 OLINK Python 实现 | ✅ | `orpheus_core/orpheus_core/link/olink.py`（`encode()` / `Decoder.feed()` 流式） |
 | L1 PC 串口传输 | ✅ | `orpheus_core/orpheus_core/link/serial_port.py`（pyserial 薄封装，可选依赖，未装不影响本地路径） |
-| L4 后端适配层 | ✅（2026-08-16） | `orpheus_core/orpheus_core/server/serial_session.py`（SerialSession：CALL 超时重发 / NOTIFICATION 探针缓存 / resolve+map 本地回答）；`link/message.py` §18 助手；`rt/start` 加 target/port/baud；`GET /api/link/ports`；UI 工具栏目标下拉（本机/串口+波特率） |
+| L4 后端适配层 | ✅（2026-09-08 统一） | `bridge/`（BridgeSession + 能力/Codec/Transport/Log Sink）；`server/serial_session.py` 为 UART+OLINK 薄组合；半双工轮询与全双工通知均有测试 |
 | 互测 | ✅ | `orpheus_core/tests/test_olink.py`（11 项：CRC 已知向量、COBS 无零、回环、逐字节流式、CRC 错丢帧重同步、垃圾自吞边界、空帧丢弃；C/Python 双向互测经 `tests/olink_cli.c` 按需现场编译驱动） |
 | Access Bridge + 设备侧链路段 | ✅（2026-09-07 统一） | 顶层 `bridges` + `access_bridge` UI 投影；legacy `uart_link` 自动迁移。生成物：olink.c/h + `orpheus_link_<s>.c/h`（feed/poll）+ 平台 Adapter 桩 + `host_cli.c --link-stdio`；e2e 见 test_uart_link.py |
 

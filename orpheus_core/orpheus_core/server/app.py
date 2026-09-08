@@ -18,6 +18,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from orpheus_core.bridge import (
+    AsyncFileLogSink,
+    BridgeCapabilities,
+    DuplexMode,
+)
 from orpheus_core.builder import BuildError, ComponentBuilder, run_cmake_with_msvc_env
 from orpheus_core.compiler import CompileError, ExecutionPlan, GraphCompiler
 from orpheus_core.distill_topology import build_topology
@@ -31,6 +36,27 @@ from orpheus_core.subgraph import flatten_project
 RUN_TIMEOUT_SECONDS = 60
 DEVICES_CACHE_SECONDS = 30
 DEVICE_COMPONENTS = {"orpheus.builtin.device_in", "orpheus.builtin.device_out"}
+
+
+def _session_log_path(rec: ProjectRecord, endpoint: str) -> Path:
+    return rec.directory / "logs" / f"{endpoint}.log"
+
+
+def _session_log_sink(rec: ProjectRecord, endpoint: str) -> AsyncFileLogSink:
+    return AsyncFileLogSink(
+        _session_log_path(rec, endpoint), include_timestamp=True,
+    )
+
+
+def _archive_completed_run(rec: ProjectRecord, endpoint: str,
+                           stdout: str, stderr: str) -> str:
+    sink = _session_log_sink(rec, endpoint)
+    for line in stdout.splitlines():
+        sink.emit(f"STDOUT {line}")
+    for line in stderr.splitlines():
+        sink.emit(f"STDERR {line}")
+    sink.close()
+    return _session_log_path(rec, endpoint).relative_to(rec.directory).as_posix()
 
 
 def _wav_total_frames(path: Path) -> int:
@@ -585,10 +611,12 @@ def create_app(project_root: Path) -> FastAPI:
                     [str(rt_exe), str(plan_path), str(root / "build" / "components"),
                      str(plan.sample_rate), str(plan.block_size)],
                     cwd=rec.directory,
+                    log_sink=_session_log_sink(rec, "dynamic-device"),
                 )
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             return {"mode": "realtime", "status": "started", "pid": session.proc.pid,
+                    "log_path": "logs/dynamic-device.log",
                     "built_components": built, "ignored_nodes": plan.ignored_nodes}
 
         if pace:
@@ -600,8 +628,10 @@ def create_app(project_root: Path) -> FastAPI:
                 [str(rt_exe), str(plan_path), str(root / "build" / "components"),
                  "--pace", "--probe-interval", "200"],
                 cwd=rec.directory,
+                log_sink=_session_log_sink(rec, "dynamic-paced"),
             )
             return {"mode": "offline_live", "status": "started", "pid": session.proc.pid,
+                    "log_path": "logs/dynamic-paced.log",
                     "built_components": built, "ignored_nodes": plan.ignored_nodes}
 
         exe = ensure_runtime_built()
@@ -625,12 +655,16 @@ def create_app(project_root: Path) -> FastAPI:
             for p in (project_dir / "outputs").rglob("*")
             if p.is_file()
         )
+        log_path = _archive_completed_run(
+            rec, "dynamic-batch", result.stdout, result.stderr,
+        )
         return {
             "mode": "offline",
             "status": "ok" if result.returncode == 0 else "error",
             "returncode": result.returncode,
             "stdout": result.stdout,
             "stderr": result.stderr,
+            "log_path": log_path,
             "built_components": built,
             "ignored_nodes": plan.ignored_nodes,
             "outputs": outputs,
@@ -679,7 +713,10 @@ def create_app(project_root: Path) -> FastAPI:
             # win 实时宿主（host_win.c）：设备时钟长跑进程，协议与 rt_host 一致
             # （stdin SET/GET/BULK/STOP，stdout LOG/PROBE），直接复用 rt 会话机制。
             try:
-                session = rt_sessions.start(name, [str(exe)], cwd=rec.directory)
+                session = rt_sessions.start(
+                    name, [str(exe)], cwd=rec.directory,
+                    log_sink=_session_log_sink(rec, "generated-device"),
+                )
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             return {
@@ -687,6 +724,7 @@ def create_app(project_root: Path) -> FastAPI:
                 "status": "started",
                 "pid": session.proc.pid,
                 "generated": True,
+                "log_path": "logs/generated-device.log",
                 "ignored_nodes": plan.ignored_nodes,
                 "generated_path": str(gen_dir.relative_to(rec.directory)),
                 "download_url": f"/api/projects/{name}/generated/archive",
@@ -728,12 +766,16 @@ def create_app(project_root: Path) -> FastAPI:
             for p in (project_dir / "outputs").rglob("*")
             if p.is_file()
         )
+        log_path = _archive_completed_run(
+            rec, "generated-batch", result.stdout, result.stderr,
+        )
         return {
             "mode": "generated",
             "status": "ok" if result.returncode == 0 else "error",
             "returncode": result.returncode,
             "stdout": result.stdout,
             "stderr": result.stderr,
+            "log_path": log_path,
             "blocks": blocks,
             "ignored_nodes": plan.ignored_nodes,
             "outputs": outputs,
@@ -840,10 +882,12 @@ def create_app(project_root: Path) -> FastAPI:
                 [str(rt_exe), str(plan_path), str(root / "build" / "components"),
                  str(plan.sample_rate), str(plan.block_size)],
                 cwd=rec.directory,
+                log_sink=_session_log_sink(rec, "dynamic-local"),
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"status": "started", "pid": session.proc.pid}
+        return {"status": "started", "pid": session.proc.pid,
+            "log_path": "logs/dynamic-local.log"}
 
     def _rt_start_serial(name: str, rec, req: RtStartRequest) -> dict[str, Any]:
         """串口目标：对运行生成代码的远程设备开控制会话（不需要本地编译/rt_host）。"""
@@ -851,7 +895,7 @@ def create_app(project_root: Path) -> FastAPI:
             raise HTTPException(status_code=400, detail="串口目标需要 port（如 COM3 / /dev/ttyUSB0）")
         from orpheus_core.link.serial_port import SerialTransport
         from orpheus_core.server.serial_session import SerialSession
-        _, plan_path = compile_record(rec)
+        plan, plan_path = compile_record(rec)
         import json as _json
         plan_dict = _json.loads(plan_path.read_text(encoding="utf-8"))
         id_map = plan_dict.get("id_map", [])
@@ -861,13 +905,33 @@ def create_app(project_root: Path) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"打开串口失败: {exc}") from exc
-        session = SerialSession(transport, id_map)
+        bridge = next((item for item in plan.bridges
+                       if item.get("enabled", True)
+                       and item.get("transport") == "uart"), None)
+        params = bridge.get("params", {}) if bridge else {}
+        duplex = DuplexMode(str(params.get("duplex", "half")))
+        capabilities = BridgeCapabilities(
+            duplex=duplex,
+            unsolicited=duplex is DuplexMode.FULL,
+            pipelined_calls=duplex is DuplexMode.FULL,
+        )
+        probe_interval = max(
+            0.0, float(params.get("probe_interval_ms", 200.0) or 0.0) / 1000.0,
+        )
+        session = SerialSession(
+            transport, id_map,
+            log_sink=_session_log_sink(rec, "serial-bridge"),
+            capabilities=capabilities,
+            probe_interval=probe_interval,
+        )
         try:
             rt_sessions.adopt(name, session)
         except RuntimeError as exc:
             session.close()
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"status": "started", "target": "serial", "port": req.port, "baud": req.baud}
+        return {"status": "started", "target": "serial", "port": req.port,
+            "baud": req.baud, "duplex": duplex.value,
+            "log_path": "logs/serial-bridge.log"}
 
     @app.post("/api/projects/{name}/rt/stop")
     def rt_stop(name: str) -> dict[str, Any]:
