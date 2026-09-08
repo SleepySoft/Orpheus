@@ -398,9 +398,15 @@ class CodeGenerator:
         lines.append('static uint32_t g_graph_initialized = 0;')
         lines.append('static size_t g_created_nodes = 0;')
         lines.append('static uint64_t g_block_counter = 0;')
+        lines.append('static uint64_t g_frame_index = 0;')
+        lines.append('static uint64_t g_timeline_epoch = 0;')
+        lines.append('static uint32_t g_timeline_flags = ORPHEUS_TIMELINE_DISCONTINUITY;')
         for task in getattr(plan, "tasks", []):
+            task_sym = self._sanitized_node_id(task["id"])
+            lines.append(f'static uint64_t g_task_counter_{task_sym} = 0;')
+            lines.append(f'static uint64_t g_task_frame_index_{task_sym} = 0;')
             lines.append(
-                f'static uint64_t g_task_counter_{self._sanitized_node_id(task["id"])} = 0;'
+                f'static uint32_t g_task_timeline_flags_{task_sym} = ORPHEUS_TIMELINE_DISCONTINUITY;'
             )
         lines.append('static void orpheus_graph_clear_error(void) {')
         lines.append('    g_graph_error.operation = "";')
@@ -751,8 +757,16 @@ class CodeGenerator:
         lines.append('        return orpheus_graph_fail("init", "", "", ORPHEUS_ERR_INVALID_ARG);')
         lines.append('    orpheus_control_reset();')
         lines.append('    g_block_counter = 0;')
+        lines.append('    g_frame_index = 0;')
+        lines.append('    g_timeline_epoch++;')
+        lines.append('    g_timeline_flags = ORPHEUS_TIMELINE_DISCONTINUITY;')
         for task in getattr(plan, "tasks", []):
-            lines.append(f'    g_task_counter_{self._sanitized_node_id(task["id"])} = 0;')
+            task_sym = self._sanitized_node_id(task["id"])
+            lines.append(f'    g_task_counter_{task_sym} = 0;')
+            lines.append(f'    g_task_frame_index_{task_sym} = 0;')
+            lines.append(
+                f'    g_task_timeline_flags_{task_sym} = ORPHEUS_TIMELINE_DISCONTINUITY;'
+            )
         for i in range(len(bridge_copies)):
             lines.append(f'    g_bridge_cursor_{i} = 0;')
         for i in range(len(task_bridge_copies)):
@@ -895,7 +909,7 @@ class CodeGenerator:
         lines.append(f'    ctx.sample_rate = {plan.sample_rate};')
         lines.append('    ctx.scratch = NULL;')
         lines.append('    ctx.scratch_size = 0;')
-        lines.append('    ctx.timestamp = 0.0;')
+        lines.append('    const uint32_t advance = frame_count > 0 ? frame_count : ORPHEUS_GRAPH_TICK;')
         lines.append("")
         lines.append('    orpheus_control_commit_bulk();')
         lines.append('')
@@ -925,6 +939,14 @@ class CodeGenerator:
             node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
             lines.append(f'{indent}ctx.sample_rate = {node_sr};')
             lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
+            lines.append(f'{indent}ctx.frame_index = (g_block_counter / {period}u) * (uint64_t)ctx.frame_count;')
+            lines.append(f'{indent}ctx.timestamp = ctx.sample_rate > 0 ? (double)ctx.frame_index / (double)ctx.sample_rate : 0.0;')
+            lines.append(f'{indent}ctx.epoch = g_timeline_epoch;')
+            lines.append(f'{indent}ctx.valid_frames = ctx.frame_count;')
+            lines.append(
+                f'{indent}ctx.timeline_flags = g_timeline_flags | '
+                f'(g_block_counter < {period}u ? ORPHEUS_TIMELINE_DISCONTINUITY : ORPHEUS_TIMELINE_NONE);'
+            )
             lines.append(f'{indent}ctx.inputs = (const OrpheusBuffer* const*){in_name};')
             lines.append(f'{indent}ctx.outputs = {out_name};')
             lines.append(f'{indent}ctx.input_count = {n_in};')
@@ -954,6 +976,8 @@ class CodeGenerator:
             lines.append('')
             lines.append('    control_tick();  /* 控制链路：两相快照（先全读后全写），每图块一次 */')
         lines.append('    g_block_counter++;')
+        lines.append('    g_frame_index += advance;')
+        lines.append('    g_timeline_flags = ORPHEUS_TIMELINE_NONE;')
         lines.append('    return ORPHEUS_OK;')
         lines.append('}')
         lines.append("")
@@ -985,7 +1009,11 @@ class CodeGenerator:
             lines.append(f'    ctx.sample_rate = {int(task.get("sample_rate", plan.sample_rate))};')
             lines.append('    ctx.scratch = NULL;')
             lines.append('    ctx.scratch_size = 0;')
-            lines.append('    ctx.timestamp = 0.0;')
+            task_tick = int((task.get("schedule") or {}).get("tick", 0)) \
+                or int(task.get("block_size", plan.block_size))
+            lines.append(
+                f'    const uint32_t advance = frame_count > 0 ? frame_count : {task_tick}u;'
+            )
             lines.append('    orpheus_control_commit_bulk();')
             if task_has_platform_io:
                 lines.append('    orpheus_platform_io_pre_block();')
@@ -1011,6 +1039,21 @@ class CodeGenerator:
                 node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
                 lines.append(f'{indent}ctx.sample_rate = {node_sr};')
                 lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
+                lines.append(
+                    f'{indent}ctx.frame_index = (g_task_counter_{task_sym} / {period}u) '
+                    f'* (uint64_t)ctx.frame_count;'
+                )
+                lines.append(
+                    f'{indent}ctx.timestamp = ctx.sample_rate > 0 ? '
+                    f'(double)ctx.frame_index / (double)ctx.sample_rate : 0.0;'
+                )
+                lines.append(f'{indent}ctx.epoch = g_timeline_epoch;')
+                lines.append(f'{indent}ctx.valid_frames = ctx.frame_count;')
+                lines.append(
+                    f'{indent}ctx.timeline_flags = g_task_timeline_flags_{task_sym} | '
+                    f'(g_task_counter_{task_sym} < {period}u '
+                    f'? ORPHEUS_TIMELINE_DISCONTINUITY : ORPHEUS_TIMELINE_NONE);'
+                )
                 lines.append(f'{indent}ctx.inputs = (const OrpheusBuffer* const*){in_name};')
                 lines.append(f'{indent}ctx.outputs = {out_name};')
                 lines.append(f'{indent}ctx.input_count = {n_in};')
@@ -1065,6 +1108,8 @@ class CodeGenerator:
                     )
                     lines.append('    }')
             lines.append(f'    g_task_counter_{task_sym}++;')
+            lines.append(f'    g_task_frame_index_{task_sym} += advance;')
+            lines.append(f'    g_task_timeline_flags_{task_sym} = ORPHEUS_TIMELINE_NONE;')
             lines.append('    return ORPHEUS_OK;')
             lines.append('}')
             lines.append("")

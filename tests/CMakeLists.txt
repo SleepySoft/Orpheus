@@ -12,6 +12,24 @@ add_executable(loader_smoke loader_smoke.cpp)
 target_link_libraries(loader_smoke PRIVATE orpheus_runtime_lib)
 add_test(NAME loader_smoke COMMAND loader_smoke $<TARGET_FILE:orpheus_builtin_gain>)
 
+add_library(timeline_probe_component SHARED timeline_probe_component.c)
+target_include_directories(timeline_probe_component PRIVATE
+	${CMAKE_SOURCE_DIR}/orpheus_abi/include
+)
+target_compile_definitions(timeline_probe_component PRIVATE ORPHEUS_BUILDING_COMPONENT)
+set_target_properties(timeline_probe_component PROPERTIES
+	OUTPUT_NAME orpheus_test_timeline_probe
+	PREFIX lib
+	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests/timeline_components
+	LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests/timeline_components
+)
+
+add_executable(timeline_runtime_smoke timeline_runtime_smoke.cpp)
+target_link_libraries(timeline_runtime_smoke PRIVATE orpheus_runtime_lib)
+add_test(NAME timeline_runtime_smoke
+	COMMAND timeline_runtime_smoke $<TARGET_FILE_DIR:timeline_probe_component>
+)
+
 add_executable(rnc_mimo_nlms_smoke
 	rnc_mimo_nlms_smoke.c
 	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rnc_mimo_nlms/src/rnc_mimo_nlms.c

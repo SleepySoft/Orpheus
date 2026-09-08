@@ -233,3 +233,24 @@ def test_file_graph_unchanged(registry, tmp_path) -> None:
     assert "add_executable(orpheus_generated_cli src/host_cli.c)" in cmake
     cmake = (tmp_path / "CMakeLists.txt").read_text(encoding="utf-8")
     assert "winmm" not in cmake
+
+
+def test_generated_graph_advances_absolute_timeline(registry, tmp_path) -> None:
+    project = _project(
+        nodes=[
+            _node("sig", "orpheus.builtin.signal_gen",
+                  params={"sample_rate": 48000, "channels": 1}),
+            _node("sink", "orpheus.builtin.null_sink", params={"channels": 1}),
+        ],
+        connections=[Connection(PortRef.parse("sig:out"), PortRef.parse("sink:in"))],
+    )
+    _generate(registry, project, tmp_path)
+    source = (tmp_path / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
+
+    assert "static uint64_t g_frame_index = 0;" in source
+    assert "static uint64_t g_timeline_epoch = 0;" in source
+    assert "ctx.frame_index = (g_block_counter / 1u) * (uint64_t)ctx.frame_count;" in source
+    assert "ctx.timestamp = ctx.sample_rate > 0 ? (double)ctx.frame_index / (double)ctx.sample_rate : 0.0;" in source
+    assert "ctx.timeline_flags = g_timeline_flags |" in source
+    assert "g_frame_index += advance;" in source
+    assert "g_timeline_flags = ORPHEUS_TIMELINE_NONE;" in source

@@ -56,7 +56,9 @@ class OrpheusProcessContext(ctypes.Structure):
                 ("input_count", ctypes.c_uint32), ("output_count", ctypes.c_uint32),
                 ("frame_count", ctypes.c_uint32), ("sample_rate", ctypes.c_uint32),
                 ("scratch", ctypes.c_void_p), ("scratch_size", ctypes.c_size_t),
-                ("timestamp", ctypes.c_double)]
+                ("timestamp", ctypes.c_double),
+                ("frame_index", ctypes.c_uint64), ("epoch", ctypes.c_uint64),
+                ("valid_frames", ctypes.c_uint32), ("timeline_flags", ctypes.c_uint32)]
 
 
 CB = ctypes.CFUNCTYPE
@@ -118,7 +120,8 @@ def _run(iface: Iface, params: dict, sig: list[float], channels: int = 1) -> lis
         n = min(BLOCK, n_total - pos)
         inbuf.data = inarr.buffer_info()[0] + pos * 4 * channels
         inbuf.frame_count = n
-        ctx = OrpheusProcessContext(None, ins, outs, 1, 1, n, SR, None, 0, 0.0)
+        ctx = OrpheusProcessContext(None, ins, outs, 1, 1, n, SR, None, 0, 0.0,
+                        0, 1, n, 1)
         assert iface.process(st, ctypes.byref(ctx)) == 0
         out.extend(outarr[:n])
         pos += n

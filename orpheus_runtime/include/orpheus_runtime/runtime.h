@@ -166,6 +166,11 @@ private:
     std::map<uint32_t, RegisteredHook> hooks_;         // 外部注册 hook（按 route_id）
     uint64_t block_counter_ = 0;  // for rate-divisor scheduling
     std::map<std::string, uint64_t> task_counters_;  // per-Task entry scheduling counters
+    uint64_t frame_index_ = 0;    // 全局入口主时间线绝对帧位置
+    uint64_t timeline_epoch_ = 1;
+    uint32_t timeline_flags_ = ORPHEUS_TIMELINE_DISCONTINUITY;
+    std::map<std::string, uint64_t> task_frame_indices_;  // 每 Task 所属时间线位置
+    std::map<std::string, uint32_t> task_timeline_flags_;
 
     // 控制链路运行态：快照与字符串缓冲在 load_plan 预分配，process 路径零 malloc。
     struct ControlLinkState {
@@ -185,7 +190,8 @@ private:
     void control_tick_for_task(const std::string* task_id);
     int process_nodes(const std::vector<std::string>& execution_order,
                       const std::map<std::string, uint32_t>* periods,
-                      uint64_t counter, uint32_t frame_count, bool task_mode = false);
+                      uint64_t counter, uint32_t frame_count,
+                      uint32_t timeline_flags, bool task_mode = false);
     void task_bridge_push(TaskBridge& bridge);
     void task_bridge_pop(TaskBridge& bridge);
     void update_task_bridge_probes(TaskBridge& bridge);

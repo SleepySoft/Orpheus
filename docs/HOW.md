@@ -147,13 +147,13 @@ execution:
   realtime_safe: true
 ```
 
-### 3.3 C ABI 演进（当前 v3）
+### 3.3 C ABI 演进（当前 v4）
 
-下方代码是最初 v1 契约的历史简化快照，用于说明 ABI 的基本形状，**不是当前可复制的头文件**。当前唯一契约以 `orpheus_abi/include/orpheus_abi.h` 为准：v2 追加统一 state arena 与 `register_slots`，v3 在接口表尾部追加消息 `hook`；当前 `ORPHEUS_ABI_VERSION` 为 3。
+下方代码是最初 v1 契约的历史简化快照，用于说明 ABI 的基本形状，**不是当前可复制的头文件**。当前唯一契约以 `orpheus_abi/include/orpheus_abi.h` 为准：v2 追加统一 state arena 与 `register_slots`，v3 在接口表尾部追加消息 `hook`，v4 在处理上下文尾部追加绝对帧时间线；当前 `ORPHEUS_ABI_VERSION` 为 4。
 
 ```c
 // orpheus_abi.h
-#define ORPHEUS_ABI_VERSION 1  /* 历史 v1 快照；当前头文件为 v3 */
+#define ORPHEUS_ABI_VERSION 1  /* 历史 v1 快照；当前头文件为 v4 */
 
 typedef struct OrpheusComponentDescriptor {
     const char* id;
@@ -732,7 +732,7 @@ orpheus_platform_memory_section_bind(...);
 - **执行触发自动推导**：`POST /api/projects/{name}/run` 检测有效图中的 device_in/device_out；有设备时进入声卡 callback 宿主 `rt_host`，无设备时进入主动推进宿主 `orpheus_runtime`。后者称“无设备批处理”（旧称离线运行）。
 - **pacing 属于主动推进器**：无设备批处理默认全速；`pace=true` / UI“真实时长”只让执行器循环按墙钟等待，便于观察进度和 Probe，不提供硬实时保证。它不写进 source 参数；外部节拍触发不适用 pace。
 - **访问端点不启动另一份图**：本机端点连接本地宿主；串口端点连接远程设备上已运行的生成图。它只改变 Access Bridge，不改变执行实现或执行触发。
-- **时间线独立于触发**：`clock_source/clock_domain` 描述图内数据时间根；执行触发只决定何时推进。当前已有静态 tick/period，但绝对 frame index、epoch/EOS、路径延迟和独立时钟漂移仍按 `design_timeline.md` 分阶段完善。
+- **时间线独立于触发**：`clock_source/clock_domain` 描述图内数据时间根；执行触发只决定何时推进。当前 ABI v4 和动态/生成路径已提供节点本地绝对 frame index、派生 timestamp、初始 epoch/discontinuity；reset/seek 传播、EOS、路径延迟和独立时钟漂移仍按 `design_timeline.md` 分阶段完善。
 - **rt_host 按图组合设备**：in+out+mic=duplex；in+out+loopback=环回+播放双设备；仅 out（如 wav_in/signal_gen → device_out）=播放回调驱动、图语义时钟源仍是数据源组件；仅 in=采集/环回时钟（系统声音录到 WAV）。
 - **生成器修复**：组件入口函数支持 `ORPHEUS_ENTRY_NAME` 宏（静态链接时各组件入口唯一，修复了之前所有节点共享第一个组件入口符号导致的崩溃——此前生成工程只验证过编译未验证运行）；生成参数表（类型化 OrpheusValue）传入 prepare；Buffer 指针按端口 ID 槽位绑定；ABI 头文件随工程复制（自包含，可脱离仓库编译）；main 支持 argv 指定块数。
 - **一致性测试**：`test_generated_run_matches_dynamic_run` 对同一工程分别走动态/生成两条路径，逐字节比较输出 WAV（设计原则 5 的自动化落实）。

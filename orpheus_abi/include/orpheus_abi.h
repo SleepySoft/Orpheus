@@ -12,8 +12,9 @@ extern "C" {
 /* ABI 版本
    v2: 资源槽注册（register_slots）+ 实例内存块下发（OrpheusConfig.state_block）。
    v3: 接口表尾部追加统一 hook（外部注册 hook 优先于组件 hook）。
+    v4: OrpheusProcessContext 尾部追加绝对帧时间线（frame_index/epoch/flags）。
    组件接口表尾部追加字段，旧 DLL 由 Runtime 按版本号规避访问。 */
-#define ORPHEUS_ABI_VERSION 3
+#define ORPHEUS_ABI_VERSION 4
 
 /* 平台导出宏 */
 #ifndef ORPHEUS_API
@@ -314,6 +315,14 @@ typedef struct {
 } OrpheusBuffer;
 
 /* 处理上下文 */
+typedef enum {
+    ORPHEUS_TIMELINE_NONE = 0,
+    ORPHEUS_TIMELINE_DISCONTINUITY = 1u << 0,
+    ORPHEUS_TIMELINE_EOS = 1u << 1,
+    ORPHEUS_TIMELINE_CONCEALED = 1u << 2,
+    ORPHEUS_TIMELINE_DROPPED = 1u << 3
+} OrpheusTimelineFlags;
+
 typedef struct {
     void* state;
     const OrpheusBuffer* const* inputs;
@@ -324,7 +333,11 @@ typedef struct {
     uint32_t sample_rate;    /* 当前处理采样率 */
     void* scratch;
     size_t scratch_size;
-    double timestamp;        /* 秒，可选 */
+    double timestamp;        /* 秒 = frame_index / sample_rate（兼容字段） */
+    uint64_t frame_index;    /* 本块首帧在所属时间线的绝对位置 */
+    uint64_t epoch;          /* reset/seek/restart 后递增；0 表示未提供 */
+    uint32_t valid_frames;   /* 本块有效帧数；通常等于 frame_count */
+    uint32_t timeline_flags; /* OrpheusTimelineFlags 位图 */
 } OrpheusProcessContext;
 
 /* 配置上下文（prepare 时传入） */

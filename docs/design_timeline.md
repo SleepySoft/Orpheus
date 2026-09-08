@@ -84,15 +84,23 @@ node_configs[node].frames / sample_rate / period
 
 主动推进宿主按 WAV 总帧数、`duration_frames` 或默认时长决定停止；pacing 使用 `processed_frames / sample_rate` 与 monotonic wall clock 对齐。
 
+### 3.5 绝对块时间（P0 基础已实现）
+
+- ABI v4 在 `OrpheusProcessContext` 尾部追加 `frame_index / epoch / valid_frames / timeline_flags`；
+- 动态 Runtime 与生成图均按节点所属速率域填写块首帧位置，`timestamp` 由 `frame_index / sample_rate` 派生；
+- 全局入口和每个 Task 保存独立推进计数，首次实际触发的块带 `DISCONTINUITY`；
+- 周期节点第一次实际触发仍从本地 `frame_index=0` 开始，例如 24 kHz、128 帧、period=2 的节点依次收到 0、128；
+- 当前 `valid_frames` 等于 `frame_count`，EOS/尾块/欠载传播留在 P1。
+
 ## 4. 当前关键缺口
 
-### 4.1 没有绝对样本位置
+### 4.1 绝对样本位置尚未贯通边界
 
-`OrpheusProcessContext.timestamp` 字段存在，但动态 Runtime 和生成代码都固定写入 `0.0`。组件无法知道当前块对应时间线的哪一段，也无法做确定性的时间戳、自动化或跨流对齐。
+组件处理上下文已有绝对本地帧位置，但 plan 尚未声明正式 timeline id/有理数映射；异步桥、Observation、外部输入输出也未携带时间元数据，因此还不能跨 Task/设备域完成确定性对齐。
 
-### 4.2 没有 epoch 和不连续语义
+### 4.2 epoch 和不连续语义仅有起点
 
-reset、seek、重新启动、文件切换、欠载补零目前没有统一的 timeline epoch / discontinuity 标志。组件无法区分连续音频和时间跳变。
+图初始化时已有非零 epoch，首次实际触发带 `DISCONTINUITY`；但动态 Runtime reset/reload、文件 seek/切换、异步桥欠载补零尚未统一递增 epoch 或传播 discontinuity。
 
 ### 4.3 Task 时间线仍近似全局单速率
 
@@ -183,11 +191,12 @@ typedef struct OrpheusTimelineContext {
 
 ### P0：建立绝对图时间
 
-1. Runtime 与生成器按实际处理帧推进 `frame_index`，不再把 timestamp 固定为 0；
-2. 每个 Task 保存自己的 frame counter，process context 传首帧位置；
-3. reset/restart 增加 epoch，首次块带 DISCONTINUITY；
-4. 动态/生成一致性测试验证每个节点收到相同 frame index；
-5. plan 显式记录执行触发 `external|active`，UI 只在 active 下显示 pacing。
+- [x] Runtime 与生成器按实际处理帧推进 `frame_index`，不再把 timestamp 固定为 0；
+- [x] 每个 Task 保存自己的 frame counter，process context 传节点所属速率域的块首帧位置；
+- [x] 图初始化后的首次实际触发带非零 epoch 和 DISCONTINUITY；
+- [ ] reset/seek/restart 统一递增 epoch，并把不连续状态传播到桥和下游；
+- [ ] 动态/生成一致性测试通过测试组件观测并比较每个节点收到的时间字段；
+- [ ] plan 显式记录执行触发 `external|active`，UI 只在 active 下显示 pacing。
 
 这是后续能力的基础，优先级最高。
 

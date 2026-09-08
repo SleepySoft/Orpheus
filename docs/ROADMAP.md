@@ -6,7 +6,7 @@
 
 - YAML 图、组件 Registry、编译器、C/C++ Runtime、React Flow 编辑器。
 - 文件与设备音频、实时参数和探针、动态加载与独立 C 工程生成。
-- ABI v3、统一 arena、32 位数据 ID、BULK 双 Bank、消息协议。
+- ABI v4（处理上下文含绝对帧时间）、统一 arena、32 位数据 ID、BULK 双 Bank、消息协议。
 - 子组件递归展开、目标平台/alter、OLINK/串口会话、控制参数链路。
 - 多速率静态调度与 `rate_sync` 合流；动态和生成路径一致性测试。
 - 生成图本体 `orpheus_graph` 静态库与宿主解耦；最小 main、PC CLI、Windows 宿主各自独立。
@@ -15,8 +15,8 @@
 
 ## 当前验证基线
 
-- pytest：242 passed，1 skipped（可选演示组件未安装）。
-- CTest：4/4（ABI、loader、RNC MIMO NLMS、BAF SoftClipper）。
+- pytest：244 passed，1 skipped（可选演示组件未安装）。
+- CTest：5/5（ABI、loader、绝对时间线、RNC MIMO NLMS、BAF SoftClipper）。
 - 前端：Jest 15/15、生产构建、Playwright 核心流程通过。
 - BAF：ASM 48-target、SAS 68-target 独立生成工程构建成功；ASM 全局及关键 Task 入口运行通过。
 
@@ -77,7 +77,9 @@
 
 ## P4 时间线模型
 
-- [ ] P0：动态/生成路径按实际帧推进绝对 `frame_index`，增加 epoch/discontinuity，并在 plan 中显式记录外部节拍/主动推进触发。
+- [x] P0a：ABI v4 增加 `frame_index/epoch/valid_frames/timeline_flags`；动态/生成路径填写节点本地绝对帧和派生 timestamp，Task 独立推进，首次触发标记 discontinuity。
+- [ ] P0b：reset/seek/restart 递增 epoch；动态/生成通过可观测测试组件逐字段一致性验证。
+- [ ] P0c：plan 显式记录外部节拍/主动推进触发，UI 只在 active 下显示 pacing。
 - [ ] P1：source EOS/valid_frames 正式传播；汇总 `latency_samples`，生成 source-to-sink 延迟报告与合流补偿策略。
 - [ ] P2：Task 独立时间线、明确 clock master、有理数速率映射；异步桥增加时间戳、sequence、drift ppm 与 ASRC/PLL 策略。
 - [ ] P3：参数事件支持 target frame/sample offset；Observation 统一携带 timeline/epoch/frame/sequence/dropped，支持确定性录制重放。

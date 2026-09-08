@@ -2,6 +2,13 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/ROADMAP.md`，不要把旧条目当作现状。
 
+## 2026-09-08（第五十一次：绝对块时间 P0 基础）
+
+- ABI 升至 v4，在 `OrpheusProcessContext` 尾部追加 `frame_index / epoch / valid_frames / timeline_flags`，保留既有字段布局；`timestamp` 改为由整数帧位置和节点采样率派生。
+- 动态 Runtime 与生成图同时实现全局入口、per-Task 入口的时间推进；节点按所属速率域获得本地绝对帧，首次实际触发带非零 epoch 和 `DISCONTINUITY`。
+- 新增测试 C ABI probe 和 Runtime smoke，覆盖全局/Task 连续两块 `0 → 128`，以及 period=2、24 kHz 派生速率首次触发仍从 0 开始；生成源码测试覆盖等价上下文赋值。
+- 尚未交付 reset/seek epoch 传播、EOS/尾块有效帧、plan trigger 字段，以及通过同一观测组件做动态/生成逐字段比较；这些保留为时间线 P0b/P0c 与 P1。
+
 ## 2026-09-08（第五十次：运行模型术语定案）
 
 - 将混用的“动态/生成、实时/离线、真实时长、串口运行”收敛为三个顶层维度：执行实现、执行触发、访问端点；全速/按现实时间下沉为主动推进的 pacing 子配置。

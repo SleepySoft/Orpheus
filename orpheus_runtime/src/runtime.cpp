@@ -65,6 +65,17 @@ Runtime::~Runtime() {
 
 int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
     plan_ = plan;
+    block_counter_ = 0;
+    task_counters_.clear();
+    frame_index_ = 0;
+    timeline_epoch_ = 1;
+    timeline_flags_ = ORPHEUS_TIMELINE_DISCONTINUITY;
+    task_frame_indices_.clear();
+    task_timeline_flags_.clear();
+    for (const auto& task : plan_.tasks) {
+        task_frame_indices_[task.id] = 0;
+        task_timeline_flags_[task.id] = ORPHEUS_TIMELINE_DISCONTINUITY;
+    }
     std::string abs_component_dir = to_absolute_path(component_dir);
 
     // Create component interfaces (one per component type)
@@ -1145,11 +1156,11 @@ void Runtime::update_task_bridge_probes(TaskBridge& bridge) {
 
 int Runtime::process_nodes(const std::vector<std::string>& execution_order,
                            const std::map<std::string, uint32_t>* periods,
-                           uint64_t counter, uint32_t frame_count, bool task_mode) {
+                           uint64_t counter, uint32_t frame_count,
+                           uint32_t timeline_flags, bool task_mode) {
     OrpheusProcessContext ctx;
     ctx.scratch = nullptr;
     ctx.scratch_size = 0;
-    ctx.timestamp = 0.0;
 
     for (const auto& node_id : execution_order) {
         const NodeConfig& cfg = plan_.node_configs[node_id];
@@ -1178,6 +1189,14 @@ int Runtime::process_nodes(const std::vector<std::string>& execution_order,
         ctx.input_count = static_cast<uint32_t>(inst.inputs.size());
         ctx.output_count = static_cast<uint32_t>(inst.outputs.size());
         ctx.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : plan_.sample_rate;
+        ctx.frame_index = (counter / period) * static_cast<uint64_t>(ctx.frame_count);
+        ctx.timestamp = ctx.sample_rate > 0
+            ? static_cast<double>(ctx.frame_index) / static_cast<double>(ctx.sample_rate)
+            : 0.0;
+        ctx.epoch = timeline_epoch_;
+        ctx.valid_frames = ctx.frame_count;
+        ctx.timeline_flags = timeline_flags
+            | (counter < period ? ORPHEUS_TIMELINE_DISCONTINUITY : ORPHEUS_TIMELINE_NONE);
 
         int result = inst.interface_->process(inst.state, &ctx);
         if (result != ORPHEUS_OK) {
@@ -1206,10 +1225,17 @@ int Runtime::process_nodes(const std::vector<std::string>& execution_order,
 
 int Runtime::process_block(uint32_t frame_count) {
     commit_bulk();
-    const int result = process_nodes(plan_.execution_order, nullptr, block_counter_, frame_count);
+    const uint32_t advance = frame_count > 0
+        ? frame_count
+        : (plan_.schedule_tick > 0 ? plan_.schedule_tick : plan_.block_size);
+    const int result = process_nodes(
+        plan_.execution_order, nullptr, block_counter_, frame_count,
+        timeline_flags_);
     if (result != 0) return result;
     control_tick();
     block_counter_++;
+    frame_index_ += advance;
+    timeline_flags_ = ORPHEUS_TIMELINE_NONE;
     return 0;
 }
 
@@ -1225,10 +1251,19 @@ int Runtime::process_task(const std::string& task_id, uint32_t frame_count) {
 
     commit_bulk();
     uint64_t& counter = task_counters_[task_id];
-    const int result = process_nodes(task->execution_order, &task->periods, counter, frame_count, true);
+    uint64_t& frame_index = task_frame_indices_[task_id];
+    uint32_t& timeline_flags = task_timeline_flags_[task_id];
+    const uint32_t advance = frame_count > 0
+        ? frame_count
+        : (task->schedule_tick > 0 ? task->schedule_tick : task->block_size);
+    const int result = process_nodes(
+        task->execution_order, &task->periods, counter, frame_count,
+        timeline_flags, true);
     if (result != 0) return result;
     control_tick_for_task(&task_id);
     counter++;
+    frame_index += advance;
+    timeline_flags = ORPHEUS_TIMELINE_NONE;
     return ORPHEUS_OK;
 }
 
