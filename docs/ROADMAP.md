@@ -11,6 +11,7 @@
 - 多速率静态调度与 `rate_sync` 合流；动态和生成路径一致性测试。
 - 生成图本体 `orpheus_graph` 静态库与宿主解耦；最小 main、PC CLI、Windows 宿主各自独立。
 - 运行三轴层级术语定案：执行实现、执行触发、访问端点为顶层维度；全速/按现实时间归入主动推进 pacing；图时间线独立建模，“离线运行”迁移为“无设备批处理”。
+- alter 连通组在画布自动绘制「N 选 1」框，平台专属节点以有文字的彩色徽标和边框区分；不改变工程格式或解析语义。
 - Bridge 主机核心：半双工单请求基线、全双工流水化能力、可替换 Transport/Codec，以及异步文件日志 Sink。
 - HLOS Transport：stdio/process 双管道、TCP、Windows Named Pipe/POSIX Unix Socket、长度前缀 Codec 与可替换 Adapter 注册表。
 - 73 个内置组件，均有组件 README。
@@ -19,7 +20,7 @@
 
 - pytest：264 passed，1 skipped（可选演示组件未安装）。
 - CTest：5/5（ABI、loader、绝对时间线、RNC MIMO NLMS、BAF SoftClipper）。
-- 前端：Jest 15/15、生产构建、Playwright 核心流程通过。
+- 前端：Jest 17/17、生产构建、Playwright 2/2 核心流程通过。
 - BAF：ASM 48-target、SAS 68-target 独立生成工程构建成功；ASM 全局及关键 Task 入口运行通过。
 
 ## P0 工程基线

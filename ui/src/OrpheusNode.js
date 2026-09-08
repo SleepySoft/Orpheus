@@ -13,6 +13,13 @@ export default function OrpheusNode({ id, data, selected }) {
   const outputs = ports.filter((p) => p.direction === 'output');
   const isSub = (data.component || '').startsWith('sub:');
   const isBridge = !!data.bridgeConfig;
+  const platformTone = (() => {
+    const platforms = data.platforms || [];
+    if (platforms.length !== 1) return platforms.length > 1 ? 'multi' : '';
+    if (platforms[0] === 'win') return 'win';
+    if (platforms[0] === 'dsp') return 'dsp';
+    return 'other';
+  })();
   const shortName = data.missing
     ? '未映射组件'
     : isBridge
@@ -158,7 +165,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
           color="#4cc9f0"
         />
       )}
-      <div className={`orpheus-node audio-node ${showControlLinks ? 'control-mode' : ''} ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${isBridge ? 'bridge-config-node' : ''} ${data.missing ? 'missing' : ''} ${noiseStatusClass(data)}`}>
+      <div className={`orpheus-node audio-node ${showControlLinks ? 'control-mode' : ''} ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${isBridge ? 'bridge-config-node' : ''} ${data.missing ? 'missing' : ''} ${platformTone ? `platform-${platformTone}` : ''} ${noiseStatusClass(data)}`}>
       <div className="node-header">
         <div className="node-title">
           {data.label}
@@ -182,8 +189,8 @@ const BodyWidget = NODE_WIDGETS[data.component];
             </span>
           )}
           {Array.isArray(data.platforms) && data.platforms.length > 0 && (
-            <span className="platform-badge" title={`适用平台：${data.platforms.join(' / ')}`}>
-              {data.platforms.join('/')}
+            <span className={`platform-badge platform-badge-${platformTone}`} title={`适用平台：${data.platforms.join(' / ')}`}>
+              {data.platforms.map((platform) => platform.toUpperCase()).join('/')} 平台
             </span>
           )}
         </div>

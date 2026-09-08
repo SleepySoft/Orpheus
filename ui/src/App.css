@@ -857,6 +857,7 @@
 .canvas {
   flex: 1;
   position: relative;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -1295,6 +1296,19 @@ button.danger {
   background: #edf2ff;
 }
 
+.orpheus-node.platform-win {
+  border-left: 5px solid #1971c2;
+}
+
+.orpheus-node.platform-dsp {
+  border-left: 5px solid #d97706;
+}
+
+.orpheus-node.platform-multi,
+.orpheus-node.platform-other {
+  border-left: 5px solid #0f766e;
+}
+
 
 .orpheus-node.node-alert-warn {
   border-color: #f0b429;
@@ -1384,6 +1398,54 @@ button.danger {
   border-radius: 3px;
   padding: 1px 5px;
   margin-left: 4px;
+  white-space: nowrap;
+}
+
+.platform-badge-win {
+  color: #0b4f8a;
+  background: #d0ebff;
+}
+
+.platform-badge-dsp {
+  color: #8a4500;
+  background: #ffec99;
+}
+
+.platform-badge-multi,
+.platform-badge-other {
+  color: #075f57;
+  background: #c3fae8;
+}
+
+.alter-group-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.alter-group-frame {
+  position: absolute;
+  border: 2px dashed #7048a8;
+  border-radius: 6px;
+  background: rgba(229, 219, 255, 0.08);
+  box-sizing: border-box;
+}
+
+.alter-group-frame > span {
+  position: absolute;
+  top: 0;
+  left: 10px;
+  transform: translateY(-50%);
+  padding: 2px 7px;
+  border: 1px solid #b197d8;
+  border-radius: 3px;
+  color: #4b2c76;
+  background: #f3f0ff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
   white-space: nowrap;
 }
 

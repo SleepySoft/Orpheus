@@ -104,6 +104,48 @@ export function mergedCatalog(globalComponents, subsMeta) {
   return [...globalComponents, ...subsMeta.map(subCatalogEntry)];
 }
 
+/** alters 按无向关系归并为连通组；忽略不存在节点和单成员组。 */
+export function alterGroups(nodes) {
+  const byId = new Map((nodes || []).map((node) => [node.id, node]));
+  const visited = new Set();
+  const groups = [];
+  for (const node of nodes || []) {
+    if (visited.has(node.id)) continue;
+    const members = [];
+    const pending = [node.id];
+    while (pending.length) {
+      const id = pending.pop();
+      if (visited.has(id) || !byId.has(id)) continue;
+      visited.add(id);
+      members.push(id);
+      const current = byId.get(id);
+      for (const alternate of current.data?.alters || []) pending.push(alternate);
+      for (const candidate of nodes || []) {
+        if ((candidate.data?.alters || []).includes(id)) pending.push(candidate.id);
+      }
+    }
+    if (members.length > 1) groups.push(members.sort());
+  }
+  return groups.sort((left, right) => left[0].localeCompare(right[0]));
+}
+
+/** 将一个 alter 组的 flow 坐标包围盒转换为当前 viewport 下的屏幕坐标。 */
+export function alterGroupScreenBounds(nodes, memberIds, viewport, padding = 18) {
+  const members = (nodes || []).filter((node) => memberIds.includes(node.id));
+  if (members.length < 2) return null;
+  const left = Math.min(...members.map((node) => node.position.x));
+  const top = Math.min(...members.map((node) => node.position.y));
+  const right = Math.max(...members.map((node) => node.position.x + (node.width || 180)));
+  const bottom = Math.max(...members.map((node) => node.position.y + (node.height || 96)));
+  const zoom = viewport?.zoom || 1;
+  return {
+    left: (viewport?.x || 0) + left * zoom - padding,
+    top: (viewport?.y || 0) + top * zoom - padding - 22,
+    width: (right - left) * zoom + padding * 2,
+    height: (bottom - top) * zoom + padding * 2 + 22,
+  };
+}
+
 /** graph {nodes, connections} + 顶层 control_connections -> { nodes, edges } for React Flow. */
 export function graphToFlow(graph, catalogById, controlConnections = [], bridges = []) {
   const nodes = (graph?.nodes || []).map((n) => {

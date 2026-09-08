@@ -88,4 +88,4 @@ UI 使用流程：左上角「导入示例…」导入示例工程 → 画布编
 - 工程持久化在 `workspace/<工程名>/`（`project.yaml` 为唯一事实来源，已 gitignore）；WAV 路径相对工程目录，可移植。
 - 组件是全局只读库（`components/` 扫描），工程是用户文档（`workspace/`），子组件定义内嵌于工程文档。
 - 后端 API：`GET/PUT /api/projects/{name}`、`POST .../compile`、`POST .../run`、`GET .../download`、`GET /api/components` 等，见 `orpheus_core/orpheus_core/server/app.py`。
-- 当前验证基线：pytest 242 项通过、1 项跳过、CTest 4 项通过、Jest 15 项通过、Playwright 核心流程通过；以 CI 实际结果为准。
+- 当前验证基线：pytest 264 项通过、1 项跳过、CTest 5 项通过、Jest 17 项通过、Playwright 2 项核心流程通过；以 CI 实际结果为准。

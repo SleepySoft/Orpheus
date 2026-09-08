@@ -42,6 +42,7 @@ import { NodeActionsContext } from './NodeActionsContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import NotesPanel from './NotesPanel';
+import AlterGroupOverlay from './AlterGroupOverlay';
 
 const nodeTypes = { orpheus: OrpheusNode };
 const edgeTypes = { audio: AudioEdge, control: ControlEdge };
@@ -2061,6 +2062,7 @@ const { screenToFlowPosition } = useReactFlow();
             <Controls />
             <MiniMap />
           </ReactFlow>
+          <AlterGroupOverlay nodes={displayNodes} />
           </NodeActionsContext.Provider>
         </div>
         {rightOpen && (

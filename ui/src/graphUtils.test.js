@@ -2,6 +2,8 @@
 
 import {
   CTL_PREFIX,
+  alterGroupScreenBounds,
+  alterGroups,
   ctlParamId,
   docToViews,
   isControlHandle,
@@ -118,6 +120,24 @@ describe('shapeText / shapeEquals', () => {
     expect(shapeEquals([], [1])).toBe(false);
     expect(shapeEquals(null, [])).toBe(false);
     expect(shapeEquals(null, null)).toBe(false);
+  });
+});
+
+describe('alter 组可视化', () => {
+  const nodes = [
+    { id: 'a', position: { x: 10, y: 20 }, width: 100, height: 60, data: { alters: ['b'] } },
+    { id: 'b', position: { x: 210, y: 120 }, width: 120, height: 80, data: { alters: ['a', 'c'] } },
+    { id: 'c', position: { x: 380, y: 40 }, width: 90, height: 70, data: { alters: [] } },
+    { id: 'solo', position: { x: 0, y: 0 }, data: { alters: [] } },
+  ];
+
+  test('按无向 alters 引用求连通组', () => {
+    expect(alterGroups(nodes)).toEqual([['a', 'b', 'c']]);
+  });
+
+  test('包围盒随 viewport 平移缩放且包含节点尺寸', () => {
+    expect(alterGroupScreenBounds(nodes, ['a', 'b', 'c'], { x: 5, y: 7, zoom: 2 }, 10))
+      .toEqual({ left: 15, top: 15, width: 940, height: 402 });
   });
 });
 
