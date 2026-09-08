@@ -12,11 +12,12 @@
 - 生成图本体 `orpheus_graph` 静态库与宿主解耦；最小 main、PC CLI、Windows 宿主各自独立。
 - 运行三轴层级术语定案：执行实现、执行触发、访问端点为顶层维度；全速/按现实时间归入主动推进 pacing；图时间线独立建模，“离线运行”迁移为“无设备批处理”。
 - Bridge 主机核心：半双工单请求基线、全双工流水化能力、可替换 Transport/Codec，以及异步文件日志 Sink。
+- HLOS Transport：stdio/process 双管道、TCP、Windows Named Pipe/POSIX Unix Socket、长度前缀 Codec 与可替换 Adapter 注册表。
 - 73 个内置组件，均有组件 README。
 
 ## 当前验证基线
 
-- pytest：254 passed，1 skipped（可选演示组件未安装）。
+- pytest：264 passed，1 skipped（可选演示组件未安装）。
 - CTest：5/5（ABI、loader、绝对时间线、RNC MIMO NLMS、BAF SoftClipper）。
 - 前端：Jest 15/15、生产构建、Playwright 核心流程通过。
 - BAF：ASM 48-target、SAS 68-target 独立生成工程构建成功；ASM 全局及关键 Task 入口运行通过。
@@ -71,11 +72,12 @@
 - [x] Access Bridge 分层定案：Backend / Endpoint / Codec / Transport / BridgeSession，明确与音频 `async_bridge` 无关。
 - [x] Python `BridgeSession` 核心、`ByteTransport`/`FrameCodec` 接口和 `OlinkCodec`；串口迁移为薄组合，半/全双工并发行为有自动化测试。
 - [x] 异步文件 Log Sink；当前动态/生成、长驻/一次性及串口会话日志统一归档到工程 `logs/`，实时线程不执行文件 IO。
+- [x] HLOS stdio/process、TCP 和本地 Pipe Adapter；TCP/Pipe 可经 REST 连接已有 Endpoint，TCP 半双工/全双工与跨平台本地 Pipe 有回环测试。
 - [ ] RuntimeBackend + GeneratedBackend 共用 §18 dispatch；rt_host 增加二进制 PipeTransport，完成后删除文本协议。
 - [ ] HELLO/IDENTITY、能力位、plan/id_map hash、幂等响应缓存与 BULK 分片。
 - [ ] 本机动态/生成宿主接入二进制 Pipe Endpoint，主动推进宿主会话化；随后删除文本 RtSession，不保留兼容层。
 - [ ] 全双工主动通知/请求流水化与 Observation credit；半双工继续作为所有 Adapter 的降级基线。
-- [ ] SoC/HLOS 的 RPMsg/TCP、SHM 零拷贝、多 Lane、lease 与权限。
+- [ ] SoC/HLOS 的 RPMsg、SHM 零拷贝、多 Lane、TLS/认证、lease 与权限。
 - [ ] 工程顶层 `observations`、稳定观测 ID 与只读音频 Buffer view API。
 - [ ] 本地 Runtime Adapter 与 UI 观察端点编辑，传输层对 UI 透明。
 - [ ] `observation_uart` / shared-memory / callback Adapter，固定容量快照、限流与丢弃计数。

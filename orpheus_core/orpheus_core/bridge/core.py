@@ -57,6 +57,7 @@ class BridgeSession:
         call_retries: int = 2,
         read_chunk: int = 4096,
         log_sink: LogSink | None = None,
+        probe_interval: float = 0.0,
     ):
         self.transport = transport
         self.codec = codec
@@ -70,6 +71,7 @@ class BridgeSession:
         self.call_retries = call_retries
         self._read_chunk = read_chunk
         self._log_sink = log_sink or NullLogSink()
+        self._probe_interval = max(0.0, probe_interval)
 
         self.started_at = time.time()
         self._logs: deque[str] = deque(maxlen=MAX_LOG_LINES)
@@ -82,6 +84,7 @@ class BridgeSession:
         self._transport_write_lock = threading.Lock()
         self._call_sequence = 0
         self._closed = threading.Event()
+        self._probe_stop = threading.Event()
         self._link_errors = 0
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._log(
@@ -89,6 +92,10 @@ class BridgeSession:
             f"pipelined_calls={int(self.capabilities.pipelined_calls)}"
         )
         self._reader.start()
+        self._probe_thread: threading.Thread | None = None
+        if self._probe_interval > 0 and not self.capabilities.unsolicited:
+            self._probe_thread = threading.Thread(target=self._poll_loop, daemon=True)
+            self._probe_thread.start()
 
     def _log(self, line: str) -> None:
         with self._condition:
@@ -97,11 +104,13 @@ class BridgeSession:
 
     @property
     def running(self) -> bool:
-        return not self._closed.is_set()
+        transport_running = getattr(self.transport, "running", True)
+        return not self._closed.is_set() and bool(transport_running)
 
     def close(self) -> None:
         if self._closed.is_set():
             return
+        self._probe_stop.set()
         self._closed.set()
         try:
             self.transport.close()
@@ -109,6 +118,8 @@ class BridgeSession:
             with self._condition:
                 self._condition.notify_all()
             self._reader.join(timeout=max(self.call_timeout * 2, 0.2))
+            if self._probe_thread is not None:
+                self._probe_thread.join(timeout=max(self.call_timeout * 2, 0.2))
             self._log_sink.close()
 
     def stop(self, timeout: float = 3.0) -> None:  # noqa: ARG002
@@ -126,6 +137,10 @@ class BridgeSession:
                 time.sleep(0.2)
                 continue
             if not data:
+                if not self.running:
+                    with self._condition:
+                        self._condition.notify_all()
+                    return
                 continue
             for frame in self.codec.feed(data):
                 try:
@@ -133,6 +148,12 @@ class BridgeSession:
                 except Exception as exc:
                     self._link_errors += 1
                     self._log(f"Bridge 帧分发错误: {exc}")
+
+    def _poll_loop(self) -> None:
+        while not self._probe_stop.wait(self._probe_interval):
+            if not self.running:
+                return
+            self.poll_observations()
 
     def _dispatch(self, frame: bytes) -> None:
         parsed = message.parse_frame(frame)
@@ -258,7 +279,7 @@ class BridgeSession:
                                 parsed["raw"] = response
                                 return parsed
                             remaining = deadline - time.time()
-                            if remaining <= 0 or self._closed.is_set():
+                            if remaining <= 0 or not self.running:
                                 break
                             self._condition.wait(remaining)
                     if attempt + 1 < attempts:

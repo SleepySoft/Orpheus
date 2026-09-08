@@ -2,6 +2,14 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/ROADMAP.md`，不要把旧条目当作现状。
 
+## 2026-09-08（第五十三次：HLOS Transport Adapter）
+
+- 新增 HLOS `LengthPrefixCodec`：LE uint32 长度 + §18 消息，支持短读、粘包和多帧；UART 继续使用 OLINK。
+- 新增 `StreamTransport` / `StdioTransport` / `ProcessTransport`、`TcpTransport/TcpListener`、`LocalPipeTransport/Listener`；本地 Pipe 在 Windows 使用 Named Pipe，在 POSIX 使用 Unix Domain Socket。
+- 明确单根 pipe 通常单向，但 stdin+stdout 管道对和双向 Named Pipe 都可承载完整 Bridge；物理方向与半/全双工 Profile 正交，所有 Adapter 默认仍按半双工单 CALL 工作。
+- 新增可替换 `TransportAdapterRegistry`，用户 Adapter 只实现 read/write/close；同一 BridgeSession RPC 已在真实子进程 stdio、TCP、本地 Pipe 上通过，TCP 另覆盖全双工流水化。
+- REST `rt/start` 新增 `target=tcp|pipe`，可连接已有 HLOS Endpoint；UI 尚未开放对应控件，官方 rt_host/host_win 二进制 Endpoint 仍是下一阶段。
+
 ## 2026-09-08（第五十二次：Bridge 半双工基线与日志 Sink）
 
 - 定案完整 Bridge 的最低能力为双向半双工：单 outstanding CALL、RESPONSE 优先、Observation 轮询/授权窗口；全双工通过能力开启主动通知和请求流水化，SoC/HLOS 的多 Lane、credit、SHM 零拷贝与多客户端保持正交。

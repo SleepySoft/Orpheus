@@ -21,7 +21,12 @@ from pydantic import BaseModel
 from orpheus_core.bridge import (
     AsyncFileLogSink,
     BridgeCapabilities,
+    BridgeSession,
     DuplexMode,
+    LengthPrefixCodec,
+    TransportAdapterRegistry,
+    default_hlos_adapters,
+    local_pipe_address,
 )
 from orpheus_core.builder import BuildError, ComponentBuilder, run_cmake_with_msvc_env
 from orpheus_core.compiler import CompileError, ExecutionPlan, GraphCompiler
@@ -131,10 +136,15 @@ class RtReadBulkRequest(BaseModel):
 
 
 class RtStartRequest(BaseModel):
-    """rt/start 可选请求体：target=local（默认，rt_host 子进程）| serial（串口远程设备）。"""
+    """启动本机宿主，或连接串口/TCP/本地 Pipe 上的已有 Endpoint。"""
     target: str = "local"
     port: str | None = None
     baud: int = 921600
+    host: str = "127.0.0.1"
+    network_port: int | None = None
+    pipe_address: str | None = None
+    duplex: str = "half"
+    probe_interval_ms: float = 200.0
 
 
 class RtMsgRequest(BaseModel):
@@ -180,7 +190,8 @@ def _runtime_exe_name() -> str:
     return "orpheus_runtime.exe" if sys.platform == "win32" else "orpheus_runtime"
 
 
-def create_app(project_root: Path) -> FastAPI:
+def create_app(project_root: Path, *,
+               transport_adapters: TransportAdapterRegistry | None = None) -> FastAPI:
     root = Path(project_root).resolve()
     app = FastAPI(title="Orpheus Server", version="0.1.0")
     app.add_middleware(
@@ -196,6 +207,7 @@ def create_app(project_root: Path) -> FastAPI:
     manager = ProjectManager(root)
     builder = ComponentBuilder(root, root / "build", registry)
     rt_sessions = RtSessionManager()
+    hlos_adapters = transport_adapters or default_hlos_adapters()
     state: dict[str, Any] = {"cmake_configured": (root / "build" / "CMakeCache.txt").exists()}
 
     # ------------------------------------------------------------- helpers
@@ -870,8 +882,13 @@ def create_app(project_root: Path) -> FastAPI:
         target = (req.target if req else "local") or "local"
         if target == "serial":
             return _rt_start_serial(name, rec, req)
+        if target in ("tcp", "pipe"):
+            return _rt_start_hlos(name, rec, req, target)
         if target != "local":
-            raise HTTPException(status_code=400, detail=f"未知目标: {target}（可选 local / serial）")
+            raise HTTPException(
+                status_code=400,
+                detail=f"未知目标: {target}（可选 local / serial / tcp / pipe）",
+            )
         ensure_components_built(flattened_project(rec))
         plan, plan_path = compile_record(rec)
         suffix = ".exe" if sys.platform == "win32" else ""
@@ -932,6 +949,69 @@ def create_app(project_root: Path) -> FastAPI:
         return {"status": "started", "target": "serial", "port": req.port,
             "baud": req.baud, "duplex": duplex.value,
             "log_path": "logs/serial-bridge.log"}
+
+    def _rt_start_hlos(name: str, rec, req: RtStartRequest,
+                       target: str) -> dict[str, Any]:
+        """连接 HLOS 上已运行的二进制 Bridge Endpoint。"""
+        if target == "tcp" and req.network_port is None:
+            raise HTTPException(status_code=400, detail="TCP 目标需要 network_port")
+        try:
+            duplex = DuplexMode(req.duplex)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="duplex 可选 half / full",
+            ) from exc
+        capabilities = BridgeCapabilities(
+            duplex=duplex,
+            unsolicited=duplex is DuplexMode.FULL,
+            pipelined_calls=duplex is DuplexMode.FULL,
+        )
+        plan, _ = compile_record(rec)
+        try:
+            if target == "tcp":
+                transport = hlos_adapters.create(
+                    "tcp", host=req.host, port=req.network_port,
+                )
+                endpoint = f"{req.host}:{req.network_port}"
+            else:
+                address = req.pipe_address or local_pipe_address(name)
+                transport = hlos_adapters.create("pipe", address=address)
+                endpoint = address
+        except HTTPException:
+            raise
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400, detail=f"连接 {target} Endpoint 失败: {exc}",
+            ) from exc
+
+        log_sink = None
+        try:
+            log_sink = _session_log_sink(rec, f"{target}-bridge")
+            session = BridgeSession(
+                transport,
+                LengthPrefixCodec(),
+                plan.id_map,
+                capabilities=capabilities,
+                probe_interval=max(0.0, req.probe_interval_ms / 1000.0),
+                log_sink=log_sink,
+            )
+        except Exception:
+            transport.close()
+            if log_sink is not None:
+                log_sink.close()
+            raise
+        try:
+            rt_sessions.adopt(name, session)
+        except RuntimeError as exc:
+            session.close()
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {
+            "status": "started",
+            "target": target,
+            "endpoint": endpoint,
+            "duplex": duplex.value,
+            "log_path": f"logs/{target}-bridge.log",
+        }
 
     @app.post("/api/projects/{name}/rt/stop")
     def rt_stop(name: str) -> dict[str, Any]:

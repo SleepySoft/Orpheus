@@ -99,6 +99,8 @@ Adapter 不改变消息语义，只实现传输：
 | `shm` | 本机共享内存 | SPSC 槽 | 高频波形/音频观测 |
 | `callback` | 用户平台 | 用户保证帧边界 | RTOS mailbox、厂商 IPC、自有驱动 |
 
+Python HLOS 主机侧现已实现 stdio/process、TCP 与本地 Pipe（Windows Named Pipe / POSIX Unix Domain Socket），统一组合 `LengthPrefixCodec`；详见 `design_hlos_transport.md`。这些 Adapter 已可连接自定义 Endpoint，官方 rt_host/host_win 的 C/C++ 二进制 Endpoint 仍按实施顺序推进。
+
 工程顶层 `bridges` 是部署配置的唯一事实来源。UI 将其投影为 `execution.none: true`、无端口的「访问桥」配置节点；保存时节点抽回顶层，不进入 `graph.nodes`。它们不进入音频拓扑和 `orpheus_graph_process()` 调用链，只给生成项目增加 endpoint/transport 文件及平台钩子。
 
 ```yaml
@@ -224,7 +226,7 @@ void orpheus_bridge_<name>_deinit(void);
 5. [ ] 实现 RuntimeBackend，rt_host/host_win 增加二进制 PipeTransport，删除文本协议；
 6. [ ] 主动推进动态/生成宿主会话化，统一 START/RUN_BLOCKS/STOP 生命周期；
 7. [ ] 接入 `observations` 与 subscribe/capture/poll；先标量 probe，再音频 Buffer view；
-8. [ ] 增加 RPMsg/TCP/SHM/callback、多 Lane、写租约与故障统计。
+8. [ ] 增加 RPMsg/SHM/callback、多 Lane、写租约与故障统计；TCP 主机 Adapter 已完成。
 
 ## 12. 验收标准
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 from typing import Any
 
 from orpheus_core.bridge import (
@@ -30,8 +29,6 @@ class SerialSession(BridgeSession):
         probe_interval: float = 0.0,
     ):
         capabilities = capabilities or BridgeCapabilities(duplex=DuplexMode.HALF)
-        self._probe_interval = max(0.0, probe_interval)
-        self._probe_stop = threading.Event()
         super().__init__(
             transport,
             OlinkCodec(),
@@ -41,20 +38,5 @@ class SerialSession(BridgeSession):
             call_retries=call_retries,
             read_chunk=read_chunk,
             log_sink=log_sink,
+            probe_interval=probe_interval,
         )
-        self._probe_thread: threading.Thread | None = None
-        if self._probe_interval > 0 and not capabilities.unsolicited:
-            self._probe_thread = threading.Thread(target=self._poll_loop, daemon=True)
-            self._probe_thread.start()
-
-    def _poll_loop(self) -> None:
-        while not self._probe_stop.wait(self._probe_interval):
-            if not self.running:
-                return
-            self.poll_observations()
-
-    def close(self) -> None:
-        self._probe_stop.set()
-        super().close()
-        if self._probe_thread is not None:
-            self._probe_thread.join(timeout=max(self.call_timeout * 2, 0.2))

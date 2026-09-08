@@ -26,7 +26,7 @@ BridgeSession：CALL 匹配、超时重试、能力、订阅、协议级流控
 FrameCodec：OLINK / 长度前缀 / datagram
        |
 ByteTransport：UART / Pipe / TCP / SHM / RPMsg / callback
-======= 进程或设备边界 =====================================
+------- 进程或设备边界 -------------------------------------
        |
 BridgeEndpoint：系统服务、权限、通知泵、Backend dispatch
        |
@@ -153,6 +153,7 @@ P0 已完成：
 - 半双工拒绝未协商的主动 NOTIFICATION，并按 `probe_interval_ms` 由主机串行轮询；全双工才启用设备主动 Probe；
 - 半双工单请求与全双工流水化并发测试；
 - `AsyncFileLogSink` 及所有当前运行入口的日志归档。
+- HLOS `LengthPrefixCodec`、stdio/process、TCP 和本地命名 Pipe Adapter；Transport 工厂可由用户注册或替换。
 
 当前本机 `RtSession` 仍适配历史文本 stdin/stdout 协议，尚未成为 Binary Pipe Endpoint；这是一项明确的迁移中状态，不作为长期兼容接口保留。
 
@@ -181,11 +182,12 @@ P0 已完成：
 
 ### P4：SoC/HLOS
 
-1. RPMsg/TCP Adapter；
-2. SHM 双队列与零拷贝 Observation descriptor；
-3. Control/Observation/Bulk Lane 与 QoS；
-4. 多客户端、lease、认证和权限；
-5. 文件日志轮转、结构化索引与崩溃前 Ring Buffer 导出。
+1. [x] TCP、stdio/process 与 Windows Named Pipe/POSIX Unix Socket Adapter；
+2. [ ] RPMsg Adapter；
+3. [ ] SHM 双队列与零拷贝 Observation descriptor；
+4. [ ] Control/Observation/Bulk Lane 与 QoS；
+5. [ ] 多客户端、lease、认证和权限；
+6. [ ] 文件日志轮转、结构化索引与崩溃前 Ring Buffer 导出。
 
 ## 9. 验收标准
 

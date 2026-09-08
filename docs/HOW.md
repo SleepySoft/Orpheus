@@ -484,7 +484,7 @@ generated/
 
 外部控制与观测统一走 Access Bridge（注意不是音频 Task 的 `async_bridge`）：Runtime 与生成图库分别实现同一 Access Backend，Pipe/UART/USB/TCP/SHM 只是可替换 Transport；UI 最终只面对 BridgeSession。完整 Bridge 以半双工单 outstanding CALL 为最低基线，全双工按能力开启主动通知/流水化；双工 Profile、Adapter 和日志契约见 `design_bridge_protocol.md`，协议握手、工程/ID map hash、订阅与限流分层见 `design_access_bridge.md`。
 
-Transport 在界面分两层配置：主图无端口「访问桥」节点决定目标侧 transport/codec/resource 并保存到顶层 `bridges`；运行工具栏选择本机此次连接的 COM/网络/SHM 端点。逻辑 resource 到硬件驱动的绑定属于可复用 Target Profile，不能要求用户逐工程手改生成源码。
+Transport 在界面分两层配置：主图无端口「访问桥」节点决定目标侧 transport/codec/resource 并保存到顶层 `bridges`；运行工具栏选择本机此次连接的 COM/网络/SHM 端点。逻辑 resource 到硬件驱动的绑定属于可复用 Target Profile，不能要求用户逐工程手改生成源码。HLOS 主机侧现已实现 stdio/process、TCP、Windows Named Pipe/POSIX Unix Socket；Pipe 的物理方向与 Bridge 半/全双工 Profile 正交，详见 `design_hlos_transport.md`。
 
 ### 7.2 生成原则
 
