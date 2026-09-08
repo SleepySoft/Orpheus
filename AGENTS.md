@@ -47,7 +47,7 @@
 
 两条路径要求**逐字节一致**（有自动化一致性测试：`test_generated_run_matches_dynamic_run`）。
 
-运行术语使用四轴模型（`docs/design_execution_model.md`）：执行实现=动态 Runtime/生成代码；时钟来源=设备驱动/主机驱动（由图推导）；推进节奏=全速/按现实时间（仅主机驱动可选）；访问端点=本机/串口/其它 Bridge。禁止把“串口”“真实时长”或“WAV”称为第三种执行方式。
+运行术语使用三轴层级模型（`docs/design_execution_model.md`）：执行实现=动态 Runtime/生成代码；时钟驱动=设备/主机（由图推导），主机驱动再含 pacing=全速/按现实时间；访问端点=本机/串口/其它 Bridge。pacing 是宿主会话策略，不写进 source 参数。禁止把“串口”“真实时长”或“WAV”称为第三种执行方式。
 
 ### 组件模型
 
@@ -112,6 +112,6 @@ cd ui; npm start                      # 前端热更新（:3000，代理到 :800
 
 - `docs/WHAT.md`：产品目标、核心需求、成功标准、非目标。
 - `docs/HOW.md`：技术栈、架构、ABI、控制协议、代码生成、已实现特性（v0.1 ~ v1）。
-- `docs/design_execution_model.md`：执行实现、时钟来源、推进节奏、访问端点的统一运行术语。
+- `docs/design_execution_model.md`：执行实现、时钟驱动（含主机 pacing）、访问端点的统一运行术语。
 - `docs/IMPLEMENTATION_PLAN.md` + `docs/implementation_log.md`：阶段计划与进度。
 - `SKILL/SKILL.md`：开发技能（红线清单、任务索引）。

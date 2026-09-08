@@ -727,10 +727,10 @@ orpheus_platform_memory_section_bind(...);
 
 ## 22. 运行方式统一与生成模式修复（已实现）
 
-- **术语定案**：运行由四个正交维度描述：执行实现（动态 Runtime / 生成代码）、时钟来源（设备驱动 / 主机驱动）、推进节奏（全速 / 按现实时间）和访问端点（本机 / 串口 / Bridge）。完整定义与组合矩阵见 `design_execution_model.md`。
+- **术语定案**：运行由三个顶层维度描述：执行实现（动态 Runtime / 生成代码）、时钟驱动（设备 / 主机）和访问端点（本机 / 串口 / Bridge）。主机驱动下再选择 pacing（全速 / 按现实时间）。完整层级与组合矩阵见 `design_execution_model.md`。
 - **执行实现只有两种**：UI「▶ 运行」走动态 Runtime；「⚙ 编译后运行」走生成代码静态构建。WAV 还是系统音频是图中输入输出组件的事，与执行实现无关。
 - **时钟来源自动推导**：`POST /api/projects/{name}/run` 检测有效图中的 device_in/device_out；有设备时进入声卡回调宿主 `rt_host`，无设备时进入主机循环宿主 `orpheus_runtime`。后者称“无设备批处理”（旧称离线运行）。
-- **推进节奏不是执行实现**：无设备批处理默认全速；`pace=true` / UI“真实时长”只在块间按墙钟等待，便于观察进度和 Probe，不提供硬实时保证。设备驱动天然按硬件节奏，不适用 pace。
+- **pacing 属于主机驱动器**：无设备批处理默认全速；`pace=true` / UI“真实时长”只让宿主循环按墙钟等待，便于观察进度和 Probe，不提供硬实时保证。它不写进 source 参数；设备驱动不适用 pace。
 - **访问端点不启动另一份图**：本机端点连接本地宿主；串口端点连接远程设备上已运行的生成图。它只改变 Access Bridge，不改变执行实现或时钟来源。
 - **rt_host 按图组合设备**：in+out+mic=duplex；in+out+loopback=环回+播放双设备；仅 out（如 wav_in/signal_gen → device_out）=播放回调驱动、图语义时钟源仍是数据源组件；仅 in=采集/环回时钟（系统声音录到 WAV）。
 - **生成器修复**：组件入口函数支持 `ORPHEUS_ENTRY_NAME` 宏（静态链接时各组件入口唯一，修复了之前所有节点共享第一个组件入口符号导致的崩溃——此前生成工程只验证过编译未验证运行）；生成参数表（类型化 OrpheusValue）传入 prepare；Buffer 指针按端口 ID 槽位绑定；ABI 头文件随工程复制（自包含，可脱离仓库编译）；main 支持 argv 指定块数。

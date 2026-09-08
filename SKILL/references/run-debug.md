@@ -2,17 +2,17 @@
 
 ## 目录
 
-- 运行入口与四轴分流
+- 运行入口与三轴分流
 - 实时会话控制协议
 - 日志约定（组件如何输出到 UI 日志窗口）
 - 故障排查目录（症状→原因→修法）
 
-## 运行入口与四轴分流
+## 运行入口与三轴分流
 
 - `POST /api/projects/{name}/run`：动态 Runtime 执行。含 device_in/device_out → 设备驱动会话（rt_host 子进程）；否则主机驱动批处理，默认全速跑完即退出。兼容响应字段仍为 `mode: realtime|offline`。
 - `POST /api/projects/{name}/run?pace=1`：无设备图仍由同一 Runtime 执行，但按现实时间推进并周期上报 Probe；不是新的执行实现，也不是硬实时。
 - `POST /api/projects/{name}/run_generated`：代码生成路径（生成 C 工程→静态构建→运行，块数按输入 WAV 长度计算）。
-- UI：「▶ 运行」= 动态 Runtime；「⚙ 编译后运行」= 生成代码；“真实时长”=主机驱动的推进节奏；本机/串口=访问端点。完整术语见 `docs/design_execution_model.md`。
+- UI：「▶ 运行」= 动态 Runtime；「⚙ 编译后运行」= 生成代码；时钟驱动由图推导；“真实时长”=主机驱动的 pacing 子配置；本机/串口=访问端点。完整术语见 `docs/design_execution_model.md`。
 
 ## 实时会话控制协议（rt_host stdin/stdout 文本行）
 
