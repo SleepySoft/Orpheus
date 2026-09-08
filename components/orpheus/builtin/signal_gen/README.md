@@ -12,7 +12,7 @@
 | `frequency` | float | 440.0 Hz | 正弦波频率。 |
 | `amplitude` | float | 0.5 | 输出幅度，范围 0~1。 |
 | `channels` | int | 2 | 输出通道数，改变后需重新编译。 |
-| `duration_s` | float | 10.0 s | 无设备批处理时长（只影响主机循环推进多少图时间，组件本身连续发声）。0=宿主默认 10s；图中有 wav/mp3 输入时以文件全长为准。想持续监听，请连接 device_out，改由设备时钟驱动。 |
+| `duration_s` | float | 10.0 s | 无设备批处理时长（只影响主动推进多少图时间，组件本身连续发声）。0=宿主默认 10s；图中有 wav/mp3 输入时以文件全长为准。想持续监听，请连接 device_out，改由声卡 callback 外部节拍触发。 |
 
 ### `sample_rate` 与工程采样率的关系
 

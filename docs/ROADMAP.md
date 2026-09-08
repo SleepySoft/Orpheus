@@ -10,7 +10,7 @@
 - 子组件递归展开、目标平台/alter、OLINK/串口会话、控制参数链路。
 - 多速率静态调度与 `rate_sync` 合流；动态和生成路径一致性测试。
 - 生成图本体 `orpheus_graph` 静态库与宿主解耦；最小 main、PC CLI、Windows 宿主各自独立。
-- 运行三轴层级术语定案：执行实现、时钟驱动、访问端点为顶层维度；全速/按现实时间归入主机驱动 pacing；“离线运行”迁移为“无设备批处理”。
+- 运行三轴层级术语定案：执行实现、执行触发、访问端点为顶层维度；全速/按现实时间归入主动推进 pacing；图时间线独立建模，“离线运行”迁移为“无设备批处理”。
 - 73 个内置组件，均有组件 README。
 
 ## 当前验证基线
@@ -74,3 +74,10 @@
 - [ ] 本地 Runtime Adapter 与 UI 观察端点编辑，传输层对 UI 透明。
 - [ ] `observation_uart` / shared-memory / callback Adapter，固定容量快照、限流与丢弃计数。
 - [ ] 纯观测 probe 迁移 pass：`observability: none|metadata|embedded`；参与控制链的观测计算禁止裁剪。
+
+## P4 时间线模型
+
+- [ ] P0：动态/生成路径按实际帧推进绝对 `frame_index`，增加 epoch/discontinuity，并在 plan 中显式记录外部节拍/主动推进触发。
+- [ ] P1：source EOS/valid_frames 正式传播；汇总 `latency_samples`，生成 source-to-sink 延迟报告与合流补偿策略。
+- [ ] P2：Task 独立时间线、明确 clock master、有理数速率映射；异步桥增加时间戳、sequence、drift ppm 与 ASRC/PLL 策略。
+- [ ] P3：参数事件支持 target frame/sample offset；Observation 统一携带 timeline/epoch/frame/sequence/dropped，支持确定性录制重放。
