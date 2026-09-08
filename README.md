@@ -10,6 +10,7 @@ An intuitive, easily extensible audio processing framework based on visual progr
 - [`docs/baf_model_alignment.md`](docs/baf_model_alignment.md) — ASM/EREV-1 BAF out 生成代码的实证映射与剩余缺口。
 - [`docs/design_observation_adapter.md`](docs/design_observation_adapter.md) — 观测点、外部 Adapter 与生成图模块边界。
 - [`docs/design_access_bridge.md`](docs/design_access_bridge.md) — Runtime/生成代码共用的控制与观测访问桥。
+- [`docs/design_execution_model.md`](docs/design_execution_model.md) — 执行实现、时钟来源、推进节奏与访问端点的统一术语。
 - [`docs/design_draft.txt`](docs/design_draft.txt) — 历史设计草案与详细子系统分解。
 - [`docs/design_v1.md`](docs/design_v1.md) — 高层概念草稿。
 
@@ -61,10 +62,12 @@ cd ui; npm run test:e2e       # Playwright：真实后端 + 浏览器核心流�
 cd ..; python scripts/benchmark_graph.py --nodes 128 --blocks 1000
 ```
 
-UI 使用流程：左上角「导入示例…」导入示例工程 → 画布编辑（拖拽组件、连线、右侧改参数，1.5s 防抖自动保存 / Ctrl+S 手动保存）→「编译」检查图 → 两种运行方式：
+UI 使用流程：左上角「导入示例…」导入示例工程 → 画布编辑（拖拽组件、连线、右侧改参数，1.5s 防抖自动保存 / Ctrl+S 手动保存）→「编译」检查图 → 选择执行实现：
 
-- **▶ 运行**（基座动态加载）：按图内容自动分流——含设备组件的图进入实时会话（声卡/系统声音，底部实时日志滚动，**运行中调参即时生效**，探针电平每秒刷新，「■ 停止」结束）；纯文件图走离线处理（WAV 进 WAV 出，产物在线试听/下载）。输入输出自由组合：系统声音→处理→WAV 就是录制，WAV→处理→声卡就是播放。
+- **▶ 运行**（动态 Runtime）：按有效图自动选择时钟来源。含设备组件时由声卡回调驱动并持续到停止；无设备图走主机驱动批处理，默认全速完成。输入输出自由组合：系统声音→处理→WAV 就是录制，WAV→处理→声卡就是播放。
 - **⚙ 编译后运行**（代码生成路径）：生成独立 C 工程 → 静态编译 → 运行；与动态加载路径的输出有逐字节一致性测试保障。
+
+“真实时长”不是第三种执行方式，而是无设备批处理的**推进节奏**：关闭时全速处理，开启时按墙钟等待，便于连续观察 Probe。设备驱动天然按硬件节奏运行，不需要该选项。工具栏的本机/串口是**访问端点**，只决定 UI 连接哪个运行实例，不决定图如何执行。完整四轴模型见 `docs/design_execution_model.md`。
 
 生成工程将产品图实现编成 `orpheus_graph` 静态库：`include/orpheus_graph.h` 是用户 main/音频中断需要的唯一图入口，`src/orpheus_graph.c` 是直线初始化链与调用链且不做宿主 IO。`src/main.c` 仅为最小集成示例；BULK、消息、Task、stdio 链路等 PC 验证能力独立放在 `src/host_cli.c` / `orpheus_generated_cli`。画布中的无端口「访问桥」节点保存为顶层 `bridges`，当前支持 `uart + olink`；旧 `uart_link` 自动兼容迁移。统一 Pipe/UART/SHM/callback Bridge 与纯观测点迁移按路线图继续实现，设计见 `docs/design_access_bridge.md` 和 `docs/design_observation_adapter.md`。
 

@@ -2,19 +2,21 @@
 
 ## 目录
 
-- 两种执行模式（核心概念）
+- 四轴运行模型（核心概念）
 - 数据流：YAML → plan.json → 执行
 - C ABI 要点
 - Runtime 宿主分工
 - 后端 API 面
 - 前端结构
 
-## 两种执行模式（核心概念）
+## 四轴运行模型（核心概念）
 
-运行方式只有两种；**WAV 还是设备音频是图的输入输出组件决定的，与执行模式无关**（可自由组合：系统声音→处理→WAV = 录制）。
+执行实现只有两种；**WAV 还是设备音频是图的输入输出组件决定的，与执行实现无关**（可自由组合：系统声音→处理→WAV = 录制）。
 
 1. **基座动态加载**（UI「▶ 运行」）：图编译只产出 plan.json 数据；组件 DLL 预编译；基座程序 LoadLibrary 加载后经 ABI 函数表调用。图改动零 C 编译。
 2. **代码生成**（UI「⚙ 编译后运行」/ `orpheus-cli generate`）：`CodeGenerator` 展开为自包含 C 工程（组件源码 + `orpheus_graph` 静态库 + vendored orpheus_abi.h），静态编译运行。`orpheus_graph.c/.h` 只含图状态、初始化/调用/销毁链且无宿主 IO；最小 `main.c` 可替换，完整 PC 验证入口在 `host_cli.c`。支持 PROBE/ID map/control tick、多 Task 独立入口和 task bridge；win 目标可生成 miniaudio 实时宿主，dsp 目标生成平台适配骨架。观测传输走可选 Adapter。
+
+另外三个正交维度：时钟来源=设备驱动/主机驱动（由有效图自动推导）；推进节奏=全速/按现实时间（仅主机驱动适用）；访问端点=本机/串口/其它 Bridge。权威定义见 `docs/design_execution_model.md`。
 
 设计原则：两种模式输出必须一致。自动化保障：`orpheus_core/tests/test_server_devices_files.py::test_generated_run_matches_dynamic_run` 逐字节比较输出 WAV。
 

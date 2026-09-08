@@ -27,7 +27,7 @@
 
 ### 扫完之后
 
-`t ≥ duration_s` 后输出静音（0），`current_freq` 探针归零，`progress` 停在 1.0。**离线运行（文件宿主）时长正是由 `duration_s` 决定的**：编译器取图中 `sweep_gen` 的 `duration_s` 作为无文件输入时的运行时长，所以设 5 秒就跑 5 秒——想跑满整条扫频，不要把 `duration_s` 设短了又指望后面有输出。
+`t ≥ duration_s` 后输出静音（0），`current_freq` 探针归零，`progress` 停在 1.0。**无设备批处理的图时间由 `duration_s` 决定**：编译器取图中 `sweep_gen` 的 `duration_s` 作为无文件输入时的处理时长，所以设 5 秒就计算完整 5 秒信号；全速模式可能远少于 5 秒墙钟时间完成，按现实时间模式才约耗时 5 秒。
 
 ### 探针
 

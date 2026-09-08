@@ -2,6 +2,8 @@
 
 > 状态：设计定案（v1）；顶层 `bridges`、画布配置节点及 legacy `uart_link` 迁移已落地。本文的 Access Bridge 专指控制/观测访问桥，与音频 Task 间的 `async_bridge` 无关。
 
+“访问端点”是运行四轴模型中的一个维度，只决定 UI/SDK 连到哪个实例；它不决定执行实现、时钟来源或推进节奏。四轴定义见 `design_execution_model.md`。
+
 ## 1. 问题
 
 系统内部已经具备完整的访问能力：

@@ -13,7 +13,7 @@
    ```
    WAV Input / Device Input → Gain → Biquad → Mixer → WAV Output / Device Output
    ```
-2. 图可以在 PC 上实时运行（设备 I/O）或离线运行（WAV 文件）。
+2. 图可由设备回调实时驱动，也可由主机循环批量处理 WAV/测试信号；主机驱动可选全速或按现实时间推进。
 3. 支持实时调整 Gain、Biquad 频率/增益等参数。
 4. 支持 RMS/Peak/Waveform Probe 观察信号。
 5. 同一工程可以生成独立 C/C++ 工程并编译运行。

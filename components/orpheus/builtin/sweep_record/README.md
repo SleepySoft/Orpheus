@@ -68,7 +68,7 @@ UI 节点本体（`nodeWidgets.js` 的 `SweepPlotWidget`）读取 `sweep` 探针
 sweep_gen ──► biquad(被测滤波器) ──► sweep_record(bins=64) ──► wav_out
 ```
 
-运行结束后看 `sweep_record` 节点上的曲线：平直段是通带，下弯处是截止频率，陷波/峰起一目了然。离线运行时长由 `sweep_gen.duration_s` 决定，保证整条扫频被完整记录。
+运行结束后看 `sweep_record` 节点上的曲线：平直段是通带，下弯处是截止频率，陷波/峰起一目了然。无设备批处理的图时间由 `sweep_gen.duration_s` 决定，保证整条扫频被完整记录；全速/按现实时间只改变墙钟耗时，不改变采样帧数。
 
 ## 实时安全
 
