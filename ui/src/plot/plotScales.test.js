@@ -1,4 +1,11 @@
-import { axisTicks, formatTick, projectValue, resolveDomain, waveformEnvelope } from './plotScales';
+import {
+  axisTicks,
+  formatTick,
+  projectValue,
+  resolveDomain,
+  unprojectValue,
+  waveformEnvelope,
+} from './plotScales';
 
 describe('plot 刻度与坐标映射', () => {
   test('线性刻度生成可读步长', () => {
@@ -20,6 +27,11 @@ describe('plot 刻度与坐标映射', () => {
     expect(projectValue(0, [0, 10], 0, 100, {})).toBe(0);
     expect(projectValue(10, [0, 10], 0, 100, {})).toBe(100);
     expect(projectValue(100, [1, 1000], 0, 100, { scale: 'log' })).toBeCloseTo(66.6667);
+  });
+
+  test('画布坐标可以反解为数据值', () => {
+    expect(unprojectValue(50, [0, 10], 0, 100, {})).toBe(5);
+    expect(unprojectValue(50, [1, 1000], 0, 100, { scale: 'log' })).toBeCloseTo(Math.sqrt(1000));
   });
 
   test('频率刻度使用专业缩写', () => {

@@ -103,6 +103,18 @@ export function projectValue(value, domain, start, end, axis) {
   return start + ((value - domain[0]) / (domain[1] - domain[0])) * (end - start);
 }
 
+/** 将画布坐标反解为数据值；十字光标读数使用。 */
+export function unprojectValue(pixel, domain, start, end, axis) {
+  if (!Number.isFinite(pixel) || end === start) return NaN;
+  const fraction = (pixel - start) / (end - start);
+  if (axis.scale === 'log') {
+    const safeLow = Math.log10(Math.max(1e-12, domain[0]));
+    const safeHigh = Math.log10(Math.max(safeLow, domain[1]));
+    return 10 ** (safeLow + fraction * (safeHigh - safeLow));
+  }
+  return domain[0] + fraction * (domain[1] - domain[0]);
+}
+
 /** 频率用 Hz/kHz/MHz，dB 保留整数，其余自动选择紧凑格式。 */
 export function formatTick(value, axis) {
   const effectiveAxis = axis || {};

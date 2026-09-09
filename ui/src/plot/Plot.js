@@ -7,6 +7,7 @@ import {
   projectValue,
   resolveDomain,
   seriesValues,
+  unprojectValue,
   waveformEnvelope,
 } from './plotScales';
 
@@ -118,6 +119,7 @@ export default function Plot({
   variant = 'node',
   grid = 'major',
   legend = false,
+  crosshair = variant !== 'node',
   emptyText = '暂无数据',
   zoom,
 }) {
@@ -125,6 +127,7 @@ export default function Plot({
   const effectiveZoom = zoom ?? viewport?.zoom ?? 1;
   const { wrapRef, width, height, pixelRatio } = usePlotCanvasSize(effectiveZoom);
   const canvasRef = React.useRef(null);
+  const [hover, setHover] = React.useState(null);
 
   React.useEffect(() => {
     const canvas = canvasRef.current;
@@ -282,7 +285,41 @@ export default function Plot({
       }
       ctx.globalAlpha = 1;
     });
-  }, [series, x, y, variant, grid, legend, emptyText, width, height, pixelRatio]);
+
+    if (crosshair && hover) {
+      const inside = hover.x >= plot.left && hover.x <= plot.right
+        && hover.y >= plot.top && hover.y <= plot.bottom;
+      if (inside) {
+        const xValue = unprojectValue(hover.x, domains.x, plot.left, plot.right, x);
+        const yValue = unprojectValue(hover.y, domains.y, plot.bottom, plot.top, y);
+        ctx.strokeStyle = 'rgba(255,255,255,0.38)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(hover.x, plot.top);
+        ctx.lineTo(hover.x, plot.bottom);
+        ctx.moveTo(plot.left, hover.y);
+        ctx.lineTo(plot.right, hover.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const xText = formatTick(xValue, x) + (x.unit ? ' ' + x.unit : '');
+        const yText = formatTick(yValue, y) + (y.unit ? ' ' + y.unit : '');
+        const text = xText + ', ' + yText;
+        const textWidth = ctx.measureText(text).width;
+        const boxX = Math.min(Math.max(hover.x + 8, plot.left + 2), plot.right - textWidth - 12);
+        const boxY = Math.min(Math.max(hover.y - 22, plot.top + 2), plot.bottom - 18);
+        ctx.fillStyle = 'rgba(13,17,23,0.88)';
+        ctx.fillRect(boxX, boxY, textWidth + 10, 16);
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+        ctx.strokeRect(boxX, boxY, textWidth + 10, 16);
+        ctx.fillStyle = 'rgba(255,255,255,0.88)';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, boxX + 5, boxY + 8);
+      }
+    }
+  }, [series, x, y, variant, grid, legend, crosshair, emptyText, width, height, pixelRatio, hover]);
 
   return (
     <div ref={wrapRef} className="plot-widget">
@@ -290,6 +327,11 @@ export default function Plot({
         ref={canvasRef}
         className="plot-canvas"
         style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }}
+        onPointerMove={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setHover({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+        }}
+        onPointerLeave={() => setHover(null)}
       />
     </div>
   );
