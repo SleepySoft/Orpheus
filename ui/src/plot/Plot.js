@@ -35,7 +35,7 @@ function combinedExtent(series, key) {
 }
 
 /** 绘制填充式波形包络：每列保留 min/max，避免逐样本绘制造成的性能瓶颈。 */
-function drawWaveform(ctx, item, plot, domains, axes, variant) {
+function drawWaveform(ctx, item, plot, domains, axes) {
   const columns = Math.max(2, Math.round(plot.right - plot.left));
   const envelope = waveformEnvelope(item.data, columns);
   if (!envelope.length) return;
@@ -62,6 +62,32 @@ function drawWaveform(ctx, item, plot, domains, axes, variant) {
   ctx.fillStyle = item.fillColor || ((item.color || PALETTE[0]) + '22');
   ctx.fill();
   ctx.stroke();
+}
+
+/** 绘制方阵热力图；低相干偏青，高相干偏红。 */
+function drawHeatmap(ctx, item, plot) {
+  const size = item.n || 0;
+  const matrix = item.matrix;
+  if (!Number.isInteger(size) || size <= 0 || !Array.isArray(matrix) || matrix.length !== size * size) {
+    return;
+  }
+  const width = (plot.right - plot.left) / size;
+  const height = (plot.bottom - plot.top) / size;
+  for (let row = 0; row < size; row++) {
+    for (let column = 0; column < size; column++) {
+      const value = Math.max(0, Math.min(1, matrix[row * size + column] || 0));
+      const red = Math.round(255 * value);
+      const green = Math.round(255 * (1 - value));
+      const blue = Math.round(255 * (1 - value));
+      ctx.fillStyle = `rgb(${red},${green},${blue})`;
+      ctx.fillRect(
+        plot.left + column * width,
+        plot.top + row * height,
+        width + 0.5,
+        height + 0.5,
+      );
+    }
+  }
 }
 
 /** 一条折线的路径绘制；NaN 会自然分段。 */
@@ -186,6 +212,27 @@ export default function Plot({
       ctx.restore();
     }
 
+    if (legend && series.some((item) => item.label && item.type !== 'heatmap')) {
+      const entries = series
+        .filter((item) => item.label && item.type !== 'heatmap')
+        .slice(0, 3);
+      ctx.font = (variant === 'node' ? '9px ' : '10px ') + 'Inter, ui-sans-serif, system-ui, sans-serif';
+      let cursor = plot.right - 4;
+      for (let index = entries.length - 1; index >= 0; index--) {
+        const item = entries[index];
+        const textWidth = ctx.measureText(item.label).width;
+        cursor -= textWidth;
+        ctx.fillStyle = 'rgba(255,255,255,0.78)';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(item.label, cursor, plot.top + 8);
+        cursor -= 10;
+        ctx.fillStyle = item.color || PALETTE[index % PALETTE.length];
+        ctx.fillRect(cursor, plot.top + 6, 6, 4);
+        cursor -= 8;
+      }
+    }
+
     if (!series.length) {
       ctx.fillStyle = 'rgba(255,255,255,0.48)';
       ctx.font = (variant === 'node' ? '10px ' : '12px ') + 'Inter, ui-sans-serif, system-ui, sans-serif';
@@ -197,7 +244,7 @@ export default function Plot({
 
     series.forEach((item, index) => {
       const data = { x: seriesValues(item, 'x'), y: seriesValues(item, 'y') };
-      if (item.type !== 'waveform' && (!data.x.length || !data.y.length)) return;
+      if (item.type !== 'waveform' && item.type !== 'heatmap' && (!data.x.length || !data.y.length)) return;
       const color = item.color || PALETTE[index % PALETTE.length];
       ctx.strokeStyle = color;
       ctx.fillStyle = item.fillColor || (color + '22');
@@ -219,7 +266,9 @@ export default function Plot({
           }
         }
       } else if (item.type === 'waveform') {
-        drawWaveform(ctx, item, plot, domains, { x, y }, variant);
+        drawWaveform(ctx, item, plot, domains, { x, y });
+      } else if (item.type === 'heatmap') {
+        drawHeatmap(ctx, item, plot);
       } else {
         drawLinePath(ctx, data, plot, domains, { x, y });
         if (item.type === 'area') {

@@ -1,25 +1,6 @@
 import React from 'react';
 import Plot from './plot/Plot';
 
-/** 让 canvas 跟随容器尺寸（节点拖大 / 放大弹层都生效） */
-function useCanvasSize(large, fw, fh) {
-  const wrapRef = React.useRef(null);
-  const [dim, setDim] = React.useState({ w: fw, h: fh });
-  React.useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const r = entries[0].contentRect;
-      const w = Math.max(60, Math.round(r.width));
-      const h = Math.max(40, Math.round(r.height));
-      setDim((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [large]);
-  return { wrapRef, w: dim.w, h: dim.h };
-}
-
 /**
  * Node body widget registry: customize what a node shows on the canvas,
  * keyed by component id. Receives node data (incl. data.probe readback
@@ -227,60 +208,29 @@ function SweepPlotWidget({ data, large }) {
  */
 function HeatmapWidget({ data, large }) {
   const coh = data.probe?.coherence;
-  const { wrapRef, w, h } = useCanvasSize(large, large ? 360 : 150, large ? 360 : 150);
-  const ref = React.useRef(null);
-
-  React.useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const cw = canvas.width;
-    const ch = canvas.height;
-    ctx.clearRect(0, 0, cw, ch);
-    ctx.fillStyle = '#0d1117';
-    ctx.fillRect(0, 0, cw, ch);
-
-    const n = coh?.n;
-    const matrix = coh?.matrix;
-    if (!n || !Array.isArray(matrix) || matrix.length !== n * n) {
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('运行后显示相干矩阵', cw / 2, ch / 2);
-      return;
-    }
-    const cell = Math.min(cw, ch) / n;
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        const c = Math.max(0, Math.min(1, matrix[i * n + j]));
-        const r = Math.round(255 * c);
-        const g = Math.round(255 * (1 - c));
-        const b = Math.round(255 * (1 - c));
-        ctx.fillStyle = `rgb(${r},${g},${b})`;
-        ctx.fillRect(j * cell, i * cell, cell + 0.5, cell + 0.5);
-      }
-    }
-    if (large) {
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      ctx.font = '9px sans-serif';
-      ctx.textAlign = 'center';
-      for (let i = 0; i < n; i++) {
-        ctx.fillText(String(i), i * cell + cell / 2, 10);
-        ctx.fillText(String(i), 10, i * cell + cell / 2);
-      }
-    }
-  }, [coh, large, w, h]);
+  const n = Number(coh?.n);
+  const matrix = Array.isArray(coh?.matrix) ? coh.matrix : [];
+  const valid = Number.isInteger(n) && n > 0 && matrix.length === n * n;
+  const series = valid
+    ? [{
+      id: 'coherence',
+      label: '相干度',
+      type: 'heatmap',
+      n,
+      matrix,
+    }]
+    : [];
 
   return (
     <div className="probe-body">
-      <div ref={wrapRef} className="monitor-widget">
-        <canvas
-          ref={ref}
-          width={w}
-          height={h}
-          style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }}
-        />
-      </div>
+      <Plot
+        variant={large ? 'panel' : 'node'}
+        series={series}
+        x={{ label: large ? '输出通道' : undefined, scale: 'linear', domain: valid ? [0, n - 1] : [0, 1] }}
+        y={{ label: large ? '输入通道' : undefined, scale: 'linear', domain: valid ? [0, n - 1] : [0, 1] }}
+        emptyText="运行后显示相干矩阵"
+        legend={large}
+      />
     </div>
   );
 }
