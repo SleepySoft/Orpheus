@@ -163,6 +163,8 @@ UI 使用流程：左上角「导入示例…」导入示例工程 → 画布编
 
 **设备通路**：`音频采集`/`设备输出` 组件支持选择设备（下拉，含虚拟声卡如 VB-Cable）；采集源可选「系统声音（Loopback）」拦截其他应用播放的音频进图处理。
 
+**视频响度均衡**：导入 `examples/video_loudness_voice.yaml` 可把不同视频的播放电平拉近。`节目响度均衡器`采用实时 RMS 自动增益（不是标准 LUFS 扫描），后接 limiter 保护峰值。`voice_select.select=1` 为原声，改成 `2` 会通过 30ms 交叉淡化切入人声清晰分支；`n_way_mux` 可通用于任意两条同签名子链的平滑旁路。实际监听建议让视频输出到虚拟声卡，再由 Orpheus 输出到耳机，避免采集和播放使用同一设备造成回授或原声叠加。
+
 **子组件（复合组件）**：在画布中框选一组节点 → 工具栏「包装为子组件」→ 自动生成边界端口并替换为单个实例节点；**双击实例**在独立标签页中平铺打开内部图编辑（类 Simulink 子系统）；子组件属于当前工程，可拖拽复用、多层嵌套，编译时递归展开为原子图（Runtime 无感知）。
 
 子组件还可通过 `public_parameters` 公开内部参数与控制点；实例参数可覆盖内部默认值，顶层控制链可跨子图映射。工程支持多 Task 独立入口，跨 Task 音频通过 `async_bridge` 固定容量 SPSC Ring Buffer 传递。带 `lesson` 的课程工程会显示「教学」入口，可执行结构化自动检查。
@@ -173,4 +175,4 @@ UI 使用流程：左上角「导入示例…」导入示例工程 → 画布编
 - 工程持久化在 `workspace/<工程名>/`（`project.yaml` 为唯一事实来源，已 gitignore）；WAV 路径相对工程目录，可移植。
 - 组件是全局只读库（`components/` 扫描），工程是用户文档（`workspace/`），子组件定义内嵌于工程文档。
 - 后端 API：`GET/PUT /api/projects/{name}`、`POST .../compile`、`POST .../run`、`GET .../download`、`GET /api/components` 等，见 `orpheus_core/orpheus_core/server/app.py`。
-- 当前验证基线：pytest 264 项通过、1 项跳过、CTest 5 项通过、Jest 17 项通过、Playwright 2 项核心流程通过；以 CI 实际结果为准。
+- 当前验证基线：pytest 265 项通过、1 项跳过、CTest 6 项通过、Jest 17 项通过、Playwright 2 项核心流程通过；以 CI 实际结果为准。

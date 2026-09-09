@@ -2,6 +2,15 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-09-09（第五十九次：视频节目响度均衡与可选人声增强）
+
+- 新增 `loudness_normalizer`：所有通道联动的实时 RMS 节目电平器，支持目标 dBFS、最大提升/衰减、静音门、检测 attack/release 和快压慢抬增益；明确不冒充 ITU-R BS.1770/EBU R128 LUFS。
+- 增加 `input_db / gain_db / output_db` 探针，process 内固定内存、无锁、无日志和 IO；后接 limiter 承担峰值保护。
+- 新增 `video_loudness_voice.yaml`：Windows Loopback → 响度均衡 → 原声/人声 EQ 双分支 → `n_way_mux` 30ms 平滑旁路 → limiter → RMS/Peak → 耳机。
+- 明确现有 `n_way_mux` 即通用的同签名子链旁路机制：`select=1` 原声、`select=2` 人声增强，无需新增图级 bypass 语义。
+- 数值 smoke 验证 -26/-6 dBFS 输入向 -18 dBFS 目标收敛及静音不抬升；示例通过 win 编译、代码生成和 VS2022 静态构建。
+- 修复生成 Windows CMake 对 `orpheus_generated_app` 混用 keyword/plain `target_link_libraries` 签名的问题。
+
 ## 2026-09-08（第五十八次：绘图组件十字光标读数）
 
 - Plot 增加大面板十字光标和实时读数；线性/对数轴都可从像素坐标反解为数据值。

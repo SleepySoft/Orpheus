@@ -125,7 +125,7 @@ def test_device_graph_generates_win_host(registry, tmp_path) -> None:
     assert "src/orpheus_graph.c" in cmake
     assert "add_library(orpheus_graph STATIC" in cmake
     assert "src/host_win.c" in cmake
-    assert "winmm" in cmake
+    assert "target_link_libraries(orpheus_generated_app PRIVATE ole32 oleaut32 uuid winmm)" in cmake
 
 
 def test_device_loopback_and_device_params_in_host_config(registry, tmp_path) -> None:

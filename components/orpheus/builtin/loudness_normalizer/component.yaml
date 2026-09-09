@@ -1,0 +1,123 @@
+id: orpheus.builtin.loudness_normalizer
+name: 节目响度均衡器
+category: 音效/动态
+order: 1
+description: RMS 节目电平自动均衡（非标准 LUFS）：小声缓慢抬升、大声快速压低，带静音门与增益上下限
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: LoudnessNormalizerState
+sources:
+  - src/loudness_normalizer.c
+headers:
+  - include/orpheus_loudness_normalizer.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: target_db
+    name: 目标 RMS 电平
+    type: float
+    default: -20.0
+    range: [-36.0, -6.0]
+    unit: dBFS
+    update_policy: smoothed
+    widget: slider
+  - id: min_gain_db
+    name: 最大衰减
+    description: 可施加的最小增益，负值表示衰减
+    type: float
+    default: -12.0
+    range: [-36.0, 0.0]
+    unit: dB
+    update_policy: smoothed
+  - id: max_gain_db
+    name: 最大提升
+    type: float
+    default: 12.0
+    range: [0.0, 24.0]
+    unit: dB
+    update_policy: smoothed
+  - id: gate_db
+    name: 静音门
+    description: 低于此输入电平时保持当前增益，避免放大底噪
+    type: float
+    default: -55.0
+    range: [-96.0, -24.0]
+    unit: dBFS
+    update_policy: smoothed
+  - id: detector_attack_ms
+    name: 检测启动时间
+    type: float
+    default: 80.0
+    range: [5.0, 1000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: detector_release_ms
+    name: 检测释放时间
+    type: float
+    default: 600.0
+    range: [20.0, 5000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: gain_attack_ms
+    name: 压低响应时间
+    description: 遇到大声内容时降低增益的速度
+    type: float
+    default: 80.0
+    range: [5.0, 1000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: gain_release_ms
+    name: 抬升响应时间
+    description: 遇到小声内容时提高增益的速度，宜慢以减少抽吸感
+    type: float
+    default: 1200.0
+    range: [50.0, 10000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: input_db
+    name: 当前输入 RMS
+    type: float
+    default: -96.0
+    unit: dBFS
+    readback: true
+    update_policy: immediate
+  - id: gain_db
+    name: 当前自动增益
+    type: float
+    default: 0.0
+    unit: dB
+    readback: true
+    update_policy: immediate
+  - id: output_db
+    name: 估算输出 RMS
+    type: float
+    default: -96.0
+    unit: dBFS
+    readback: true
+    update_policy: immediate
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

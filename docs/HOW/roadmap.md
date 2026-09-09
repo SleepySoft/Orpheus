@@ -14,12 +14,12 @@
 - alter 连通组在画布自动绘制「N 选 1」框，平台专属节点以有文字的彩色徽标和边框区分；不改变工程格式或解析语义。
 - Bridge 主机核心：半双工单请求基线、全双工流水化能力、可替换 Transport/Codec，以及异步文件日志 Sink。
 - HLOS Transport：stdio/process 双管道、TCP、Windows Named Pipe/POSIX Unix Socket、长度前缀 Codec 与可替换 Adapter 注册表。
-- 73 个内置组件，均有组件 README。
+- 74 个内置组件，均有组件 README。
 
 ## 当前验证基线
 
-- pytest：264 passed，1 skipped（可选演示组件未安装）。
-- CTest：5/5（ABI、loader、绝对时间线、RNC MIMO NLMS、外部参考模型 SoftClipper）。
+- pytest：265 passed，1 skipped（可选演示组件未安装）。
+- CTest：6/6（ABI、loader、绝对时间线、RNC MIMO NLMS、外部参考模型 SoftClipper、节目响度均衡）。
 - 前端：Jest 17/17、生产构建、Playwright 2/2 核心流程通过。
 - 外部参考模型：ASM 48-target、SAS 68-target 独立生成工程构建成功；ASM 全局及关键 Task 入口运行通过。
 

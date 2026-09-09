@@ -52,6 +52,20 @@ target_include_directories(baf_soft_clipper_smoke PRIVATE
 target_compile_definitions(baf_soft_clipper_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME baf_soft_clipper_smoke COMMAND baf_soft_clipper_smoke)
 
+add_executable(loudness_normalizer_smoke
+	loudness_normalizer_smoke.c
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_normalizer/src/loudness_normalizer.c
+)
+target_include_directories(loudness_normalizer_smoke PRIVATE
+	${CMAKE_SOURCE_DIR}/orpheus_abi/include
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_normalizer/include
+)
+target_compile_definitions(loudness_normalizer_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+	target_link_libraries(loudness_normalizer_smoke PRIVATE m)
+endif()
+add_test(NAME loudness_normalizer_smoke COMMAND loudness_normalizer_smoke)
+
 # OLINK 帧级 CLI（供 pytest 跨语言互测驱动）
 add_executable(olink_cli olink_cli.c)
 target_link_libraries(olink_cli PRIVATE orpheus_olink)

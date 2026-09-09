@@ -2443,12 +2443,15 @@ class CodeGenerator:
         libs = " ".join(self._component_target_name(cid) for cid in component_ids)
         lines.append(f'add_library(orpheus_graph STATIC {graph_sources})')
         lines.append(f'target_link_libraries(orpheus_graph PUBLIC {libs})')
+        lines.append('if(NOT MSVC)')
+        lines.append('  target_link_libraries(orpheus_graph PUBLIC m)')
+        lines.append('endif()')
         if (output_dir / "src" / "host_win.c").exists():
             lines.append('add_executable(orpheus_generated_app src/host_win.c)')
             lines.append('target_link_libraries(orpheus_generated_app PRIVATE orpheus_graph)')
             # win 实时宿主：miniaudio 在 Windows 需要的系统库（与 rt_host 一致）
             lines.append('if(WIN32)')
-            lines.append('  target_link_libraries(orpheus_generated_app ole32 oleaut32 uuid winmm)')
+            lines.append('  target_link_libraries(orpheus_generated_app PRIVATE ole32 oleaut32 uuid winmm)')
             lines.append('endif()')
         else:
             lines.append('add_executable(orpheus_generated_app src/main.c)')

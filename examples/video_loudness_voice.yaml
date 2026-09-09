@@ -1,0 +1,135 @@
+version: "0.1.0"
+metadata:
+  name: video_loudness_voice
+  description: 电脑视频响度均衡：系统 Loopback → RMS 节目电平器 → 可选人声清晰分支 → 峰值保护 → 耳机输出
+sample_rate: 48000
+block_size: 128
+target: win
+tasks:
+  - id: default
+    name: Default
+    sample_rate: 48000
+    block_size: 128
+    priority: 0
+graph:
+  nodes:
+    - id: capture
+      label: 系统声音采集
+      component: orpheus.builtin.device_in
+      task: default
+      params:
+        source: loopback
+        device: ""
+        channels: 2
+        sample_rate: 48000
+      position: {x: 40, y: 260}
+
+    - id: leveler
+      label: 节目响度均衡
+      component: orpheus.builtin.loudness_normalizer
+      task: default
+      params:
+        target_db: -20.0
+        min_gain_db: -12.0
+        max_gain_db: 12.0
+        gate_db: -55.0
+        detector_attack_ms: 80.0
+        detector_release_ms: 600.0
+        gain_attack_ms: 80.0
+        gain_release_ms: 1200.0
+        channels: 2
+      position: {x: 290, y: 260}
+
+    - id: voice_off
+      label: 人声增强关闭
+      component: orpheus.builtin.gain
+      task: default
+      params:
+        gain_db: 0.0
+        smoothing_ms: 20.0
+        channels: 2
+      position: {x: 560, y: 140}
+
+    - id: voice_presence
+      label: 人声存在感
+      component: orpheus.builtin.midrange
+      task: default
+      params:
+        gain_db: 3.0
+        fc: 2600.0
+        q: 0.9
+        ramp_ms: 50.0
+        channels: 2
+      position: {x: 560, y: 380}
+
+    - id: voice_clarity
+      label: 人声清晰度
+      component: orpheus.builtin.treble
+      task: default
+      params:
+        gain_db: 1.5
+        fc: 5500.0
+        ramp_ms: 50.0
+        channels: 2
+      position: {x: 790, y: 380}
+
+    - id: voice_select
+      label: 人声增强开关（1关/2开）
+      component: orpheus.builtin.n_way_mux
+      task: default
+      params:
+        inputs: 2
+        channels: 2
+        select: 1
+        ramp_ms: 30.0
+      position: {x: 1040, y: 260}
+
+    - id: peak_protect
+      label: 峰值保护
+      component: orpheus.builtin.limiter
+      task: default
+      params:
+        mode: shared
+        threshold_db: -3.0
+        attack_ms: 3.0
+        release_ms: 150.0
+        channels: 2
+      position: {x: 1290, y: 260}
+
+    - id: output_rms
+      label: 输出 RMS
+      component: orpheus.builtin.probe_rms
+      task: default
+      params:
+        channels: 2
+      position: {x: 1510, y: 180}
+
+    - id: output_peak
+      label: 输出峰值
+      component: orpheus.builtin.probe_peak
+      task: default
+      params:
+        channels: 2
+      position: {x: 1710, y: 180}
+
+    - id: phones
+      label: 耳机输出
+      component: orpheus.builtin.device_out
+      task: default
+      params:
+        device: ""
+        channels: 2
+        sample_rate: 48000
+      position: {x: 1920, y: 260}
+
+  connections:
+    - {from: "capture:out", to: "leveler:in"}
+    - {from: "leveler:out", to: "voice_off:in"}
+    - {from: "leveler:out", to: "voice_presence:in"}
+    - {from: "voice_presence:out", to: "voice_clarity:in"}
+    - {from: "voice_off:out", to: "voice_select:in0"}
+    - {from: "voice_clarity:out", to: "voice_select:in1"}
+    - {from: "voice_select:out", to: "peak_protect:in"}
+    - {from: "peak_protect:out", to: "output_rms:in"}
+    - {from: "output_rms:out", to: "output_peak:in"}
+    - {from: "output_peak:out", to: "phones:in"}
