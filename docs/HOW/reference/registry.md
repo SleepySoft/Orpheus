@@ -1,6 +1,6 @@
 # Orpheus 组件资源注册与寻址设计（草案）
 
-> 状态：历史设计与演进记录。ABI v2/v3、32 位 ID、arena、BULK 双 bank、消息协议和参数控制链均已实现；正文中“尚未实现/待办”只代表对应讨论时点，当前状态以 `docs/ROADMAP.md`、`AGENTS.md` 与代码为准。
+> 状态：历史设计与演进记录。ABI v2/v3、32 位 ID、arena、BULK 双 bank、消息协议和参数控制链均已实现；正文中“尚未实现/待办”只代表对应讨论时点，当前状态以 `docs/HOW/roadmap.md`、`AGENTS.md` 与代码为准。
 
 ---
 

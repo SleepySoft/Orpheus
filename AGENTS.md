@@ -43,11 +43,11 @@
 ### 两条执行路径（共享同一份组件源码与 ABI）
 
 1. **动态加载路径（UI「▶ 运行」）**：图编译只产出 plan.json（拓扑、Buffer 分配、端口签名），组件预编译为 DLL，`orpheus_runtime` / `orpheus_rt_host` LoadLibrary 经 C ABI 调用。编辑-运行循环零 C 编译。
-2. **代码生成路径（UI「⚙ 编译后运行」）**：`cli generate [--target win|dsp]` 展开为独立 C 工程（CMake），静态编译，无 DLL、无 Python 依赖，可交叉编译。产品图实现为独立 `orpheus_graph` 静态库（`orpheus_graph.c/.h`，无宿主 IO）；`main.c` 是最小示例，复杂 PC 验证在 `host_cli.c`。宿主形态由平台解析决定：**win**（图含 device_in/out）→ miniaudio 实时宿主（`orpheus_core/orpheus_core/templates/host_win.c` 模板，协议与 rt_host 一致，生成即可 PC 直连声卡运行）；**dsp**（embed_in/out）→ 文件时钟骨架 + `platform_io.c` 适配模板。观测边界见 `docs/design_observation_adapter.md`，Runtime/生成代码统一访问桥见 `docs/design_access_bridge.md`。
+2. **代码生成路径（UI「⚙ 编译后运行」）**：`cli generate [--target win|dsp]` 展开为独立 C 工程（CMake），静态编译，无 DLL、无 Python 依赖，可交叉编译。产品图实现为独立 `orpheus_graph` 静态库（`orpheus_graph.c/.h`，无宿主 IO）；`main.c` 是最小示例，复杂 PC 验证在 `host_cli.c`。宿主形态由平台解析决定：**win**（图含 device_in/out）→ miniaudio 实时宿主（`orpheus_core/orpheus_core/templates/host_win.c` 模板，协议与 rt_host 一致，生成即可 PC 直连声卡运行）；**dsp**（embed_in/out）→ 文件时钟骨架 + `platform_io.c` 适配模板。观测边界见 `docs/HOW/reference/observation-adapter.md`，Runtime/生成代码统一访问桥见 `docs/HOW/reference/access-bridge.md`。
 
 两条路径要求**逐字节一致**（有自动化一致性测试：`test_generated_run_matches_dynamic_run`）。
 
-运行术语使用三轴层级模型（`docs/design_execution_model.md`）：执行实现=动态 Runtime/生成代码；执行触发=外部节拍/主动推进（由图与宿主推导），主动推进再含 pacing=全速/按现实时间；访问端点=本机/串口/其它 Bridge。`clock_source/clock_domain` 属于图时间线（`docs/design_timeline.md`），不是运行模式。禁止把“串口”“真实时长”或“WAV”称为第三种执行方式。
+运行术语使用三轴层级模型（`docs/HOW/reference/execution-model.md`）：执行实现=动态 Runtime/生成代码；执行触发=外部节拍/主动推进（由图与宿主推导），主动推进再含 pacing=全速/按现实时间；访问端点=本机/串口/其它 Bridge。`clock_source/clock_domain` 属于图时间线（`docs/HOW/reference/timeline.md`），不是运行模式。禁止把“串口”“真实时长”或“WAV”称为第三种执行方式。
 
 ### 组件模型
 
@@ -60,16 +60,16 @@
 
 - 时钟域：组件 manifest 声明 `clock_source: true` + `clock_domain`（device/file）；时钟源组件是域根。Task 在 plan 中显式建模为 `tasks[]`，各自有节点拓扑序、tick 与 period；旧全局调度入口继续保留。
 - 速率调整：`scheduling.divisor` 表达式让节点每 N 块触发一次（`downrate` / `resample` 组件）。
-- **静态调度表**：compiler 把每个节点的触发间隔折算为图速率帧（`frames×图速率/节点流速率`），推导 `plan.schedule = {tick: GCD, periods: {node: 周期}}` 落入 plan；宿主（main/rt_host/生成宿主）按 `tick` 推进，runtime/生成代码按 `(block_counter+1) % period == 0` 触发。单速率图 tick==block_size、period==divisor（行为不变）。跨速率合流（`scheduling.merge`，如 rate_sync）的输入边标记 `rate_bridge`：深度=合流量子（LCM），生产者写 staging、骨架按写游标滚入桥接 buffer，merge 节点同步点整块读。时钟链不匹配编译期报错。设计：`docs/design_clock_scheduling.md`；测试 `orpheus_core/tests/test_static_schedule.py`。
-- **绝对块时间**：ABI v4 的 `OrpheusProcessContext` 含 `frame_index/epoch/valid_frames/timeline_flags`；动态 Runtime 与生成图按节点所属速率域填写本地绝对帧，`timestamp` 由帧位置和采样率派生，首次实际触发带 `DISCONTINUITY`。reset/seek/EOS 和跨桥时间元数据仍按 `docs/design_timeline.md` 后续阶段实现。
-- **多 Task 与异步桥**：plan 同时保留全局兼容调度和 `tasks[]` 局部入口；Runtime 提供 `process_task`，生成工程导出 `orpheus_generated_process_task_<id>`。普通跨 Task 音频边编译期拒绝，必须接入 `async_bridge`（或既有 `rate_sync` 合流点）；桥接数据面为固定容量 SPSC Ring Buffer，带水位/欠载/溢出探针。设计：`docs/design_multitask_runtime.md`；测试 `orpheus_core/tests/test_async_bridge.py`。
+- **静态调度表**：compiler 把每个节点的触发间隔折算为图速率帧（`frames×图速率/节点流速率`），推导 `plan.schedule = {tick: GCD, periods: {node: 周期}}` 落入 plan；宿主（main/rt_host/生成宿主）按 `tick` 推进，runtime/生成代码按 `(block_counter+1) % period == 0` 触发。单速率图 tick==block_size、period==divisor（行为不变）。跨速率合流（`scheduling.merge`，如 rate_sync）的输入边标记 `rate_bridge`：深度=合流量子（LCM），生产者写 staging、骨架按写游标滚入桥接 buffer，merge 节点同步点整块读。时钟链不匹配编译期报错。设计：`docs/HOW/reference/clock-scheduling.md`；测试 `orpheus_core/tests/test_static_schedule.py`。
+- **绝对块时间**：ABI v4 的 `OrpheusProcessContext` 含 `frame_index/epoch/valid_frames/timeline_flags`；动态 Runtime 与生成图按节点所属速率域填写本地绝对帧，`timestamp` 由帧位置和采样率派生，首次实际触发带 `DISCONTINUITY`。reset/seek/EOS 和跨桥时间元数据仍按 `docs/HOW/reference/timeline.md` 后续阶段实现。
+- **多 Task 与异步桥**：plan 同时保留全局兼容调度和 `tasks[]` 局部入口；Runtime 提供 `process_task`，生成工程导出 `orpheus_generated_process_task_<id>`。普通跨 Task 音频边编译期拒绝，必须接入 `async_bridge`（或既有 `rate_sync` 合流点）；桥接数据面为固定容量 SPSC Ring Buffer，带水位/欠载/溢出探针。设计：`docs/HOW/reference/multitask-runtime.md`；测试 `orpheus_core/tests/test_async_bridge.py`。
 - `rt_host` 实时协议：stdin `SET <node> <param> <value>` / `GET` / `STOP`；stdout `LOG ...` 为生命周期日志，`PROBE <node> <param> <value>` 为探针上报。生成的 win 宿主（host_win.c）讲同一协议，生成 exe 可直接接入 RtSession/UI 实时面板。
 - **目标平台与 alter**：组件 manifest 可选 `platforms`（如 device_in/out=[win]、embed_in/out=[dsp]，缺省=全平台）；工程顶层 `target`（auto/win/dsp），节点级 `alters` 声明替代组（同接口、占同一槽位，按平台激活一个成员）。`resolve.py` 做合规校验与整链平台可达性判定（并集→交集→选成员→边重映射），编译器 `compile(project, target)` 先解析后编译。UI 自动按 alters 连通组绘制「N 选 1」框；Windows/DSP 节点分别使用蓝/琥珀色条和文字徽标。示例：`examples/pc_dsp_dual_target.yaml`。
-- **Access Bridge（设备调音）**：工程顶层 `bridges` 是部署事实，画布无端口「访问桥」节点是配置投影；legacy `uart_link` 自动迁移。统一 Bridge 以半双工单 outstanding CALL 为最低基线，全双工按能力开启主动通知与流水化；Transport/Codec/Log Sink 可替换。当前 Python `BridgeSession` 核心与 `uart + olink` 已贯通；HLOS 已提供 stdio/process、TCP、Windows Named Pipe/POSIX Unix Socket Adapter 和 LengthPrefixCodec，运行日志写入工程 `logs/`；本机文本 `RtSession` 后续由二进制 Pipe Endpoint 替换。设计见 `docs/design_access_bridge.md` / `docs/design_bridge_protocol.md` / `docs/design_hlos_transport.md`。
-- **控制参数链路**：工程顶层 `control_connections`（`node:param` → `node:param`）声明参数驱动；manifest 参数可声明 `bindable`（目标，禁 affects_signature/restart_required）/ `control_source`（源，须可读）/ `shape`（维度表达式，如 `matrix_mul.matrix: [param:rows, param:cols]`）。compiler 校验（策略/签名约束、类型与 shape 严格相等、禁隐式转换、目标唯一不重复）后产出 `plan.control_links`；**动态路径** runtime 每图块末尾两相快照 `control_tick`（先全读后全写，每链 1 块延迟，闭环合法）；**生成路径** generator 在 `orpheus_generated_process` 末尾生成等价 `control_tick()`（静态分配、直线代码），双路径逐字节一致（`test_generated_run_matches_dynamic_run_with_control_link`）。运行期执行 float/int/bool 标量 + string 透传（256B 上限），count>1 数组链仅编译期校验。UI：工具栏「控制链路」开关（默认关=界面与旧版一致），控制 handle 为橙色方形（`ctl:<param>` id）、虚线动画边 + 形状标注（失配标红），onConnect 做源/目标/类型/shape 校验。示例 `examples/control_link_demo.yaml`；设计 `docs/design_control_link_eval.md`；测试 `orpheus_core/tests/test_control_links.py`。UI 控件注册表在 `widgets.js`/`nodeWidgets.js`，控制边组件在 `ui/src/ControlEdge.js`。
+- **Access Bridge（设备调音）**：工程顶层 `bridges` 是部署事实，画布无端口「访问桥」节点是配置投影；legacy `uart_link` 自动迁移。统一 Bridge 以半双工单 outstanding CALL 为最低基线，全双工按能力开启主动通知与流水化；Transport/Codec/Log Sink 可替换。当前 Python `BridgeSession` 核心与 `uart + olink` 已贯通；HLOS 已提供 stdio/process、TCP、Windows Named Pipe/POSIX Unix Socket Adapter 和 LengthPrefixCodec，运行日志写入工程 `logs/`；本机文本 `RtSession` 后续由二进制 Pipe Endpoint 替换。设计见 `docs/HOW/reference/access-bridge.md` / `docs/HOW/reference/bridge-protocol.md` / `docs/HOW/reference/hlos-transport.md`。
+- **控制参数链路**：工程顶层 `control_connections`（`node:param` → `node:param`）声明参数驱动；manifest 参数可声明 `bindable`（目标，禁 affects_signature/restart_required）/ `control_source`（源，须可读）/ `shape`（维度表达式，如 `matrix_mul.matrix: [param:rows, param:cols]`）。compiler 校验（策略/签名约束、类型与 shape 严格相等、禁隐式转换、目标唯一不重复）后产出 `plan.control_links`；**动态路径** runtime 每图块末尾两相快照 `control_tick`（先全读后全写，每链 1 块延迟，闭环合法）；**生成路径** generator 在 `orpheus_generated_process` 末尾生成等价 `control_tick()`（静态分配、直线代码），双路径逐字节一致（`test_generated_run_matches_dynamic_run_with_control_link`）。运行期执行 float/int/bool 标量 + string 透传（256B 上限），count>1 数组链仅编译期校验。UI：工具栏「控制链路」开关（默认关=界面与旧版一致），控制 handle 为橙色方形（`ctl:<param>` id）、虚线动画边 + 形状标注（失配标红），onConnect 做源/目标/类型/shape 校验。示例 `examples/control_link_demo.yaml`；设计 `docs/HOW/reference/control-links.md`；测试 `orpheus_core/tests/test_control_links.py`。UI 控件注册表在 `widgets.js`/`nodeWidgets.js`，控制边组件在 `ui/src/ControlEdge.js`。
 - **子组件公开参数**：`subcomponents[].public_parameters` 把实例参数/控制点映射到内部原子节点参数；input 支持实例默认值覆盖，input/output 均可作为顶层控制连接端点，flatten 后映射为 `<实例>__<节点>:<参数>`。
-- **BAF 模型对齐**：ASM 与 EREV-1 out 生成代码的已验证映射、字段数量和哈希见 `docs/baf_model_alignment.md`。新增 `rnc_mimo_nlms`（12×8×125）与 `baf_soft_clipper`，TOP 数组统一用 `scripts/extract_baf_top.py` 提取。
-- **教学包**：工程顶层 `lesson` 可声明 `steps` 与结构检查 `checks`；后端 `/api/projects/{name}/lesson/check` 在扁平图/plan 上执行规则，UI 仅对含 lesson 的工程显示「教学」入口。Symphony ASM 示例自带 5 条可执行检查。
+- **外部参考模型 模型对齐**：ASM 与 参考工程 B out 生成代码的已验证映射、字段数量和哈希见 `docs/HOW/reference/external-models/model-alignment.md`。新增 `rnc_mimo_nlms`（12×8×125）与 `soft_clipper`，TOP 数组统一用 `scripts/extract_external_model_top.py` 提取。
+- **教学包**：工程顶层 `lesson` 可声明 `steps` 与结构检查 `checks`；后端 `/api/projects/{name}/lesson/check` 在扁平图/plan 上执行规则，UI 仅对含 lesson 的工程显示「教学」入口。参考工程 A 示例自带 5 条可执行检查。
 - **调试旁路**：工程顶层 `debug_mode: true` 时，compiler 在工程副本上裁剪完全孤立节点和未接入有效时钟源的残留流，plan 通过 `ignored_nodes` 报告；画布/YAML 不删除节点，保留执行的有效流仍走完整硬校验。默认关闭。
 
 ## 常用命令（Windows PowerShell）
@@ -111,11 +111,13 @@ cd ui; npm start                      # 前端热更新（:3000，代理到 :800
 
 ## 深入阅读
 
-- `docs/WHAT.md`：产品目标、核心需求、成功标准、非目标。
-- `docs/HOW.md`：技术栈、架构、ABI、控制协议、代码生成、已实现特性（v0.1 ~ v1）。
-- `docs/design_execution_model.md`：执行实现、执行触发（含主动推进 pacing）、访问端点的统一运行术语。
-- `docs/design_timeline.md`：绝对样本时间、epoch/EOS、延迟和跨域漂移的时间线演进。
-- `docs/design_bridge_protocol.md`：半双工 Core Profile、全双工/HLOS 扩展、Adapter 与日志职责。
-- `docs/design_hlos_transport.md`：HLOS stdio/process、TCP、本地 Pipe Adapter 与 REST 接入。
-- `docs/IMPLEMENTATION_PLAN.md` + `docs/implementation_log.md`：阶段计划与进度。
+- `docs/README.md`：WHY/WHAT/HOW 文档导航。
+- `docs/WHY/00-index.md`：存在理由、关键取舍与设计原则。
+- `docs/WHAT/00-index.md`：产品目标、核心需求、成功标准、非目标。
+- `docs/HOW/00-index.md`：技术栈、架构、ABI、控制协议、代码生成、已实现特性（v0.1 ~ v1）。
+- `docs/HOW/reference/execution-model.md`：执行实现、执行触发（含主动推进 pacing）、访问端点的统一运行术语。
+- `docs/HOW/reference/timeline.md`：绝对样本时间、epoch/EOS、延迟和跨域漂移的时间线演进。
+- `docs/HOW/reference/bridge-protocol.md`：半双工 Core Profile、全双工/HLOS 扩展、Adapter 与日志职责。
+- `docs/HOW/reference/hlos-transport.md`：HLOS stdio/process、TCP、本地 Pipe Adapter 与 REST 接入。
+- `docs/HOW/implementation-plan.md` + `docs/HOW/implementation-log.md`：阶段计划与进度。
 - `SKILL/SKILL.md`：开发技能（红线清单、任务索引）。

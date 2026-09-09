@@ -50,7 +50,7 @@ cd ui; npm run test:e2e            # Playwright：真实后端 + 浏览器核心
 
 统一内存拼接分配：动态路径按 `descriptor.state_size` 切片下发，生成路径按 `state_type` 类型拼接 `g_arena`；组件在 `register_slots` 里用一行宏把"地址/类型/说明"注册给 Runtime，Runtime 建槽表并做边界校验。
 
-- 设计全文：`docs/design_registry.md`（槽模型、32 位 ID、边界检测、聚合布局、实证修正）。
+- 设计全文：`docs/HOW/reference/registry.md`（槽模型、32 位 ID、边界检测、聚合布局、实证修正）。
 - 现有内置组件均遵循公开状态/arena 契约；资源槽按组件需要注册，旧回调仅作为兼容兜底。
 - 写新组件：见 `references/abi-v2-registration.md` 的检查清单。
 
@@ -62,7 +62,7 @@ cd ui; npm run test:e2e            # Playwright：真实后端 + 浏览器核心
 - 产物 2：可直接导入的工程 YAML（`graph` + 嵌套 `subcomponents`，三层嵌套示例见 `examples/dsp_model_reference.yaml`）。
 - 多速率：模型有多 TID/分频时，`model_tree.task_flows` 必须结构化输出（主链 `chains` + 分析侧链
   `chains`/`blocks`，`call_interval`=分频比），导入器会按 TID 生成 `downrate` 抽头（规范见
-  `references/distill-model.md` §4.1）；示例见 `examples/symphony_sas_step0.yaml（内含 `model_tree`）`。
+  `references/distill-model.md` §4.1）；示例见 `examples/example-b-step0.yaml（内含 `model_tree`）`。
 - 一键导入：UI 工具栏「⤵ 导入模型」，或 `POST /api/projects/{name}/distill`（body `{"yaml": "..."}`）。
 - 验证：`python scripts/parameter_layout.py <project.yaml>` 打印数据 layout 并回写校验；`cli compile` 通过；可跑的图再跑一次 e2e。
 
@@ -77,7 +77,7 @@ cd ui; npm run test:e2e            # Playwright：真实后端 + 浏览器核心
 | 工程 YAML 格式、子组件（sub:）、workspace 布局 | `references/project-format.md` |
 | 模型蒸馏：分析 C 代码 → 还原滤波器树与参数 → 生成可导入工程 | `references/distill-model.md` |
 
-> 当前状态与待办以 `docs/ROADMAP.md` 为准；实现历史见 `docs/implementation_log.md`。
+> 当前状态与待办以 `docs/HOW/roadmap.md` 为准；实现历史见 `docs/HOW/implementation-log.md`。
 
 ## 最小工作流
 
@@ -137,9 +137,9 @@ Orpheus 把“可读性”视为核心能力。仓库里存在三类互补的文
 - **节点笔记 `node-notes.json`**：选中节点后在参数面板编辑，自动按 `node_id` 切片保存。节点头部出现 📝 徽标。左侧“笔记”面板底部可汇总查看/编辑所有节点笔记。
 - 两者都**不写入 `project.yaml`**，保持工程文件 diff 友好、编译无关。
 
-### 给 Symphony/复杂工程写文档的原则
+### 给 示例工程/复杂工程写文档的原则
 
-- **从“为什么”开始**：不要只写“这是一个 IIR 滤波器”，要写“这里用 13 级 poolIIR 做外周 EQ，因为 Symphony 需要按通道独立补偿车厢响应”。
+- **从“为什么”开始**：不要只写“这是一个 IIR 滤波器”，要写“这里用 13 级 poolIIR 做外周 EQ，因为 示例工程 需要按通道独立补偿车厢响应”。
 - **按信号流组织**：工程笔记按 `音乐输入 → 预处理 → FDP → 混音 → EQ → 输出` 等章节展开。
 - **参数讲究单独成段**：哪些参数来自 TOP 文件、哪些是经验默认值、调节时听感如何变化。
 - **节点笔记聚焦实例**：只解释该节点在当前工程中的作用；通用组件行为留给组件 README。

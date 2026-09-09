@@ -9,7 +9,7 @@
 
 **已经有的（可直接复用）：**
 
-- **消息信封**：8 字节头（route_id + bits：type/flags/call_id/payload_words）+ 4 字节对齐 payload，自描述长度（总长 = 8 + words×4），小端，上限 ~4KB。`docs/design_registry.md` §18 定案。
+- **消息信封**：8 字节头（route_id + bits：type/flags/call_id/payload_words）+ 4 字节对齐 payload，自描述长度（总长 = 8 + words×4），小端，上限 ~4KB。`docs/HOW/reference/registry.md` §18 定案。
 - **解析分发**：动态路径 `Runtime::message()`（runtime.cpp:687）与生成路径 `orpheus_control_message()`（generator.py:1241）语义一致、均单入口；分发优先级 外部 hook → 组件 hook → 默认语义；CALL→同步 RESPONSE，NOTIFICATION 单向，错误位置 flags bit29。
 - **ID 体系**：32 位 ID（kind/module/slot）+ id_map + 内存透明 resolve，动态/生成两路共用同一张表。
 - **请求-响应匹配**：call_id 16 位，rt.py 已按此工作（`msg()` 按 call_id 等 MSGRSP）。

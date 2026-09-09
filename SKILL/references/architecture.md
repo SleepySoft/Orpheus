@@ -16,7 +16,7 @@
 1. **基座动态加载**（UI「▶ 运行」）：图编译只产出 plan.json 数据；组件 DLL 预编译；基座程序 LoadLibrary 加载后经 ABI 函数表调用。图改动零 C 编译。
 2. **代码生成**（UI「⚙ 编译后运行」/ `orpheus-cli generate`）：`CodeGenerator` 展开为自包含 C 工程（组件源码 + `orpheus_graph` 静态库 + vendored orpheus_abi.h），静态编译运行。`orpheus_graph.c/.h` 只含图状态、初始化/调用/销毁链且无宿主 IO；最小 `main.c` 可替换，完整 PC 验证入口在 `host_cli.c`。支持 PROBE/ID map/control tick、多 Task 独立入口和 task bridge；win 目标可生成 miniaudio 实时宿主，dsp 目标生成平台适配骨架。观测传输走可选 Adapter。
 
-另外两个顶层维度：执行触发=外部节拍/主动推进（由有效图与宿主推导），主动推进再含 pacing=全速/按现实时间；访问端点=本机/串口/其它 Bridge。`clock_source/clock_domain` 属于图时间线，不是执行触发。权威定义见 `docs/design_execution_model.md` 与 `docs/design_timeline.md`。
+另外两个顶层维度：执行触发=外部节拍/主动推进（由有效图与宿主推导），主动推进再含 pacing=全速/按现实时间；访问端点=本机/串口/其它 Bridge。`clock_source/clock_domain` 属于图时间线，不是执行触发。权威定义见 `docs/HOW/reference/execution-model.md` 与 `docs/HOW/reference/timeline.md`。
 
 设计原则：两种模式输出必须一致。自动化保障：`orpheus_core/tests/test_server_devices_files.py::test_generated_run_matches_dynamic_run` 逐字节比较输出 WAV。
 

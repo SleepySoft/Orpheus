@@ -19,9 +19,9 @@
 ## 当前验证基线
 
 - pytest：264 passed，1 skipped（可选演示组件未安装）。
-- CTest：5/5（ABI、loader、绝对时间线、RNC MIMO NLMS、BAF SoftClipper）。
+- CTest：5/5（ABI、loader、绝对时间线、RNC MIMO NLMS、外部参考模型 SoftClipper）。
 - 前端：Jest 17/17、生产构建、Playwright 2/2 核心流程通过。
-- BAF：ASM 48-target、SAS 68-target 独立生成工程构建成功；ASM 全局及关键 Task 入口运行通过。
+- 外部参考模型：ASM 48-target、SAS 68-target 独立生成工程构建成功；ASM 全局及关键 Task 入口运行通过。
 
 ## P0 工程基线
 
@@ -57,9 +57,9 @@
 ## P2 候选
 
 - [x] 子组件公开参数、实例参数提升与跨子图控制链。
-- [x] BAF RNC 12×8×125 MIMO NLMS 核心、12000 权值提取器与 golden。
-- [x] BAF SAS 二次分段 SoftClipper 与 EREV-1 TOP 参数回填。
-- [x] Symphony ASM 历史跨 Task 边迁移到 `async_bridge`，生成工程可构建运行。
+- [x] 外部参考模型 RNC 12×8×125 MIMO NLMS 核心、12000 权值提取器与 golden。
+- [x] 外部参考模型 SAS 二次分段 SoftClipper 与 参考工程 B TOP 参数回填。
+- [x] 参考工程 A 历史跨 Task 边迁移到 `async_bridge`，生成工程可构建运行。
 - [x] 课程包步骤、结构化自动检查 API 与条件化教学面板。
 - [ ] RNC 200-tap Wiener filtered-error、系数历史与发散恢复状态机。
 - [ ] EHC 谐波参考/FxLMS 与 SAS FDP 双速率 STFT。

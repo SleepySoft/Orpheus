@@ -4,18 +4,20 @@ An intuitive, easily extensible audio processing framework based on visual progr
 
 ## 文档
 
-- [`docs/WHAT.md`](docs/WHAT.md) — 产品目标、核心需求、成功标准与范围边界。
-- [`docs/HOW.md`](docs/HOW.md) — 技术栈、架构方案、关键机制与落地路线图。
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — 当前实现状态、近期优先级与验收进度。
-- [`docs/baf_model_alignment.md`](docs/baf_model_alignment.md) — ASM/EREV-1 BAF out 生成代码的实证映射与剩余缺口。
-- [`docs/design_observation_adapter.md`](docs/design_observation_adapter.md) — 观测点、外部 Adapter 与生成图模块边界。
-- [`docs/design_access_bridge.md`](docs/design_access_bridge.md) — Runtime/生成代码共用的控制与观测访问桥。
-- [`docs/design_bridge_protocol.md`](docs/design_bridge_protocol.md) — 半双工基线、全双工升级、可替换 Adapter 与日志 Sink。
-- [`docs/design_hlos_transport.md`](docs/design_hlos_transport.md) — stdio、子进程、TCP 与本地 Pipe Adapter。
-- [`docs/design_execution_model.md`](docs/design_execution_model.md) — 执行实现、执行触发（含主动推进 pacing）与访问端点的统一术语。
-- [`docs/design_timeline.md`](docs/design_timeline.md) — 绝对样本时间、epoch、EOS、延迟与跨域漂移的时间线演进。
-- [`docs/design_draft.txt`](docs/design_draft.txt) — 历史设计草案与详细子系统分解。
-- [`docs/design_v1.md`](docs/design_v1.md) — 高层概念草稿。
+- [`docs/README.md`](docs/README.md) — WHY/WHAT/HOW 文档导航。
+- [`docs/WHY/00-index.md`](docs/WHY/00-index.md) — 存在理由、关键取舍与设计原则。
+- [`docs/WHAT/00-index.md`](docs/WHAT/00-index.md) — 产品目标、核心需求、成功标准与范围边界。
+- [`docs/HOW/00-index.md`](docs/HOW/00-index.md) — 技术栈、架构方案、关键机制与落地路线图。
+- [`docs/HOW/roadmap.md`](docs/HOW/roadmap.md) — 当前实现状态、近期优先级与验收进度。
+- [`docs/HOW/reference/external-models/model-alignment.md`](docs/HOW/reference/external-models/model-alignment.md) — 外部参考模型生成代码的实证映射与剩余缺口。
+- [`docs/HOW/reference/observation-adapter.md`](docs/HOW/reference/observation-adapter.md) — 观测点、外部 Adapter 与生成图模块边界。
+- [`docs/HOW/reference/access-bridge.md`](docs/HOW/reference/access-bridge.md) — Runtime/生成代码共用的控制与观测访问桥。
+- [`docs/HOW/reference/bridge-protocol.md`](docs/HOW/reference/bridge-protocol.md) — 半双工基线、全双工升级、可替换 Adapter 与日志 Sink。
+- [`docs/HOW/reference/hlos-transport.md`](docs/HOW/reference/hlos-transport.md) — stdio、子进程、TCP 与本地 Pipe Adapter。
+- [`docs/HOW/reference/execution-model.md`](docs/HOW/reference/execution-model.md) — 执行实现、执行触发（含主动推进 pacing）与访问端点的统一术语。
+- [`docs/HOW/reference/timeline.md`](docs/HOW/reference/timeline.md) — 绝对样本时间、epoch、EOS、延迟与跨域漂移的时间线演进。
+- [`docs/HOW/archive/design-draft.txt`](docs/HOW/archive/design-draft.txt) — 历史设计草案与详细子系统分解。
+- [`docs/HOW/reference/v1.md`](docs/HOW/reference/v1.md) — 高层概念草稿。
 
 ## 一句话介绍
 
@@ -70,9 +72,9 @@ UI 使用流程：左上角「导入示例…」导入示例工程 → 画布编
 - **▶ 运行**（动态 Runtime）：按有效图自动选择执行触发。含设备组件时由声卡 callback 外部触发并持续到停止；无设备图由执行器主动推进，默认全速完成。输入输出自由组合：系统声音→处理→WAV 就是录制，WAV→处理→声卡就是播放。
 - **⚙ 编译后运行**（代码生成路径）：生成独立 C 工程 → 静态编译 → 运行；与动态加载路径的输出有逐字节一致性测试保障。
 
-“真实时长”不是第三种执行方式，而是**主动推进器的 pacing 子配置**：关闭时全速处理，开启时按墙钟等待，便于连续观察 Probe。外部节拍触发没有该配置。它不放进 `wav_in/signal_gen` 等 source 参数，因为这是本次执行器策略，不是图或组件语义。工具栏的本机/串口是访问端点。完整三轴层级模型见 `docs/design_execution_model.md`。
+“真实时长”不是第三种执行方式，而是**主动推进器的 pacing 子配置**：关闭时全速处理，开启时按墙钟等待，便于连续观察 Probe。外部节拍触发没有该配置。它不放进 `wav_in/signal_gen` 等 source 参数，因为这是本次执行器策略，不是图或组件语义。工具栏的本机/串口是访问端点。完整三轴层级模型见 `docs/HOW/reference/execution-model.md`。
 
-生成工程将产品图实现编成 `orpheus_graph` 静态库：`include/orpheus_graph.h` 是用户 main/音频中断需要的唯一图入口，`src/orpheus_graph.c` 是直线初始化链与调用链且不做宿主 IO。`src/main.c` 仅为最小集成示例；BULK、消息、Task、stdio 链路等 PC 验证能力独立放在 `src/host_cli.c` / `orpheus_generated_cli`。画布中的无端口「访问桥」节点保存为顶层 `bridges`，当前支持 `uart + olink`；旧 `uart_link` 自动兼容迁移。统一 Pipe/UART/SHM/callback Bridge 与纯观测点迁移按路线图继续实现，设计见 `docs/design_access_bridge.md` 和 `docs/design_observation_adapter.md`。
+生成工程将产品图实现编成 `orpheus_graph` 静态库：`include/orpheus_graph.h` 是用户 main/音频中断需要的唯一图入口，`src/orpheus_graph.c` 是直线初始化链与调用链且不做宿主 IO。`src/main.c` 仅为最小集成示例；BULK、消息、Task、stdio 链路等 PC 验证能力独立放在 `src/host_cli.c` / `orpheus_generated_cli`。画布中的无端口「访问桥」节点保存为顶层 `bridges`，当前支持 `uart + olink`；旧 `uart_link` 自动兼容迁移。统一 Pipe/UART/SHM/callback Bridge 与纯观测点迁移按路线图继续实现，设计见 `docs/HOW/reference/access-bridge.md` 和 `docs/HOW/reference/observation-adapter.md`。
 
 「下载 zip」可导出整个工程目录。
 

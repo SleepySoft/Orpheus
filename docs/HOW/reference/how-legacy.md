@@ -498,9 +498,9 @@ Transport 在界面分两层配置：主图无端口「访问桥」节点决定�
 
 ## 8. 控制协议与 Transport
 
-> **本节已被取代**（2026-08-16）：下面是早期草案，实际落地以 `docs/design_registry.md`
+> **本节已被取代**（2026-08-16）：下面是早期草案，实际落地以 `docs/HOW/reference/registry.md`
 > §17（32 位数据 ID）/ §18（二进制消息信封：8 字节头，CALL/RESPONSE/NOTIFICATION）
-> 与 `docs/design_serial_link.md`（OLINK 串行链路）为准。
+> 与 `docs/HOW/reference/serial-link.md`（OLINK 串行链路）为准。
 
 实际实现概览：
 
@@ -754,7 +754,7 @@ orpheus_platform_memory_section_bind(...);
 
 ## 24. 组件自定义 UI 与波形回读（已实现 v1）
 
-- **PROBE_JSON 数据通路**：宿主对 STRING 型 readback 参数输出 `PROBE_JSON <node> <param> <json>`（整行 JSON，数组/对象/数字），`rt.py` / `app.py` 解析为结构化值；旧 `PROBE <node> <param> <value>` 标量格式完全兼容。设计文档：`docs/design_component_ui.md`。
+- **PROBE_JSON 数据通路**：宿主对 STRING 型 readback 参数输出 `PROBE_JSON <node> <param> <json>`（整行 JSON，数组/对象/数字），`rt.py` / `app.py` 解析为结构化值；旧 `PROBE <node> <param> <value>` 标量格式完全兼容。设计文档：`docs/HOW/reference/component-ui.md`。
 - **probe_waveform 波形显示**：组件内置 1024 帧环形缓冲（取第 0 通道），`waveform` readback 参数在非实时线程编码为 JSON 数组；画布节点注册 `ScopeWidget`（canvas 示波器，消费 `data.probe.waveform`），离线与实时会话均显示。示例：`examples/probe_waveform_scope.yaml`。
 - **显示型 readback 参数**：参数面板隐藏 `readback && !affects_signature` 的参数（如 rms/peak/waveform），它们是探针输出而非可编辑输入。
 - **机制原则**：UI 定制 = manifest 软声明（可选）+ 前端注册表（`widgets.js` 参数控件 / `nodeWidgets.js` 节点本体），C ABI、plan、编译、Runtime、代码生成完全不感知；无注册时回退默认渲染。
@@ -780,7 +780,7 @@ orpheus_platform_memory_section_bind(...);
 
 ## 27. 数据 ID、模块内存与内存透明（已实现）
 
-> 详细设计：`docs/design_registry.md` §17。目标：统一寻址（调音/实时控制/探针/状态）、模块内存连续、
+> 详细设计：`docs/HOW/reference/registry.md` §17。目标：统一寻址（调音/实时控制/探针/状态）、模块内存连续、
 > 内存透明（ID → 类型/长度/地址可查询），对齐公司模型习惯（RTC/TOP/TSP 三类 ID，但按我们自己的
 > 用途/形式正交模型组织，且不拆读写）。
 
@@ -840,7 +840,7 @@ orpheus_platform_memory_section_bind(...);
 
 ## 28. 二进制消息协议（CALL / RESPONSE / NOTIFICATION）
 
-> 设计：`docs/design_registry.md` §18。统一语义：kind = 运行时确定语义，hook = 扩展缝（外部注册优先），
+> 设计：`docs/HOW/reference/registry.md` §18。统一语义：kind = 运行时确定语义，hook = 扩展缝（外部注册优先），
 > CUSTOM = 用户完全自处理的消息。
 
 - **Response = 同步返回**：所有 CALL 都同步得到一个 RESPONSE；**Notification = 异步交付/事件推送**，
@@ -927,7 +927,7 @@ orpheus_platform_memory_section_bind(...);
 
 ## 34. 串行链路：PC 界面直连嵌入式设备调音（已实现）
 
-> 详见 `docs/design_serial_link.md`（分层设计与实现状态表）。
+> 详见 `docs/HOW/reference/serial-link.md`（分层设计与实现状态表）。
 
 - **分层**：UI → L4 后端适配层（ControlPlane）→ L3 OLINK 成帧（COBS+CRC16）→ L2 §18 消息信封 → L1 传输（stdio 管道 / UART）。
 - **OLINK**（`orpheus_abi/src/olink.c` + `orpheus_core/orpheus_core/link/olink.py`，帧级互测）：`线上帧 = COBS(消息 || CRC16-CCITT) || 0x00`；0x00 恒为帧界、自同步恢复、空消息帧丢弃。
@@ -941,7 +941,7 @@ orpheus_platform_memory_section_bind(...);
 
 ## 35. 控制参数链路（已实现）
 
-> 详见 `docs/design_control_link_eval.md`（可行性评估 + 双平面语义 + 设计决策）。
+> 详见 `docs/HOW/reference/control-links.md`（可行性评估 + 双平面语义 + 设计决策）。
 
 - **声明模型**：工程顶层 `control_connections: [{from: "node:param", to: "node:param"}]`；manifest 参数新增 `bindable`（目标，与 affects_signature/restart_required 互斥）/ `control_source`（源，须 readback 可读）/ `shape`（维度表达式，复用 `param:` 语法，如 `matrix_mul.matrix: [param:rows, param:cols]`）。
 - **双平面语义**：签名平面（shape/采样率）编译期拓扑求值、结构性无环；控制平面运行期值流动，**每条链 = 1 块单位延迟，闭环合法**（如 level_detect → gain 的 AGC 反馈环）。
@@ -955,7 +955,7 @@ orpheus_platform_memory_section_bind(...);
 
 ## 36. 静态调度、多 Task 与异步桥（已实现）
 
-> 详见 `docs/design_clock_scheduling.md` 与 `docs/design_multitask_runtime.md`。
+> 详见 `docs/HOW/reference/clock-scheduling.md` 与 `docs/HOW/reference/multitask-runtime.md`。
 
 - compiler 将每个节点的处理量子折算为图速率帧，生成全局 `schedule.tick/periods`；跨速率合流边使用 `rate_bridge` staging + 滚动 FIFO，避免 sink 重复消费。
 - plan 同时保存兼容全局入口和 `tasks[]`；每个 Task 记录采样率、块长、优先级、节点拓扑序、局部 tick 与 periods。
@@ -965,13 +965,13 @@ orpheus_platform_memory_section_bind(...);
 
 ---
 
-## 37. BAF 生成模型对齐（持续完善）
+## 37. 外部参考模型 生成模型对齐（持续完善）
 
-> 实证路径、字段数量、哈希与剩余算法见 `docs/baf_model_alignment.md`。
+> 实证路径、字段数量、哈希与剩余算法见 `docs/model-alignment.md`。
 
 - ASM out 的执行图已映射为 TID0~TID6，多任务边界全部显式接入 `async_bridge`。
-- `rnc_mimo_nlms` 对齐 `<S724>/AdaptFilter` 的 12 reference × 8 speaker × 125 taps 核心；12000 初始权值通过 `scripts/extract_baf_top.py` 从 TOP 文件提取，不把外部模型源码或大表作为仓库依赖。
-- `baf_soft_clipper` 对齐 EREV-1 PostProcess 的二次分段曲线，SAS 示例已替换原 tanh 占位。
+- `rnc_mimo_nlms` 对齐 `<S724>/AdaptFilter` 的 12 reference × 8 speaker × 125 taps 核心；12000 初始权值通过 `scripts/extract_external_model_top.py` 从 TOP 文件提取，不把外部模型源码或大表作为仓库依赖。
+- `soft_clipper` 对齐 参考工程 B PostProcess 的二次分段曲线，SAS 示例已替换原 tanh 占位。
 - 生成器补齐多行 C 字符串转义、同 key 参数/BULK ID 去重、悬空输出 discard buffer 与节点级 process 错误诊断；ASM/SAS 独立生成工程均通过构建运行验证。
 
 
@@ -981,5 +981,5 @@ orpheus_platform_memory_section_bind(...);
 
 - 工程顶层 `lesson` 声明 `title/description/steps/checks`；普通工程无该字段时 UI 不出现教学入口。
 - `POST /api/projects/{name}/lesson/check` 在扁平图与 plan 上检查编译、节点组件、参数值、音频/控制连接和异步桥数量；畸形规则返回失败项，不中断核心服务。
-- UI「教学」面板展示步骤与逐项结果。`symphony_asm_ehc_rnc.yaml` 自带 5 条检查，覆盖 MIMO NLMS、125 taps、跨子图控制链和多 Task 桥。
-- 当前未实现教师答案和学习进度持久化，见 `docs/ROADMAP.md`。
+- UI「教学」面板展示步骤与逐项结果。`example-a.yaml` 自带 5 条检查，覆盖 MIMO NLMS、125 taps、跨子图控制链和多 Task 桥。
+- 当前未实现教师答案和学习进度持久化，见 `docs/HOW/roadmap.md`。

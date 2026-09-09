@@ -1,7 +1,7 @@
 # Orpheus 基础版本实施计划
 
 > 目标：在 PC 上运行一个能对播放音乐进行实时/文件加工的音频系统。所有模块（Runtime、Core、UI、代码生成、组件加载、基础音频组件、基础监控组件）齐全，但保持最小可用。
-> 实施方式：分阶段推进，每阶段形成可运行闭环，并记录到 `docs/implementation_log.md`。
+> 实施方式：分阶段推进，每阶段形成可运行闭环，并记录到 `docs/HOW/implementation-log.md`。
 
 ---
 
@@ -115,4 +115,4 @@
 
 ## 当前进度
 
-见 `docs/implementation_log.md`。
+见 `docs/HOW/implementation-log.md`。
