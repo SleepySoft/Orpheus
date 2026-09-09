@@ -1119,6 +1119,14 @@
   position: relative;
 }
 
+.plot-widget {
+  flex: 1;
+  min-height: 90px;
+  position: relative;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
 .level-row {
   display: flex;
   align-items: center;

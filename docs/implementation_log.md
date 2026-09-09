@@ -2,6 +2,13 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/ROADMAP.md`，不要把旧条目当作现状。
 
+## 2026-09-08（第五十五次：共用专业绘图组件第一阶段）
+
+- 新增 `ui/src/plot/Plot.js`、`plotScales.js` 和 `usePlotCanvasSize.js`：统一线性/对数刻度、专业坐标轴、网格、基础 line/area/bars 渲染，以及高分屏与 React Flow zoom 联动的 Canvas 分辨率。
+- `sweep_record` 与 `interp_lut` 的节点监控先迁移到共用 `Plot`，复用对数频率轴、dB 幅度轴、线性历史轴和统一图例样式。
+- Canvas backing store 按 `devicePixelRatio * zoom` 计算，避免高分屏和画布缩放造成的模糊；普通节点和大面板使用不同边距与刻度密度。
+- 新增刻度与坐标映射纯函数测试；现有 Jest、生产构建和 Playwright 核心流程均通过。
+
 ## 2026-09-08（第五十四次：alter 与平台节点画布标识）
 
 - UI 从现有 `alters` 无向连通关系自动推导替代组，以不参与事件和序列化的背景框显示「平台替代 · N 选 1」；拖动、缩放和平移时按实测节点尺寸实时更新。

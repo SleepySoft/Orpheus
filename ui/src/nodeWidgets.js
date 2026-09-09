@@ -1,4 +1,5 @@
 import React from 'react';
+import Plot from './plot/Plot';
 
 /** 让 canvas 跟随容器尺寸（节点拖大 / 放大弹层都生效） */
 function useCanvasSize(large, fw, fh) {
@@ -294,100 +295,34 @@ function SpectrumWidget({ data, large }) {
 
 function SweepPlotWidget({ data, large }) {
   const sweep = data.probe?.sweep;
-  const { wrapRef, w, h } = useCanvasSize(large, large ? 640 : 220, large ? 260 : 90);
-  const ref = React.useRef(null);
-
-  React.useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const cw = canvas.width, ch = canvas.height;
-    ctx.clearRect(0, 0, cw, ch);
-    ctx.fillStyle = '#0d1117';
-    ctx.fillRect(0, 0, cw, ch);
-
-    const freq = sweep?.freq, mag = sweep?.mag;
-    if (!Array.isArray(freq) || freq.length < 2 || !Array.isArray(mag) || mag.length < 2) {
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.font = '11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('等待扫频数据…', cw / 2, ch / 2);
-      return;
-    }
-
-    // 只统计已采集的箱（mag>0），未扫到的箱不参与 y 轴范围，避免曲线被压扁
-    const db = mag.map((m) => (m > 0 ? 20 * Math.log10(m) : null));
-    const measured = db.filter((d) => d !== null);
-    let minF = Math.log10(freq[0]), maxF = Math.log10(freq[freq.length - 1]);
-    if (!isFinite(minF) || !isFinite(maxF) || maxF <= minF) { minF = 1; maxF = 4; }
-    let minD = measured.length ? Math.min(...measured) : -60;
-    let maxD = measured.length ? Math.max(...measured) : 0;
-    if (!isFinite(minD) || !isFinite(maxD) || maxD - minD < 1) { minD = -60; maxD = 0; }
-
-    // 坐标区留边：左=dB 刻度，下=频率刻度，两种尺寸都显示
-    const plotL = 42, plotR = cw - 8, plotT = 10, plotB = ch - 18;
-    const px = (f) => plotL + ((Math.log10(f) - minF) / (maxF - minF)) * (plotR - plotL);
-    const py = (d) => plotT + (1 - (d - minD) / (maxD - minD)) * (plotB - plotT);
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = plotT + ((plotB - plotT) * i) / 4;
-      ctx.beginPath(); ctx.moveTo(plotL, y); ctx.lineTo(plotR, y); ctx.stroke();
-    }
-
-    // 幅度轴（dB）刻度：5 格
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.font = '9px sans-serif';
-    ctx.textAlign = 'right';
-    for (let i = 0; i <= 4; i++) {
-      const d = maxD - ((maxD - minD) * i) / 4;
-      ctx.fillText(d.toFixed(0) + 'dB', plotL - 4, plotT + ((plotB - plotT) * i) / 4 + 3);
-    }
-
-    // 频率轴（对数）刻度：按数量级（10^n）落格，Hz/kHz 自适应
-    const fmtHz = (f) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 0 : 1)}k` : `${Math.round(f)}`);
-    ctx.textAlign = 'center';
-    const k0 = Math.floor(minF), k1 = Math.ceil(maxF);
-    for (let k = k0; k <= k1; k++) {
-      const f = Math.pow(10, k);
-      if (f < freq[0] || f > freq[freq.length - 1]) continue;
-      const x = px(f);
-      ctx.beginPath(); ctx.moveTo(x, plotT); ctx.lineTo(x, plotB); ctx.stroke();
-      ctx.fillText(fmtHz(f), x, ch - 5);
-    }
-    // 坐标轴主线
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-    ctx.beginPath(); ctx.moveTo(plotL, plotB); ctx.lineTo(plotR, plotB); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(plotL, plotT); ctx.lineTo(plotL, plotB); ctx.stroke();
-
-    ctx.beginPath();
-    ctx.strokeStyle = '#4cc9f0';
-    ctx.lineWidth = large ? 2 : 1.2;
-    let drawing = false;
-    for (let i = 0; i < db.length; i++) {
-      if (db[i] === null) { drawing = false; continue; }
-      const x = px(freq[i]), y = py(db[i]);
-      if (!drawing) { ctx.moveTo(x, y); drawing = true; } else { ctx.lineTo(x, y); }
-    }
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'left';
-    const prog = sweep.done ? '完成' : `扫频 ${Math.round((sweep.progress || 0) * 100)}%`;
-    ctx.fillText(prog, plotL + 2, plotT + 10);
-  }, [sweep, large, w, h]);
+  const freq = Array.isArray(sweep?.freq) ? sweep.freq : [];
+  const mag = Array.isArray(sweep?.mag) ? sweep.mag : [];
+  const valid = freq.length > 1 && mag.length > 1;
+  const db = valid ? mag.map((value) => (value > 0 ? 20 * Math.log10(value) : null)) : [];
+  const measured = db.filter((value) => value !== null);
+  const minD = measured.length ? Math.min(...measured) : -60;
+  const maxD = measured.length ? Math.max(...measured) : 0;
+  const series = valid
+    ? [{
+      id: 'sweep',
+      label: '扫频响应',
+      type: 'line',
+      x: freq,
+      y: db,
+      color: '#4cc9f0',
+      width: large ? 1.8 : 1.2,
+    }]
+    : [];
 
   return (
-    <div ref={wrapRef} className="monitor-widget">
-      <canvas
-        ref={ref}
-        width={w}
-        height={h}
-        style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }}
-      />
-    </div>
+    <Plot
+      variant={large ? 'panel' : 'node'}
+      series={series}
+      x={{ label: '频率', unit: 'Hz', scale: 'log' }}
+      y={{ label: '幅度', unit: 'dB', domain: [minD, maxD] }}
+      emptyText="等待扫频数据…"
+      legend={large}
+    />
   );
 }
 
@@ -461,63 +396,29 @@ function HeatmapWidget({ data, large }) {
  */
 function TimeCurveWidget({ data, large }) {
   const hist = data.probe?.history;
-  const { wrapRef, w, h } = useCanvasSize(large, large ? 640 : 200, large ? 200 : 64);
-  const ref = React.useRef(null);
-
-  React.useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const cw = canvas.width;
-    const ch = canvas.height;
-    ctx.clearRect(0, 0, cw, ch);
-    ctx.fillStyle = '#0d1117';
-    ctx.fillRect(0, 0, cw, ch);
-
-    if (!Array.isArray(hist) || hist.length === 0) {
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('运行后显示控制值历史', cw / 2, ch / 2);
-      return;
-    }
-    let min = Math.min(...hist);
-    let max = Math.max(...hist);
-    if (max - min < 1e-6) {
-      min -= 0.5;
-      max += 0.5;
-    }
-    const xFor = (i) => (i / (hist.length - 1)) * cw;
-    const yFor = (v) => ch - 2 - ((v - min) / (max - min)) * (ch - 8);
-    ctx.strokeStyle = '#4fc3f7';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    for (let i = 0; i < hist.length; i++) {
-      const x = xFor(i);
-      const y = yFor(hist[i]);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-    if (large) {
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText(max.toFixed(3), cw - 4, 10);
-      ctx.fillText(min.toFixed(3), cw - 4, ch - 4);
-    }
-  }, [hist, large, w, h]);
+  const values = Array.isArray(hist) ? hist : [];
+  const series = values.length
+    ? [{
+      id: 'history',
+      label: '控制值',
+      type: 'line',
+      x: values.map((_, index) => index),
+      y: values,
+      color: '#4cc9f0',
+      width: large ? 1.6 : 1.2,
+    }]
+    : [];
 
   return (
     <div className="probe-body">
-      <div ref={wrapRef} className="monitor-widget">
-        <canvas
-          ref={ref}
-          width={w}
-          height={h}
-          style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }}
-        />
-      </div>
+      <Plot
+        variant={large ? 'panel' : 'node'}
+        series={series}
+        x={{ label: large ? '历史帧' : undefined, scale: 'linear' }}
+        y={{ label: large ? '控制值' : undefined, scale: 'linear' }}
+        emptyText="运行后显示控制值历史"
+        legend={large}
+      />
     </div>
   );
 }
