@@ -1,7 +1,14 @@
 import React from 'react';
 import { useViewport } from 'reactflow';
 import { usePlotCanvasSize } from './usePlotCanvasSize';
-import { axisTicks, formatTick, projectValue, resolveDomain, seriesValues } from './plotScales';
+import {
+  axisTicks,
+  formatTick,
+  projectValue,
+  resolveDomain,
+  seriesValues,
+  waveformEnvelope,
+} from './plotScales';
 
 const PALETTE = ['#4cc9f0', '#f9c74f', '#90be6d', '#f94144', '#9d4edd'];
 const MARGINS = {
@@ -14,7 +21,8 @@ const MARGINS = {
 function combinedExtent(series, key) {
   let result = null;
   for (const item of series) {
-    for (const value of seriesValues(item, key)) {
+    const values = item.type === 'waveform' ? item.data : seriesValues(item, key);
+    for (const value of values) {
       if (!Number.isFinite(value)) continue;
       if (!result) result = [value, value];
       else {
@@ -24,6 +32,36 @@ function combinedExtent(series, key) {
     }
   }
   return result;
+}
+
+/** 绘制填充式波形包络：每列保留 min/max，避免逐样本绘制造成的性能瓶颈。 */
+function drawWaveform(ctx, item, plot, domains, axes, variant) {
+  const columns = Math.max(2, Math.round(plot.right - plot.left));
+  const envelope = waveformEnvelope(item.data, columns);
+  if (!envelope.length) return;
+  const columnWidth = (plot.right - plot.left) / (columns - 1);
+  const pointAt = (column, value) => ({
+    x: plot.left + column * columnWidth,
+    y: projectValue(value, domains.y, plot.bottom, plot.top, axes.y),
+  });
+
+  ctx.beginPath();
+  for (let column = 0; column < columns; column++) {
+    if (!envelope[column]) continue;
+    const top = pointAt(column, envelope[column][1]);
+    if (!Number.isFinite(top.y)) continue;
+    if (column === 0) ctx.moveTo(top.x, top.y);
+    else ctx.lineTo(top.x, top.y);
+  }
+  for (let column = columns - 1; column >= 0; column--) {
+    if (!envelope[column]) continue;
+    const bottom = pointAt(column, envelope[column][0]);
+    if (Number.isFinite(bottom.y)) ctx.lineTo(bottom.x, bottom.y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = item.fillColor || ((item.color || PALETTE[0]) + '22');
+  ctx.fill();
+  ctx.stroke();
 }
 
 /** 一条折线的路径绘制；NaN 会自然分段。 */
@@ -159,7 +197,7 @@ export default function Plot({
 
     series.forEach((item, index) => {
       const data = { x: seriesValues(item, 'x'), y: seriesValues(item, 'y') };
-      if (!data.x.length || !data.y.length) return;
+      if (item.type !== 'waveform' && (!data.x.length || !data.y.length)) return;
       const color = item.color || PALETTE[index % PALETTE.length];
       ctx.strokeStyle = color;
       ctx.fillStyle = item.fillColor || (color + '22');
@@ -180,6 +218,8 @@ export default function Plot({
             ctx.fillRect(px - barWidth / 2, py, barWidth, plot.bottom - py);
           }
         }
+      } else if (item.type === 'waveform') {
+        drawWaveform(ctx, item, plot, domains, { x, y }, variant);
       } else {
         drawLinePath(ctx, data, plot, domains, { x, y });
         if (item.type === 'area') {

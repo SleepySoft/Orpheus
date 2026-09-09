@@ -127,3 +127,25 @@ export function seriesValues(series, key) {
   if (Array.isArray(series.points)) return series.points.map((point) => point[key]);
   return [];
 }
+
+/** 将波形按可视列宽度压缩为 min/max 包络，兼顾峰值形状和渲染性能。 */
+export function waveformEnvelope(values, columns) {
+  const safeColumns = Math.max(1, Math.floor(columns || 1));
+  if (!Array.isArray(values) || !values.length) return [];
+  const bucketSize = Math.max(1, Math.ceil(values.length / safeColumns));
+  const result = [];
+  for (let column = 0; column < safeColumns; column++) {
+    const start = column * bucketSize;
+    const end = Math.min(values.length, start + bucketSize);
+    let low = Infinity;
+    let high = -Infinity;
+    for (let index = start; index < end; index++) {
+      const value = values[index];
+      if (!Number.isFinite(value)) continue;
+      low = Math.min(low, value);
+      high = Math.max(high, value);
+    }
+    result.push(Number.isFinite(low) ? [low, high] : [NaN, NaN]);
+  }
+  return result;
+}

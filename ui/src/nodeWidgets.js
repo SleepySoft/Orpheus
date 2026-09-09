@@ -103,97 +103,39 @@ function SweepGenWidget({ data, large }) {
  */
 function ScopeWidget({ data, large }) {
   const samples = data.probe?.waveform;
-  const ref = React.useRef(null);
   const histRef = React.useRef([]);
   const HISTORY_CAP = 8192; // ~85ms @48kHz; larger = smoother scroll, smaller = faster response
-  const { wrapRef, w, h } = useCanvasSize(large, large ? 640 : 180, large ? 240 : 64);
-
-  React.useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const cw = canvas.width;
-    const ch = canvas.height;
-    ctx.clearRect(0, 0, cw, ch);
-
-    // dark scope background + 4-division grid + center line
-    ctx.fillStyle = '#0d1117';
-    ctx.fillRect(0, 0, cw, ch);
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
-    for (let gy = 0; gy <= 4; gy++) {
-      const y = (ch * gy) / 4;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(cw, y);
-      ctx.stroke();
-    }
-    const midY = ch / 2;
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-    ctx.beginPath();
-    ctx.moveTo(0, midY);
-    ctx.lineTo(cw, midY);
-    ctx.stroke();
-
-    if (large) {
-      // amplitude labels on the left edge
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'left';
-      for (let i = 0; i <= 4; i++) {
-        const amp = 1 - i / 2; // 1, 0.5, 0, -0.5, -1
-        const y = (ch * i) / 4;
-        ctx.fillText(amp.toFixed(1), 4, y - 3);
-      }
-    }
-
-    if (!Array.isArray(samples) || samples.length === 0) {
-      histRef.current = []; // new run (or stopped): start with a clean scroll
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('运行后显示波形', cw / 2, midY + 3);
-      return;
-    }
-
-    // rolling history: new snapshot appended at the right, old samples scroll left
-    let hist = histRef.current.concat(samples);
-    if (hist.length > HISTORY_CAP) hist = hist.slice(hist.length - HISTORY_CAP);
-    histRef.current = hist;
-
-    // scope-style trace: per-column min/max envelope over the visible history
-    ctx.beginPath();
-    for (let x = 0; x < cw; x++) {
-      const i0 = Math.floor((x / cw) * hist.length);
-      const i1 = Math.min(hist.length, Math.max(i0 + 1, Math.floor(((x + 1) / cw) * hist.length)));
-      let lo = Infinity;
-      let hi = -Infinity;
-      for (let i = i0; i < i1; i++) {
-        const v = hist[i];
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
-      }
-      if (lo === Infinity) continue;
-      const yLo = midY - lo * (ch * 0.42);
-      const yHi = midY - hi * (ch * 0.42);
-      if (x === 0) ctx.moveTo(x, yLo);
-      ctx.lineTo(x, yHi);
-    }
-    ctx.strokeStyle = '#4fc3f7';
-    ctx.lineWidth = large ? 1.8 : 1.2;
-    ctx.stroke();
-  }, [samples, large, w, h]);
+  const sampleRate = data.rate?.sample_rate ?? 48000;
+  const hist = Array.isArray(samples) && samples.length
+    ? [...(histRef.current || []), ...samples].slice(-HISTORY_CAP)
+    : [];
+  histRef.current = hist;
+  const series = hist.length
+    ? [{
+      id: 'waveform',
+      label: '输出',
+      type: 'waveform',
+      data: hist,
+      color: '#4fc3f7',
+      width: large ? 1.6 : 1.2,
+    }]
+    : [];
 
   return (
     <div className="probe-body">
-      <div ref={wrapRef} className="monitor-widget">
-        <canvas
-          ref={ref}
-          width={w}
-          height={h}
-          style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }}
-        />
-      </div>
+      <Plot
+        variant={large ? 'panel' : 'node'}
+        series={series}
+        x={{
+          label: large ? '时间' : undefined,
+          unit: 's',
+          scale: 'linear',
+          domain: [0, Math.max(1, hist.length - 1) / sampleRate],
+        }}
+        y={{ label: large ? '幅值' : undefined, unit: '', scale: 'linear', domain: [-1, 1] }}
+        emptyText="运行后显示波形"
+        legend={large}
+      />
     </div>
   );
 }
@@ -205,90 +147,43 @@ function ScopeWidget({ data, large }) {
  */
 function SpectrumWidget({ data, large }) {
   const bins = data.probe?.spectrum;
-  const ref = React.useRef(null);
-  const { wrapRef, w, h } = useCanvasSize(large, large ? 640 : 180, large ? 200 : 64);
   const windowSize = data.params?.window_size ?? 1024;
   const sampleRate = data.rate?.sample_rate ?? 48000;
-
-  React.useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const cw = canvas.width;
-    const ch = canvas.height;
-    ctx.clearRect(0, 0, cw, ch);
-
-    ctx.fillStyle = '#0d1117';
-    ctx.fillRect(0, 0, cw, ch);
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
-    for (let gy = 0; gy <= 4; gy++) {
-      const y = (ch * gy) / 4;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(cw, y);
-      ctx.stroke();
-    }
-
-    if (large) {
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'left';
-      for (let i = 0; i <= 4; i++) {
-        const db = -i * 20;
-        ctx.fillText(`${db} dB`, 4, (ch * i) / 4 - 3);
-      }
-    }
-
-    if (!Array.isArray(bins) || bins.length === 0) {
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('运行后显示频谱', cw / 2, ch / 2 + 3);
-      return;
-    }
-
-    const n = bins.length;
-    const nyquist = sampleRate / 2;
-    const maxDb = 0;
-    const minDb = -80;
-    const toY = (db) => {
-      const t = Math.max(0, Math.min(1, (db - minDb) / (maxDb - minDb)));
-      return ch - 2 - t * (ch - 6);
-    };
-    const xFor = (i) => (i / n) * cw;
-
-    // bars: dB-scaled magnitude, log-ish look via per-bin bars
-    ctx.fillStyle = '#4fc3f7';
-    const barW = Math.max(1, cw / n);
-    for (let i = 0; i < n; i++) {
-      const v = bins[i];
-      const db = v > 1e-6 ? 20 * Math.log10(v) : minDb;
-      const y = toY(db);
-      ctx.fillRect(xFor(i), y, barW, ch - 2 - y);
-    }
-
-    if (large) {
-      // frequency axis labels: 0, nyquist/2, nyquist
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.textAlign = 'center';
-      const fmt = (hz) => (hz >= 1000 ? `${(hz / 1000).toFixed(1)}kHz` : `${hz}Hz`);
-      ctx.fillText('0', 0, ch - 2);
-      ctx.fillText(fmt(nyquist / 2), cw / 2, ch - 2);
-      ctx.fillText(fmt(nyquist), cw - 2, ch - 2);
-    }
-  }, [bins, large, windowSize, sampleRate, w, h]);
+  const values = Array.isArray(bins) ? bins : [];
+  const nyquist = sampleRate / 2;
+  const binWidth = values.length ? sampleRate / windowSize : 0;
+  const series = values.length
+    ? [{
+      id: 'spectrum',
+      label: '频谱',
+      type: 'bars',
+      x: values.map((_, index) => index * binWidth),
+      y: values.map((value) => (value > 1e-6 ? 20 * Math.log10(value) : -80)),
+      color: '#4fc3f0',
+    }]
+    : [];
 
   return (
     <div className="probe-body">
-      <div ref={wrapRef} className="monitor-widget">
-        <canvas
-          ref={ref}
-          width={w}
-          height={h}
-          style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4 }}
-        />
-      </div>
+      <Plot
+        variant={large ? 'panel' : 'node'}
+        series={series}
+        x={{
+          label: large ? '频率' : undefined,
+          unit: 'Hz',
+          scale: 'linear',
+          domain: [0, Math.max(nyquist, values.length ? (values.length - 1) * binWidth : 0)],
+          ticks: large ? 'auto' : [0, nyquist / 2, nyquist],
+        }}
+        y={{
+          label: large ? '幅度' : undefined,
+          unit: 'dB',
+          scale: 'linear',
+          domain: [-80, 0],
+        }}
+        emptyText="运行后显示频谱"
+        legend={large}
+      />
     </div>
   );
 }

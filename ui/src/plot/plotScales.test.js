@@ -1,4 +1,4 @@
-import { axisTicks, formatTick, projectValue, resolveDomain } from './plotScales';
+import { axisTicks, formatTick, projectValue, resolveDomain, waveformEnvelope } from './plotScales';
 
 describe('plot 刻度与坐标映射', () => {
   test('线性刻度生成可读步长', () => {
@@ -26,5 +26,13 @@ describe('plot 刻度与坐标映射', () => {
     expect(formatTick(1000, { unit: 'Hz' })).toBe('1k');
     expect(formatTick(10000, { unit: 'Hz' })).toBe('10k');
     expect(formatTick(-20, { unit: 'dB' })).toBe('-20');
+  });
+
+  test('波形按可视列压缩为 min/max 包络', () => {
+    expect(waveformEnvelope([1, -1, 0.2, -0.2, 0, 0.5], 2)).toEqual([
+      [-1, 1],
+      [-0.2, 0.5],
+    ]);
+    expect(waveformEnvelope([], 4)).toEqual([]);
   });
 });
