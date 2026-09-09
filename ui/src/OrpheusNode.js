@@ -190,7 +190,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
           )}
           {Array.isArray(data.platforms) && data.platforms.length > 0 && (
             <span className={`platform-badge platform-badge-${platformTone}`} title={`适用平台：${data.platforms.join(' / ')}`}>
-              {data.platforms.map((platform) => platform.toUpperCase()).join('/')} 平台
+              {data.platforms.map((platform) => platform.toUpperCase()).join('/')}
             </span>
           )}
         </div>

@@ -63,8 +63,8 @@ test('alter 组自动绘框并显示平台样式', async ({ page }, testInfo) =>
 
   await expect(frame).toHaveCount(1);
   await expect(frame.getByText('平台替代 · 2 选 1')).toBeVisible();
-  await expect(winNode.getByText('WIN 平台')).toBeVisible();
-  await expect(dspNode.getByText('DSP 平台')).toBeVisible();
+  await expect(winNode.getByText('WIN')).toBeVisible();
+  await expect(dspNode.getByText('DSP')).toBeVisible();
   await expect(portableNode.locator('.platform-badge')).toHaveCount(0);
 
   const winColor = await winNode.locator('.orpheus-node').evaluate(
