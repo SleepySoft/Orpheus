@@ -2,6 +2,13 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/ROADMAP.md`，不要把旧条目当作现状。
 
+## 2026-09-08（第五十六次：共用绘图组件迁移高频显示）
+
+- probe_spectrum 与 psd 的节点监控迁移到共用 Plot，统一 dB 轴、线性频率轴、FFT bin 频率换算和柱状序列渲染。
+- probe_waveform 改用共用 Plot 的 waveform 序列；新增按可视列宽压缩的 min/max 包络，既保留峰值形状又避免逐样本绘制。
+- 波形 x 轴按节点采样率换算为绝对时间，y 轴固定为归一化幅值；大面板继续使用完整轴标签和图例。
+- 扩展波形包络纯函数测试；现有 Jest、生产构建和 Playwright 核心流程均通过。
+
 ## 2026-09-08（第五十五次：共用专业绘图组件第一阶段）
 
 - 新增 `ui/src/plot/Plot.js`、`plotScales.js` 和 `usePlotCanvasSize.js`：统一线性/对数刻度、专业坐标轴、网格、基础 line/area/bars 渲染，以及高分屏与 React Flow zoom 联动的 Canvas 分辨率。
