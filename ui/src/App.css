@@ -1353,7 +1353,7 @@ button.danger {
 
 .node-header {
   position: relative;
-  padding: 8px 12px;
+  padding: 8px 52px 8px 12px;
   background: #e9ecef;
   border-radius: 8px 8px 0 0;
 }
@@ -1363,8 +1363,9 @@ button.danger {
   font-size: 13px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
+  min-width: 0;
 }
 
 .rate-badge {

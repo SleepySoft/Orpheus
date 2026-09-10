@@ -67,6 +67,11 @@ test('alter 组自动绘框并显示平台样式', async ({ page }, testInfo) =>
   await expect(dspNode.getByText('DSP')).toBeVisible();
   await expect(portableNode.locator('.platform-badge')).toHaveCount(0);
 
+  const platformBadgeBox = await winNode.locator('.platform-badge').boundingBox();
+  const infoButtonBox = await winNode.locator('.node-info-btn').boundingBox();
+  expect(infoButtonBox).not.toBeNull();
+  expect(platformBadgeBox.x + platformBadgeBox.width).toBeLessThanOrEqual(infoButtonBox.x + 1);
+
   const winColor = await winNode.locator('.orpheus-node').evaluate(
     (node) => getComputedStyle(node).borderLeftColor
   );
