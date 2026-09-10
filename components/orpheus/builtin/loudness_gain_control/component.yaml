@@ -1,0 +1,128 @@
+id: orpheus.builtin.loudness_gain_control
+name: 响度增益控制器
+category: 基础/控制
+order: 1
+description: 将线性 RMS 电平转换为目标 dB 增益：检测平滑、静音门、增益限幅和快压慢抬；音频端口仅直通以保持同一时间线
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: LoudnessGainControlState
+sources:
+  - src/loudness_gain_control.c
+headers:
+  - include/orpheus_loudness_gain_control.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: level
+    name: 输入线性 RMS
+    description: 由 probe_rms.rms 控制连接驱动；0.1 等于 -20 dBFS
+    type: float
+    default: 0.0
+    range: [0.0, 16.0]
+    update_policy: immediate
+    bindable: true
+  - id: target_db
+    name: 目标 RMS 电平
+    type: float
+    default: -20.0
+    range: [-36.0, -6.0]
+    unit: dBFS
+    update_policy: smoothed
+    widget: slider
+  - id: min_gain_db
+    name: 最大衰减
+    type: float
+    default: -12.0
+    range: [-36.0, 0.0]
+    unit: dB
+    update_policy: smoothed
+  - id: max_gain_db
+    name: 最大提升
+    type: float
+    default: 12.0
+    range: [0.0, 24.0]
+    unit: dB
+    update_policy: smoothed
+  - id: gate_db
+    name: 静音门
+    type: float
+    default: -55.0
+    range: [-96.0, -24.0]
+    unit: dBFS
+    update_policy: smoothed
+  - id: detector_attack_ms
+    name: 检测启动时间
+    type: float
+    default: 80.0
+    range: [5.0, 1000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: detector_release_ms
+    name: 检测释放时间
+    type: float
+    default: 600.0
+    range: [20.0, 5000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: gain_attack_ms
+    name: 压低响应时间
+    type: float
+    default: 80.0
+    range: [5.0, 1000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: gain_release_ms
+    name: 抬升响应时间
+    type: float
+    default: 1200.0
+    range: [50.0, 10000.0]
+    unit: ms
+    update_policy: smoothed
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: input_db
+    name: 平滑输入电平
+    type: float
+    default: -120.0
+    unit: dBFS
+    readback: true
+    update_policy: immediate
+  - id: gain_db
+    name: 当前目标增益
+    type: float
+    default: 0.0
+    unit: dB
+    readback: true
+    control_source: true
+    update_policy: immediate
+  - id: output_db
+    name: 估算输出电平
+    type: float
+    default: -120.0
+    unit: dBFS
+    readback: true
+    update_policy: immediate
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: false
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true

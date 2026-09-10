@@ -66,6 +66,20 @@ if(NOT WIN32)
 endif()
 add_test(NAME loudness_normalizer_smoke COMMAND loudness_normalizer_smoke)
 
+add_executable(loudness_gain_control_smoke
+	loudness_gain_control_smoke.c
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_gain_control/src/loudness_gain_control.c
+)
+target_include_directories(loudness_gain_control_smoke PRIVATE
+	${CMAKE_SOURCE_DIR}/orpheus_abi/include
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_gain_control/include
+)
+target_compile_definitions(loudness_gain_control_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+	target_link_libraries(loudness_gain_control_smoke PRIVATE m)
+endif()
+add_test(NAME loudness_gain_control_smoke COMMAND loudness_gain_control_smoke)
+
 # OLINK 帧级 CLI（供 pytest 跨语言互测驱动）
 add_executable(olink_cli olink_cli.c)
 target_link_libraries(olink_cli PRIVATE orpheus_olink)

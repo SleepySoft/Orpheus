@@ -37,3 +37,19 @@
 ## 实时约束
 
 `process` 内无动态分配、锁、日志或 IO；状态固定，最多 32 通道。所有通道共享一个增益，避免立体声像随内容漂移。
+
+## 拆解学习
+
+保留本组件用于紧凑生产链，同时提供 `examples/video_loudness_voice_decomposed.yaml`：
+
+```text
+probe_rms -> loudness_gain_control -> gain
+```
+
+对应关系：
+
+- `probe_rms`：块 RMS 测量；
+- `loudness_gain_control`：能量平滑、线性转 dB、静音门、目标误差、增益限幅、快压慢抬；
+- `gain(smoothing_ms=0)`：把控制器输出的 dB 增益施加到样本。
+
+分解版经两条控制链多出两块固定响应延迟，但稳态计算与本组件一致。完整推导见 `examples/video_loudness_voice_decomposed.notes.md`。

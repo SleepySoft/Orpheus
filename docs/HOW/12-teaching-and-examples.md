@@ -37,3 +37,15 @@ tags: [orpheus/how]
 - `n_way_mux` 的交叉淡化提供通用子链旁路，不需要新增隐式运行模式；两条分支必须具有相同输出签名；
 - Windows 实际使用建议让视频应用输出到虚拟声卡，再从 Orpheus 输出到物理耳机，防止 Loopback 捕获处理后输出形成回授。
 
+### 原子分解版
+
+`examples/video_loudness_voice_decomposed.yaml` 保留同一应用链，但将一体化组件替换为：
+
+```text
+probe_rms -> loudness_gain_control -> gain(smoothing_ms=0)
+```
+
+两条控制链分别传递线性 RMS 和 dB 增益。控制器音频端口逐样本直通，只用于把控制计算放在同一 Task/时间线。每条控制链固定一块延迟，因此测量到增益生效共两块；稳态目标、门限和增益上下限与一体化组件相同。
+
+不继续把控制器拆成 `log/subtract/clamp/gate/smoother` 等节点：当前块边界控制链会让每个算子再增加一块延迟，既降低可读性，也会改变原始动态响应。`loudness_gain_control` 是本设计中最小的有状态控制决策原子。
+

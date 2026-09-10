@@ -2,6 +2,14 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-09-10（第六十次：响度均衡原子分解教学链）
+
+- 保留一体化 `loudness_normalizer`，新增 `loudness_gain_control` 控制原子：线性 RMS → 能量包络 → dB → 门限/限幅 → 快压慢抬增益；音频端口逐样本直通以保持同一 Task 时间线。
+- 新增 `video_loudness_voice_decomposed.yaml` 与学习笔记，以 `probe_rms → loudness_gain_control → gain(smoothing_ms=0)` 展示内部三阶段；两条控制链分别传递 RMS 和目标 dB 增益。
+- 明确分解版每条控制链一块延迟，测量到施加增益共两块；稳态数学与一体化版本一致，瞬态更慢约两块。
+- 不继续拆成 log/subtract/clamp 等通用标量节点，因为当前控制链会给每个算子增加一块延迟并扭曲动态响应；控制器作为最小有状态决策原子。
+- 新增控制器数值/音频直通 CTest，以及分解图编译、控制链和生成代码测试。
+
 ## 2026-09-09（第五十九次：视频节目响度均衡与可选人声增强）
 
 - 新增 `loudness_normalizer`：所有通道联动的实时 RMS 节目电平器，支持目标 dBFS、最大提升/衰减、静音门、检测 attack/release 和快压慢抬增益；明确不冒充 ITU-R BS.1770/EBU R128 LUFS。
