@@ -28,6 +28,17 @@ tags: [orpheus/how, codegen, bridge]
 
 ## 2. 现状评估
 
+### Bridge 已实现与未实现的分界
+
+“Bridge 已实现”要按层拆开理解：
+
+1. 已实现：Python 主机侧 BridgeSession、CALL/RESPONSE/NOTIFICATION 语义、超时/重试、id_map 和 Probe 语义。
+2. 已实现：HLOS 的 stdio/process、TCP、Windows Named Pipe/POSIX Unix Socket Transport，以及 UART 的 OLINK Framing。
+3. 未实现：生成 PC exe 内部的标准 C Bridge Endpoint。因此 host_win.c 现在还不能直接被 BridgeSession 连接，它讲的是另一套文本 SET/GET/STOP 协议。
+4. 平台无关的是协议语义、消息路由和会话契约；Endpoint 仍需要平台 transport binding。Pipe/TCP/UART/SHM 的区别只在 Transport 层，不应复制一套业务协议。
+
+因此 P1 不是重新设计 Bridge，而是把已有的协议接入生成程序，实现 GeneratedBackend + C Endpoint。
+
 ### 已具备
 
 - generator.py 已生成静态图、组件库、控制参数代码和 host_win.c。
