@@ -39,6 +39,14 @@ tags: [orpheus/how, codegen, bridge]
 
 因此 P1 不是重新设计 Bridge，而是把已有的协议接入生成程序，实现 GeneratedBackend + C Endpoint。
 
+更精确地说，生成代码已经包含 Access Backend 材料：
+
+- `orpheus_graph.c` 包含静态图、控制槽、id_map 和 Probe 数据；
+- `orpheus_control_message()` 能接收一条二进制消息并返回二进制响应；
+- `host_win.c` 通过 `MSG <hex>` 调用它，并用 `PROBE/PROBE_JSON` 上报 Probe。
+
+但这不是标准 Bridge Endpoint：Endpoint 还需要接收二进制帧、解码 Codec、匹配 CALL/RESPONSE、管理订阅和 Transport 状态。当前 `MSG <hex>` 是文本宿主命令对二进制消息的手工包装，`PROBE` 是宿主每 200 ms 向 stdout 打印的行协议。它让 UI 能工作，但不等于内建 Bridge Endpoint。
+
 ### 已具备
 
 - generator.py 已生成静态图、组件库、控制参数代码和 host_win.c。
