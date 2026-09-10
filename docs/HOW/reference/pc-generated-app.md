@@ -7,6 +7,7 @@ related:
   - '[[hlos-transport]]'
   - '[[access-bridge]]'
   - '[[execution-model]]'
+  - '[[pc-generated-app-audit]]'
 tags: [orpheus/how, codegen, bridge]
 ---
 
