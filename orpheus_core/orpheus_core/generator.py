@@ -12,6 +12,7 @@ from orpheus_core.compiler import ExecutionPlan
 from orpheus_core.parameter_catalog import ID_SLOT_MODULE, id_value
 from orpheus_core.project import Project
 from orpheus_core.registry import Registry
+from orpheus_core.bridge.identity import wire_map_entries
 
 
 class CodeGenerator:
@@ -270,7 +271,146 @@ class CodeGenerator:
         self._generate_control(plan, include_dir, src_dir)
 
         # Generate CMakeLists.txt
+        self._generate_bridge_backend(plan, include_dir, src_dir, output_dir)
         self._generate_cmake(plan, all_ids, output_dir)
+
+    def _generate_bridge_backend(
+        self, plan: ExecutionPlan, include_dir: Path, src_dir: Path,
+        output_dir: Path,
+    ) -> None:
+        abi_dir = self.project_root / "orpheus_abi"
+        shutil.copy2(
+            abi_dir / "include" / "orpheus_bridge_endpoint.h",
+            include_dir / "orpheus_bridge_endpoint.h",
+        )
+        shutil.copy2(
+            abi_dir / "include" / "orpheus_bridge_stdio.h",
+            include_dir / "orpheus_bridge_stdio.h",
+        )
+        shutil.copy2(
+            abi_dir / "src" / "bridge_endpoint.c",
+            src_dir / "bridge_endpoint.c",
+        )
+        shutil.copy2(
+            abi_dir / "src" / "bridge_stdio.c",
+            src_dir / "bridge_stdio.c",
+        )
+        graph_hash = plan.bridge_identity["graph_hash"]
+        plan_hash = plan.bridge_identity["plan_hash"]
+        id_map_hash = plan.bridge_identity["id_map_hash"]
+        wire_map = wire_map_entries(plan.id_map)
+        endpoint_kind = (
+            "ORPHEUS_BRIDGE_KIND_GENERATED_DSP"
+            if plan.target == "dsp"
+            else "ORPHEUS_BRIDGE_KIND_GENERATED_APP"
+        )
+        full_duplex = any(
+            bridge.get("enabled", True)
+            and str((bridge.get("params") or {}).get("duplex", "half")) == "full"
+            for bridge in plan.bridges
+        )
+        header = [
+            "#ifndef ORPHEUS_BRIDGE_GENERATED_H",
+            "#define ORPHEUS_BRIDGE_GENERATED_H",
+            '#include "orpheus_bridge_endpoint.h"',
+            "void orpheus_generated_bridge_init(void);",
+            "int orpheus_generated_bridge_process(const uint8_t* request, size_t request_len,",
+            "    uint8_t* response, size_t response_cap, size_t* response_len);",
+            "bool orpheus_generated_bridge_should_stop(void);",
+            "typedef void (*OrpheusGeneratedStopFn)(void* context);",
+            "void orpheus_generated_bridge_set_stop_handler(OrpheusGeneratedStopFn fn, void* context);",
+            "int orpheus_generated_bridge_serve_stdio(void);",
+            "#endif /* ORPHEUS_BRIDGE_GENERATED_H */",
+        ]
+        (include_dir / "orpheus_bridge_generated.h").write_text(
+            "\n".join(header) + "\n", encoding="utf-8")
+        source = [
+            '#include "orpheus_bridge_generated.h"',
+            '#include "orpheus_bridge_stdio.h"',
+            '#include "orpheus_control.h"',
+            '#include "orpheus_id_map.h"',
+            "",
+            "static OrpheusBridgeEndpoint g_endpoint;",
+            "static OrpheusGeneratedStopFn g_stop_handler;",
+            "static void* g_stop_context;",
+            "static const OrpheusBridgeMapEntry g_bridge_map[] = {",
+        ]
+        source.extend(
+            "    { " + ", ".join(f"{value}u" for value in entry) + " },"
+            for entry in wire_map
+        )
+        if not wire_map:
+            source.append("    { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u },")
+        source += [
+            "};",
+            "static int backend_dispatch(void* context, const uint8_t* request, size_t request_len,",
+            "    uint8_t* response, size_t response_cap, size_t* response_len) {",
+            "    (void)context;",
+            "    return orpheus_control_message(request, request_len, response, response_cap, response_len);",
+            "}",
+            "static size_t backend_map_count(void* context) {",
+            f"    (void)context; return {len(wire_map)}u;",
+            "}",
+            "static int backend_map_get(void* context, size_t index, OrpheusBridgeMapEntry* output) {",
+            f"    (void)context; if (output == NULL || index >= {len(wire_map)}u) return ORPHEUS_ERR_NOT_FOUND;",
+            "    *output = g_bridge_map[index];",
+            "    return ORPHEUS_OK;",
+            "}",
+            "static void backend_request_stop(void* context) {",
+            "    (void)context; if (g_stop_handler != NULL) g_stop_handler(g_stop_context);",
+            "}",
+            "void orpheus_generated_bridge_init(void) {",
+            "    OrpheusBridgeBackend backend = {0};",
+            "    OrpheusBridgeHello hello = {0};",
+            "    OrpheusBridgeIdentity identity = {0};",
+            "    backend.dispatch = backend_dispatch;",
+            "    backend.map_count = backend_map_count; backend.map_get = backend_map_get;",
+            "    backend.request_stop = backend_request_stop;",
+            f"    hello.endpoint_kind = {endpoint_kind};",
+                        *(["    hello.capabilities = ORPHEUS_BRIDGE_CAP_FULL_DUPLEX | "
+                             "ORPHEUS_BRIDGE_CAP_UNSOLICITED | ORPHEUS_BRIDGE_CAP_PIPELINED_CALLS;"]
+                            if full_duplex else []),
+            f"    identity.graph_hash = UINT64_C(0x{graph_hash:016X});",
+            f"    identity.plan_hash = UINT64_C(0x{plan_hash:016X});",
+            f"    identity.id_map_hash = UINT64_C(0x{id_map_hash:016X});",
+            f"    identity.sample_rate = {int(plan.sample_rate)}u;",
+            f"    identity.block_size = {self._schedule_tick(plan)}u;",
+            "    identity.flags = ORPHEUS_BRIDGE_IDENTITY_FLAG_WRITABLE;",
+            "    g_stop_handler = NULL; g_stop_context = NULL;",
+            "    orpheus_bridge_endpoint_init(&g_endpoint, &backend, &hello, &identity);",
+            "}",
+            "int orpheus_generated_bridge_process(const uint8_t* request, size_t request_len,",
+            "    uint8_t* response, size_t response_cap, size_t* response_len) {",
+            "    return orpheus_bridge_endpoint_process(&g_endpoint, request, request_len,",
+            "        response, response_cap, response_len);",
+            "}",
+            "bool orpheus_generated_bridge_should_stop(void) {",
+            "    return orpheus_bridge_endpoint_should_stop(&g_endpoint);",
+            "}",
+            "void orpheus_generated_bridge_set_stop_handler(OrpheusGeneratedStopFn fn, void* context) {",
+            "    g_stop_handler = fn; g_stop_context = context;",
+            "}",
+            "int orpheus_generated_bridge_serve_stdio(void) {",
+            "    return orpheus_bridge_stdio_serve(&g_endpoint, stdin, stdout);",
+            "}",
+        ]
+        (src_dir / "orpheus_bridge_generated.c").write_text(
+            "\n".join(source) + "\n", encoding="utf-8")
+        manifest = {
+            "protocol": "orpheus-bridge/1",
+            "kind": "generated-dsp" if plan.target == "dsp" else "pc-generated-app",
+            "graph_hash": f"{graph_hash:016x}",
+            "plan_hash": f"{plan_hash:016x}",
+            "id_map_hash": f"{id_map_hash:016x}",
+            "sample_rate": int(plan.sample_rate),
+            "block_size": self._schedule_tick(plan),
+            "id_count": len(plan.id_map),
+            "id_map": plan.id_map,
+        }
+        (output_dir / "orpheus_app_manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     def _generate_host_config(
         self,
@@ -348,6 +488,7 @@ class CodeGenerator:
             lines.append('#define ORPHEUS_ATOMIC_STORE(p, v) atomic_store_explicit((p), (v), memory_order_release)')
             lines.append('#endif')
         lines.append('#include "orpheus_graph.h"')
+        lines.append('#include "orpheus_bridge_generated.h"')
         lines.append("")
 
         # Include component headers
@@ -892,6 +1033,7 @@ class CodeGenerator:
             lines.append(f'    ({ref})->dst_capacity = {frames};')
         if embed_in_nodes or embed_out_nodes:
             lines.append('    orpheus_platform_io_init();')
+        lines.append('    orpheus_generated_bridge_init();')
         for d in link_nodes:
             lines.append(f'    orpheus_link_{self._uart_link_sym(d)}_init();')
         lines.append('    g_graph_initialized = 1;')
@@ -1183,13 +1325,18 @@ class CodeGenerator:
             '#include <stdlib.h>',
             '#include <string.h>',
             '#include "orpheus_graph.h"',
+            '#include "orpheus_bridge_generated.h"',
             '#include "orpheus_control.h"',
+            '#ifdef _WIN32',
+            '#include <windows.h>',
+            '#else',
+            '#include <pthread.h>',
+            '#endif',
         ]
         if link_nodes:
             for declaration in link_nodes:
                 lines.append(f'#include "orpheus_link_{self._uart_link_sym(declaration)}.h"')
             lines.extend([
-                '#include <threads.h>',
                 '#include <time.h>',
                 '#ifdef _WIN32',
                 '#include <io.h>',
@@ -1197,7 +1344,11 @@ class CodeGenerator:
                 '#endif',
                 '',
                 '/* stdin/stdout 链路仅用于 PC 验证；设备侧由 adapter 的 send/feed 接硬件。 */',
-                'static int orpheus_link_stdio_reader(void* arg) {',
+                '#ifdef _WIN32',
+                'static DWORD WINAPI orpheus_link_stdio_reader(LPVOID arg) {',
+                '#else',
+                'static void* orpheus_link_stdio_reader(void* arg) {',
+                '#endif',
                 '    (void)arg;',
                 '    for (;;) {',
                 '        int c = getchar();',
@@ -1205,7 +1356,11 @@ class CodeGenerator:
                 '        uint8_t byte = (uint8_t)c;',
                 f'        orpheus_link_{self._uart_link_sym(link_nodes[0])}_feed(&byte, 1);',
                 '    }',
+                '#ifdef _WIN32',
                 '    return 0;',
+                '#else',
+                '    return NULL;',
+                '#endif',
                 '}',
             ])
         lines.append('')
@@ -1238,6 +1393,34 @@ class CodeGenerator:
         lines.append('    }')
         lines.append('    return 0;')
         lines.append('}')
+        lines.append('')
+        lines.append('#ifdef _WIN32')
+        lines.append('static volatile LONG g_bridge_stop;')
+        lines.append('static void orpheus_cli_request_stop(void* context) { (void)context; InterlockedExchange(&g_bridge_stop, 1); }')
+        lines.append('static DWORD WINAPI orpheus_bridge_process_worker(LPVOID arg) {')
+        lines.append('    (void)arg;')
+        lines.append('    while (InterlockedCompareExchange(&g_bridge_stop, 0, 0) == 0) {')
+        lines.append(f'        if (orpheus_generated_process({tick}) != ORPHEUS_OK) return 1;')
+        lines.append('    }')
+        lines.append('    return 0;')
+        lines.append('}')
+        lines.append('#else')
+        lines.append('static pthread_mutex_t g_bridge_stop_mutex = PTHREAD_MUTEX_INITIALIZER;')
+        lines.append('static int g_bridge_stop;')
+        lines.append('static void orpheus_cli_request_stop(void* context) {')
+        lines.append('    (void)context; pthread_mutex_lock(&g_bridge_stop_mutex); g_bridge_stop = 1; pthread_mutex_unlock(&g_bridge_stop_mutex);')
+        lines.append('}')
+        lines.append('static int orpheus_cli_should_stop(void) {')
+        lines.append('    int value; pthread_mutex_lock(&g_bridge_stop_mutex); value = g_bridge_stop; pthread_mutex_unlock(&g_bridge_stop_mutex); return value;')
+        lines.append('}')
+        lines.append('static void* orpheus_bridge_process_worker(void* arg) {')
+        lines.append('    (void)arg;')
+        lines.append('    while (!orpheus_cli_should_stop()) {')
+        lines.append(f'        if (orpheus_generated_process({tick}) != ORPHEUS_OK) return (void*)1;')
+        lines.append('    }')
+        lines.append('    return NULL;')
+        lines.append('}')
+        lines.append('#endif')
         lines.append('')
         lines.append('/* 测试/部署用 echo hook：请求 payload 原样返回（CUSTOM 消息路径验证）。 */')
         lines.append('static int orpheus_echo_hook(void* ctx, uint32_t id, uint32_t event,')
@@ -1273,6 +1456,7 @@ class CodeGenerator:
         lines.append('    const char* task_ids[256];')
         lines.append('    int task_blocks[256];')
         lines.append('    int task_count = 0;')
+        lines.append('    int bridge_stdio = 0;')
         if link_nodes:
             lines.append('    int link_stdio = 0;')
         lines.append('    for (int i = start_i; i < argc; ++i) {')
@@ -1319,6 +1503,8 @@ class CodeGenerator:
         if link_nodes:
             lines.append('        } else if (strcmp(argv[i], "--link-stdio") == 0) {')
             lines.append('            link_stdio = 1;')
+        lines.append('        } else if (strcmp(argv[i], "--bridge-stdio") == 0) {')
+        lines.append('            bridge_stdio = 1;')
         lines.append('        } else if (strcmp(argv[i], "--echo-hook") == 0 && i + 1 < argc) {')
         lines.append('            uint32_t id = (uint32_t)strtoul(argv[++i], NULL, 0);')
         lines.append('            if (orpheus_control_register_hook(id, orpheus_echo_hook, NULL) != 0) {')
@@ -1328,16 +1514,51 @@ class CodeGenerator:
         lines.append('            control_mode = 1;')
         lines.append('        }')
         lines.append('    }')
+        lines.append('    if (bridge_stdio) {')
+        lines.append('        orpheus_generated_bridge_set_stop_handler(orpheus_cli_request_stop, NULL);')
+        lines.append('#ifdef _WIN32')
+        lines.append('        g_bridge_stop = 0;')
+        lines.append('        HANDLE process_thread = CreateThread(NULL, 0, orpheus_bridge_process_worker, NULL, 0, NULL);')
+        lines.append('        if (process_thread == NULL) {')
+        lines.append('            orpheus_generated_teardown();')
+        lines.append('            return 1;')
+        lines.append('        }')
+        lines.append('        int bridge_rc = orpheus_generated_bridge_serve_stdio();')
+        lines.append('        orpheus_cli_request_stop(NULL);')
+        lines.append('        WaitForSingleObject(process_thread, INFINITE);')
+        lines.append('        DWORD process_rc = 1; GetExitCodeThread(process_thread, &process_rc); CloseHandle(process_thread);')
+        lines.append('#else')
+        lines.append('        g_bridge_stop = 0;')
+        lines.append('        pthread_t process_thread;')
+        lines.append('        if (pthread_create(&process_thread, NULL, orpheus_bridge_process_worker, NULL) != 0) {')
+        lines.append('            orpheus_generated_teardown();')
+        lines.append('            return 1;')
+        lines.append('        }')
+        lines.append('        int bridge_rc = orpheus_generated_bridge_serve_stdio();')
+        lines.append('        orpheus_cli_request_stop(NULL);')
+        lines.append('        void* process_result = NULL; pthread_join(process_thread, &process_result);')
+        lines.append('        int process_rc = process_result != NULL;')
+        lines.append('#endif')
+        lines.append('        orpheus_generated_teardown();')
+        lines.append('        return bridge_rc == ORPHEUS_OK && process_rc == 0 ? 0 : 1;')
+        lines.append('    }')
         if link_nodes:
             lines.append('    if (link_stdio) {')
             lines.append('#ifdef _WIN32')
             lines.append('        _setmode(_fileno(stdin), _O_BINARY);')
             lines.append('        _setmode(_fileno(stdout), _O_BINARY);')
             lines.append('#endif')
-            lines.append('        thrd_t link_thread;')
-            lines.append('        thrd_create(&link_thread, orpheus_link_stdio_reader, NULL);')
+            lines.append('#ifdef _WIN32')
+            lines.append('        HANDLE link_thread = CreateThread(NULL, 0, orpheus_link_stdio_reader, NULL, 0, NULL);')
+            lines.append('        if (link_thread == NULL) return 1;')
+            lines.append('        CloseHandle(link_thread);')
+            lines.append('#else')
+            lines.append('        pthread_t link_thread;')
+            lines.append('        if (pthread_create(&link_thread, NULL, orpheus_link_stdio_reader, NULL) != 0) return 1;')
+            lines.append('        pthread_detach(link_thread);')
+            lines.append('#endif')
             lines.append('        struct timespec link_ts;')
-            lines.append('        for (;;) {')
+            lines.append('        while (!orpheus_generated_bridge_should_stop()) {')
             lines.append(f'            if (orpheus_generated_process({tick}) != ORPHEUS_OK) return 1;')
             lines.append('            /* 冒烟 harness 用真实时间驱动探针泵（全速跑块时不会洪泛链路）；')
             lines.append('               嵌入式用户把 poll 换成自己的系统 tick（如 HAL_GetTick()）。 */')
@@ -1346,6 +1567,7 @@ class CodeGenerator:
             for d in link_nodes:
                 lines.append(f'            orpheus_link_{self._uart_link_sym(d)}_poll(now_ms);')
             lines.append('        }')
+            lines.append('        goto teardown;')
             lines.append('    }')
         if plan_tasks:
             lines.append('    if (task_count > 0) {')
@@ -1651,6 +1873,7 @@ class CodeGenerator:
                 ' * 探针泵：内部构造读 CALL 本地分发，结果包 NOTIFICATION 上行。 */',
                 f'#include "orpheus_link_{s}.h"',
                 '#include "orpheus_olink.h"',
+                '#include "orpheus_bridge_generated.h"',
                 '#include "orpheus_control.h"',
                 '#include <string.h>',
                 '',
@@ -1677,7 +1900,7 @@ class CodeGenerator:
                 '        uint16_t n = olink_decode_byte(&g_dec, data[i], g_frame, sizeof(g_frame));',
                 '        if (n == 0) continue;',
                 '        size_t out_len = 0;',
-                '        if (orpheus_control_message(g_frame, n, g_resp, sizeof(g_resp), &out_len) == 0 && out_len > 0) {',
+                '        if (orpheus_generated_bridge_process(g_frame, n, g_resp, sizeof(g_resp), &out_len) == 0 && out_len > 0) {',
                 '            uint8_t wire[OLINK_FRAME_MAX];',
                 '            uint16_t m = olink_encode(g_resp, (uint16_t)out_len, wire, sizeof(wire));',
                 f'            if (m > 0) orpheus_link_{s}_send(wire, m);',
@@ -1691,7 +1914,7 @@ class CodeGenerator:
                 '    call.route_id = p->id;',
                 '    call.bits = ORPHEUS_MSG_MAKE(ORPHEUS_MSG_CALL, 0, 0, 0);',
                 '    size_t out_len = 0;',
-                '    if (orpheus_control_message((const uint8_t*)&call, sizeof(call), g_resp, sizeof(g_resp), &out_len) != 0) return;',
+                '    if (orpheus_generated_bridge_process((const uint8_t*)&call, sizeof(call), g_resp, sizeof(g_resp), &out_len) != 0) return;',
                 '    if (out_len < sizeof(OrpheusMessageHeader)) return;',
                 '    const OrpheusMessageHeader* rh = (const OrpheusMessageHeader*)g_resp;',
                 '    if (ORPHEUS_MSG_TYPE(rh) != ORPHEUS_MSG_RESPONSE) return;',
@@ -2363,6 +2586,13 @@ class CodeGenerator:
         c.append('                resp_flags = ORPHEUS_MSG_FLAG_ERROR;  /* 只读 */')
         c.append('            } else if (s->kind == ORPHEUS_SLOT_BULK) {')
         c.append('                if (orpheus_control_write_bulk(s->node, s->key, req.data, req.len / 4) != 0) resp_flags = ORPHEUS_MSG_FLAG_ERROR;')
+        c.append('            } else if (s->type == ORPHEUS_VALUE_STRING) {')
+        c.append('                size_t cap = s->size * s->count;')
+        c.append('                const uint8_t* bytes = (const uint8_t*)req.data;')
+        c.append('                size_t n = 0;')
+        c.append('                while (n < req.len && bytes[n] != 0) ++n;')
+        c.append('                if (cap == 0 || n >= cap) resp_flags = ORPHEUS_MSG_FLAG_ERROR;')
+        c.append('                else { memcpy((char*)s->state + s->offset, bytes, n); ((char*)s->state + s->offset)[n] = 0; }')
         c.append('            } else if (req.len >= 4) {')
         c.append('                if (s->type == ORPHEUS_VALUE_FLOAT) memcpy((char*)s->state + s->offset, req.data, 4);')
         c.append('                else if (s->type == ORPHEUS_VALUE_INT) memcpy((char*)s->state + s->offset, req.data, 4);')
@@ -2379,6 +2609,16 @@ class CodeGenerator:
         c.append('            } else if (s->type == ORPHEUS_VALUE_FLOAT) { memcpy(out + sizeof(OrpheusMessageHeader), (char*)s->state + s->offset, 4); resp_words = 1; }')
         c.append('            else if (s->type == ORPHEUS_VALUE_INT) { memcpy(out + sizeof(OrpheusMessageHeader), (char*)s->state + s->offset, 4); resp_words = 1; }')
         c.append('            else if (s->type == ORPHEUS_VALUE_BOOL) { out[sizeof(OrpheusMessageHeader)] = *(uint8_t*)((char*)s->state + s->offset); resp_words = 1; }')
+        c.append('            else if (s->type == ORPHEUS_VALUE_STRING) {')
+        c.append('                const char* text = (const char*)s->state + s->offset;')
+        c.append('                size_t cap = s->size * s->count;')
+        c.append('                size_t n = 0;')
+        c.append('                while (n < cap && text[n] != 0) ++n;')
+        c.append('                size_t bytes = n + 1;')
+        c.append('                size_t padded = (bytes + 3) & ~(size_t)3;')
+        c.append('                if (n == cap || padded > out_cap - sizeof(OrpheusMessageHeader)) resp_flags = ORPHEUS_MSG_FLAG_ERROR;')
+        c.append('                else { memset(out + sizeof(OrpheusMessageHeader), 0, padded); memcpy(out + sizeof(OrpheusMessageHeader), text, n); resp_words = (uint32_t)(padded / 4); }')
+        c.append('            }')
         c.append('            else resp_flags = ORPHEUS_MSG_FLAG_ERROR;')
         c.append('        }')
         c.append('    }')
@@ -2428,6 +2668,7 @@ class CodeGenerator:
             lines.append("")
 
         graph_sources = "src/orpheus_graph.c"
+        graph_sources += " src/bridge_endpoint.c src/bridge_stdio.c src/orpheus_bridge_generated.c"
         if (output_dir / "src" / "platform_io.c").exists():
             graph_sources += " src/platform_io.c"
         if (output_dir / "src" / "platform_hooks.c").exists():
@@ -2458,6 +2699,9 @@ class CodeGenerator:
             lines.append('target_link_libraries(orpheus_generated_app PRIVATE orpheus_graph)')
             lines.append('add_executable(orpheus_generated_cli src/host_cli.c)')
             lines.append('target_link_libraries(orpheus_generated_cli PRIVATE orpheus_graph)')
+            lines.append('if(NOT WIN32)')
+            lines.append('  target_link_libraries(orpheus_generated_cli PRIVATE pthread)')
+            lines.append('endif()')
         if self.uart_bridges(plan):
             # 冒烟 harness 的 stdio 链路默认实现；上设备时移除该定义并实现自己的 send
             lines.append('target_compile_definitions(orpheus_graph PRIVATE ORPHEUS_LINK_STDIO)')

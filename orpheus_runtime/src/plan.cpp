@@ -24,6 +24,10 @@ Plan Plan::load_from_file(const std::string& path) {
     p.duration_frames = j.value("duration_frames", 0u);
     p.task_id = j.value("task_id", "default");
     p.schedule_tick = j.value("schedule", json::object()).value("tick", 0u);
+    const auto bridge_identity = j.value("bridge_identity", json::object());
+    p.bridge_graph_hash = bridge_identity.value("graph_hash", UINT64_C(0));
+    p.bridge_plan_hash = bridge_identity.value("plan_hash", UINT64_C(0));
+    p.bridge_id_map_hash = bridge_identity.value("id_map_hash", UINT64_C(0));
 
     for (const auto& t : j.value("tasks", json::array())) {
         TaskConfig tc;

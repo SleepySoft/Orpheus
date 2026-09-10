@@ -20,6 +20,7 @@ from orpheus_core.bridge import (
     DuplexMode,
     OlinkCodec,
 )
+from orpheus_core.bridge.identity import fnv1a64, wire_map_entries
 from orpheus_core.link import message, olink
 from orpheus_core.server.serial_session import SerialSession
 
@@ -35,6 +36,9 @@ ID_MAP = [
     {"id": COEFS_ID, "node": "front__eq__bq", "key": "bq0.coefs", "kind": "TUNE",
      "form": "BULK", "type": "float", "count": 5, "name": "系数"},
 ]
+ID_MAP_HASH = fnv1a64(b"".join(
+    struct.pack("<8I", *entry) for entry in wire_map_entries(ID_MAP)
+))
 
 
 class PipeTransport:
@@ -124,7 +128,26 @@ class FakeDevice:
         write = len(payload) > 0
         error = False
         resp_payload = b""
-        if route in self.scalars:
+        if route == message.ROUTE_HELLO:
+            resp_payload = struct.pack(
+                "<6I", message.BRIDGE_PROTOCOL_VERSION, 4,
+                message.CAP_HALF_DUPLEX | message.CAP_MAP | message.CAP_STOP,
+                4100, 3, 0,
+            )
+        elif route == message.ROUTE_IDENTITY:
+            resp_payload = struct.pack(
+                "<3Q4I", 0x11, 0x22, ID_MAP_HASH, 48000, 128, len(ID_MAP),
+                message.IDENTITY_WRITABLE,
+            )
+        elif route == message.ROUTE_MAP:
+            entries = wire_map_entries(ID_MAP)
+            resp_payload = struct.pack("<4I", 0, len(entries), len(entries), 0)
+            resp_payload += b"".join(struct.pack("<8I", *entry) for entry in entries)
+        elif route == message.ROUTE_STATS:
+            resp_payload = struct.pack("<4Q", 1, 0, 0, 0)
+        elif route == message.ROUTE_STOP:
+            resp_payload = b""
+        elif route in self.scalars:
             if write:
                 self.scalars[route] = payload[:4]
             else:
@@ -159,6 +182,7 @@ def session():
     t = PipeTransport()
     dev = FakeDevice(t)
     s = SerialSession(t, ID_MAP, call_timeout=0.15, call_retries=1)
+    s.connect(expected_id_map_hash=ID_MAP_HASH)
     yield s, dev
     s.close()
 

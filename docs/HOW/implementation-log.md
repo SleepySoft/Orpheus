@@ -2,6 +2,15 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-09-10（第六十一次：Runtime 与生成程序统一 Bridge Endpoint）
+
+- 新增共享 C99 `BridgeEndpoint` 与 LengthPrefix stdio Server，系统路由覆盖 HELLO、IDENTITY、STOP、STATS、分页 MAP；数据路由委托 RuntimeBackend 或 GeneratedBackend。
+- compiler 单点生成 graph/plan/id_map FNV-1a 身份；动态 plan、生成 manifest、PC 与 DSP Endpoint 消费同一摘要。BridgeSession 强制握手，hash 不匹配时禁止写入。
+- 动态 `rt_host`、主动推进 Runtime、生成 Windows 宿主和生成 CLI 均通过二进制 Bridge 交互；stdout 保持帧纯净，日志转 stderr/异步文件 Sink。
+- 生成 CLI 在服务 stdio Endpoint 时并发执行图；STOP 终止 worker。服务端统一持有子进程生命周期，paced 会话按计划时长停止，工程删除/应用关闭会先回收会话。
+- 补齐字符串标量与结构化 JSON Probe，扫频组件 manifest 纳入已有 Probe 槽；UI 正确接管生成 realtime 会话并在切换工程前停止旧会话。
+- C Endpoint smoke、动态设备/主动推进、生成 CLI 真进程握手/MAP/读写/STOP、hash 错配写保护、UART/HLOS 与动态/生成逐字节一致性均纳入回归。
+
 ## 2026-09-10（第六十次：响度均衡原子分解教学链）
 
 - 保留一体化 `loudness_normalizer`，新增 `loudness_gain_control` 控制原子：线性 RMS → 能量包络 → dB → 门限/限幅 → 快压慢抬增益；音频端口逐样本直通以保持同一 Task 时间线。

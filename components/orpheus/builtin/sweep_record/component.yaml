@@ -62,6 +62,24 @@ parameters:
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
+  - id: sweep
+    name: 扫频曲线
+    type: string
+    default: ""
+    readback: true
+    update_policy: immediate
+  - id: progress
+    name: 扫频进度
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
+  - id: current_freq
+    name: 当前频率
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
 memory:
   state_size: 0
   scratch_size: 0

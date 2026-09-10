@@ -74,9 +74,10 @@
 - [x] Python `BridgeSession` 核心、`ByteTransport`/`FrameCodec` 接口和 `OlinkCodec`；串口迁移为薄组合，半/全双工并发行为有自动化测试。
 - [x] 异步文件 Log Sink；当前动态/生成、长驻/一次性及串口会话日志统一归档到工程 `logs/`，实时线程不执行文件 IO。
 - [x] HLOS stdio/process、TCP 和本地 Pipe Adapter；TCP/Pipe 可经 REST 连接已有 Endpoint，TCP 半双工/全双工与跨平台本地 Pipe 有回环测试。
-- [ ] RuntimeBackend + GeneratedBackend 共用 §18 dispatch；rt_host 增加二进制 PipeTransport，完成后删除文本协议。
-- [ ] HELLO/IDENTITY、能力位、plan/id_map hash、幂等响应缓存与 BULK 分片。
-- [ ] 本机动态/生成宿主接入二进制 Pipe Endpoint，主动推进宿主会话化；随后删除文本 RtSession，不保留兼容层。
+- [x] RuntimeBackend + GeneratedBackend 共用 §18 dispatch；rt_host/host_win/host_cli 接入 LengthPrefix 二进制 Endpoint，删除文本协议。
+- [x] HELLO/IDENTITY、能力位、graph/plan/id_map hash、STOP/STATS/分页 MAP 与 hash 错配写保护。
+- [ ] 同 call_id 幂等响应缓存与 BULK 分片。
+- [x] 本机动态/生成宿主接入二进制 Endpoint，主动推进宿主会话化，服务关闭/工程删除统一回收。
 - [ ] 全双工主动通知/请求流水化与 Observation credit；半双工继续作为所有 Adapter 的降级基线。
 - [ ] SoC/HLOS 的 RPMsg、SHM 零拷贝、多 Lane、TLS/认证、lease 与权限。
 - [ ] 工程顶层 `observations`、稳定观测 ID 与只读音频 Buffer view API。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import struct
 import threading
 import time
@@ -86,6 +87,9 @@ class BridgeSession:
         self._closed = threading.Event()
         self._probe_stop = threading.Event()
         self._link_errors = 0
+        self.hello: dict[str, Any] | None = None
+        self.identity: dict[str, Any] | None = None
+        self.identity_verified = False
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._log(
             f"Bridge 会话已建立：duplex={self.capabilities.duplex.value}, "
@@ -93,9 +97,6 @@ class BridgeSession:
         )
         self._reader.start()
         self._probe_thread: threading.Thread | None = None
-        if self._probe_interval > 0 and not self.capabilities.unsolicited:
-            self._probe_thread = threading.Thread(target=self._poll_loop, daemon=True)
-            self._probe_thread.start()
 
     def _log(self, line: str) -> None:
         with self._condition:
@@ -123,6 +124,11 @@ class BridgeSession:
             self._log_sink.close()
 
     def stop(self, timeout: float = 3.0) -> None:  # noqa: ARG002
+        if self.running and self.hello is not None:
+            try:
+                self.stop_endpoint()
+            except Exception as exc:
+                self._log(f"Bridge STOP 失败，关闭 Transport: {exc}")
         self.close()
 
     def _read_loop(self) -> None:
@@ -193,6 +199,11 @@ class BridgeSession:
                 value = list(struct.unpack(f"<{count}f", payload[: count * 4]))
             else:
                 value = message.decode_scalar(entry["type"], payload)
+                if entry["type"] == "string":
+                    try:
+                        value = json.loads(value)
+                    except json.JSONDecodeError:
+                        pass
         except (struct.error, IndexError):
             self._log(f"探针帧 payload 长度异常: 0x{parsed['route']:08x}")
             return
@@ -307,7 +318,72 @@ class BridgeSession:
             raise RuntimeError(f"数据点不存在: {node}.{key}")
         return entry
 
+    def connect(self, *, expected_id_map_hash: int | None = None) -> dict[str, Any]:
+        """执行标准 HELLO/IDENTITY；hash 不一致时保持只读。"""
+        hello_response = self.call(message.ROUTE_HELLO)
+        self._check_ok(hello_response, "HELLO")
+        hello = message.decode_hello(hello_response["payload"])
+        if hello["protocol_version"] != message.BRIDGE_PROTOCOL_VERSION:
+            raise RuntimeError(
+                f"Bridge 协议版本不匹配: endpoint={hello['protocol_version']} "
+                f"host={message.BRIDGE_PROTOCOL_VERSION}"
+            )
+        capability_bits = hello["capabilities"]
+        duplex = (
+            DuplexMode.FULL
+            if capability_bits & message.CAP_FULL_DUPLEX
+            else DuplexMode.HALF
+        )
+        self.capabilities = BridgeCapabilities(
+            duplex=duplex,
+            unsolicited=bool(capability_bits & message.CAP_UNSOLICITED),
+            pipelined_calls=bool(capability_bits & message.CAP_PIPELINED_CALLS),
+            flow_control=bool(capability_bits & message.CAP_FLOW_CONTROL),
+            max_frame=hello["max_message"],
+        )
+        identity_response = self.call(message.ROUTE_IDENTITY)
+        self._check_ok(identity_response, "IDENTITY")
+        identity = message.decode_identity(identity_response["payload"])
+        self.hello = hello
+        self.identity = identity
+        self.identity_verified = (
+            expected_id_map_hash is None
+            or identity["id_map_hash"] == expected_id_map_hash
+        )
+        if (self._probe_thread is None and self._probe_interval > 0
+                and not self.capabilities.unsolicited):
+            self._probe_thread = threading.Thread(target=self._poll_loop, daemon=True)
+            self._probe_thread.start()
+        return {"hello": hello, "identity": identity,
+                "identity_verified": self.identity_verified}
+
+    def _require_write_access(self) -> None:
+        if self.identity is None:
+            raise RuntimeError("Bridge 尚未完成 HELLO/IDENTITY")
+        if not self.identity_verified:
+            raise RuntimeError("Bridge id_map hash 不匹配，写操作已禁止")
+        if not self.identity["flags"] & message.IDENTITY_WRITABLE:
+            raise RuntimeError("Bridge Endpoint 为只读")
+
+    def stop_endpoint(self) -> None:
+        if self.hello is None:
+            raise RuntimeError("Bridge 尚未完成 HELLO/IDENTITY")
+        response = self.call(message.ROUTE_STOP)
+        self._check_ok(response, "STOP")
+
+    def bridge_stats(self) -> dict[str, int]:
+        response = self.call(message.ROUTE_STATS)
+        self._check_ok(response, "STATS")
+        return message.decode_stats(response["payload"])
+
+    def map_page(self, start: int = 0, limit: int = 0) -> dict[str, Any]:
+        response = self.call(
+            message.ROUTE_MAP, message.encode_map_request(start, limit))
+        self._check_ok(response, "MAP")
+        return message.decode_map_page(response["payload"])
+
     def set_parameter(self, node: str, param: str, value: Any) -> None:
+        self._require_write_access()
         entry = self._entry(node, param)
         if entry["kind"] in ("PROBE", "STATE"):
             raise RuntimeError(f"{node}.{param} 为只读（{entry['kind']}）")
@@ -317,6 +393,7 @@ class BridgeSession:
         self._check_ok(response, f"SET {node}.{param}")
 
     def write_id(self, data_id: int, value: Any) -> None:
+        self._require_write_access()
         entry = self._by_id.get(data_id)
         type_name = entry["type"] if entry else "float"
         response = self.call(data_id, message.encode_scalar(type_name, value))
@@ -330,9 +407,11 @@ class BridgeSession:
         return message.decode_scalar(type_name, response["payload"])
 
     def write_bulk(self, node: str, key: str, values: list[float]) -> None:
+        self._require_write_access()
         self.write_bulk_id(self._entry(node, key)["id"], values)
 
     def write_bulk_id(self, data_id: int, values: list[float]) -> None:
+        self._require_write_access()
         payload = struct.pack(f"<{len(values)}f", *[float(value) for value in values])
         response = self.call(data_id, payload)
         self._check_ok(response, f"WRITE_BULK 0x{data_id:08x}")
@@ -354,6 +433,7 @@ class BridgeSession:
         return list(struct.unpack(f"<{count}f", payload[: count * 4]))
 
     def msg(self, msg_hex: str, call_id: int) -> str:
+        self._require_write_access()
         frame = bytes.fromhex(msg_hex)
         parsed = message.parse_frame(frame)
         if parsed["type"] == message.NOTIFICATION:

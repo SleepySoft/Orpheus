@@ -72,11 +72,11 @@ class ProcessTransport(StreamTransport):
     """启动二进制 stdio Endpoint，并以 stdin+stdout 管道对承载 Bridge。"""
 
     def __init__(self, argv: Sequence[str], *, cwd: Path | str | None = None,
-                 env: dict[str, str] | None = None):
+                 env: dict[str, str] | None = None, stderr=None):
         self.process = subprocess.Popen(
             list(argv), cwd=cwd, env=env,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL if stderr is None else stderr,
         )
         if self.process.stdin is None or self.process.stdout is None:
             self.process.kill()

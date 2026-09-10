@@ -8,17 +8,8 @@
  * 与动态路径 rt_host 同一职责划分：组件 device_in/device_out 只是占位（process 空操作），
  * 宿主在 process 前填充 device_in 输出 buffer、process 后取走 device_out 输入 buffer。
  *
- * 控制协议与 rt_host 一致（stdin 文本，一行一条）：
- *   SET <node> <param> <value>      -> OK/ERR SET（标量槽直写，组件 process 自行平滑）
- *   GET <node> <param>              -> VALUE <node> <param> <value>
- *   BULK <node> <key> <n> <v0>...   -> OK/ERR BULK（BULK 槽直写，块边界提交双 bank）
- *   RESOLVE <id> / MAP              -> RESOLVED 行（内存透明查询）
- *   RW <id> <value> / RR <id>       -> OK/ERR RW、RVALUE（按 ID 标量读写）
- *   RWB <id> <n> <v0>...            -> OK/ERR RWB（按 ID 写 BULK）
- *   GETBULK <node> <key> / RGB <id> -> BULKVALUE 0x<id> <v0>...（读 active bank）
- *   MSG <hex>                       -> MSGRSP <hex> / MSGNONE（二进制消息分发）
- *   STOP（或空行 / EOF）            -> 退出
- * stdout：LOG 生命周期行、PROBE/PROBE_JSON 探针行（每 200ms）、命令回显。
+ * 外部控制统一使用 stdin/stdout LengthPrefix Bridge；stdout 只承载二进制帧，
+ * HELLO/IDENTITY/MAP/STOP 与数据点 CALL 由共享 Endpoint 处理，诊断写 stderr。
  *
  * 设备拓扑（与 rt_host 一致）：
  *   采集+播放均为默认设备         -> 单 duplex 设备（同一时钟域，最低延迟）
@@ -31,15 +22,15 @@
 #include "miniaudio.h"
 
 #include "orpheus_graph.h"
+#include "orpheus_bridge_generated.h"
 #include "orpheus_host_config.h"
-#include "orpheus_control.h"
-#include "orpheus_id_map.h"
 
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <threads.h>
+
+/* stdout 专用于长度前缀 Bridge 帧；所有宿主诊断写 stderr。 */
+#define printf(...) fprintf(stderr, __VA_ARGS__)
 
 #define HOST_IN_CH  ((uint32_t)ORPHEUS_HOST_IN_CHANNELS)
 #define HOST_OUT_CH ((uint32_t)ORPHEUS_HOST_OUT_CHANNELS)
@@ -254,337 +245,10 @@ static void host_rb_playback_callback(ma_device* dev, void* p_out, const void* p
     }
 }
 
-/* ------------------------------------------------------------------ 探针 */
-
-static void host_report_probes(void) {
-    size_t count = orpheus_control_probe_count();
-    for (size_t i = 0; i < count; ++i) {
-        const char* node = NULL;
-        const char* key = NULL;
-        OrpheusValue v;
-        if (orpheus_control_probe_get(i, &node, &key, &v) != 0) continue;
-        if (v.type == ORPHEUS_VALUE_FLOAT) {
-            printf("PROBE %s %s %g\n", node, key, (double)v.value.f32);
-        } else if (v.type == ORPHEUS_VALUE_INT) {
-            printf("PROBE %s %s %d\n", node, key, (int)v.value.i32);
-        } else if (v.type == ORPHEUS_VALUE_BOOL) {
-            printf("PROBE %s %s %d\n", node, key, v.value.b ? 1 : 0);
-        } else if (v.type == ORPHEUS_VALUE_STRING) {
-            /* 复合/结构化探针（波形/频谱 JSON）：整行 */
-            printf("PROBE_JSON %s %s %s\n", node, key, v.value.str ? v.value.str : "");
-        }
-    }
-}
-
-typedef struct {
-    HostContext* host;
-    volatile int* running;
-} ProbeThreadArgs;
-
-static int host_probe_thread(void* arg) {
-    ProbeThreadArgs* a = (ProbeThreadArgs*)arg;
-    uint32_t last_u = 0, last_o = 0;
-    int ticks = 0;
-    int priming_warned = 0, primed_logged = 0;
-    while (*a->running) {
-        struct timespec ts;
-        ts.tv_sec = 0;
-        ts.tv_nsec = 200 * 1000 * 1000;
-        thrd_sleep(&ts, NULL);
-        if (!*a->running) break;
-        host_report_probes();
-        /* 环形缓冲水位 + 欠/溢计数 -> UI 仪表（PROBE_JSON __host__） */
-        {
-            uint32_t lvl = a->host->rb ? ma_pcm_rb_available_read(a->host->rb) : 0;
-            printf("PROBE_JSON __host__ rb {\"level\":%u,\"capacity\":%u,"
-                   "\"primed\":%s,\"underruns\":%u,\"overruns\":%u,\"bridge\":%s}\n",
-                   lvl, a->host->rb_capacity,
-                   a->host->primed ? "true" : "false",
-                   a->host->underruns, a->host->overruns,
-                   a->host->rb ? "true" : "false");
-        }
-        /* 每秒一次：水位问题告警与建议 */
-        if (++ticks % 5 == 0) {
-            uint32_t u = a->host->underruns;
-            uint32_t o = a->host->overruns;
-            if (u != last_u) {
-                printf("LOG WARN 播放欠载 x%u/s：播放设备取数不足（出现杂音/哒哒声）。建议：增大 buffer_size，"
-                       "或检查采集设备是否正常供数/改用同一设备时钟\n", u - last_u);
-            }
-            if (o != last_o) {
-                printf("LOG WARN 采集溢出 x%u/s：输入数据堆积被丢弃（采集与播放时钟漂移）。"
-                       "建议：增大 buffer_size，或让输入输出共用同一设备/时钟\n", o - last_o);
-            }
-            if (a->host->rb) {
-                if (!a->host->primed) {
-                    if (!priming_warned && ticks >= 10) {
-                        priming_warned = 1;
-                        printf("LOG WARN 缓冲预充不足：采集 2 秒内未填满水位（loopback 目标可能未在播放，"
-                               "或采集设备异常）。播放暂输出静音，等待采集供数。\n");
-                    }
-                } else if (!primed_logged) {
-                    primed_logged = 1;
-                    printf("LOG 缓冲预充完成，开始播放\n");
-                }
-            }
-            last_u = u;
-            last_o = o;
-        }
-    }
-    return 0;
-}
-
-/* ------------------------------------------------------------ 控制协议 */
-
-static const char* host_hex_digits = "0123456789abcdef";
-
-static int host_from_hex(const char* hx, uint8_t* out, size_t* out_len) {
-    size_t n = strlen(hx);
-    size_t i;
-    if (n % 2 != 0) return -1;
-    *out_len = 0;
-    for (i = 0; i < n; i += 2) {
-        int hi = -1, lo = -1;
-        char c1 = hx[i], c2 = hx[i + 1];
-        if (c1 >= '0' && c1 <= '9') hi = c1 - '0';
-        else if (c1 >= 'a' && c1 <= 'f') hi = c1 - 'a' + 10;
-        else if (c1 >= 'A' && c1 <= 'F') hi = c1 - 'A' + 10;
-        if (c2 >= '0' && c2 <= '9') lo = c2 - '0';
-        else if (c2 >= 'a' && c2 <= 'f') lo = c2 - 'a' + 10;
-        else if (c2 >= 'A' && c2 <= 'F') lo = c2 - 'A' + 10;
-        if (hi < 0 || lo < 0) return -1;
-        out[(*out_len)++] = (uint8_t)((hi << 4) | lo);
-    }
-    return 0;
-}
-
-/* 值打印：与 rt_host 的 VALUE/RVALUE 行格式一致 */
-static void host_print_value(const OrpheusValue* v) {
-    if (v->type == ORPHEUS_VALUE_FLOAT) printf("%g", (double)v->value.f32);
-    else if (v->type == ORPHEUS_VALUE_INT) printf("%d", (int)v->value.i32);
-    else if (v->type == ORPHEUS_VALUE_BOOL) printf("%d", v->value.b ? 1 : 0);
-    else if (v->type == ORPHEUS_VALUE_STRING) printf("%s", v->value.str ? v->value.str : "");
-    else printf("?");
-}
-
-/* 文本值解析：纯数值 -> FLOAT，否则 STRING（与 rt_host 一致） */
-static OrpheusValue host_parse_value(const char* raw) {
-    OrpheusValue v;
-    char* end = NULL;
-    float f = strtof(raw, &end);
-    if (end != raw && end && *end == (char)0) {
-        v.type = ORPHEUS_VALUE_FLOAT;
-        v.value.f32 = f;
-    } else {
-        v.type = ORPHEUS_VALUE_STRING;
-        v.value.str = raw;
-    }
-    return v;
-}
-
-static const OrpheusIdEntry* host_find_id(uint32_t id) {
-    size_t count = 0;
-    const OrpheusIdEntry* map = orpheus_id_map(&count);
-    for (size_t i = 0; i < count; ++i) {
-        if (map[i].id == id) return &map[i];
-    }
-    return NULL;
-}
-
-/* GETBULK node/key -> id：经 id_map 的 node/key 字段定位（读回行格式对齐 rt_host） */
-static uint32_t host_lookup_bulk_id(const char* node, const char* key) {
-    size_t count = 0;
-    const OrpheusIdEntry* map = orpheus_id_map(&count);
-    for (size_t i = 0; i < count; ++i) {
-        if (map[i].node && map[i].key &&
-            strcmp(map[i].node, node) == 0 && strcmp(map[i].key, key) == 0)
-            return map[i].id;
-    }
-    return 0;
-}
-
-static void host_print_resolved(const OrpheusIdEntry* e) {
-    /* 格式对齐 RtSession._parse_resolved_line：RESOLVED <hex> <kind> <form> key=value... */
-    void* arena = orpheus_arena_base();
-    const void* base = arena ? (const char*)arena + e->arena_offset : NULL;
-    printf("RESOLVED 0x%08X %u %u type=%u count=%u bytes=%u module=%u slot=%u "
-           "base=%p offset=%u node=%s key=%s name=%s\n",
-           e->id, e->kind, e->form, e->type, e->count, (unsigned)e->byte_size,
-           e->module_id, e->slot, base, (unsigned)e->arena_offset,
-           e->node ? e->node : "", e->key ? e->key : "", e->name ? e->name : "");
-}
-
-static void host_control_loop(volatile int* running) {
-    char line[4096];
-    while (*running && fgets(line, sizeof(line), stdin)) {
-        char* p = line;
-        while (*p == ' ' || *p == '\t') ++p;
-        size_t len = strlen(p);
-        while (len > 0 && (p[len - 1] == '\n' || p[len - 1] == '\r')) p[--len] = (char)0;
-        if (len == 0) break;  /* 空行 = 停止（与 rt_host 一致） */
-
-        char* save = NULL;
-        char* cmd = strtok_s(p, " \t", &save);
-        if (!cmd) break;
-
-        if (strcmp(cmd, "STOP") == 0) {
-            break;
-        } else if (strcmp(cmd, "SET") == 0) {
-            char* node = strtok_s(NULL, " \t", &save);
-            char* param = strtok_s(NULL, " \t", &save);
-            char* raw = save;
-            while (raw && (*raw == ' ' || *raw == '\t')) ++raw;
-            if (!node || !param || !raw || !raw[0]) {
-                printf("ERR SET %s %s\n", node ? node : "?", param ? param : "?");
-                continue;
-            }
-            OrpheusValue v = host_parse_value(raw);
-            int r = orpheus_control_set_value(node, param, v);
-            printf("%s SET %s %s\n", r == 0 ? "OK" : "ERR", node, param);
-        } else if (strcmp(cmd, "GET") == 0) {
-            char* node = strtok_s(NULL, " \t", &save);
-            char* param = strtok_s(NULL, " \t", &save);
-            OrpheusValue v;
-            if (node && param && orpheus_control_get_value(node, param, &v) == 0) {
-                printf("VALUE %s %s ", node, param);
-                host_print_value(&v);
-                printf("\n");
-            } else {
-                printf("ERR GET %s %s\n", node ? node : "?", param ? param : "?");
-            }
-        } else if (strcmp(cmd, "BULK") == 0) {
-            char* node = strtok_s(NULL, " \t", &save);
-            char* key = strtok_s(NULL, " \t", &save);
-            char* ns = strtok_s(NULL, " \t", &save);
-            if (!node || !key || !ns) {
-                printf("ERR BULK %s %s\n", node ? node : "?", key ? key : "?");
-                continue;
-            }
-            size_t n = (size_t)atoi(ns);
-            float vals[1024];
-            size_t got = 0;
-            char* t;
-            while (got < n && got < 1024 && (t = strtok_s(NULL, " \t", &save)) != NULL)
-                vals[got++] = (float)atof(t);
-            if (got != n) {
-                printf("ERR BULK %s %s\n", node, key);
-                continue;
-            }
-            int r = orpheus_control_write_bulk(node, key, vals, got);
-            printf("%s BULK %s %s\n", r == 0 ? "OK" : "ERR", node, key);
-        } else if (strcmp(cmd, "RESOLVE") == 0 || strcmp(cmd, "MAP") == 0) {
-            if (strcmp(cmd, "RESOLVE") == 0) {
-                char* raw = strtok_s(NULL, " \t", &save);
-                uint32_t id = raw ? (uint32_t)strtoul(raw, NULL, 0) : 0;
-                const OrpheusIdEntry* e = host_find_id(id);
-                if (e) host_print_resolved(e);
-                else printf("ERR RESOLVE 0x%08X\n", id);
-            } else {
-                size_t count = 0;
-                const OrpheusIdEntry* map = orpheus_id_map(&count);
-                for (size_t i = 0; i < count; ++i) host_print_resolved(&map[i]);
-            }
-        } else if (strcmp(cmd, "RW") == 0) {
-            char* raw_id = strtok_s(NULL, " \t", &save);
-            char* raw = save;
-            while (raw && (*raw == ' ' || *raw == '\t')) ++raw;
-            uint32_t id = raw_id ? (uint32_t)strtoul(raw_id, NULL, 0) : 0;
-            if (!raw_id || !raw || !raw[0]) {
-                printf("ERR RW 0x%08X\n", id);
-                continue;
-            }
-            OrpheusValue v = host_parse_value(raw);
-            int r = orpheus_control_set_value_id(id, v);
-            printf("%s RW 0x%08X\n", r == 0 ? "OK" : "ERR", id);
-        } else if (strcmp(cmd, "RR") == 0) {
-            char* raw_id = strtok_s(NULL, " \t", &save);
-            uint32_t id = raw_id ? (uint32_t)strtoul(raw_id, NULL, 0) : 0;
-            OrpheusValue v;
-            if (raw_id && orpheus_control_get_value_id(id, &v) == 0) {
-                printf("RVALUE 0x%08X ", id);
-                host_print_value(&v);
-                printf("\n");
-            } else {
-                printf("ERR RR 0x%08X\n", id);
-            }
-        } else if (strcmp(cmd, "RWB") == 0) {
-            char* raw_id = strtok_s(NULL, " \t", &save);
-            char* ns = strtok_s(NULL, " \t", &save);
-            uint32_t id = raw_id ? (uint32_t)strtoul(raw_id, NULL, 0) : 0;
-            if (!raw_id || !ns) {
-                printf("ERR RWB 0x%08X\n", id);
-                continue;
-            }
-            size_t n = (size_t)atoi(ns);
-            float vals[1024];
-            size_t got = 0;
-            char* t;
-            while (got < n && got < 1024 && (t = strtok_s(NULL, " \t", &save)) != NULL)
-                vals[got++] = (float)atof(t);
-            if (got != n) {
-                printf("ERR RWB 0x%08X\n", id);
-                continue;
-            }
-            int r = orpheus_control_write_bulk_id(id, vals, got);
-            printf("%s RWB 0x%08X\n", r == 0 ? "OK" : "ERR", id);
-        } else if (strcmp(cmd, "GETBULK") == 0 || strcmp(cmd, "RGB") == 0) {
-            uint32_t id = 0;
-            if (strcmp(cmd, "RGB") == 0) {
-                char* raw_id = strtok_s(NULL, " \t", &save);
-                id = raw_id ? (uint32_t)strtoul(raw_id, NULL, 0) : 0;
-            } else {
-                char* node = strtok_s(NULL, " \t", &save);
-                char* key = strtok_s(NULL, " \t", &save);
-                if (node && key) id = host_lookup_bulk_id(node, key);
-            }
-            size_t n = id ? orpheus_control_bulk_count_id(id) : 0;
-            if (n == 0 || n > 4096) {
-                printf("ERR GETBULK 0x%08X\n", id);
-                continue;
-            }
-            float vals[4096];
-            if (orpheus_control_get_bulk_id(id, vals, n) == 0) {
-                printf("BULKVALUE 0x%08X", id);
-                for (size_t k = 0; k < n; ++k) printf(" %g", (double)vals[k]);
-                printf("\n");
-            } else {
-                printf("ERR GETBULK 0x%08X\n", id);
-            }
-        } else if (strcmp(cmd, "MSG") == 0) {
-            char* hx = strtok_s(NULL, " \t", &save);
-            uint8_t in[4096];
-            size_t in_len = 0;
-            if (!hx || host_from_hex(hx, in, &in_len) != 0) {
-                printf("ERR MSG hex\n");
-                continue;
-            }
-            uint8_t out[65536];
-            size_t out_len = 0;
-            if (orpheus_control_message(in, in_len, out, sizeof(out), &out_len) != 0) {
-                printf("ERR MSG dispatch\n");
-                continue;
-            }
-            if (out_len == 0) {
-                printf("MSGNONE\n");
-            } else {
-                size_t k;
-                printf("MSGRSP ");
-                for (k = 0; k < out_len; ++k) {
-                    printf("%c%c", host_hex_digits[out[k] >> 4],
-                           host_hex_digits[out[k] & 0xF]);
-                }
-                printf("\n");
-            }
-        }
-        /* 未知命令静默忽略（与 rt_host 一致：不打印，避免干扰日志解析） */
-    }
-    *running = 0;
-}
-
 /* ------------------------------------------------------------------ main */
 
 int main(void) {
-    /* stdout 无缓冲：LOG/PROBE 行必须立即到达父进程（与 rt_host 一致） */
+    /* stdout 无缓冲，保证 Bridge 帧立即到达父进程。 */
     setvbuf(stdout, NULL, _IONBF, 0);
 
     if (orpheus_generated_init(HOST_SR, HOST_BS) != ORPHEUS_OK) {
@@ -768,23 +432,13 @@ int main(void) {
         printf("\n");
     }
 
-    volatile int running = 1;
-    ProbeThreadArgs probe_args;
-    probe_args.host = &host;
-    probe_args.running = &running;
-    thrd_t probe_thr;
-    int probe_started =
-        thrd_create(&probe_thr, host_probe_thread, &probe_args) == thrd_success;
-
-    host_control_loop(&running);  /* STOP / 空行 / stdin EOF 返回 */
-
-    running = 0;
-    if (probe_started) thrd_join(probe_thr, NULL);
+    /* 音频由设备回调推进；主线程只服务标准二进制 Bridge，STOP 后返回。 */
+    int bridge_result = orpheus_generated_bridge_serve_stdio();
 
     if (play_inited) ma_device_uninit(&play_device);
     if (cap_inited) ma_device_uninit(&cap_device);
     if (rb_inited) ma_pcm_rb_uninit(&rb);
     orpheus_generated_teardown();
     printf("LOG host_win stopped\n");
-    return 0;
+    return bridge_result == ORPHEUS_OK ? 0 : 1;
 }

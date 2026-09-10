@@ -253,6 +253,9 @@ const { screenToFlowPosition } = useReactFlow();
   const openProject = useCallback(
     async (name, presetDoc = null) => {
       try {
+        if (current && current !== name && rt.running) {
+          await api.rtStop(current);
+        }
         const document = presetDoc || (await api.getProject(name));
         loadDocument(name, document, catalog);
         setStatus(`已打开工程 ${name}`);
@@ -260,7 +263,7 @@ const { screenToFlowPosition } = useReactFlow();
         setStatus(`打开工程失败: ${api.errorDetail(e)}`);
       }
     },
-    [catalog, loadDocument]
+    [catalog, current, loadDocument, rt.running]
   );
 
   useEffect(() => {
@@ -1508,18 +1511,23 @@ const { screenToFlowPosition } = useReactFlow();
       const ignoredSuffix = r.ignored_nodes?.length
         ? `，调试旁路跳过 ${r.ignored_nodes.length} 个节点`
         : '';
-      setStatus(
-        r.status === 'ok'
-          ? `编译后运行成功（${r.blocks} 块）${ignoredSuffix}`
-          : `编译后运行失败 (exit ${r.returncode})`
-      );
-      setOutputs(r.outputs || []);
       if (r.generated_path) {
         setGeneratedInfo({
           path: r.generated_path,
           url: api.downloadGeneratedUrl(current),
         });
       }
+      if (r.mode === 'realtime') {
+        setRt({ running: true, logs: [], probes: {} });
+        setStatus(`编译后实时运行中（通过 Bridge 调参）${ignoredSuffix}`);
+        return;
+      }
+      setStatus(
+        r.status === 'ok'
+          ? `编译后运行成功（${r.blocks} 块）${ignoredSuffix}`
+          : `编译后运行失败 (exit ${r.returncode})`
+      );
+      setOutputs(r.outputs || []);
       setLog({
         title: '编译后运行输出',
         lines: [

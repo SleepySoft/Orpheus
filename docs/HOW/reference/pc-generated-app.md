@@ -13,7 +13,7 @@ tags: [orpheus/how, codegen, bridge]
 
 # PC 配置好即完整程序
 
-> 状态：方案评估与实施计划。目标限定为 Windows/PC；DSP 仍使用既有嵌入式生成路径。
+> 状态：Core Profile 已实现。目标限定为 Windows/PC；DSP 继续使用同一 GeneratedBackend 与嵌入式 Transport。
 
 ## 1. 目标
 
@@ -35,10 +35,10 @@ tags: [orpheus/how, codegen, bridge]
 
 1. 已实现：Python 主机侧 BridgeSession、CALL/RESPONSE/NOTIFICATION 语义、超时/重试、id_map 和 Probe 语义。
 2. 已实现：HLOS 的 stdio/process、TCP、Windows Named Pipe/POSIX Unix Socket Transport，以及 UART 的 OLINK Framing。
-3. 未实现：生成 PC exe 内部的标准 C Bridge Endpoint。因此 host_win.c 现在还不能直接被 BridgeSession 连接，它讲的是另一套文本 SET/GET/STOP 协议。
+3. 已实现：生成 PC exe 内建标准 C Bridge Endpoint，`host_win` 与 `host_cli` 可被 BridgeSession 直接连接。
 4. 平台无关的是协议语义、消息路由和会话契约；Endpoint 仍需要平台 transport binding。Pipe/TCP/UART/SHM 的区别只在 Transport 层，不应复制一套业务协议。
 
-因此 P1 不是重新设计 Bridge，而是把已有的协议接入生成程序，实现 GeneratedBackend + C Endpoint。
+协议接入已完成：GeneratedBackend + C Endpoint 使用 compiler 生成的同一身份和 ID map。
 
 更精确地说，生成代码已经包含 Access Backend 材料：
 
@@ -161,7 +161,7 @@ Codec 使用现有长度前缀帧。半双工单 outstanding CALL 是第一版�
 7. 记录 final exit code。
 8. 只有确认退出或标记为 orphan 才更新 UI 状态。
 
-RtSessionManager 需要记录 PID、启动时间、transport、manifest hash 和 final exit code。UI 停止按钮只能依据统一 stop API 结果展示“已停止”“超时升级停止”“进程异常退出”“存在孤儿进程，需要系统级处理”。
+`RuntimeSessionManager` 统一持有 Process/Serial/TCP/Pipe 会话；`ProcessBridgeSession` 记录 PID、启动时间、身份校验和 final exit code，并执行 STOP -> wait -> terminate -> kill。
 
 ### 工程切换与服务退出
 
@@ -171,50 +171,27 @@ RtSessionManager 需要记录 PID、启动时间、transport、manifest hash 和
 - Reader 线程感知 EOF/Poll 错误，并把状态改为 exited/crashed。
 - UI 轮询状态或由 REST 返回真实进程状态，不用本地假状态。
 
-## 6. REST/UI 演进
+## 6. REST/UI
 
-新增或扩展 API：
+当前统一 API：
 
 ~~~http
-POST /api/projects/{name}/generated/app/build
-POST /api/projects/{name}/generated/app/start
-POST /api/projects/{name}/generated/app/stop
-GET  /api/projects/{name}/generated/app/status
+POST /api/projects/{name}/run_generated
+POST /api/projects/{name}/rt/stop
+GET  /api/projects/{name}/rt/status
+GET  /api/projects/{name}/rt/map
 ~~~
 
-start 请求示例：
+设备图的 `run_generated` 返回 `mode=realtime, status=started`；后续参数、Probe、日志、MAP 和停止与动态 Runtime 共用 `/rt/*`。状态包含：
 
 ~~~json
 {
-  transport: pipe,
-  mode: launch,
-  pipe_address: orpheus-demo,
-  host: 127.0.0.1,
-  port: 0,
-  audio: {
-    device: default,
-    sample_rate: 48000,
-    block_size: 256,
-    period_ms: 10
-  },
-  auto_stop_on_project_switch: true
-}
-~~~
-
-status 返回：
-
-~~~json
-{
-  mode: launch,
-  state: connected,
+  running: true,
   pid: 1234,
-  transport: pipe,
   endpoint_ready: true,
   bridge_ready: true,
-  manifest: {graph_hash: ...},
-  last_probe_at: 0,
   exit_code: null,
-  last_error: null
+  bridge: {duplex: half, pipelined_calls: false}
 }
 ~~~
 
@@ -228,42 +205,37 @@ UI 工具栏分为三个入口：
 
 ## 7. 实施阶段
 
-### P0：生命周期闭环
+### P0：生命周期闭环（已完成）
 
-先不等待二进制 Endpoint 全量完成，优先消除“后台还在跑但界面管不了”的问题。
+1. `RuntimeSessionManager` 管理所有 Bridge 会话。
+2. `ProcessBridgeSession` 实现 STOP -> wait -> terminate -> kill。
+3. 工程切换、删除和服务 shutdown 清理会话。
+4. 状态返回 PID、Endpoint/Bridge ready 与退出码。
 
-1. 扩展 RtSessionManager 的状态、PID、退出码和异常记录。
-2. 实现统一 STOP -> wait -> terminate -> kill。
-3. 工程切换、关闭服务和 UI 重载前清理 launch-mode 会话。
-4. 增加 orphan 检测和状态查询。
-5. UI 显示真实运行/崩溃/停止状态。
-6. 增加崩溃、EOF、工程切换和服务 shutdown 测试。
-
-### P1：生成 Bridge Endpoint
+### P1：生成 Bridge Endpoint（已完成）
 
 1. 抽出可复用的 C Bridge Endpoint 基础：帧读写、HELLO、CALL dispatch、错误码和 Probe 缓冲。
-2. 新增生成宿主 host_bridge.c，保留现有 host_win.c 作为过渡。
-3. 第一版实现 stdio 与 local pipe。
+2. `host_win.c` 与 `host_cli.c` 直接嵌入共享 Endpoint，无文本过渡层。
+3. 本机启动使用 LengthPrefix stdio；外部连接支持 TCP/Local Pipe。
 4. 生成 orpheus_app_manifest.json。
 5. BridgeSession 增加 generated-app HELLO 校验。
 6. 用同一测试矩阵验证 stdio/Pipe/TCP。
 
-### P2：统一启动 API 与 UI
+### P2：统一启动 API 与 UI（Core Profile 已完成）
 
-1. 新增 generated app build/start/stop/status API。
-2. 后端负责 endpoint ready、HELLO 和 manifest 校验。
-3. UI 增加生成程序和外部程序两种模式。
-4. 参数面板直接由 manifest/id_map 驱动。
-5. Probe 面板展示更新时间和断连状态。
+1. `run_generated` 构建并启动生成设备程序，复用 `/rt/stop|status|map`。
+2. 后端负责 endpoint ready、HELLO/IDENTITY 和 manifest hash 校验。
+3. UI 接管生成 realtime 会话，并在工程切换前停止旧会话。
+4. 参数与 Probe 面板复用统一 ID map/BridgeSession。
 
-### P3：产品化
+### P3：产品化（部分完成）
 
-1. host_bridge.c 替代 host_win.c 文本协议。
-2. 删除临时文本 RtSession 兼容层。
+1. [x] host_win/host_cli 使用共享二进制 Endpoint。
+2. [x] 删除文本 RtSession 兼容层。
 3. 支持 loopback TCP 和导出包。
 4. 支持资源复制与相对路径规则。
 5. 支持全双工 Probe 推送与流控。
-6. 增加动态路径与生成路径的一致性回归。
+6. [x] 增加动态路径与生成路径的一致性及真进程 Bridge 回归。
 
 ## 8. 测试与验收
 
@@ -301,20 +273,12 @@ cd ui; npm run test:e2e
 | 风险 | 影响 | 对策 |
 |---|---|---|
 | C 侧 Pipe/TCP 实现复杂 | 工作量高 | P1 先做 stdio/Pipe，TCP 放后；复用帧协议与 Python 测试矩阵 |
-| 文本协议与 Bridge 并存 | 状态混乱 | 只把 host_win.c 当过渡，P3 删除 |
+| 二进制 stdout 混入日志 | 帧损坏 | stdout 仅 Bridge 帧，诊断统一写 stderr/File Sink |
 | 后台进程残留 | 无法管理和占用声卡 | P0 优先做生命周期闭环 |
 | 版本漂移 | 误写不同图参数 | HELLO 校验 hash，不一致只读 |
 | 资源路径漂移 | 生成程序找不到 WAV | manifest 记录 assets，构建时复制或校验 |
 | 多客户端写参数 | 参数竞争 | 第一版单写者；后续加 write lease |
 
-## 10. 首个落地切片
+## 10. 下一切片
 
-建议第一个 PR 只做 P0：
-
-1. RtSessionManager 提供真实状态和统一停止。
-2. /rt/status 明确返回 PID、running、exit code 和 last_error。
-3. 工程切换与服务退出清理会话。
-4. UI 停止按钮等待后端确认。
-5. 不改音频行为，不引入 Bridge Endpoint。
-
-先用最小改动解决当前最痛的失控进程问题，再进入 Bridge Endpoint 的结构性改造。
+下一阶段聚焦订阅式 Observation、同 call_id 幂等缓存、BULK 分片、TLS/lease、多客户端与 SHM/RPMsg 多 Lane。

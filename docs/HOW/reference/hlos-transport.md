@@ -1,6 +1,6 @@
 # HLOS Bridge Transport Adapter
 
-> 状态：Python 主机侧 P0 已实现。支持 stdio、子进程双管道、TCP、Windows Named Pipe 与 POSIX Unix Domain Socket；统一 Endpoint 接入 Runtime/生成宿主仍按 `design_bridge_protocol.md` 的 P1/P2 推进。
+> 状态：已实现。支持 stdio、子进程双管道、TCP、Windows Named Pipe 与 POSIX Unix Domain Socket；动态 Runtime 与生成宿主已接入统一 C Endpoint。
 
 ## 1. 方向性与双工 Profile
 
@@ -47,7 +47,7 @@ stdout 一旦承载二进制 Bridge 帧，就不能混入 `printf`、JSON 或文
 
 启动一个 Endpoint 子进程，以父进程写 child stdin、读 child stdout 的双管道对承载 Bridge。负责进程 terminate/kill 和流关闭。
 
-适合本机动态 Runtime、生成代码宿主及测试工具。当前 `rt_host`/`host_win` 尚未切换到二进制 Endpoint，因此该 Adapter 已可用于自定义 Endpoint，官方本机宿主迁移仍是下一阶段。
+适合本机动态 Runtime、生成代码宿主及测试工具。`rt_host`、主动推进 Runtime、生成 `host_win/host_cli` 都以此承载标准 Endpoint。
 
 ### 3.4 TcpTransport / TcpListener
 
@@ -143,10 +143,6 @@ HLOS 可持久化运行日志，但日志 Sink 与 Transport 解耦：
 
 未完成：
 
-1. C/C++ `BridgeEndpoint` 和 HELLO/IDENTITY；
-2. `rt_host`、`host_win`、主动推进宿主的二进制 stdio/Pipe 接入；
-3. TLS/系统凭证、自动重连、lease 和多客户端；
-4. SHM 零拷贝 Observation、RPMsg 与多 Lane；
-5. UI 的 TCP/Pipe Endpoint 选择控件。
-
-在官方本机宿主完成 P2 前，现有文本 RtSession 仍存在；开发阶段不保留长期兼容，二进制 Endpoint 验收后直接删除。
+1. TLS/系统凭证、自动重连、lease 和多客户端；
+2. SHM 零拷贝 Observation、RPMsg 与多 Lane；
+3. UI 的 TCP/Pipe Endpoint 选择控件；

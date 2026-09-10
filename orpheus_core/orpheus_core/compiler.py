@@ -12,6 +12,7 @@ from typing import Any
 from orpheus_core.project import Connection, ControlConnection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.parameter_catalog import id_form_of, id_kind_of, id_value
+from orpheus_core.bridge.identity import build_identity
 
 # 可作为控制连接目标的 update_policy（restart_required/transactional 不允许运行期被驱动）
 _BINDABLE_POLICIES = {"immediate", "smoothed", "block_boundary"}
@@ -62,6 +63,7 @@ class ExecutionPlan:
     # 宿主按 tick 推进；runtime/生成路径按 (block_counter+1) % period == 0 触发。
     # 单速率图下 tick==block_size、period==divisor，与旧行为逐字节一致。
     schedule: dict[str, Any] | None = None
+    bridge_identity: dict[str, int] = field(default_factory=dict)
 
 
 def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
@@ -759,6 +761,7 @@ class GraphCompiler:
         plan.modules = self._build_module_layout(execution_order)
         # 数据点 ID 表：同一份工程内稳定，动态 Runtime 与代码生成共用同一寻址
         plan.id_map = self._build_id_map(plan, getattr(project, "double_bank", "auto"))
+        plan.bridge_identity = build_identity(plan)
 
         return plan
 

@@ -1,5 +1,6 @@
 #include "orpheus_runtime/plan.h"
 #include "orpheus_runtime/runtime.h"
+#include "orpheus_runtime/runtime_bridge.h"
 #include "orpheus_runtime/wav_io.h"
 
 #include <atomic>
@@ -21,7 +22,8 @@ void print_usage(const char* prog) {
               << "\n       " << prog << " <plan.json> <component_dir> --getbulk <node> <key>"
               << "\n       " << prog << " <plan.json> <component_dir> --task <id> <blocks> [--task ...]"
               << "\n       " << prog << " <plan.json> <component_dir> --benchmark-task <id> <blocks>"
-              << "\n       " << prog << " <plan.json> <component_dir> [--echo-hook <id>] --msg <hex>" << std::endl;
+              << "\n       " << prog << " <plan.json> <component_dir> [--echo-hook <id>] --msg <hex>"
+              << "\n       " << prog << " <plan.json> <component_dir> --bridge-stdio [--pace]" << std::endl;
 }
 
 static const char* id_kind_name(uint32_t kind) {
@@ -140,6 +142,7 @@ int main(int argc, char** argv) {
     std::string plan_path = argv[1];
     std::string component_dir = argv[2];
     bool pace = false;
+    bool bridge_stdio = false;
     uint32_t probe_interval_ms = 0;
     bool dump_map = false;
     bool have_resolve = false;
@@ -161,6 +164,8 @@ int main(int argc, char** argv) {
     for (int i = 3; i < argc; ++i) {
         if (std::string(argv[i]) == "--pace") {
             pace = true;
+        } else if (std::string(argv[i]) == "--bridge-stdio") {
+            bridge_stdio = true;
         } else if (std::string(argv[i]) == "--probe-interval" && i + 1 < argc) {
             probe_interval_ms = (uint32_t)std::atoi(argv[++i]);
         } else if (std::string(argv[i]) == "--map") {
@@ -271,6 +276,45 @@ int main(int argc, char** argv) {
         }
         if (have_echo) {
             runtime.register_hook(echo_id, echo_hook, nullptr);
+        }
+        if (bridge_stdio) {
+            /* stdout 独占长度前缀 Bridge 帧；诊断信息写 stderr。 */
+            std::cout.rdbuf(std::cerr.rdbuf());
+            std::atomic<bool> running{true};
+            std::atomic<int> process_result{ORPHEUS_OK};
+            const uint32_t tick = plan.schedule_tick > 0 ? plan.schedule_tick : plan.block_size;
+            std::thread process_thread([&]() {
+                uint32_t processed = 0;
+                const uint32_t total = plan.duration_frames > 0
+                    ? plan.duration_frames : plan.sample_rate * 10;
+                const auto started = std::chrono::steady_clock::now();
+                while (running && processed < total) {
+                    uint32_t frames = std::min(tick, total - processed);
+                    int result = runtime.process_block(frames);
+                    if (result != ORPHEUS_OK) {
+                        process_result = result;
+                        running = false;
+                        break;
+                    }
+                    processed += frames;
+                    if (pace) {
+                        const double target_ms = (double)processed / plan.sample_rate * 1000.0;
+                        const double elapsed_ms = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - started).count();
+                        if (target_ms - elapsed_ms > 1.0) {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(
+                                (long)(target_ms - elapsed_ms)));
+                        }
+                    }
+                }
+            });
+            orpheus::RuntimeBridgeEndpoint endpoint(runtime, plan, running);
+            std::cerr << "LOG bridge ready (protocol=" << ORPHEUS_BRIDGE_PROTOCOL_VERSION
+                      << ", id_count=" << plan.id_map.size() << ")" << std::endl;
+            int bridge_result = endpoint.serve_stdio();
+            running = false;
+            if (process_thread.joinable()) process_thread.join();
+            return bridge_result == ORPHEUS_OK && process_result == ORPHEUS_OK ? 0 : 1;
         }
         if (have_msg) {
             for (const auto& act : actions) {

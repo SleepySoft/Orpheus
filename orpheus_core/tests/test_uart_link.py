@@ -270,6 +270,10 @@ def link_session(gen_dir, plan):
         transport, plan.id_map, call_timeout=0.5, call_retries=3,
         probe_interval=0.1,
     )
+    handshake = session.connect()
+    assert handshake["identity_verified"] is True
+    assert handshake["identity"]["id_count"] == len(plan.id_map)
+    assert session.map_page(limit=4)["total"] == len(plan.id_map)
     yield session, plan
     session.close()
     transport.close()

@@ -35,7 +35,8 @@ from orpheus_core.generator import CodeGenerator
 from orpheus_core.lesson import evaluate_lesson
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.server.manager import ProjectError, ProjectManager, ProjectRecord
-from orpheus_core.server.rt import RtSessionManager
+from orpheus_core.server.bridge_process_session import ProcessBridgeSession
+from orpheus_core.server.session_manager import RuntimeSessionManager
 from orpheus_core.subgraph import flatten_project
 
 RUN_TIMEOUT_SECONDS = 60
@@ -206,9 +207,13 @@ def create_app(project_root: Path, *,
     registry.scan()
     manager = ProjectManager(root)
     builder = ComponentBuilder(root, root / "build", registry)
-    rt_sessions = RtSessionManager()
+    rt_sessions = RuntimeSessionManager()
     hlos_adapters = transport_adapters or default_hlos_adapters()
     state: dict[str, Any] = {"cmake_configured": (root / "build" / "CMakeCache.txt").exists()}
+
+    @app.on_event("shutdown")
+    def shutdown_sessions() -> None:
+        rt_sessions.stop_all()
 
     # ------------------------------------------------------------- helpers
 
@@ -227,6 +232,22 @@ def create_app(project_root: Path, *,
             json.dump(plan.__dict__, f, indent=2, ensure_ascii=False)
         rec.dirty = False
         return plan, plan_path
+
+    def start_process_bridge(name: str, rec: ProjectRecord, argv: list[str],
+                             plan: ExecutionPlan, log_name: str,
+                             auto_stop_after: float | None = None) -> ProcessBridgeSession:
+        session = ProcessBridgeSession(
+            argv, rec.directory, plan.id_map,
+            expected_id_map_hash=plan.bridge_identity["id_map_hash"],
+            log_path=_session_log_path(rec, log_name),
+            auto_stop_after=auto_stop_after,
+        )
+        try:
+            rt_sessions.adopt(name, session)
+        except Exception:
+            session.close()
+            raise
+        return session
 
     def flattened_project(rec: ProjectRecord):
         try:
@@ -560,6 +581,7 @@ def create_app(project_root: Path, *,
     @app.delete("/api/projects/{name}")
     def delete_project(name: str) -> dict[str, Any]:
         try:
+            rt_sessions.stop(name)
             manager.delete(name)
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
@@ -618,12 +640,11 @@ def create_app(project_root: Path, *,
             suffix = ".exe" if sys.platform == "win32" else ""
             rt_exe = ensure_target_built("orpheus_rt_host", f"orpheus_rt_host{suffix}")
             try:
-                session = rt_sessions.start(
-                    name,
+                session = start_process_bridge(
+                    name, rec,
                     [str(rt_exe), str(plan_path), str(root / "build" / "components"),
                      str(plan.sample_rate), str(plan.block_size)],
-                    cwd=rec.directory,
-                    log_sink=_session_log_sink(rec, "dynamic-device"),
+                    plan, "dynamic-device",
                 )
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -632,15 +653,16 @@ def create_app(project_root: Path, *,
                     "built_components": built, "ignored_nodes": plan.ignored_nodes}
 
         if pace:
-            # 离线实时播放：宿主按真实时长处理，探针每 200ms 流式上报（会话方式，UI 轮询）
+            # 主动推进 + 墙钟 pacing：处理线程与标准 Bridge Endpoint 并行。
             rt_exe = ensure_runtime_built()
             (rec.directory / "outputs").mkdir(exist_ok=True)
-            session = rt_sessions.start(
-                name,
+            session = start_process_bridge(
+                name, rec,
                 [str(rt_exe), str(plan_path), str(root / "build" / "components"),
-                 "--pace", "--probe-interval", "200"],
-                cwd=rec.directory,
-                log_sink=_session_log_sink(rec, "dynamic-paced"),
+                 "--bridge-stdio", "--pace"],
+                plan, "dynamic-paced",
+                auto_stop_after=(plan.duration_frames / plan.sample_rate) + 0.5
+                if plan.duration_frames > 0 else 10.5,
             )
             return {"mode": "offline_live", "status": "started", "pid": session.proc.pid,
                     "log_path": "logs/dynamic-paced.log",
@@ -722,12 +744,10 @@ def create_app(project_root: Path, *,
             cfg["component"] in DEVICE_COMPONENTS for cfg in plan.node_configs.values()
         )
         if has_device:
-            # win 实时宿主（host_win.c）：设备时钟长跑进程，协议与 rt_host 一致
-            # （stdin SET/GET/BULK/STOP，stdout LOG/PROBE），直接复用 rt 会话机制。
+            # win 实时宿主：标准二进制 Bridge stdio，日志走 stderr/file sink。
             try:
-                session = rt_sessions.start(
-                    name, [str(exe)], cwd=rec.directory,
-                    log_sink=_session_log_sink(rec, "generated-device"),
+                session = start_process_bridge(
+                    name, rec, [str(exe)], plan, "generated-device",
                 )
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -894,12 +914,11 @@ def create_app(project_root: Path, *,
         suffix = ".exe" if sys.platform == "win32" else ""
         rt_exe = ensure_target_built("orpheus_rt_host", f"orpheus_rt_host{suffix}")
         try:
-            session = rt_sessions.start(
-                name,
+            session = start_process_bridge(
+                name, rec,
                 [str(rt_exe), str(plan_path), str(root / "build" / "components"),
                  str(plan.sample_rate), str(plan.block_size)],
-                cwd=rec.directory,
-                log_sink=_session_log_sink(rec, "dynamic-local"),
+                plan, "dynamic-local",
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -942,6 +961,7 @@ def create_app(project_root: Path, *,
             probe_interval=probe_interval,
         )
         try:
+            session.connect(expected_id_map_hash=plan.bridge_identity["id_map_hash"])
             rt_sessions.adopt(name, session)
         except RuntimeError as exc:
             session.close()
@@ -995,6 +1015,7 @@ def create_app(project_root: Path, *,
                 probe_interval=max(0.0, req.probe_interval_ms / 1000.0),
                 log_sink=log_sink,
             )
+            session.connect(expected_id_map_hash=plan.bridge_identity["id_map_hash"])
         except Exception:
             transport.close()
             if log_sink is not None:

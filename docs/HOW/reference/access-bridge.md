@@ -1,6 +1,6 @@
 # Access Bridge 统一访问桥设计
 
-> 状态：设计定案（v1）；顶层 `bridges`、画布配置节点、主机 BridgeSession 核心及 `uart + olink` 已落地。双工 Profile、能力和日志契约见 `design_bridge_protocol.md`。本文的 Access Bridge 专指控制/观测访问桥，与音频 Task 间的 `async_bridge` 无关。
+> 状态：Core Profile 已落地；动态 Runtime、生成代码、HLOS stdio/TCP/Pipe 与 `uart + olink` 共用 BridgeSession、系统握手和 ID 空间。双工 Profile、能力和日志契约见 `bridge-protocol.md`。本文的 Access Bridge 专指控制/观测访问桥，与音频 Task 间的 `async_bridge` 无关。
 
 “访问端点”是运行三轴层级模型中的一个维度，只决定 UI/SDK 连到哪个实例；它不决定执行实现、执行触发、主动推进 pacing 或图时间线。定义见 `design_execution_model.md` 与 `design_timeline.md`。
 
@@ -11,9 +11,9 @@
 - 编译期 `plan.id_map` 与稳定 32 位数据 ID；
 - 动态 Runtime 的 `message/read_id/write_id/read_bulk/resolve`；
 - 生成图库的 `orpheus_control_message/get_value/get_bulk/probe_get`；
-- 本地 rt_host 文本管道和远程 OLINK 串口。
+- 动态/生成宿主的 LengthPrefix 二进制 stdio 和远程 OLINK 串口。
 
-当前缺口不是内存或访问 API，而是外部接入仍按宿主分别实现：本地 `RtSession` 解析文本命令，远程 `SerialSession` 解析 §18 二进制消息。两条路径虽然功能相近，但会逐渐产生能力和错误语义差异。
+动态、生成与远程设备现已统一到 §18 消息。后续缺口集中在订阅、流控、多 Lane、写租约和高带宽 Observation，不再是宿主各自维护控制协议。
 
 目标：UI、脚本和自动化只面对一个 ControlPlane/BridgeSession；动态 Runtime、生成代码、UART、进程管道、共享内存和进程内调用共享同一访问语义。
 
@@ -54,15 +54,15 @@ Access Backend（唯一语义入口）
 Bridge 不直接读裸地址。动态 Runtime 和生成图库都适配为同一后端：
 
 ```c
-typedef struct OrpheusAccessBackend {
+typedef struct OrpheusBridgeBackend {
     void* context;
     int (*dispatch)(void* context,
                     const uint8_t* request, size_t request_len,
                     uint8_t* response, size_t response_cap, size_t* response_len);
-    const OrpheusIdEntry* (*map)(void* context, size_t* count);
-    int (*observation_get)(void* context, size_t index,
-                           OrpheusObservationView* out);
-} OrpheusAccessBackend;
+    size_t (*map_count)(void* context);
+    int (*map_get)(void* context, size_t index, OrpheusBridgeMapEntry* out);
+    void (*request_stop)(void* context);
+} OrpheusBridgeBackend;
 ```
 
 - RuntimeBackend 的 `dispatch` 调 `Runtime::message()`；
@@ -99,7 +99,7 @@ Adapter 不改变消息语义，只实现传输：
 | `shm` | 本机共享内存 | SPSC 槽 | 高频波形/音频观测 |
 | `callback` | 用户平台 | 用户保证帧边界 | RTOS mailbox、厂商 IPC、自有驱动 |
 
-Python HLOS 主机侧现已实现 stdio/process、TCP 与本地 Pipe（Windows Named Pipe / POSIX Unix Domain Socket），统一组合 `LengthPrefixCodec`；详见 `design_hlos_transport.md`。这些 Adapter 已可连接自定义 Endpoint，官方 rt_host/host_win 的 C/C++ 二进制 Endpoint 仍按实施顺序推进。
+Python HLOS 主机侧已实现 stdio/process、TCP 与本地 Pipe（Windows Named Pipe / POSIX Unix Domain Socket），统一组合 `LengthPrefixCodec`；详见 `hlos-transport.md`。官方 `orpheus_runtime --bridge-stdio`、`rt_host`、生成 `host_win` 与 `host_cli` 均接入同一 C Endpoint。
 
 工程顶层 `bridges` 是部署配置的唯一事实来源。UI 将其投影为 `execution.none: true`、无端口的「访问桥」配置节点；保存时节点抽回顶层，不进入 `graph.nodes`。它们不进入音频拓扑和 `orpheus_graph_process()` 调用链，只给生成项目增加 endpoint/transport 文件及平台钩子。
 
@@ -153,9 +153,9 @@ UART 可以复用一条 OLINK 物理链路，但 Control RESPONSE 优先于 Obse
 
 ## 7. 与动态 Runtime 的有机结合
 
-### 7.1 本地运行（目标架构）
+### 7.1 本地运行
 
-目标是 rt_host 内创建 `RuntimeBackend + BridgeEndpoint`，后端进程使用 `PipeTransport` 的二进制帧，Python 使用统一 `BridgeSession`。当前本机仍由文本 `RtSession` 适配；项目处于开发阶段，二进制 Pipe 落地后直接删除该文本协议，不保留兼容 shell。
+`rt_host` 和主动推进 Runtime 内创建 `RuntimeBackend + BridgeEndpoint`，后端进程通过 LengthPrefix 二进制 stdio 与 Python `ProcessBridgeSession` 通信。stdout 仅承载帧，生命周期日志写 stderr 和工程 Log Sink。
 
 ```text
 UI -> BridgeSession -> PipeTransport -> rt_host BridgeEndpoint -> Runtime::message
@@ -179,7 +179,7 @@ UI -> BridgeSession -> SerialTransport/OLINK -> device Endpoint -> orpheus_contr
 
 ## 8. 主机侧统一接口
 
-P0 已实现统一 Python `BridgeSession`，串口路径已迁移；当前文本 `RtSession` 将随二进制 Pipe Endpoint 落地后删除。稳定接口为：
+Python、串口和本机子进程均使用统一 `BridgeSession`；工程 hash 不匹配时会话降为只读。稳定接口为：
 
 ```python
 class BridgeSession:
@@ -221,10 +221,10 @@ void orpheus_bridge_<name>_deinit(void);
 
 1. [x] Python 抽出 BridgeSession、Codec、Transport；串口迁移到半双工 Core Profile；
 2. [x] 增加可选异步文件 Log Sink，运行日志与实时处理解耦；
-3. [ ] 定义 `OrpheusAccessBackend` 与 Bridge 系统服务路由、HELLO/IDENTITY/hash；
-4. [ ] 用 GeneratedBackend 包装现有 `orpheus_control_message`，将 UART 链路改造为正式 Endpoint + UartTransport；
-5. [ ] 实现 RuntimeBackend，rt_host/host_win 增加二进制 PipeTransport，删除文本协议；
-6. [ ] 主动推进动态/生成宿主会话化，统一 START/RUN_BLOCKS/STOP 生命周期；
+3. [x] 定义 `OrpheusBridgeBackend` 与 Bridge 系统服务路由、HELLO/IDENTITY/hash；
+4. [x] 用 GeneratedBackend 包装 `orpheus_control_message`，UART 与 PC 生成宿主共用 Endpoint；
+5. [x] 实现 RuntimeBackend，rt_host/host_win 接入 LengthPrefix 二进制 stdio；
+6. [x] 主动推进动态/生成宿主会话化并统一 STOP 生命周期；START/RUN_BLOCKS 留给远程任务控制扩展；
 7. [ ] 接入 `observations` 与 subscribe/capture/poll；先标量 probe，再音频 Buffer view；
 8. [ ] 增加 RPMsg/SHM/callback、多 Lane、写租约与故障统计；TCP 主机 Adapter 已完成。
 

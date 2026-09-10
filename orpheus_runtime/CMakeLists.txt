@@ -8,6 +8,7 @@ target_sources(orpheus_runtime_lib
         src/plan.cpp
         src/loader.cpp
         src/runtime.cpp
+        src/runtime_bridge.cpp
         src/wav_io.cpp
 )
 
@@ -18,7 +19,7 @@ target_include_directories(orpheus_runtime_lib
         ${CMAKE_SOURCE_DIR}/third_party
 )
 
-target_link_libraries(orpheus_runtime_lib PUBLIC orpheus_abi ${CMAKE_DL_LIBS})
+target_link_libraries(orpheus_runtime_lib PUBLIC orpheus_abi orpheus_bridge_endpoint ${CMAKE_DL_LIBS})
 
 set_target_properties(orpheus_runtime_lib PROPERTIES
     CXX_STANDARD 11

@@ -143,7 +143,7 @@ Structured Log Source -> Log Sink -> Console / File / Ring / Bridge Notification
 
 ## 7. 当前实现
 
-P0 已完成：
+Core Profile 已完成：
 
 - `bridge.BridgeSession`：统一 CALL、RESPONSE、NOTIFICATION、重试、数据点访问与状态快照；
 - `BridgeCapabilities`：半双工默认，全双工流水化显式开启；
@@ -154,24 +154,28 @@ P0 已完成：
 - 半双工单请求与全双工流水化并发测试；
 - `AsyncFileLogSink` 及所有当前运行入口的日志归档。
 - HLOS `LengthPrefixCodec`、stdio/process、TCP 和本地命名 Pipe Adapter；Transport 工厂可由用户注册或替换。
+- C99 `BridgeEndpoint`：HELLO、IDENTITY、STOP、STATS、分页 MAP 与 Backend dispatch；
+- RuntimeBackend 与 GeneratedBackend；动态 `rt_host`、主动推进 Runtime、生成 `host_win/host_cli` 均使用二进制 stdio；
+- compiler 单点生成 graph/plan/id_map hash，BridgeSession 校验失败时禁止写入；
+- 生成 CLI 在服务 Endpoint 时并发执行图，STOP 后退出并回收进程。
 
-当前本机 `RtSession` 仍适配历史文本 stdin/stdout 协议，尚未成为 Binary Pipe Endpoint；这是一项明确的迁移中状态，不作为长期兼容接口保留。
+当前半双工观测由主机按 ID map 轮询；主动 NOTIFICATION、订阅、幂等响应缓存和流控仍属于后续能力升级。
 
 ## 8. 实施计划
 
 ### P1：Endpoint 与能力协商
 
-1. 定义系统 route、HELLO/IDENTITY、能力位、最大帧和 plan/id_map hash；
-2. 定义 C ABI `OrpheusAccessBackend` 和 `BridgeEndpoint`；
-3. RuntimeBackend 与 GeneratedBackend 通过同一 Endpoint 测试矩阵；
+1. [x] 定义系统 route、HELLO/IDENTITY、能力位、最大帧和 plan/id_map hash；
+2. [x] 定义 C ABI `OrpheusBridgeBackend` 和 `BridgeEndpoint`；
+3. [x] RuntimeBackend 与 GeneratedBackend 通过同一 Endpoint 测试矩阵；
 4. 增加同 call_id 幂等响应缓存和 BULK 分片。
 
 ### P2：统一本机 Pipe
 
-1. rt_host 与 host_win 接入二进制 Pipe Adapter；
-2. FastAPI 本机路径改用 `BridgeSession + PipeCodec + ProcessTransport`；
-3. 主动推进动态/生成宿主会话化，实现 RUN_BLOCKS/START/STOP；
-4. 删除文本 SET/GET/PROBE 协议和 `RtSession`，不保留兼容层。
+1. [x] rt_host 与 host_win 接入 LengthPrefix 二进制 stdio；
+2. [x] FastAPI 本机路径改用 `BridgeSession + LengthPrefixCodec + ProcessTransport`；
+3. [x] 主动推进动态/生成宿主会话化并实现 STOP；RUN_BLOCKS/START 留给远程任务扩展；
+4. [x] 删除文本 RtSession/host helper，不保留兼容层。
 
 ### P3：全双工交互
 

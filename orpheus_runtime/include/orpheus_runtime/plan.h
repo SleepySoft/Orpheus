@@ -103,6 +103,9 @@ struct Plan {
     std::vector<ModuleConfig> modules;
     std::vector<IdMapEntry> id_map;
     std::vector<ControlLinkConfig> control_links;
+    uint64_t bridge_graph_hash = 0;
+    uint64_t bridge_plan_hash = 0;
+    uint64_t bridge_id_map_hash = 0;
 
     static Plan load_from_file(const std::string& path);
 };

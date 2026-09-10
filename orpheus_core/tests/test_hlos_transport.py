@@ -25,7 +25,7 @@ from orpheus_core.bridge import (
     default_hlos_adapters,
     local_pipe_address,
 )
-from bridge_echo_endpoint import VALUE_ROUTE, serve
+from bridge_echo_endpoint import ID_MAP_HASH, VALUE_ROUTE, serve
 
 ROOT = Path(__file__).resolve().parents[2]
 ID_MAP = [{
@@ -48,6 +48,7 @@ def exercise(transport) -> None:
         call_timeout=1.0,
     )
     try:
+        session.connect(expected_id_map_hash=ID_MAP_HASH)
         assert session.snapshot()["bridge"]["duplex"] == "half"
         session.write_id(VALUE_ROUTE, -7.25)
         assert session.read_id(VALUE_ROUTE) == pytest.approx(-7.25)

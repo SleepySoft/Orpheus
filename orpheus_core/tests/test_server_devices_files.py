@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import json
+import sys
 import uuid
 from pathlib import Path
 
@@ -10,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orpheus_core.server.app import create_app
+from orpheus_core.server.bridge_process_session import ProcessBridgeSession
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -107,9 +110,14 @@ def test_rt_session_lifecycle(client):
             json={"node": "gain", "param": "gain_db", "value": -3.0},
         )
         assert resp.status_code == 200, resp.text
-        time.sleep(0.5)
-        snap = client.get(f"/api/projects/{name}/rt/status").json()
-        assert any("OK SET gain gain_db" in line for line in snap["logs"])
+        entries = client.get(f"/api/projects/{name}/rt/map").json()["entries"]
+        gain_id = next(entry["id"] for entry in entries
+                       if entry["node"] == "gain" and entry["key"] == "gain_db")
+        readback = client.post(
+            f"/api/projects/{name}/rt/read", json={"id": gain_id},
+        )
+        assert readback.status_code == 200
+        assert readback.json()["value"] == pytest.approx(-3.0)
 
         # duplicate start rejected
         assert client.post(f"/api/projects/{name}/rt/start").status_code == 409
@@ -149,6 +157,47 @@ def test_generated_run_matches_dynamic_run(client):
 
         assert len(generated_bytes) == len(dynamic_bytes)
         assert generated_bytes == dynamic_bytes, "generated output differs from dynamic run"
+
+        generated_dir = ROOT / "workspace" / name / "generated"
+        manifest = json.loads(
+            (generated_dir / "orpheus_app_manifest.json").read_text(encoding="utf-8")
+        )
+        suffix = ".exe" if sys.platform == "win32" else ""
+        session = ProcessBridgeSession(
+            [str(generated_dir / "build" / f"orpheus_generated_cli{suffix}"),
+             "--bridge-stdio"],
+            ROOT / "workspace" / name,
+            manifest["id_map"],
+            expected_id_map_hash=int(manifest["id_map_hash"], 16),
+            log_path=ROOT / "workspace" / name / "logs" / "generated-cli-test.log",
+            probe_interval=0.0,
+        )
+        try:
+            assert session.map_page()["total"] == manifest["id_count"]
+            gain = next(entry for entry in manifest["id_map"]
+                        if entry["node"] == "gain" and entry["key"] == "gain_db")
+            session.set_parameter("gain", "gain_db", -9.0)
+            assert session.read_id(gain["id"]) == pytest.approx(-9.0)
+        finally:
+            session.stop()
+        assert session.proc.returncode == 0
+
+        mismatched = ProcessBridgeSession(
+            [str(generated_dir / "build" / f"orpheus_generated_cli{suffix}"),
+             "--bridge-stdio"],
+            ROOT / "workspace" / name,
+            manifest["id_map"],
+            expected_id_map_hash=int(manifest["id_map_hash"], 16) ^ 1,
+            log_path=ROOT / "workspace" / name / "logs" / "generated-cli-mismatch.log",
+            probe_interval=0.0,
+        )
+        try:
+            assert not mismatched.identity_verified
+            with pytest.raises(RuntimeError, match="hash 不匹配"):
+                mismatched.set_parameter("gain", "gain_db", -6.0)
+        finally:
+            mismatched.stop()
+        assert mismatched.proc.returncode == 0
     finally:
         client.delete(f"/api/projects/{name}")
 

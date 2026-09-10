@@ -3,44 +3,16 @@
 
 #include "orpheus_runtime/plan.h"
 #include "orpheus_runtime/runtime.h"
+#include "orpheus_runtime/runtime_bridge.h"
 
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
-
-static std::string to_hex(const uint8_t* p, size_t n) {
-    static const char* digits = "0123456789abcdef";
-    std::string s;
-    s.reserve(n * 2);
-    for (size_t i = 0; i < n; ++i) {
-        s.push_back(digits[p[i] >> 4]);
-        s.push_back(digits[p[i] & 0xF]);
-    }
-    return s;
-}
-
-static bool from_hex(const std::string& hx, std::vector<uint8_t>* out) {
-    if (hx.size() % 2 != 0) return false;
-    out->clear();
-    auto cv = [](char c) -> int {
-        if (c >= '0' && c <= '9') return c - '0';
-        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-        return -1;
-    };
-    for (size_t i = 0; i < hx.size(); i += 2) {
-        int hi = cv(hx[i]), lo = cv(hx[i + 1]);
-        if (hi < 0 || lo < 0) return false;
-        out->push_back(static_cast<uint8_t>((hi << 4) | lo));
-    }
-    return true;
-}
 
 struct HostContext {
     orpheus::Runtime* runtime;
@@ -290,230 +262,6 @@ void rb_playback_callback(ma_device* pDevice, void* pOutput, const void* pInput,
     }
 }
 
-// ---------------------------------------------------------------- control
-
-// Print readback values of all probe nodes: PROBE <node> <param> <value>
-static void report_probes(orpheus::Runtime& runtime, const orpheus::Plan& plan) {
-    for (const auto& node_id : plan.execution_order) {
-        // v2：探针发现统一走注册表（PROBE 槽），不再按组件名 ".probe" 猜测
-        auto slots = runtime.probe_slots(node_id);
-        for (const orpheus::SlotEntry* e : slots) {
-            OrpheusValue v;
-            if (runtime.get_parameter(node_id, e->key, &v) != ORPHEUS_OK) continue;
-            if (v.type == ORPHEUS_VALUE_FLOAT) {
-                std::cout << "PROBE " << node_id << " " << e->key << " " << v.value.f32 << std::endl;
-            } else if (v.type == ORPHEUS_VALUE_INT) {
-                std::cout << "PROBE " << node_id << " " << e->key << " " << v.value.i32 << std::endl;
-            } else if (v.type == ORPHEUS_VALUE_STRING) {
-                // 复合/结构化探针（波形/频谱 JSON）：整行
-                std::cout << "PROBE_JSON " << node_id << " " << e->key << " " << v.value.str << std::endl;
-            }
-        }
-    }
-}
-
-// stdin control protocol (one command per line):
-//   SET <node> <param> <value>   -> runtime.set_parameter (numeric -> float, else string)
-//   GET <node> <param>           -> prints VALUE <node> <param> <value>
-//   BULK <node> <key> <n> <v0>...-> runtime.write_bulk (BULK 槽直写，如 biquad_bank 系数)
-//   RESOLVE <id>                -> 打印 RESOLVED <id> ...（内存透明：类型/长度/基址/偏移）
-//   MAP                         -> 打印全部 RESOLVED 行（数据点 + 模块包）
-//   MSG <hex>                   -> 二进制消息（8 字节头+payload）：CALL→MSGRSP <hex>，NOTIFICATION→MSGNONE
-//   STOP (or empty line / EOF)   -> shut down
-static void control_loop(orpheus::Runtime& runtime, std::atomic<bool>& running) {
-    std::string line;
-    while (running && std::getline(std::cin, line)) {
-        if (line.empty()) break;  // Enter = stop
-        std::istringstream iss(line);
-        std::string cmd;
-        iss >> cmd;
-        if (cmd == "STOP") {
-            break;
-        } else if (cmd == "SET") {
-            std::string node, param, raw;
-            iss >> node >> param;
-            std::getline(iss, raw);
-            if (!raw.empty() && raw[0] == ' ') raw.erase(0, 1);
-            OrpheusValue v;
-            char* end = nullptr;
-            float f = std::strtof(raw.c_str(), &end);
-            std::string storage = raw;
-            if (end != raw.c_str() && end && *end == '\0') {
-                v.type = ORPHEUS_VALUE_FLOAT;
-                v.value.f32 = f;
-            } else {
-                v.type = ORPHEUS_VALUE_STRING;
-                v.value.str = storage.c_str();
-            }
-            int r = runtime.set_parameter(node, param, v);
-            std::cout << (r == ORPHEUS_OK ? "OK SET " : "ERR SET ") << node << " " << param << std::endl;
-        } else if (cmd == "GET") {
-            std::string node, param;
-            iss >> node >> param;
-            OrpheusValue v;
-            int r = runtime.get_parameter(node, param, &v);
-            if (r == ORPHEUS_OK) {
-                if (v.type == ORPHEUS_VALUE_FLOAT)
-                    std::cout << "VALUE " << node << " " << param << " " << v.value.f32 << std::endl;
-                else if (v.type == ORPHEUS_VALUE_INT)
-                    std::cout << "VALUE " << node << " " << param << " " << v.value.i32 << std::endl;
-                else if (v.type == ORPHEUS_VALUE_STRING)
-                    std::cout << "VALUE " << node << " " << param << " " << v.value.str << std::endl;
-            } else {
-                std::cout << "ERR GET " << node << " " << param << std::endl;
-            }
-        } else if (cmd == "BULK") {
-            std::string node, key;
-            size_t n = 0;
-            iss >> node >> key >> n;
-            std::vector<float> vals;
-            vals.reserve(n);
-            for (size_t i = 0; i < n; ++i) {
-                float v = 0.0f;
-                if (!(iss >> v)) break;
-                vals.push_back(v);
-            }
-            if (vals.size() != n) {
-                std::cout << "ERR BULK " << node << " " << key << std::endl;
-                continue;
-            }
-            int r = runtime.write_bulk(node, key, vals.data(), vals.size());
-            std::cout << (r == ORPHEUS_OK ? "OK BULK " : "ERR BULK ") << node << " " << key << std::endl;
-        } else if (cmd == "RESOLVE" || cmd == "MAP") {
-            std::vector<OrpheusResolvedData> entries;
-            if (cmd == "RESOLVE") {
-                std::string raw;
-                iss >> raw;
-                uint32_t id = (uint32_t)std::strtoul(raw.c_str(), nullptr, 0);
-                OrpheusResolvedData d;
-                if (runtime.resolve(id, &d) == ORPHEUS_OK) entries.push_back(d);
-                else std::cout << "ERR RESOLVE " << std::hex << "0x" << id << std::dec << std::endl;
-            } else {
-                runtime.resolve_all(&entries);
-            }
-            for (const auto& d : entries) {
-                std::cout << "RESOLVED " << std::hex << "0x" << d.id << std::dec
-                          << " kind=" << d.kind << " form=" << d.form
-                          << " type=" << d.type << " count=" << d.count
-                          << " bytes=" << d.byte_size
-                          << " module=" << d.module_id << " slot=" << d.slot
-                          << " base=" << static_cast<const void*>(d.base)
-                          << " offset=" << d.offset
-                          << " node=" << (d.node ? d.node : "")
-                          << " key=" << (d.key ? d.key : "")
-                          << " name=" << (d.name ? d.name : "") << std::endl;
-            }
-        } else if (cmd == "RW") {
-            std::string raw_id, raw;
-            iss >> raw_id;
-            std::getline(iss, raw);
-            if (!raw.empty() && raw[0] == ' ') raw.erase(0, 1);
-            uint32_t id = (uint32_t)std::strtoul(raw_id.c_str(), nullptr, 0);
-            OrpheusValue v;
-            char* end = nullptr;
-            float f = std::strtof(raw.c_str(), &end);
-            std::string storage = raw;
-            if (end != raw.c_str() && end && *end == '\0') {
-                v.type = ORPHEUS_VALUE_FLOAT;
-                v.value.f32 = f;
-            } else {
-                v.type = ORPHEUS_VALUE_STRING;
-                v.value.str = storage.c_str();
-            }
-            int r = runtime.write_id(id, v);
-            std::cout << (r == ORPHEUS_OK ? "OK RW " : "ERR RW ")
-                      << std::hex << "0x" << id << std::dec << std::endl;
-        } else if (cmd == "RR") {
-            std::string raw_id;
-            iss >> raw_id;
-            uint32_t id = (uint32_t)std::strtoul(raw_id.c_str(), nullptr, 0);
-            OrpheusValue v;
-            int r = runtime.read_id(id, &v);
-            if (r == ORPHEUS_OK) {
-                if (v.type == ORPHEUS_VALUE_FLOAT)
-                    std::cout << "RVALUE " << std::hex << "0x" << id << std::dec
-                              << " " << v.value.f32 << std::endl;
-                else if (v.type == ORPHEUS_VALUE_INT)
-                    std::cout << "RVALUE " << std::hex << "0x" << id << std::dec
-                              << " " << v.value.i32 << std::endl;
-                else if (v.type == ORPHEUS_VALUE_STRING)
-                    std::cout << "RVALUE " << std::hex << "0x" << id << std::dec
-                              << " " << v.value.str << std::endl;
-                else
-                    std::cout << "RVALUE " << std::hex << "0x" << id << std::dec << " ?" << std::endl;
-            } else {
-                std::cout << "ERR RR " << std::hex << "0x" << id << std::dec << std::endl;
-            }
-        } else if (cmd == "RWB") {
-            std::string raw_id;
-            size_t n = 0;
-            iss >> raw_id >> n;
-            uint32_t id = (uint32_t)std::strtoul(raw_id.c_str(), nullptr, 0);
-            std::vector<float> vals;
-            vals.reserve(n);
-            for (size_t i = 0; i < n; ++i) {
-                float x = 0.0f;
-                if (!(iss >> x)) break;
-                vals.push_back(x);
-            }
-            if (vals.size() != n) {
-                std::cout << "ERR RWB " << std::hex << "0x" << id << std::dec << std::endl;
-                continue;
-            }
-            int r = runtime.write_bulk_id(id, vals.data(), vals.size());
-            std::cout << (r == ORPHEUS_OK ? "OK RWB " : "ERR RWB ")
-                      << std::hex << "0x" << id << std::dec << std::endl;
-        } else if (cmd == "GETBULK" || cmd == "RGB") {
-            uint32_t id = 0;
-            bool have_id = false;
-            if (cmd == "RGB") {
-                std::string raw;
-                iss >> raw;
-                id = (uint32_t)std::strtoul(raw.c_str(), nullptr, 0);
-                have_id = true;
-            } else {
-                std::string node, key;
-                iss >> node >> key;
-                have_id = runtime.lookup_id(node, key, &id);
-            }
-            OrpheusResolvedData d;
-            if (!have_id || runtime.resolve(id, &d) != ORPHEUS_OK ||
-                d.form != ORPHEUS_FORM_BULK) {
-                std::cout << "ERR GETBULK " << std::hex << "0x" << id << std::dec << std::endl;
-                continue;
-            }
-            std::vector<float> vals(d.count);
-            if (runtime.get_bulk_id(id, vals.data(), vals.size()) != ORPHEUS_OK) {
-                std::cout << "ERR GETBULK " << std::hex << "0x" << id << std::dec << std::endl;
-                continue;
-            }
-            std::cout << "BULKVALUE " << std::hex << "0x" << id << std::dec;
-            for (const float v : vals) std::cout << " " << v;
-            std::cout << std::endl;
-        } else if (cmd == "MSG") {
-            std::string hx;
-            iss >> hx;
-            std::vector<uint8_t> in;
-            if (!from_hex(hx, &in)) {
-                std::cout << "ERR MSG hex" << std::endl;
-                continue;
-            }
-            uint8_t out[65536];
-            size_t out_len = 0;
-            if (runtime.message(in.data(), in.size(), out, sizeof(out), &out_len) != 0) {
-                std::cout << "ERR MSG dispatch" << std::endl;
-                continue;
-            }
-            if (out_len == 0) {
-                std::cout << "MSGNONE" << std::endl;
-            } else {
-                std::cout << "MSGRSP " << to_hex(out, out_len) << std::endl;
-            }
-        }
-    }
-    running = false;
-}
-
 // ---------------------------------------------------------------- main
 
 // Graph block sizes can be tiny (e.g. 128 frames = 2.7ms), which is too
@@ -542,6 +290,8 @@ int main(int argc, char** argv) {
     if (std::string(argv[1]) == "--list-devices") {
         return list_devices();
     }
+    /* 正常运行时 stdout 独占二进制 Bridge；宿主/组件日志统一到 stderr。 */
+    std::cout.rdbuf(std::cerr.rdbuf());
     if (argc < 3) {
         print_usage(argv[0]);
         return 1;
@@ -771,67 +521,17 @@ int main(int argc, char** argv) {
         }
 
         std::atomic<bool> running{true};
-        std::thread probe_thread([&]() {
-            uint32_t last_u = 0, last_o = 0;
-            int ticks = 0;
-            bool priming_warned = false, primed_logged = false;
-            while (running) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                if (!running) break;
-                report_probes(runtime, plan);
-                // ring-buffer water level + over/underrun counts -> UI gauge (PROBE_JSON __host__)
-                {
-                    uint32_t lvl = host.rb ? ma_pcm_rb_available_read(host.rb) : 0;
-                    uint32_t cap = host.rb_capacity;
-                    std::cout << "PROBE_JSON __host__ rb {\"level\":" << lvl
-                              << ",\"capacity\":" << cap
-                              << ",\"primed\":" << (host.primed.load() ? "true" : "false")
-                              << ",\"underruns\":" << host.underruns.load()
-                              << ",\"overruns\":" << host.overruns.load()
-                              << ",\"bridge\":" << (host.rb ? "true" : "false")
-                              << "}" << std::endl;
-                }
-                // once per second: report ring-buffer water level problems with advice
-                if (++ticks % 5 == 0) {
-                    uint32_t u = host.underruns.load();
-                    uint32_t o = host.overruns.load();
-                    if (u != last_u) {
-                        std::cout << "LOG WARN 播放欠载 x" << (u - last_u)
-                                  << "/s：播放设备取数不足（出现杂音/哒哒声）。建议：增大 buffer_size，"
-                                     "或检查采集设备是否正常供数/改用同一设备时钟" << std::endl;
-                    }
-                    if (o != last_o) {
-                        std::cout << "LOG WARN 采集溢出 x" << (o - last_o)
-                                  << "/s：输入数据堆积被丢弃（采集与播放时钟漂移）。"
-                                     "建议：增大 buffer_size，或让输入输出共用同一设备/时钟" << std::endl;
-                    }
-                    // priming status (async bridge only)
-                    if (host.rb) {
-                        if (!host.primed.load()) {
-                            if (!priming_warned && ticks >= 10) {
-                                priming_warned = true;
-                                std::cout << "LOG WARN 缓冲预充不足：采集 2 秒内未填满水位（loopback 目标可能未在播放，或采集设备异常）。播放暂输出静音，等待采集供数。" << std::endl;
-                            }
-                        } else if (!primed_logged) {
-                            primed_logged = true;
-                            std::cout << "LOG 缓冲预充完成，开始播放" << std::endl;
-                        }
-                    }
-                    last_u = u;
-                    last_o = o;
-                }
-            }
-        });
-
-        control_loop(runtime, running);  // returns on STOP / Enter / stdin EOF
-
+        orpheus::RuntimeBridgeEndpoint bridge_endpoint(runtime, plan, running);
+        std::cerr << "LOG bridge ready (protocol=" << ORPHEUS_BRIDGE_PROTOCOL_VERSION
+                  << ", id_count=" << plan.id_map.size() << ")" << std::endl;
+        int bridge_result = bridge_endpoint.serve_stdio();
         running = false;
-        if (probe_thread.joinable()) probe_thread.join();
 
         if (play_inited) ma_device_uninit(&play_device);
         if (cap_inited) ma_device_uninit(&cap_device);
         if (rb_inited) ma_pcm_rb_uninit(&rb);
         std::cout << "LOG rt_host stopped" << std::endl;
+        if (bridge_result != ORPHEUS_OK) return 1;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         if (play_inited) ma_device_uninit(&play_device);

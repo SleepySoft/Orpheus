@@ -9,7 +9,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orpheus_core.server.app import create_app
-from orpheus_core.server.rt import parse_probe_line
 
 ROOT = Path(__file__).resolve().parents[2]  # repository root
 
@@ -57,13 +56,6 @@ def test_parse_probe_lines_scalar_and_json(client):
     assert by[("n1", "rms")] == 0.5
     assert by[("n2", "peak")] == 0.25
     assert by[("scope", "waveform")] == [0.1, -0.2, 0.3]
-
-
-def test_parse_probe_line_structured():
-    assert parse_probe_line("PROBE a b 0.5") == ("a", "b", 0.5)
-    assert parse_probe_line("PROBE_JSON a w [1,2,3]") == ("a", "w", [1, 2, 3])
-    assert parse_probe_line("PROBE_JSON a w [1.5,-0.5]") == ("a", "w", [1.5, -0.5])
-    assert parse_probe_line("LOG hello world") is None
 
 
 def test_components_have_chinese_name_and_category(client):
@@ -128,6 +120,26 @@ def test_import_example_and_compile(client):
         assert (pdir / "project.plan.json").exists()
     finally:
         client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_delete_running_project_stops_bridge_process(client):
+    name = f"test_{uuid.uuid4().hex[:8]}"
+    response = client.post(
+        "/api/projects", json={"name": name, "from_example": "sweep_record_plot"}
+    )
+    assert response.status_code == 201, response.text
+    response = client.post(f"/api/projects/{name}/run?pace=1")
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "started"
+
+    response = client.delete(f"/api/projects/{name}")
+    assert response.status_code == 200, response.text
+    assert not (ROOT / "workspace" / name).exists()
 
 
 def test_compile_debug_mode_reports_ignored_flow(client, project):

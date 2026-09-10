@@ -20,6 +20,18 @@ ports:
     channels: param:channels
     sample_rate: param:sample_rate
 parameters:
+  - id: progress
+    name: 扫频进度
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
+  - id: current_freq
+    name: 当前频率
+    type: float
+    default: 0.0
+    readback: true
+    update_policy: immediate
   - id: sample_rate
     name: 采样率
     type: int

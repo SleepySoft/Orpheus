@@ -80,6 +80,10 @@ if(NOT WIN32)
 endif()
 add_test(NAME loudness_gain_control_smoke COMMAND loudness_gain_control_smoke)
 
+add_executable(bridge_endpoint_smoke bridge_endpoint_smoke.c)
+target_link_libraries(bridge_endpoint_smoke PRIVATE orpheus_bridge_endpoint)
+add_test(NAME bridge_endpoint_smoke COMMAND bridge_endpoint_smoke)
+
 # OLINK 帧级 CLI（供 pytest 跨语言互测驱动）
 add_executable(olink_cli olink_cli.c)
 target_link_libraries(olink_cli PRIVATE orpheus_olink)

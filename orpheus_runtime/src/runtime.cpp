@@ -870,6 +870,17 @@ int Runtime::msg_default(uint32_t route, const OrpheusBlob& req, bool write,
             }
             return 0;
         }
+        if (d.type == ORPHEUS_VALUE_STRING) {
+            const uint8_t* bytes = static_cast<const uint8_t*>(req.data);
+            size_t len = 0;
+            while (len < req.len && bytes[len] != 0) ++len;
+            std::string text(reinterpret_cast<const char*>(bytes), len);
+            OrpheusValue v;
+            v.type = ORPHEUS_VALUE_STRING;
+            v.value.str = text.c_str();
+            if (write_id(route, v) != ORPHEUS_OK) *resp_flags = ORPHEUS_MSG_FLAG_ERROR;
+            return 0;
+        }
         if (req.len < 4) { *resp_flags = ORPHEUS_MSG_FLAG_ERROR; return 0; }
         OrpheusValue v;
         if (d.type == ORPHEUS_VALUE_FLOAT) {
@@ -910,6 +921,15 @@ int Runtime::msg_default(uint32_t route, const OrpheusBlob& req, bool write,
     } else if (v.type == ORPHEUS_VALUE_BOOL) {
         out[kMsgHdrSize] = v.value.b ? 1 : 0;
         *resp_words = 1;
+    } else if (v.type == ORPHEUS_VALUE_STRING && v.value.str != nullptr) {
+        size_t capacity = out_cap - kMsgHdrSize;
+        size_t len = std::strlen(v.value.str);
+        if (len + 1 > capacity) { *resp_flags = ORPHEUS_MSG_FLAG_ERROR; return 0; }
+        size_t bytes = len + 1;
+        size_t padded = ((bytes + 3) / 4) * 4;
+        std::memset(out + kMsgHdrSize, 0, padded);
+        std::memcpy(out + kMsgHdrSize, v.value.str, len);
+        *resp_words = static_cast<uint32_t>(padded / 4);
     } else {
         *resp_flags = ORPHEUS_MSG_FLAG_ERROR;
     }
