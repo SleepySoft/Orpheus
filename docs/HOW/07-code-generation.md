@@ -25,5 +25,4 @@ tags: [orpheus/how]
 
 编译器根据组件平台声明和图内 alter 关系确定可达平台，选择激活成员，并重映射连接。
 
-生成原则见 [[reference/how-legacy|原始 HOW 全文]]。
-
+PC 生成的目标形态见 [[reference/pc-generated-app|PC 配置好即完整程序]]。
