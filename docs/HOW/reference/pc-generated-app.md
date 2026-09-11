@@ -105,6 +105,27 @@ UI / REST / SDK
 
 Codec 使用现有长度前缀帧。半双工单 outstanding CALL 是第一版基线；全双工 Probe 推送是第二版能力，不改变消息语义。
 
+### Adapter 平台矩阵
+
+Bridge 协议本身平台无关，但 Adapter 是平台绑定层。生成程序应按目标平台编译实际 Adapter；不支持的平台必须生成明确拒绝的 stub，而不是静默禁用。
+
+| Adapter | Windows | Linux/macOS | 嵌入式/RTOS | 生成程序策略 |
+|---|---|---|---|---|
+| stdio | 支持 | 支持 | 可作为调试通道或 stub | 后端作为父进程启动时默认使用 |
+| local pipe | Windows Named Pipe | Unix Domain Socket | stub | 手工运行/Connect Mode 的首选本机通道 |
+| loopback TCP | 支持 | 支持 | 可选；有网络栈时支持 | 显式开启，避免默认暴露网络端点 |
+| serial/OLINK | 支持 | 支持 | 支持 | 嵌入式部署和远程设备调音使用 |
+| SHM/RPMsg | 后续 | 后续 | 平台特定 | 不作为默认 Adapter |
+
+规则：
+
+1. Adapter 由宿主在启动时选择；Bridge Backend 不感知字节来自 stdio、Pipe、TCP 还是 UART。
+2. 平台不支持的 Adapter 必须在初始化或 listen/connect 时返回 `ORPHEUS_BRIDGE_ERR_UNSUPPORTED`，并给出明确诊断。
+3. Stub 不得申请线程、socket、阻塞队列或实时资源。
+4. manifest 的 `transports` 只列出实际编译进程序的 Adapter；UI/API 只启用这些选项。
+5. HLOS Adapter 绑定成功后应把 endpoint 写入诊断通道；stdio 可报告 `stdio://`，Pipe/TCP 必须报告实际地址。嵌入式串口通常不知道主机侧的 COM 编号，因此只报告设备身份，不报告主机串口号。
+6. 同一程序可以编译多个 Adapter，但每个 Adapter 独立监听/连接，Bridge Backend 与身份校验语义保持一致。
+
 ## 4. Endpoint 与运行元数据
 
 生成工程应包含 orpheus_app_manifest.json：
