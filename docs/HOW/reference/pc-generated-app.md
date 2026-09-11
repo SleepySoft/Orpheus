@@ -126,6 +126,96 @@ Bridge 协议本身平台无关，但 Adapter 是平台绑定层。生成程序�
 5. HLOS Adapter 绑定成功后应把 endpoint 写入诊断通道；stdio 可报告 `stdio://`，Pipe/TCP 必须报告实际地址。嵌入式串口通常不知道主机侧的 COM 编号，因此只报告设备身份，不报告主机串口号。
 6. 同一程序可以编译多个 Adapter，但每个 Adapter 独立监听/连接，Bridge Backend 与身份校验语义保持一致。
 
+### Adapter 实现路线
+
+#### P1：C Transport 契约与 stdio 重构
+
+先把“帧循环”和“字节来源”拆开：
+
+1. 新增 C Transport/Channel 契约，统一 `read`、`write`、`close`、可选 `shutdown`；
+2. 把长度前缀读写从 `bridge_stdio.c` 提取为共享帧循环；
+3. stdio 保留现有函数名，内部改为薄 Adapter；
+4. 保留 `ORPHEUS_BRIDGE_MAX_MESSAGE` 和 CALL/RESPONSE 语义，不改 Python 协议；
+5. `bridge_endpoint_smoke` 继续作为协议回归；新增 frame-loop 单元测试。
+
+这一步不改 CLI、生成器和 UI 行为。
+
+#### P2：Endpoint 公告
+
+Adapter 绑定成功后，在 stderr 输出一行机器可读公告：
+
+~~~text
+BRIDGE_READY {protocol:1,pid:1234,endpoints:[stdio://],id_map_hash:...}
+~~~
+
+Pipe/TCP 的示例：
+
+~~~text
+BRIDGE_READY {protocol:1,pid:1234,endpoints:[winpipe://orpheus-demo-3f2a]}
+BRIDGE_READY {protocol:1,pid:1234,endpoints:[tcp://127.0.0.1:51422]}
+~~~
+
+停止时输出：
+
+~~~text
+BRIDGE_STOPPED {reason:stop}
+~~~
+
+规则：
+
+1. stdout 永远只承载 Bridge 二进制帧；公告只写 stderr；
+2. 公告只在 startup/shutdown 输出，不进入实时路径；
+3. Pipe/TCP 默认只绑定 loopback/本机会话命名空间；
+4. 支持 `--endpoint-file` 时，可以原子写入 endpoint JSON，方便手工启动后的 UI 发现；
+5. 嵌入式串口不报告主机侧 COM 编号，只报告设备身份和协议能力。
+
+#### P3：Pipe、TCP 和 Stub Adapter
+
+1. Windows Named Pipe Adapter 使用一个活动连接；支持 `CreateNamedPipe`、`ConnectNamedPipe`、`ReadFile/WriteFile`；
+2. POSIX Adapter 使用 Unix Domain Socket；`accept` 后使用同一个帧循环；
+3. TCP Adapter 默认绑定 `127.0.0.1`，支持 `--port 0`，绑定后公告真实端口；
+4. 平台不支持时编译 stub Adapter，`serve/connect` 返回 `ORPHEUS_ERR_UNSUPPORTED`；
+5. 生成器把实际 Adapter 源码和 CMake 选择一起写入生成工程；
+6. manifest 增加实际可用的 `transports` 字段。
+
+生成程序 CLI 统一为：
+
+~~~text
+--bridge stdio
+--bridge pipe [--pipe-name NAME]
+--bridge tcp [--host 127.0.0.1] [--port 0]
+--endpoint-file PATH
+~~~
+
+后端启动生成 exe 时显式传 `--bridge stdio`；手工运行建议 `--bridge pipe`；远程调试才使用 `--bridge tcp`。
+
+#### P4：后端 Connect Mode
+
+1. `run_generated` 支持选择 launch transport，默认 stdio；
+2. 新增或复用 `/rt/start` 的 `pipe/tcp` 分支连接外部已运行程序；
+3. 连接前读取 `orpheus_app_manifest.json` 并校验 `id_map_hash`；
+4. `/rt/status` 返回 endpoint、PID（launch-mode）、exit code 和 Bridge ready；
+5. Connect Mode 只断开 BridgeSession，不 terminate 外部进程；
+6. Launch Mode 沿用 `STOP -> wait -> terminate -> kill`。
+
+#### P5：UI 与验收
+
+1. UI 工具栏增加“连接外部 PC 程序”；
+2. Connect 表单接受 endpoint 字符串，并显示 manifest 身份校验结果；
+3. 参数面板、Probe 面板、日志面板复用现有 BridgeSession；
+4. 启动 Mode 与 Connect Mode 的状态不要互相覆盖；
+5. 新增 Pipe/TCP loopback、stub 拒绝、身份不匹配拒绝写、断连和 STOP 生命周期测试。
+
+建议的验收顺序：
+
+1. stdio 行为与当前完全一致；
+2. Windows Named Pipe 手工连接成功；
+3. POSIX Unix Socket 手工连接成功；
+4. loopback TCP 手工连接成功；
+5. 不支持平台返回 `ORPHEUS_ERR_UNSUPPORTED`；
+6. UI Connect Mode 能读 Probe、写参数并断开；
+7. Launch Mode 的旧流程无回归。
+
 ## 4. Endpoint 与运行元数据
 
 生成工程应包含 orpheus_app_manifest.json：
