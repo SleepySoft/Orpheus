@@ -11,6 +11,16 @@ target_include_directories(orpheus_abi INTERFACE
 add_library(orpheus_olink STATIC src/olink.c)
 target_include_directories(orpheus_olink PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-add_library(orpheus_bridge_endpoint STATIC src/bridge_endpoint.c src/bridge_stdio.c)
+add_library(orpheus_bridge_endpoint STATIC
+    src/bridge_endpoint.c
+    src/bridge_stdio.c
+    src/bridge_transport.c
+    src/bridge_pipe.c
+    src/bridge_tcp.c
+    src/bridge_serve.c
+)
 target_include_directories(orpheus_bridge_endpoint PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(orpheus_bridge_endpoint PUBLIC orpheus_abi)
+if(WIN32)
+  target_link_libraries(orpheus_bridge_endpoint PUBLIC ws2_32)
+endif()

@@ -288,6 +288,10 @@ class CodeGenerator:
             include_dir / "orpheus_bridge_stdio.h",
         )
         shutil.copy2(
+            abi_dir / "include" / "orpheus_bridge_transport.h",
+            include_dir / "orpheus_bridge_transport.h",
+        )
+        shutil.copy2(
             abi_dir / "src" / "bridge_endpoint.c",
             src_dir / "bridge_endpoint.c",
         )
@@ -295,6 +299,10 @@ class CodeGenerator:
             abi_dir / "src" / "bridge_stdio.c",
             src_dir / "bridge_stdio.c",
         )
+        for source_name in (
+            "bridge_transport.c", "bridge_pipe.c", "bridge_tcp.c", "bridge_serve.c"
+        ):
+            shutil.copy2(abi_dir / "src" / source_name, src_dir / source_name)
         graph_hash = plan.bridge_identity["graph_hash"]
         plan_hash = plan.bridge_identity["plan_hash"]
         id_map_hash = plan.bridge_identity["id_map_hash"]
@@ -313,6 +321,7 @@ class CodeGenerator:
             "#ifndef ORPHEUS_BRIDGE_GENERATED_H",
             "#define ORPHEUS_BRIDGE_GENERATED_H",
             '#include "orpheus_bridge_endpoint.h"',
+            '#include "orpheus_bridge_transport.h"',
             "void orpheus_generated_bridge_init(void);",
             "int orpheus_generated_bridge_process(const uint8_t* request, size_t request_len,",
             "    uint8_t* response, size_t response_cap, size_t* response_len);",
@@ -320,6 +329,16 @@ class CodeGenerator:
             "typedef void (*OrpheusGeneratedStopFn)(void* context);",
             "void orpheus_generated_bridge_set_stop_handler(OrpheusGeneratedStopFn fn, void* context);",
             "int orpheus_generated_bridge_serve_stdio(void);",
+            "typedef struct {",
+            "    OrpheusBridgeTransport transport;",
+            "    const char* pipe_name;",
+            "    const char* host;",
+            "    uint16_t port;",
+            "    const char* endpoint_file;",
+            "} OrpheusGeneratedBridgeConfig;",
+            "int orpheus_generated_bridge_serve(",
+            "    const OrpheusGeneratedBridgeConfig* config,",
+            "    char* endpoint_output, size_t endpoint_cap);",
             "#endif /* ORPHEUS_BRIDGE_GENERATED_H */",
         ]
         (include_dir / "orpheus_bridge_generated.h").write_text(
@@ -327,6 +346,7 @@ class CodeGenerator:
         source = [
             '#include "orpheus_bridge_generated.h"',
             '#include "orpheus_bridge_stdio.h"',
+            '#include <string.h>',
             '#include "orpheus_control.h"',
             '#include "orpheus_id_map.h"',
             "",
@@ -393,6 +413,19 @@ class CodeGenerator:
             "int orpheus_generated_bridge_serve_stdio(void) {",
             "    return orpheus_bridge_stdio_serve(&g_endpoint, stdin, stdout);",
             "}",
+            "int orpheus_generated_bridge_serve(",
+            "    const OrpheusGeneratedBridgeConfig* config,",
+            "    char* endpoint_output, size_t endpoint_cap) {",
+            "    OrpheusBridgeServeConfig serve;",
+            "    memset(&serve, 0, sizeof(serve));",
+            "    serve.transport = config ? config->transport : ORPHEUS_BRIDGE_TRANSPORT_STDIO;",
+            "    serve.pipe_name = config ? config->pipe_name : NULL;",
+            "    serve.host = config ? config->host : NULL;",
+            "    serve.port = config ? config->port : 0u;",
+            "    serve.endpoint_file = config ? config->endpoint_file : NULL;",
+            "    return orpheus_bridge_serve(",
+            "        &g_endpoint, &serve, endpoint_output, endpoint_cap);",
+            "}",
         ]
         (src_dir / "orpheus_bridge_generated.c").write_text(
             "\n".join(source) + "\n", encoding="utf-8")
@@ -405,6 +438,11 @@ class CodeGenerator:
             "sample_rate": int(plan.sample_rate),
             "block_size": self._schedule_tick(plan),
             "id_count": len(plan.id_map),
+            "transports": (
+                ["stdio", "pipe", "tcp"]
+                if plan.target != "dsp"
+                else ["stdio"]
+            ),
             "id_map": plan.id_map,
         }
         (output_dir / "orpheus_app_manifest.json").write_text(
@@ -2668,7 +2706,9 @@ class CodeGenerator:
             lines.append("")
 
         graph_sources = "src/orpheus_graph.c"
-        graph_sources += " src/bridge_endpoint.c src/bridge_stdio.c src/orpheus_bridge_generated.c"
+        graph_sources += (" src/bridge_endpoint.c src/bridge_stdio.c"
+            " src/bridge_transport.c src/bridge_pipe.c src/bridge_tcp.c"
+            " src/bridge_serve.c src/orpheus_bridge_generated.c")
         if (output_dir / "src" / "platform_io.c").exists():
             graph_sources += " src/platform_io.c"
         if (output_dir / "src" / "platform_hooks.c").exists():
@@ -2686,6 +2726,9 @@ class CodeGenerator:
         lines.append(f'target_link_libraries(orpheus_graph PUBLIC {libs})')
         lines.append('if(NOT MSVC)')
         lines.append('  target_link_libraries(orpheus_graph PUBLIC m)')
+        lines.append('endif()')
+        lines.append('if(WIN32)')
+        lines.append('  target_link_libraries(orpheus_graph PUBLIC ws2_32)')
         lines.append('endif()')
         if (output_dir / "src" / "host_win.c").exists():
             lines.append('add_executable(orpheus_generated_app src/host_win.c)')

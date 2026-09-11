@@ -7,24 +7,33 @@
 #include <io.h>
 #endif
 
-static int read_exact(FILE* input, uint8_t* output, size_t length) {
-    size_t offset = 0u;
-    while (offset < length) {
-        size_t count = fread(output + offset, 1u, length - offset, input);
-        if (count == 0u) return feof(input) ? 0 : -1;
-        offset += count;
-    }
+typedef struct {
+    FILE* input;
+    FILE* output;
+} StdioContext;
+
+static int stdio_read(
+    void* context, uint8_t* output, size_t length,
+    size_t* count, int* eof) {
+    StdioContext* stdio = (StdioContext*)context;
+    FILE* input = stdio->input;
+    *count = fread(output, 1u, length, input);
+    if (*count != 0u) return 1;
+    *eof = feof(input) != 0;
+    return *eof ? 0 : -1;
+}
+
+static int stdio_write(
+    void* context, const uint8_t* input, size_t length, size_t* count) {
+    StdioContext* stdio = (StdioContext*)context;
+    FILE* output = stdio->output;
+    *count = fwrite(input, 1u, length, output);
+    if (*count != length || fflush(output) != 0) return -1;
     return 1;
 }
 
-static int write_exact(FILE* output, const uint8_t* data, size_t length) {
-    size_t offset = 0u;
-    while (offset < length) {
-        size_t count = fwrite(data + offset, 1u, length - offset, output);
-        if (count == 0u) return -1;
-        offset += count;
-    }
-    return fflush(output) == 0 ? 0 : -1;
+static void stdio_close(void* context) {
+    (void)context;
 }
 
 int orpheus_bridge_stdio_binary_mode(FILE* input, FILE* output) {
@@ -40,31 +49,22 @@ int orpheus_bridge_stdio_binary_mode(FILE* input, FILE* output) {
 
 int orpheus_bridge_stdio_serve(
     OrpheusBridgeEndpoint* endpoint, FILE* input, FILE* output) {
-    if (endpoint == NULL || input == NULL || output == NULL) return ORPHEUS_ERR_INVALID_ARG;
-    if (orpheus_bridge_stdio_binary_mode(input, output) != 0) return ORPHEUS_ERR_PROCESSING;
-
-    uint8_t request[ORPHEUS_BRIDGE_MAX_MESSAGE];
-    uint8_t response[ORPHEUS_BRIDGE_MAX_MESSAGE];
-    for (;;) {
-        uint32_t request_len = 0u;
-        int read_result = read_exact(input, (uint8_t*)&request_len, sizeof(request_len));
-        if (read_result == 0) return ORPHEUS_OK;
-        if (read_result < 0 || request_len < sizeof(OrpheusMessageHeader) ||
-            request_len > sizeof(request)) return ORPHEUS_ERR_INVALID_ARG;
-        read_result = read_exact(input, request, request_len);
-        if (read_result <= 0) return ORPHEUS_ERR_PROCESSING;
-
-        size_t response_len = 0u;
-        int result = orpheus_bridge_endpoint_process(
-            endpoint, request, request_len,
-            response, sizeof(response), &response_len);
-        if (result != ORPHEUS_OK) return result;
-        if (response_len > UINT32_MAX) return ORPHEUS_ERR_OUT_OF_MEMORY;
-        uint32_t wire_len = (uint32_t)response_len;
-        if (write_exact(output, (const uint8_t*)&wire_len, sizeof(wire_len)) != 0 ||
-            write_exact(output, response, response_len) != 0) {
-            return ORPHEUS_ERR_PROCESSING;
-        }
-        if (orpheus_bridge_endpoint_should_stop(endpoint)) return ORPHEUS_OK;
+    OrpheusBridgeChannel channel;
+    if (endpoint == NULL || input == NULL || output == NULL) {
+        return ORPHEUS_ERR_INVALID_ARG;
     }
+    if (orpheus_bridge_stdio_binary_mode(input, output) != 0) {
+        return ORPHEUS_ERR_PROCESSING;
+    }
+
+    StdioContext stdio;
+    memset(&stdio, 0, sizeof(stdio));
+    stdio.input = input;
+    stdio.output = output;
+    memset(&channel, 0, sizeof(channel));
+    channel.context = &stdio;
+    channel.read = stdio_read;
+    channel.write = stdio_write;
+    channel.close = stdio_close;
+    return orpheus_bridge_channel_serve(endpoint, &channel);
 }

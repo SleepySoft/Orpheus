@@ -87,7 +87,7 @@ def test_device_graph_generates_win_host(registry, tmp_path) -> None:
     assert plan.target == "win"
 
     host = (tmp_path / "src" / "host_win.c").read_text(encoding="utf-8")
-    assert "int main(void)" in host
+    assert "int main(int argc, char** argv)" in host
     assert "ma_device_init" in host
 
     cfg = (tmp_path / "include" / "orpheus_host_config.h").read_text(encoding="utf-8")

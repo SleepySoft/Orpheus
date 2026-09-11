@@ -2,6 +2,7 @@
 #define ORPHEUS_BRIDGE_STDIO_H
 
 #include "orpheus_bridge_endpoint.h"
+#include "orpheus_bridge_transport.h"
 
 #include <stdio.h>
 

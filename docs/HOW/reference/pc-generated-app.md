@@ -13,7 +13,7 @@ tags: [orpheus/how, codegen, bridge]
 
 # PC 配置好即完整程序
 
-> 状态：Core Profile 已实现。目标限定为 Windows/PC；DSP 继续使用同一 GeneratedBackend 与嵌入式 Transport。
+> 状态：Core Profile 与 PC 程序内建 stdio/Named Pipe/Unix Socket/TCP Adapter 已实现；Connect Mode UI 仍待接入。
 
 ## 1. 目标
 
@@ -169,7 +169,7 @@ BRIDGE_STOPPED {reason:stop}
 4. 支持 `--endpoint-file` 时，可以原子写入 endpoint JSON，方便手工启动后的 UI 发现；
 5. 嵌入式串口不报告主机侧 COM 编号，只报告设备身份和协议能力。
 
-#### P3：Pipe、TCP 和 Stub Adapter
+#### P3：Pipe、TCP 和 Stub Adapter（已实现）
 
 1. Windows Named Pipe Adapter 使用一个活动连接；支持 `CreateNamedPipe`、`ConnectNamedPipe`、`ReadFile/WriteFile`；
 2. POSIX Adapter 使用 Unix Domain Socket；`accept` 后使用同一个帧循环；
@@ -208,7 +208,15 @@ BRIDGE_STOPPED {reason:stop}
 
 建议的验收顺序：
 
-1. stdio 行为与当前完全一致；
+已完成的 PC Adapter 验证：
+
+1. `stdio`、Windows Named Pipe 和 loopback TCP 分别完成 HELLO/IDENTITY；
+2. 参数写入/读回、Probe 轮询、STATS、STOP 后进程真实退出；
+3. Windows Pipe 与 Python `multiprocessing.connection.Client` 兼容，使用 message-mode；
+4. `scripts/verify_generated_bridge.py` 可复现上述验证；
+5. 生成工程启动前仍先校验编码设备，设备缺失时进入 Bridge 前失败并输出明确诊断。
+
+1. stdio 行为与当前完全一致（已通过）；
 2. Windows Named Pipe 手工连接成功；
 3. POSIX Unix Socket 手工连接成功；
 4. loopback TCP 手工连接成功；
@@ -374,7 +382,7 @@ cd ui; npm run test:e2e
 
 - C Endpoint 帧编解码。
 - HELLO/IDENTITY 与 hash 拒绝写入。
-- Pipe/TCP/stdio Bridge loopback。
+- Pipe/TCP/stdio Bridge loopback（已通过）。
 - generated app lifecycle。
 - launch/connect 状态隔离。
 - 双路径一致性。

@@ -747,7 +747,8 @@ def create_app(project_root: Path, *,
             # win 实时宿主：标准二进制 Bridge stdio，日志走 stderr/file sink。
             try:
                 session = start_process_bridge(
-                    name, rec, [str(exe)], plan, "generated-device",
+                    name, rec, [str(exe), "--bridge", "stdio"], plan,
+                    "generated-device",
                 )
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc

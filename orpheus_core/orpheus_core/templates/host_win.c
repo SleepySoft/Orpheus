@@ -247,9 +247,47 @@ static void host_rb_playback_callback(ma_device* dev, void* p_out, const void* p
 
 /* ------------------------------------------------------------------ main */
 
-int main(void) {
+int main(int argc, char** argv) {
     /* stdout 无缓冲，保证 Bridge 帧立即到达父进程。 */
     setvbuf(stdout, NULL, _IONBF, 0);
+
+    OrpheusGeneratedBridgeConfig bridge;
+    memset(&bridge, 0, sizeof(bridge));
+    bridge.transport = ORPHEUS_BRIDGE_TRANSPORT_STDIO;
+    for (int i = 1; i < argc; ++i) {
+        const char* arg = argv[i];
+        if (strcmp(arg, "--bridge") == 0 && i + 1 < argc) {
+            const char* value = argv[++i];
+            if (strcmp(value, "stdio") == 0) {
+                bridge.transport = ORPHEUS_BRIDGE_TRANSPORT_STDIO;
+            } else if (strcmp(value, "pipe") == 0) {
+                bridge.transport = ORPHEUS_BRIDGE_TRANSPORT_PIPE;
+            } else if (strcmp(value, "tcp") == 0) {
+                bridge.transport = ORPHEUS_BRIDGE_TRANSPORT_TCP;
+            } else {
+                fprintf(stderr, "Unknown bridge transport: %s\n", value);
+                return 1;
+            }
+        } else if (strcmp(arg, "--pipe-name") == 0 && i + 1 < argc) {
+            bridge.pipe_name = argv[++i];
+        } else if (strcmp(arg, "--host") == 0 && i + 1 < argc) {
+            bridge.host = argv[++i];
+        } else if (strcmp(arg, "--port") == 0 && i + 1 < argc) {
+            const unsigned port = (unsigned)strtoul(argv[++i], NULL, 0);
+            if (port > 65535u) {
+                fprintf(stderr, "Invalid TCP port: %u\n", port);
+                return 1;
+            }
+            bridge.port = (uint16_t)port;
+        } else if (strcmp(arg, "--endpoint-file") == 0 && i + 1 < argc) {
+            bridge.endpoint_file = argv[++i];
+        } else {
+            fprintf(stderr, "Usage: %s [--bridge stdio|pipe|tcp]"
+                " [--pipe-name NAME] [--host HOST] [--port PORT]"
+                " [--endpoint-file PATH]\n", argv[0]);
+            return 1;
+        }
+    }
 
     if (orpheus_generated_init(HOST_SR, HOST_BS) != ORPHEUS_OK) {
         fprintf(stderr, "init failed\n");
@@ -433,7 +471,9 @@ int main(void) {
     }
 
     /* 音频由设备回调推进；主线程只服务标准二进制 Bridge，STOP 后返回。 */
-    int bridge_result = orpheus_generated_bridge_serve_stdio();
+    char bridge_endpoint[512];
+    int bridge_result = orpheus_generated_bridge_serve(
+        &bridge, bridge_endpoint, sizeof(bridge_endpoint));
 
     if (play_inited) ma_device_uninit(&play_device);
     if (cap_inited) ma_device_uninit(&cap_device);

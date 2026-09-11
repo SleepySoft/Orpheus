@@ -2,6 +2,15 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-09-11（第六十二次：生成 PC 程序多 Transport Adapter）
+
+- 新增 C Transport/Channel 契约与共享长度前缀帧循环；stdio 重构为薄 Adapter，修复读写上下文复用错误，保证 stdout 只承载 Bridge 帧。
+- 生成 PC 程序内建 Windows Named Pipe、POSIX Unix Socket、loopback TCP 与不支持平台 stub；绑定成功后在 stderr 输出机器可读 `BRIDGE_READY` endpoint 公告，支持 `--endpoint-file`。
+- 生成器复制 Adapter 源码、在 manifest 输出实际 `transports`，生成 CMake 链接 Windows socket 库；`host_win.c` 支持 `--bridge stdio|pipe|tcp`、Pipe 名称、TCP host/port 与 endpoint 文件。
+- Windows Pipe 使用 message-mode，兼容 Python `multiprocessing.connection.Client`，并处理 `ERROR_MORE_DATA`；TCP 默认仅绑定 loopback，`--port 0` 公告真实端口。
+- 新增 `scripts/verify_generated_bridge.py`，对 stdio/Pipe/TCP 逐通道验证 HELLO/IDENTITY、参数写入/读回、Probe 轮询、STATS、STOP 和进程真实退出；验证矩阵全部通过。
+- 生成程序启动前仍先校验编码设备；设备缺失时在进入 Bridge 前失败并给出明确诊断。Connect Mode UI 与端点文件发现仍属后续阶段。
+
 ## 2026-09-10（第六十一次：Runtime 与生成程序统一 Bridge Endpoint）
 
 - 新增共享 C99 `BridgeEndpoint` 与 LengthPrefix stdio Server，系统路由覆盖 HELLO、IDENTITY、STOP、STATS、分页 MAP；数据路由委托 RuntimeBackend 或 GeneratedBackend。
