@@ -31,6 +31,7 @@ HOW 记录“怎么做”：架构、实现、验证和历史。
 - [[reference/registry|组件注册与 ABI 细节]]
 - [[reference/timeline|时间线设计]]
 - [[reference/clock-scheduling|时钟调度]]
+- [[reference/sport-boundary|SPORT Boundary、Clock Domain 与 Trigger Group]]
 - [[reference/pc-generated-app|PC 配置好即完整程序]]
 - [[reference/pc-generated-app-audit|PC 生成程序 Bridge 交接审计]]
 - [[implementation-log|实现日志]]

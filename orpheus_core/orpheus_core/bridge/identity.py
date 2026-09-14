@@ -56,6 +56,9 @@ def build_identity(plan) -> dict[str, int]:
         "buffers": plan.buffers,
         "modules": plan.modules,
         "bridges": plan.bridges,
+        "clock_domains": getattr(plan, "clock_domains", []),
+        "trigger_groups": getattr(plan, "trigger_groups", []),
+        "sport_bindings": getattr(plan, "sport_bindings", []),
         "duration_frames": plan.duration_frames,
     }
     map_bytes = b"".join(

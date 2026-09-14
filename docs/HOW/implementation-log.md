@@ -2,6 +2,14 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-09-14（第六十三次：ADSP-21593 SPORT Boundary 与外部触发契约）
+
+- 新增 Clock Domain、Trigger Group、Task clock/trigger 绑定与结构化 `sport_bindings`；编译器按 Task 独立解析外部采样率，不再把单个源速率覆盖全部 Task。
+- 新增 `sport_tdm_in/out` 平台组件与 `adsp21593` 目标层级；生成器按物理 resource/slot/format 静态展开 Q1.31/24-bit/f32 gather/scatter。
+- 外部触发 Task 新增 epoch/frame_index/sequence 入口及连续性统计，旧 Task API 保留；多 Clock Domain 禁止使用全局推进，要求壳子调用各自 Task。
+- `adsp21593` 生成包只保留 transport-independent Bridge Backend，不携带 HLOS host/pipe/tcp；完整生成工程 GCC 构建通过。
+- EREV 生产壳回调缩为 IO 指针 + TriggerContext 调用，CCES 2.11.1 Release clean build 0错误0警告；数值测试验证0.5 Q1.31经-6dB输出及触发跳变统计。
+
 ## 2026-09-11（第六十二次：生成 PC 程序多 Transport Adapter）
 
 - 新增 C Transport/Channel 契约与共享长度前缀帧循环；stdio 重构为薄 Adapter，修复读写上下文复用错误，保证 stdout 只承载 Bridge 帧。

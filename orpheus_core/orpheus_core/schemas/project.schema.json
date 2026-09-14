@@ -26,7 +26,7 @@
     },
     "target": {
       "type": "string",
-      "enum": ["auto", "win", "dsp"],
+      "enum": ["auto", "win", "dsp", "sharc", "adsp21593"],
       "default": "auto",
       "description": "期望目标平台：auto 自动判定 / win（Windows PC）/ dsp（通用 DSP）"
     },
@@ -45,7 +45,60 @@
           "name": { "type": "string" },
           "sample_rate": { "type": "integer" },
           "block_size": { "type": "integer" },
-          "priority": { "type": "integer" }
+          "priority": { "type": "integer" },
+          "clock_domain": { "type": "string" },
+          "trigger_group": { "type": "string" }
+        }
+      }
+    },
+    "clock_domains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "sample_rate"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },
+          "sample_rate": { "type": "integer", "minimum": 1 },
+          "assurance": { "enum": ["derived", "user_guaranteed", "measured"] }
+        }
+      }
+    },
+    "trigger_groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "clock_domain"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },
+          "clock_domain": { "type": "string" },
+          "dispatch": { "enum": ["caller", "master"] },
+          "master": { "type": "string" },
+          "members": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "sport_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["node", "streams"],
+        "properties": {
+          "node": { "type": "string" },
+          "streams": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["resource", "slots", "channels", "slot_count"],
+              "properties": {
+                "resource": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+                "slots": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+                "channels": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+                "slot_count": { "type": "integer", "minimum": 1 },
+                "format": { "enum": ["q1_31", "s24_left_in_s32", "s24_right_in_s32", "f32"] }
+              }
+            }
+          }
         }
       }
     },

@@ -139,6 +139,13 @@ class CodeGenerator:
         # The generated project must be self-contained: vendor the ABI header.
         abi_header = self.project_root / "orpheus_abi" / "include" / "orpheus_abi.h"
         shutil.copy2(abi_header, include_dir / "orpheus_abi.h")
+        if plan.target == "adsp21593":
+            generated_abi = include_dir / "orpheus_abi.h"
+            generated_abi.write_text(
+                "#ifndef ORPHEUS_API\n#define ORPHEUS_API\n#endif\n" +
+                generated_abi.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
 
         # Collect unique components
         component_ids = sorted({plan.node_configs[n]["component"] for n in plan.nodes})
@@ -170,6 +177,17 @@ class CodeGenerator:
             comp_out.mkdir(parents=True, exist_ok=True)
             if (info.root_dir / "src").exists():
                 shutil.copytree(info.root_dir / "src", comp_out / "src", dirs_exist_ok=True)
+                entry_name = self._component_target_name(cid) + "_get_interface"
+                for source_path in (comp_out / "src").rglob("*"):
+                    if source_path.suffix.lower() not in (".c", ".cc", ".cpp"):
+                        continue
+                    source_text = source_path.read_text(encoding="utf-8")
+                    if "ORPHEUS_ENTRY_NAME" not in source_text:
+                        continue
+                    source_path.write_text(
+                        f"#define ORPHEUS_ENTRY_NAME {entry_name}\n" + source_text,
+                        encoding="utf-8",
+                    )
             if (info.root_dir / "include").exists():
                 shutil.copytree(info.root_dir / "include", comp_out / "include", dirs_exist_ok=True)
             if (info.root_dir / "user").exists():
@@ -189,12 +207,35 @@ class CodeGenerator:
                                device_in_nodes=device_in_nodes,
                                device_out_nodes=device_out_nodes)
         self._generate_minimal_main_c(plan, src_dir / "main.c")
-        if not win_host:
+        if not win_host and plan.target != "adsp21593":
             self._generate_host_cli_c(plan, link_nodes, src_dir / "host_cli.c")
-        task_decls = [
-            f'int orpheus_generated_process_task_{self._sanitized_node_id(task["id"])}(uint32_t frame_count);'
-            for task in getattr(plan, "tasks", [])
-        ]
+        task_decls: list[str] = []
+        if any(task.get("trigger_group") for task in getattr(plan, "tasks", [])):
+            task_decls.extend([
+                'typedef struct OrpheusExternalTriggerContext {',
+                '    uint64_t epoch;',
+                '    uint64_t frame_index;',
+                '    uint64_t sequence;',
+                '    uint32_t frames;',
+                '    uint32_t flags;',
+                '} OrpheusExternalTriggerContext;',
+                'typedef struct OrpheusTriggerStats {',
+                '    uint64_t calls;',
+                '    uint64_t sequence_errors;',
+                '    uint64_t frame_errors;',
+                '} OrpheusTriggerStats;',
+            ])
+        for task in getattr(plan, "tasks", []):
+            task_sym = self._sanitized_node_id(task["id"])
+            task_decls.append(
+                f'int orpheus_generated_process_task_{task_sym}(uint32_t frame_count);'
+            )
+            if task.get("trigger_group"):
+                task_decls.extend([
+                    f'int orpheus_generated_process_task_{task_sym}_at(',
+                    '    uint32_t frame_count, const OrpheusExternalTriggerContext* trigger);',
+                    f'const OrpheusTriggerStats* orpheus_generated_trigger_stats_{task_sym}(void);',
+                ])
         gen_h = [
             '#ifndef ORPHEUS_GRAPH_H',
             '#define ORPHEUS_GRAPH_H',
@@ -248,6 +289,10 @@ class CodeGenerator:
             '#endif /* ORPHEUS_GENERATED_H */\n',
             encoding="utf-8",
         )
+        if getattr(plan, "sport_bindings", []):
+            self._generate_sport_adapter(
+                plan, include_dir / "orpheus_sport.h", src_dir / "orpheus_sport.c"
+            )
 
         # 嵌入 I/O 适配模板：存在 embed_in/embed_out 节点时生成，用户按硬件填充
         embed_nodes = [
@@ -279,37 +324,39 @@ class CodeGenerator:
         output_dir: Path,
     ) -> None:
         abi_dir = self.project_root / "orpheus_abi"
+        bare_target = plan.target == "adsp21593"
         shutil.copy2(
             abi_dir / "include" / "orpheus_bridge_endpoint.h",
             include_dir / "orpheus_bridge_endpoint.h",
         )
         shutil.copy2(
-            abi_dir / "include" / "orpheus_bridge_stdio.h",
-            include_dir / "orpheus_bridge_stdio.h",
-        )
-        shutil.copy2(
-            abi_dir / "include" / "orpheus_bridge_transport.h",
-            include_dir / "orpheus_bridge_transport.h",
-        )
-        shutil.copy2(
             abi_dir / "src" / "bridge_endpoint.c",
             src_dir / "bridge_endpoint.c",
         )
-        shutil.copy2(
-            abi_dir / "src" / "bridge_stdio.c",
-            src_dir / "bridge_stdio.c",
-        )
-        for source_name in (
-            "bridge_transport.c", "bridge_pipe.c", "bridge_tcp.c", "bridge_serve.c"
-        ):
-            shutil.copy2(abi_dir / "src" / source_name, src_dir / source_name)
+        if not bare_target:
+            shutil.copy2(
+                abi_dir / "include" / "orpheus_bridge_stdio.h",
+                include_dir / "orpheus_bridge_stdio.h",
+            )
+            shutil.copy2(
+                abi_dir / "include" / "orpheus_bridge_transport.h",
+                include_dir / "orpheus_bridge_transport.h",
+            )
+            shutil.copy2(
+                abi_dir / "src" / "bridge_stdio.c",
+                src_dir / "bridge_stdio.c",
+            )
+            for source_name in (
+                "bridge_transport.c", "bridge_pipe.c", "bridge_tcp.c", "bridge_serve.c"
+            ):
+                shutil.copy2(abi_dir / "src" / source_name, src_dir / source_name)
         graph_hash = plan.bridge_identity["graph_hash"]
         plan_hash = plan.bridge_identity["plan_hash"]
         id_map_hash = plan.bridge_identity["id_map_hash"]
         wire_map = wire_map_entries(plan.id_map)
         endpoint_kind = (
             "ORPHEUS_BRIDGE_KIND_GENERATED_DSP"
-            if plan.target == "dsp"
+            if plan.target in ("dsp", "sharc", "adsp21593")
             else "ORPHEUS_BRIDGE_KIND_GENERATED_APP"
         )
         full_duplex = any(
@@ -321,32 +368,33 @@ class CodeGenerator:
             "#ifndef ORPHEUS_BRIDGE_GENERATED_H",
             "#define ORPHEUS_BRIDGE_GENERATED_H",
             '#include "orpheus_bridge_endpoint.h"',
-            '#include "orpheus_bridge_transport.h"',
             "void orpheus_generated_bridge_init(void);",
             "int orpheus_generated_bridge_process(const uint8_t* request, size_t request_len,",
             "    uint8_t* response, size_t response_cap, size_t* response_len);",
             "bool orpheus_generated_bridge_should_stop(void);",
             "typedef void (*OrpheusGeneratedStopFn)(void* context);",
             "void orpheus_generated_bridge_set_stop_handler(OrpheusGeneratedStopFn fn, void* context);",
-            "int orpheus_generated_bridge_serve_stdio(void);",
-            "typedef struct {",
-            "    OrpheusBridgeTransport transport;",
-            "    const char* pipe_name;",
-            "    const char* host;",
-            "    uint16_t port;",
-            "    const char* endpoint_file;",
-            "} OrpheusGeneratedBridgeConfig;",
-            "int orpheus_generated_bridge_serve(",
-            "    const OrpheusGeneratedBridgeConfig* config,",
-            "    char* endpoint_output, size_t endpoint_cap);",
-            "#endif /* ORPHEUS_BRIDGE_GENERATED_H */",
         ]
+        if not bare_target:
+            header.extend([
+                '#include "orpheus_bridge_transport.h"',
+                "int orpheus_generated_bridge_serve_stdio(void);",
+                "typedef struct {",
+                "    OrpheusBridgeTransport transport;",
+                "    const char* pipe_name;",
+                "    const char* host;",
+                "    uint16_t port;",
+                "    const char* endpoint_file;",
+                "} OrpheusGeneratedBridgeConfig;",
+                "int orpheus_generated_bridge_serve(",
+                "    const OrpheusGeneratedBridgeConfig* config,",
+                "    char* endpoint_output, size_t endpoint_cap);",
+            ])
+        header.append("#endif /* ORPHEUS_BRIDGE_GENERATED_H */")
         (include_dir / "orpheus_bridge_generated.h").write_text(
             "\n".join(header) + "\n", encoding="utf-8")
         source = [
             '#include "orpheus_bridge_generated.h"',
-            '#include "orpheus_bridge_stdio.h"',
-            '#include <string.h>',
             '#include "orpheus_control.h"',
             '#include "orpheus_id_map.h"',
             "",
@@ -410,23 +458,27 @@ class CodeGenerator:
             "void orpheus_generated_bridge_set_stop_handler(OrpheusGeneratedStopFn fn, void* context) {",
             "    g_stop_handler = fn; g_stop_context = context;",
             "}",
-            "int orpheus_generated_bridge_serve_stdio(void) {",
-            "    return orpheus_bridge_stdio_serve(&g_endpoint, stdin, stdout);",
-            "}",
-            "int orpheus_generated_bridge_serve(",
-            "    const OrpheusGeneratedBridgeConfig* config,",
-            "    char* endpoint_output, size_t endpoint_cap) {",
-            "    OrpheusBridgeServeConfig serve;",
-            "    memset(&serve, 0, sizeof(serve));",
-            "    serve.transport = config ? config->transport : ORPHEUS_BRIDGE_TRANSPORT_STDIO;",
-            "    serve.pipe_name = config ? config->pipe_name : NULL;",
-            "    serve.host = config ? config->host : NULL;",
-            "    serve.port = config ? config->port : 0u;",
-            "    serve.endpoint_file = config ? config->endpoint_file : NULL;",
-            "    return orpheus_bridge_serve(",
-            "        &g_endpoint, &serve, endpoint_output, endpoint_cap);",
-            "}",
         ]
+        if not bare_target:
+            source[1:1] = ['#include "orpheus_bridge_stdio.h"', '#include <string.h>']
+            source.extend([
+                "int orpheus_generated_bridge_serve_stdio(void) {",
+                "    return orpheus_bridge_stdio_serve(&g_endpoint, stdin, stdout);",
+                "}",
+                "int orpheus_generated_bridge_serve(",
+                "    const OrpheusGeneratedBridgeConfig* config,",
+                "    char* endpoint_output, size_t endpoint_cap) {",
+                "    OrpheusBridgeServeConfig serve;",
+                "    memset(&serve, 0, sizeof(serve));",
+                "    serve.transport = config ? config->transport : ORPHEUS_BRIDGE_TRANSPORT_STDIO;",
+                "    serve.pipe_name = config ? config->pipe_name : NULL;",
+                "    serve.host = config ? config->host : NULL;",
+                "    serve.port = config ? config->port : 0u;",
+                "    serve.endpoint_file = config ? config->endpoint_file : NULL;",
+                "    return orpheus_bridge_serve(",
+                "        &g_endpoint, &serve, endpoint_output, endpoint_cap);",
+                "}",
+            ])
         (src_dir / "orpheus_bridge_generated.c").write_text(
             "\n".join(source) + "\n", encoding="utf-8")
         manifest = {
@@ -438,12 +490,13 @@ class CodeGenerator:
             "sample_rate": int(plan.sample_rate),
             "block_size": self._schedule_tick(plan),
             "id_count": len(plan.id_map),
-            "transports": (
-                ["stdio", "pipe", "tcp"]
-                if plan.target != "dsp"
-                else ["stdio"]
+            "transports": [] if bare_target else (
+                ["stdio", "pipe", "tcp"] if plan.target != "dsp" else ["stdio"]
             ),
             "id_map": plan.id_map,
+            "clock_domains": getattr(plan, "clock_domains", []),
+            "trigger_groups": getattr(plan, "trigger_groups", []),
+            "sport_bindings": getattr(plan, "sport_bindings", []),
         }
         (output_dir / "orpheus_app_manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
@@ -559,6 +612,14 @@ class CodeGenerator:
             nid for nid in plan.execution_order
             if plan.node_configs[nid]["component"] == "orpheus.builtin.embed_out"
         ]
+        sport_in_nodes = [
+            nid for nid in plan.execution_order
+            if plan.node_configs[nid]["component"] == "orpheus.builtin.sport_tdm_in"
+        ]
+        sport_out_nodes = [
+            nid for nid in plan.execution_order
+            if plan.node_configs[nid]["component"] == "orpheus.builtin.sport_tdm_out"
+        ]
         if embed_in_nodes or embed_out_nodes:
             lines.append('')
             lines.append('/* 嵌入 I/O 适配（platform_io.c，用户按实际硬件填充） */')
@@ -587,6 +648,12 @@ class CodeGenerator:
             lines.append(
                 f'static uint32_t g_task_timeline_flags_{task_sym} = ORPHEUS_TIMELINE_DISCONTINUITY;'
             )
+            if task.get("trigger_group"):
+                lines.append(f'static OrpheusTriggerStats g_trigger_stats_{task_sym};')
+                lines.append(f'static uint64_t g_trigger_last_sequence_{task_sym};')
+                lines.append(f'static uint64_t g_trigger_next_frame_{task_sym};')
+                lines.append(f'static uint64_t g_trigger_epoch_{task_sym};')
+                lines.append(f'static uint32_t g_trigger_seen_{task_sym};')
         lines.append('static void orpheus_graph_clear_error(void) {')
         lines.append('    g_graph_error.operation = "";')
         lines.append('    g_graph_error.node = "";')
@@ -624,7 +691,14 @@ class CodeGenerator:
             channels = int(float(cfg.get("params", {}).get("channels", 2)))
             kind = "in" if nid in embed_in_nodes else "out"
             lines.append(f'float g_embed_{kind}_{s}[{frames * channels}];')
-        if embed_in_nodes or embed_out_nodes:
+        for nid in sport_in_nodes + sport_out_nodes:
+            s = self._sanitized_node_id(nid)
+            cfg = plan.node_configs[nid]
+            frames = cfg.get("frames") or plan.block_size
+            channels = int(float(cfg.get("params", {}).get("channels", 2)))
+            kind = "in" if nid in sport_in_nodes else "out"
+            lines.append(f'float g_sport_{kind}_{s}[{frames * channels}];')
+        if embed_in_nodes or embed_out_nodes or sport_in_nodes or sport_out_nodes:
             lines.append('')
         for nid in embed_in_nodes:
             s = self._sanitized_node_id(nid)
@@ -638,7 +712,19 @@ class CodeGenerator:
                 f'EmbedOutState* orpheus_embed_out_state_{s}(void) '
                 f'{{ return {self._state_ref(nid, plan)}; }}'
             )
-        if embed_in_nodes or embed_out_nodes:
+        for nid in sport_in_nodes:
+            s = self._sanitized_node_id(nid)
+            lines.append(
+                f'SportTdmInState* orpheus_sport_tdm_in_state_{s}(void) '
+                f'{{ return {self._state_ref(nid, plan)}; }}'
+            )
+        for nid in sport_out_nodes:
+            s = self._sanitized_node_id(nid)
+            lines.append(
+                f'SportTdmOutState* orpheus_sport_tdm_out_state_{s}(void) '
+                f'{{ return {self._state_ref(nid, plan)}; }}'
+            )
+        if embed_in_nodes or embed_out_nodes or sport_in_nodes or sport_out_nodes:
             lines.append('')
 
         # 生成路径注册器：与动态路径一样调用 register_slots（当前无消费方，
@@ -946,6 +1032,12 @@ class CodeGenerator:
             lines.append(
                 f'    g_task_timeline_flags_{task_sym} = ORPHEUS_TIMELINE_DISCONTINUITY;'
             )
+            if task.get("trigger_group"):
+                lines.append(f'    memset(&g_trigger_stats_{task_sym}, 0, sizeof(g_trigger_stats_{task_sym}));')
+                lines.append(f'    g_trigger_last_sequence_{task_sym} = 0;')
+                lines.append(f'    g_trigger_next_frame_{task_sym} = 0;')
+                lines.append(f'    g_trigger_epoch_{task_sym} = 0;')
+                lines.append(f'    g_trigger_seen_{task_sym} = 0;')
         for i in range(len(bridge_copies)):
             lines.append(f'    g_bridge_cursor_{i} = 0;')
         for i in range(len(task_bridge_copies)):
@@ -1069,6 +1161,18 @@ class CodeGenerator:
             ref = self._state_ref(nid, plan)
             lines.append(f'    ({ref})->dst = g_embed_out_{s};')
             lines.append(f'    ({ref})->dst_capacity = {frames};')
+        for nid in sport_in_nodes:
+            s = self._sanitized_node_id(nid)
+            ref = self._state_ref(nid, plan)
+            lines.append(f'    ({ref})->src = g_sport_in_{s};')
+            lines.append(f'    ({ref})->src_frames = 0;')
+        for nid in sport_out_nodes:
+            s = self._sanitized_node_id(nid)
+            cfg = plan.node_configs[nid]
+            frames = cfg.get("frames") or plan.block_size
+            ref = self._state_ref(nid, plan)
+            lines.append(f'    ({ref})->dst = g_sport_out_{s};')
+            lines.append(f'    ({ref})->dst_capacity = {frames};')
         if embed_in_nodes or embed_out_nodes:
             lines.append('    orpheus_platform_io_init();')
         lines.append('    orpheus_generated_bridge_init();')
@@ -1086,6 +1190,8 @@ class CodeGenerator:
         lines.append('    orpheus_graph_clear_error();')
         lines.append('    if (!g_graph_initialized)')
         lines.append('        return orpheus_graph_fail("process", "", "", ORPHEUS_ERR_INVALID_ARG);')
+        if (getattr(plan, "schedule", None) or {}).get("multi_clock"):
+            lines.append('    return orpheus_graph_fail("process:multi_clock", "", "", ORPHEUS_ERR_UNSUPPORTED);')
         lines.append(f'    ctx.sample_rate = {plan.sample_rate};')
         lines.append('    ctx.scratch = NULL;')
         lines.append('    ctx.scratch_size = 0;')
@@ -1177,7 +1283,12 @@ class CodeGenerator:
             task_has_platform_io = any(
                 nid in task_node_set for nid in (*embed_in_nodes, *embed_out_nodes)
             )
-            lines.append(f'int orpheus_generated_process_task_{task_sym}(uint32_t frame_count) {{')
+            external_trigger = bool(task.get("trigger_group"))
+            if external_trigger:
+                lines.append(f'int orpheus_generated_process_task_{task_sym}_at(')
+                lines.append('    uint32_t frame_count, const OrpheusExternalTriggerContext* trigger) {')
+            else:
+                lines.append(f'int orpheus_generated_process_task_{task_sym}(uint32_t frame_count) {{')
             lines.append('    int rc;')
             lines.append('    OrpheusProcessContext ctx;')
             lines.append('    orpheus_graph_clear_error();')
@@ -1194,6 +1305,18 @@ class CodeGenerator:
             lines.append(
                 f'    const uint32_t advance = frame_count > 0 ? frame_count : {task_tick}u;'
             )
+            if external_trigger:
+                lines.append('    if (trigger != NULL) {')
+                lines.append(f'        g_trigger_stats_{task_sym}.calls++;')
+                lines.append(f'        if (g_trigger_seen_{task_sym} && trigger->epoch == g_trigger_epoch_{task_sym}) {{')
+                lines.append(f'            if (trigger->sequence != g_trigger_last_sequence_{task_sym} + 1u) g_trigger_stats_{task_sym}.sequence_errors++;')
+                lines.append(f'            if (trigger->frame_index != g_trigger_next_frame_{task_sym}) g_trigger_stats_{task_sym}.frame_errors++;')
+                lines.append('        }')
+                lines.append(f'        g_trigger_seen_{task_sym} = 1u;')
+                lines.append(f'        g_trigger_epoch_{task_sym} = trigger->epoch;')
+                lines.append(f'        g_trigger_last_sequence_{task_sym} = trigger->sequence;')
+                lines.append(f'        g_trigger_next_frame_{task_sym} = trigger->frame_index + trigger->frames;')
+                lines.append('    }')
             lines.append('    orpheus_control_commit_bulk();')
             if task_has_platform_io:
                 lines.append('    orpheus_platform_io_pre_block();')
@@ -1219,21 +1342,37 @@ class CodeGenerator:
                 node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
                 lines.append(f'{indent}ctx.sample_rate = {node_sr};')
                 lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
-                lines.append(
-                    f'{indent}ctx.frame_index = (g_task_counter_{task_sym} / {period}u) '
-                    f'* (uint64_t)ctx.frame_count;'
-                )
+                if external_trigger:
+                    lines.append(
+                        f'{indent}ctx.frame_index = trigger != NULL ? trigger->frame_index : '
+                        f'(g_task_counter_{task_sym} / {period}u) * (uint64_t)ctx.frame_count;'
+                    )
+                else:
+                    lines.append(
+                        f'{indent}ctx.frame_index = (g_task_counter_{task_sym} / {period}u) '
+                        f'* (uint64_t)ctx.frame_count;'
+                    )
                 lines.append(
                     f'{indent}ctx.timestamp = ctx.sample_rate > 0 ? '
                     f'(double)ctx.frame_index / (double)ctx.sample_rate : 0.0;'
                 )
-                lines.append(f'{indent}ctx.epoch = g_timeline_epoch;')
-                lines.append(f'{indent}ctx.valid_frames = ctx.frame_count;')
-                lines.append(
-                    f'{indent}ctx.timeline_flags = g_task_timeline_flags_{task_sym} | '
-                    f'(g_task_counter_{task_sym} < {period}u '
-                    f'? ORPHEUS_TIMELINE_DISCONTINUITY : ORPHEUS_TIMELINE_NONE);'
-                )
+                if external_trigger:
+                    lines.append(f'{indent}ctx.epoch = trigger != NULL ? trigger->epoch : g_timeline_epoch;')
+                    lines.append(f'{indent}ctx.valid_frames = trigger != NULL ? trigger->frames : ctx.frame_count;')
+                    lines.append(
+                        f'{indent}ctx.timeline_flags = trigger != NULL ? trigger->flags : '
+                        f'(g_task_timeline_flags_{task_sym} | '
+                        f'(g_task_counter_{task_sym} < {period}u '
+                        f'? ORPHEUS_TIMELINE_DISCONTINUITY : ORPHEUS_TIMELINE_NONE));'
+                    )
+                else:
+                    lines.append(f'{indent}ctx.epoch = g_timeline_epoch;')
+                    lines.append(f'{indent}ctx.valid_frames = ctx.frame_count;')
+                    lines.append(
+                        f'{indent}ctx.timeline_flags = g_task_timeline_flags_{task_sym} | '
+                        f'(g_task_counter_{task_sym} < {period}u '
+                        f'? ORPHEUS_TIMELINE_DISCONTINUITY : ORPHEUS_TIMELINE_NONE);'
+                    )
                 lines.append(f'{indent}ctx.inputs = (const OrpheusBuffer* const*){in_name};')
                 lines.append(f'{indent}ctx.outputs = {out_name};')
                 lines.append(f'{indent}ctx.input_count = {n_in};')
@@ -1292,6 +1431,13 @@ class CodeGenerator:
             lines.append(f'    g_task_timeline_flags_{task_sym} = ORPHEUS_TIMELINE_NONE;')
             lines.append('    return ORPHEUS_OK;')
             lines.append('}')
+            if external_trigger:
+                lines.append(f'int orpheus_generated_process_task_{task_sym}(uint32_t frame_count) {{')
+                lines.append(f'    return orpheus_generated_process_task_{task_sym}_at(frame_count, NULL);')
+                lines.append('}')
+                lines.append(f'const OrpheusTriggerStats* orpheus_generated_trigger_stats_{task_sym}(void) {{')
+                lines.append(f'    return &g_trigger_stats_{task_sym};')
+                lines.append('}')
             lines.append("")
 
         if any(self._state_type(nid, plan) for nid in plan.execution_order):
@@ -1746,6 +1892,151 @@ class CodeGenerator:
         lines.append('}')
         with open(path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
+
+    def _generate_sport_adapter(
+        self, plan: ExecutionPlan, header_path: Path, source_path: Path
+    ) -> None:
+        """生成 SPORT DMA block -> 图 Task 的静态边界适配。"""
+        bindings = getattr(plan, "sport_bindings", [])
+        by_task: dict[str, list[dict[str, Any]]] = {}
+        for binding in bindings:
+            by_task.setdefault(binding["task"], []).append(binding)
+
+        header = [
+            '#ifndef ORPHEUS_SPORT_H',
+            '#define ORPHEUS_SPORT_H',
+            '#include "orpheus_graph.h"',
+            '',
+        ]
+        source = [
+            '#include "orpheus_sport.h"',
+            '#include "orpheus_sport_tdm_in.h"',
+            '#include "orpheus_sport_tdm_out.h"',
+            '',
+            'static float orpheus_decode_q31(int32_t value) {',
+            '    return (float)value * (1.0f / 2147483648.0f);',
+            '}',
+            'static float orpheus_decode_s24_right(int32_t value) {',
+            '    int32_t sample = value & 0x00FFFFFF;',
+            '    if ((sample & 0x00800000) != 0) sample |= (int32_t)0xFF000000;',
+            '    return (float)sample * (1.0f / 8388608.0f);',
+            '}',
+            'static int32_t orpheus_encode_q31(float value) {',
+            '    if (value >= 1.0f) return INT32_MAX;',
+            '    if (value <= -1.0f) return INT32_MIN;',
+            '    return (int32_t)(value * 2147483648.0f);',
+            '}',
+            'static int32_t orpheus_encode_s24_right(float value) {',
+            '    if (value >= 1.0f) return 0x007FFFFF;',
+            '    if (value <= -1.0f) return (int32_t)0xFF800000;',
+            '    return (int32_t)(value * 8388608.0f);',
+            '}',
+            '',
+        ]
+        for binding in bindings:
+            node_sym = self._sanitized_node_id(binding["node"])
+            if binding["direction"] == "input":
+                source.append(f'extern float g_sport_in_{node_sym}[];')
+                source.append(
+                    f'extern SportTdmInState* orpheus_sport_tdm_in_state_{node_sym}(void);'
+                )
+            else:
+                source.append(f'extern float g_sport_out_{node_sym}[];')
+                source.append(
+                    f'extern SportTdmOutState* orpheus_sport_tdm_out_state_{node_sym}(void);'
+                )
+        source.append('')
+
+        type_for = lambda fmt: 'float' if fmt == 'f32' else 'int32_t'
+        for task_id, task_bindings in by_task.items():
+            task = next(task for task in plan.tasks if task["id"] == task_id)
+            task_sym = self._sanitized_node_id(task_id)
+            resources: list[tuple[str, str, str]] = []
+            seen: set[str] = set()
+            for binding in task_bindings:
+                for stream in binding["streams"]:
+                    resource = stream["resource"]
+                    if resource in seen:
+                        continue
+                    seen.add(resource)
+                    resources.append((resource, binding["direction"], stream["format"]))
+
+            struct_name = f'OrpheusSportIo_{task_sym}'
+            header.append(f'typedef struct {struct_name} {{')
+            for resource, direction, fmt in resources:
+                qualifier = 'const ' if direction == 'input' else ''
+                header.append(
+                    f'    {qualifier}{type_for(fmt)}* {self._sanitized_node_id(resource)};'
+                )
+            header.extend([
+                f'}} {struct_name};',
+                f'int orpheus_graph_process_task_{task_sym}_sport(',
+                f'    const {struct_name}* io, const OrpheusExternalTriggerContext* trigger);',
+                '',
+            ])
+
+            source.append(f'int orpheus_graph_process_task_{task_sym}_sport(')
+            source.append(
+                f'    const {struct_name}* io, const OrpheusExternalTriggerContext* trigger) {{'
+            )
+            source.append('    uint32_t frame;')
+            source.append('    int result;')
+            source.append(
+                f'    if (io == NULL || trigger == NULL || trigger->frames != {int(task["block_size"])}u) '
+                'return ORPHEUS_ERR_INVALID_ARG;'
+            )
+            for binding in task_bindings:
+                node_sym = self._sanitized_node_id(binding["node"])
+                channels = int(plan.node_configs[binding["node"]]["params"]["channels"])
+                if binding["direction"] == "input":
+                    source.append(f'    SportTdmInState* state_{node_sym} = orpheus_sport_tdm_in_state_{node_sym}();')
+                    source.append('    for (frame = 0; frame < trigger->frames; ++frame) {')
+                    for stream in binding["streams"]:
+                        field = self._sanitized_node_id(stream["resource"])
+                        for slot, channel in zip(stream["slots"], stream["channels"]):
+                            raw = f'io->{field}[frame * {int(stream["slot_count"])}u + {int(slot)}u]'
+                            if stream["format"] == "f32":
+                                expr = raw
+                            elif stream["format"] == "s24_right_in_s32":
+                                expr = f'orpheus_decode_s24_right({raw})'
+                            else:
+                                expr = f'orpheus_decode_q31({raw})'
+                            source.append(
+                                f'        g_sport_in_{node_sym}[frame * {channels}u + {int(channel)}u] = {expr};'
+                            )
+                    source.append('    }')
+                    source.append(f'    state_{node_sym}->src_frames = trigger->frames;')
+            source.append(
+                f'    result = orpheus_generated_process_task_{task_sym}_at(trigger->frames, trigger);'
+            )
+            source.append('    if (result != ORPHEUS_OK) return result;')
+            for binding in task_bindings:
+                if binding["direction"] != "output":
+                    continue
+                node_sym = self._sanitized_node_id(binding["node"])
+                channels = int(plan.node_configs[binding["node"]]["params"]["channels"])
+                source.append('    for (frame = 0; frame < trigger->frames; ++frame) {')
+                for stream in binding["streams"]:
+                    field = self._sanitized_node_id(stream["resource"])
+                    for slot, channel in zip(stream["slots"], stream["channels"]):
+                        value = f'g_sport_out_{node_sym}[frame * {channels}u + {int(channel)}u]'
+                        if stream["format"] == "f32":
+                            expr = value
+                        elif stream["format"] == "s24_right_in_s32":
+                            expr = f'orpheus_encode_s24_right({value})'
+                        else:
+                            expr = f'orpheus_encode_q31({value})'
+                        source.append(
+                            f'        io->{field}[frame * {int(stream["slot_count"])}u + {int(slot)}u] = {expr};'
+                        )
+                source.append('    }')
+            source.append('    return ORPHEUS_OK;')
+            source.append('}')
+            source.append('')
+
+        header.append('#endif /* ORPHEUS_SPORT_H */')
+        header_path.write_text("\n".join(header) + "\n", encoding="utf-8")
+        source_path.write_text("\n".join(source).rstrip() + "\n", encoding="utf-8")
 
     # 组件 id → 缺省代码生成模板（manifest codegen_template 字段优先于此回退）
     _DECL_TEMPLATE_BY_COMPONENT = {
@@ -2700,15 +2991,16 @@ class CodeGenerator:
             for src in sources:
                 lines.append(f'target_sources({comp_target} PRIVATE components/{comp_target}/{src})')
             lines.append(f'target_include_directories({comp_target} PUBLIC components/{comp_target}/include)')
-            lines.append(
-                f'target_compile_definitions({comp_target} PRIVATE ORPHEUS_ENTRY_NAME={comp_target}_get_interface)'
-            )
             lines.append("")
 
         graph_sources = "src/orpheus_graph.c"
-        graph_sources += (" src/bridge_endpoint.c src/bridge_stdio.c"
-            " src/bridge_transport.c src/bridge_pipe.c src/bridge_tcp.c"
-            " src/bridge_serve.c src/orpheus_bridge_generated.c")
+        for bridge_source in (
+            "bridge_endpoint.c", "bridge_stdio.c", "bridge_transport.c",
+            "bridge_pipe.c", "bridge_tcp.c", "bridge_serve.c",
+            "orpheus_bridge_generated.c",
+        ):
+            if (output_dir / "src" / bridge_source).exists():
+                graph_sources += f" src/{bridge_source}"
         if (output_dir / "src" / "platform_io.c").exists():
             graph_sources += " src/platform_io.c"
         if (output_dir / "src" / "platform_hooks.c").exists():
@@ -2717,6 +3009,8 @@ class CodeGenerator:
             graph_sources += " src/orpheus_id_map.c"
         if (output_dir / "src" / "orpheus_control.c").exists():
             graph_sources += " src/orpheus_control.c"
+        if (output_dir / "src" / "orpheus_sport.c").exists():
+            graph_sources += " src/orpheus_sport.c"
         if (output_dir / "src" / "olink.c").exists():
             graph_sources += " src/olink.c"
         for f in sorted((output_dir / "src").glob("orpheus_link_*.c")):
@@ -2740,11 +3034,12 @@ class CodeGenerator:
         else:
             lines.append('add_executable(orpheus_generated_app src/main.c)')
             lines.append('target_link_libraries(orpheus_generated_app PRIVATE orpheus_graph)')
-            lines.append('add_executable(orpheus_generated_cli src/host_cli.c)')
-            lines.append('target_link_libraries(orpheus_generated_cli PRIVATE orpheus_graph)')
-            lines.append('if(NOT WIN32)')
-            lines.append('  target_link_libraries(orpheus_generated_cli PRIVATE pthread)')
-            lines.append('endif()')
+            if (output_dir / "src" / "host_cli.c").exists():
+                lines.append('add_executable(orpheus_generated_cli src/host_cli.c)')
+                lines.append('target_link_libraries(orpheus_generated_cli PRIVATE orpheus_graph)')
+                lines.append('if(NOT WIN32)')
+                lines.append('  target_link_libraries(orpheus_generated_cli PRIVATE pthread)')
+                lines.append('endif()')
         if self.uart_bridges(plan):
             # 冒烟 harness 的 stdio 链路默认实现；上设备时移除该定义并实现自己的 send
             lines.append('target_compile_definitions(orpheus_graph PRIVATE ORPHEUS_LINK_STDIO)')

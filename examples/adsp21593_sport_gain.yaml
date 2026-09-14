@@ -1,0 +1,71 @@
+version: "0.1.0"
+metadata:
+  name: ADSP-21593 SPORT 增益链
+  description: 双 16-slot SPORT 输入输出；SPORT0A 为主触发，SPORT0B 为同步 follower。
+  author: Orpheus
+target: adsp21593
+sample_rate: 48000
+block_size: 32
+clock_domains:
+  - id: audio48
+    sample_rate: 48000
+    assurance: user_guaranteed
+trigger_groups:
+  - id: a2b_block
+    clock_domain: audio48
+    dispatch: master
+    master: sport0a_rx
+    members: [sport0a_rx, sport0b_rx]
+tasks:
+  - id: audio
+    name: A2B audio block
+    sample_rate: 48000
+    block_size: 32
+    priority: 0
+    clock_domain: audio48
+    trigger_group: a2b_block
+sport_bindings:
+  - node: sport_in
+    streams:
+      - resource: sport0b_rx
+        slots: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        channels: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        slot_count: 16
+        format: q1_31
+      - resource: sport0a_rx
+        slots: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        channels: [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+        slot_count: 16
+        format: q1_31
+  - node: sport_out
+    streams:
+      - resource: sport2a_tx
+        slots: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        channels: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        slot_count: 16
+        format: q1_31
+      - resource: sport2b_tx
+        slots: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        channels: [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+        slot_count: 16
+        format: q1_31
+graph:
+  nodes:
+    - id: sport_in
+      component: orpheus.builtin.sport_tdm_in
+      task: audio
+      params: {channels: 32, sample_rate: 48000, clock_domain: audio48}
+      position: {x: 80, y: 220}
+    - id: gain
+      component: orpheus.builtin.gain
+      task: audio
+      params: {channels: 32, gain_db: -6.0, smoothing_ms: 0.0}
+      position: {x: 360, y: 220}
+    - id: sport_out
+      component: orpheus.builtin.sport_tdm_out
+      task: audio
+      params: {channels: 32, sample_rate: 48000, clock_domain: audio48}
+      position: {x: 640, y: 220}
+  connections:
+    - {from: "sport_in:out", to: "gain:in"}
+    - {from: "gain:out", to: "sport_out:in"}

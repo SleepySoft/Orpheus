@@ -40,6 +40,15 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
       block_size: parseInt(doc?.block_size ?? 128, 10) || 128, priority: 0,
     }]
   ));
+  const [clockDomains, setClockDomains] = useState(() => (
+    doc?.clock_domains?.map((domain) => ({ ...domain })) || []
+  ));
+  const [triggerGroups, setTriggerGroups] = useState(() => (
+    doc?.trigger_groups?.map((trigger) => ({
+      ...trigger,
+      membersText: (trigger.members || []).join(', '),
+    })) || []
+  ));
 
   const frames0 = parseInt(doc?.buffer_size ?? 0, 10) || 0;
   const autoFrames0 = Math.round(sr0 / 10);
@@ -115,9 +124,28 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
       setError('Task 的采样率和块长度必须为正整数');
       return;
     }
+    const normalizedDomains = clockDomains.map((domain) => ({
+      ...domain,
+      sample_rate: parseInt(domain.sample_rate, 10),
+    }));
+    if (normalizedDomains.some((domain) => !domain.id || !Number.isFinite(domain.sample_rate)
+      || domain.sample_rate < 1)) {
+      setError('时钟域必须有 ID 和正整数采样率');
+      return;
+    }
+    const normalizedTriggers = triggerGroups.map(({ membersText, ...trigger }) => ({
+      ...trigger,
+      members: membersText.split(',').map((member) => member.trim()).filter(Boolean),
+    }));
+    if (normalizedTriggers.some((trigger) => !trigger.id || !trigger.clock_domain)) {
+      setError('触发组必须有 ID 和时钟域');
+      return;
+    }
     onSave({
       sample_rate: srVal, block_size: bs, buffer_size: buf,
       double_bank: doubleBank, target, tasks: normalizedTasks,
+      clock_domains: normalizedDomains,
+      trigger_groups: normalizedTriggers,
     });
   };
 
@@ -133,10 +161,20 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
       block_size: parseInt(blockSize, 10) || 128, priority: 0,
     }]);
   };
+  const updateClockDomain = (index, key, value) => {
+    setClockDomains((current) => current.map(
+      (domain, i) => (i === index ? { ...domain, [key]: value } : domain)
+    ));
+  };
+  const updateTriggerGroup = (index, key, value) => {
+    setTriggerGroups((current) => current.map(
+      (trigger, i) => (i === index ? { ...trigger, [key]: value } : trigger)
+    ));
+  };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" style={{ width: 480 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ width: 720, maxWidth: 'calc(100vw - 32px)' }} onClick={(e) => e.stopPropagation()}>
         <h4>工程设置</h4>
 
         <div className="settings-field">
@@ -159,10 +197,77 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
                 onChange={(e) => updateTask(index, 'block_size', e.target.value)} />
               <input type="number" value={task.priority ?? 0} aria-label={`${task.id} 优先级`}
                 onChange={(e) => updateTask(index, 'priority', e.target.value)} />
+              <input value={task.clock_domain || ''} placeholder="clock domain"
+                aria-label={`${task.id} 时钟域`}
+                onChange={(e) => updateTask(index, 'clock_domain', e.target.value)} />
+              <input value={task.trigger_group || ''} placeholder="trigger group"
+                aria-label={`${task.id} 触发组`}
+                onChange={(e) => updateTask(index, 'trigger_group', e.target.value)} />
             </div>
           ))}
           <button type="button" onClick={addTask}>新增 Task</button>
-          <span className="settings-hint">依次为名称、采样率、块长度和优先级。Task ID 创建后保持稳定。</span>
+          <span className="settings-hint">依次为名称、采样率、块长度、优先级、时钟域和触发组。Task ID 创建后保持稳定。</span>
+        </div>
+
+        <div className="settings-field">
+          <label>时钟域 (Clock Domain)</label>
+          {clockDomains.map((domain, index) => (
+            <div className="clock-settings-row" key={`${domain.id}-${index}`}>
+              <input value={domain.id} placeholder="audio48"
+                aria-label={`时钟域 ${index + 1} ID`}
+                onChange={(e) => updateClockDomain(index, 'id', e.target.value)} />
+              <input type="number" value={domain.sample_rate} placeholder="48000"
+                aria-label={`时钟域 ${index + 1} 采样率`}
+                onChange={(e) => updateClockDomain(index, 'sample_rate', e.target.value)} />
+              <select value={domain.assurance || 'derived'}
+                aria-label={`时钟域 ${index + 1} 保证方式`}
+                onChange={(e) => updateClockDomain(index, 'assurance', e.target.value)}>
+                <option value="derived">derived</option>
+                <option value="user_guaranteed">user_guaranteed</option>
+                <option value="measured">measured</option>
+              </select>
+              <button type="button" onClick={() => setClockDomains(
+                (current) => current.filter((_, i) => i !== index)
+              )}>删除</button>
+            </div>
+          ))}
+          <button type="button" onClick={() => setClockDomains([
+            ...clockDomains,
+            { id: `clock_${clockDomains.length + 1}`, sample_rate: sr, assurance: 'derived' },
+          ])}>新增时钟域</button>
+        </div>
+
+        <div className="settings-field">
+          <label>触发组 (Trigger Group)</label>
+          {triggerGroups.map((trigger, index) => (
+            <div className="trigger-settings-row" key={`${trigger.id}-${index}`}>
+              <input value={trigger.id} placeholder="audio_block"
+                aria-label={`触发组 ${index + 1} ID`}
+                onChange={(e) => updateTriggerGroup(index, 'id', e.target.value)} />
+              <input value={trigger.clock_domain} placeholder="clock domain"
+                aria-label={`触发组 ${index + 1} 时钟域`}
+                onChange={(e) => updateTriggerGroup(index, 'clock_domain', e.target.value)} />
+              <select value={trigger.dispatch || 'caller'}
+                aria-label={`触发组 ${index + 1} 分发方式`}
+                onChange={(e) => updateTriggerGroup(index, 'dispatch', e.target.value)}>
+                <option value="caller">caller</option>
+                <option value="master">master</option>
+              </select>
+              <input value={trigger.master || ''} placeholder="master resource"
+                aria-label={`触发组 ${index + 1} 主资源`}
+                onChange={(e) => updateTriggerGroup(index, 'master', e.target.value)} />
+              <input value={trigger.membersText} placeholder="sport0a_rx, sport0b_rx"
+                aria-label={`触发组 ${index + 1} 成员`}
+                onChange={(e) => updateTriggerGroup(index, 'membersText', e.target.value)} />
+              <button type="button" onClick={() => setTriggerGroups(
+                (current) => current.filter((_, i) => i !== index)
+              )}>删除</button>
+            </div>
+          ))}
+          <button type="button" onClick={() => setTriggerGroups([
+            ...triggerGroups,
+            { id: `trigger_${triggerGroups.length + 1}`, clock_domain: '', dispatch: 'caller', master: '', membersText: '' },
+          ])}>新增触发组</button>
         </div>
 
         <div className="settings-field">
@@ -208,6 +313,8 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
             <option value="auto">自动（优先 win，整链交集判定）</option>
             <option value="win">win（PC/Windows）</option>
             <option value="dsp">dsp（嵌入式）</option>
+            <option value="sharc">sharc（ADI SHARC）</option>
+            <option value="adsp21593">adsp21593（SPORT/TDM 生成）</option>
           </select>
           <span className="settings-hint">
             目标平台决定生成代码的宿主形态：win = 可直连声卡运行的 PC 程序；dsp = 嵌入骨架 + platform_io.c 适配模板。

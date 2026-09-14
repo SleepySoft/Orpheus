@@ -3,4 +3,6 @@
 # 以后要细分只改这张表（如 sharc: [adsp, ...]），解析代码不变。
 platforms:
   win: []
-  dsp: []
+  dsp: [sharc]
+  sharc: [adsp21593]
+  adsp21593: []

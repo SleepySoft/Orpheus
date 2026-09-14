@@ -101,6 +101,39 @@ class Task:
     sample_rate: int = 48000
     block_size: int = 128
     priority: int = 0
+    clock_domain: str = ""
+    trigger_group: str = ""
+
+
+@dataclass
+class ClockDomain:
+    id: str
+    sample_rate: int
+    assurance: str = "derived"
+
+
+@dataclass
+class TriggerGroup:
+    id: str
+    clock_domain: str
+    dispatch: str = "caller"
+    master: str = ""
+    members: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SportStream:
+    resource: str
+    slots: list[int]
+    channels: list[int]
+    slot_count: int
+    format: str = "q1_31"
+
+
+@dataclass
+class SportBinding:
+    node: str
+    streams: list[SportStream] = field(default_factory=list)
 
 
 @dataclass
@@ -125,6 +158,9 @@ class Project:
     target: str = "auto"  # 期望目标平台：auto / win / dsp（解析与警告用，缺省自动）
     debug_mode: bool = False  # 调试旁路：忽略孤立节点和未接入有效时钟源的残留流
     tasks: dict[str, Task] = field(default_factory=dict)
+    clock_domains: dict[str, ClockDomain] = field(default_factory=dict)
+    trigger_groups: dict[str, TriggerGroup] = field(default_factory=dict)
+    sport_bindings: list[SportBinding] = field(default_factory=list)
     bridges: list[Bridge] = field(default_factory=list)
     graph: Graph = field(default_factory=Graph)
     subcomponents: list[Subcomponent] = field(default_factory=list)
@@ -208,11 +244,50 @@ def project_to_dict(project: Project) -> dict[str, Any]:
                 "sample_rate": t.sample_rate,
                 "block_size": t.block_size,
                 "priority": t.priority,
+                **({"clock_domain": t.clock_domain} if t.clock_domain else {}),
+                **({"trigger_group": t.trigger_group} if t.trigger_group else {}),
             }
             for t in project.tasks.values()
         ],
         "graph": _graph_to_dict(project.graph),
     }
+    if project.clock_domains:
+        doc["clock_domains"] = [
+            {
+                "id": domain.id,
+                "sample_rate": domain.sample_rate,
+                "assurance": domain.assurance,
+            }
+            for domain in project.clock_domains.values()
+        ]
+    if project.trigger_groups:
+        doc["trigger_groups"] = [
+            {
+                "id": trigger.id,
+                "clock_domain": trigger.clock_domain,
+                "dispatch": trigger.dispatch,
+                **({"master": trigger.master} if trigger.master else {}),
+                "members": trigger.members,
+            }
+            for trigger in project.trigger_groups.values()
+        ]
+    if project.sport_bindings:
+        doc["sport_bindings"] = [
+            {
+                "node": binding.node,
+                "streams": [
+                    {
+                        "resource": stream.resource,
+                        "slots": stream.slots,
+                        "channels": stream.channels,
+                        "slot_count": stream.slot_count,
+                        "format": stream.format,
+                    }
+                    for stream in binding.streams
+                ],
+            }
+            for binding in project.sport_bindings
+        ]
     if project.bridges:
         doc["bridges"] = [
             {
@@ -289,8 +364,45 @@ class ProjectLoader:
                 sample_rate=t.get("sample_rate", project.sample_rate),
                 block_size=t.get("block_size", project.block_size),
                 priority=t.get("priority", 0),
+                clock_domain=t.get("clock_domain", ""),
+                trigger_group=t.get("trigger_group", ""),
             )
             project.tasks[task.id] = task
+
+        project.clock_domains = {
+            domain["id"]: ClockDomain(
+                id=domain["id"],
+                sample_rate=domain["sample_rate"],
+                assurance=domain.get("assurance", "derived"),
+            )
+            for domain in data.get("clock_domains", []) or []
+        }
+        project.trigger_groups = {
+            trigger["id"]: TriggerGroup(
+                id=trigger["id"],
+                clock_domain=trigger["clock_domain"],
+                dispatch=trigger.get("dispatch", "caller"),
+                master=trigger.get("master", ""),
+                members=list(trigger.get("members", []) or []),
+            )
+            for trigger in data.get("trigger_groups", []) or []
+        }
+        project.sport_bindings = [
+            SportBinding(
+                node=binding["node"],
+                streams=[
+                    SportStream(
+                        resource=stream["resource"],
+                        slots=list(stream["slots"]),
+                        channels=list(stream["channels"]),
+                        slot_count=stream["slot_count"],
+                        format=stream.get("format", "q1_31"),
+                    )
+                    for stream in binding.get("streams", [])
+                ],
+            )
+            for binding in data.get("sport_bindings", []) or []
+        ]
         if not project.tasks:
             project.tasks["default"] = Task(
                 id="default",
@@ -343,7 +455,8 @@ class ProjectLoader:
         # 保留未知顶层字段（presets / model_tree 等），往返不丢
         known = {
             "version", "metadata", "sample_rate", "block_size", "buffer_size",
-            "double_bank", "target", "debug_mode", "tasks", "bridges", "graph", "subcomponents",
+            "double_bank", "target", "debug_mode", "tasks", "clock_domains", "trigger_groups",
+            "sport_bindings", "bridges", "graph", "subcomponents",
             "control_connections",
         }
         for key, value in data.items():

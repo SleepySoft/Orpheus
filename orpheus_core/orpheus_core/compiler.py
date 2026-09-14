@@ -64,6 +64,9 @@ class ExecutionPlan:
     # 单速率图下 tick==block_size、period==divisor，与旧行为逐字节一致。
     schedule: dict[str, Any] | None = None
     bridge_identity: dict[str, int] = field(default_factory=dict)
+    clock_domains: list[dict[str, Any]] = field(default_factory=list)
+    trigger_groups: list[dict[str, Any]] = field(default_factory=list)
+    sport_bindings: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
@@ -205,6 +208,8 @@ class GraphCompiler:
         """
         rates: set[int] = set()
         for node in project.graph.nodes.values():
+            if node.task != task.id:
+                continue
             info = self.registry.get(node.component)
             if info is None or not info.manifest.get("clock_source"):
                 continue
@@ -217,13 +222,132 @@ class GraphCompiler:
                 raise CompileError(
                     f"invalid sample_rate {raw!r} on node {node.id}"
                 ) from exc
+        domain = project.clock_domains.get(task.clock_domain) if task.clock_domain else None
+        if domain is not None:
+            rates.add(domain.sample_rate)
         if len(rates) > 1:
             raise CompileError(
-                f"clock sources disagree on sample_rate: {sorted(rates)}"
+                f"clock sources disagree on sample_rate in Task {task.id}: {sorted(rates)}"
             )
         if len(rates) == 1:
             return replace(task, sample_rate=next(iter(rates)))
         return task
+
+    def _validate_external_contract(self, project: Project, graph: Graph) -> list[dict[str, Any]]:
+        for task in project.tasks.values():
+            if task.clock_domain:
+                domain = project.clock_domains.get(task.clock_domain)
+                if domain is None:
+                    raise CompileError(f"Task {task.id} 引用不存在的 clock_domain: {task.clock_domain}")
+                if task.sample_rate != domain.sample_rate:
+                    raise CompileError(
+                        f"Task {task.id} 采样率 {task.sample_rate} 与 clock_domain "
+                        f"{domain.id} 的 {domain.sample_rate} 不一致"
+                    )
+            if task.trigger_group:
+                trigger = project.trigger_groups.get(task.trigger_group)
+                if trigger is None:
+                    raise CompileError(
+                        f"Task {task.id} 引用不存在的 trigger_group: {task.trigger_group}"
+                    )
+                if task.clock_domain and trigger.clock_domain != task.clock_domain:
+                    raise CompileError(
+                        f"Task {task.id} 与 trigger_group {trigger.id} 的 clock_domain 不一致"
+                    )
+
+        for trigger in project.trigger_groups.values():
+            if trigger.clock_domain not in project.clock_domains:
+                raise CompileError(
+                    f"Trigger group {trigger.id} 引用不存在的 clock_domain: {trigger.clock_domain}"
+                )
+            if trigger.dispatch == "master" and not trigger.members:
+                raise CompileError(f"Trigger group {trigger.id} 必须声明 members")
+            if trigger.dispatch == "master" and trigger.master not in trigger.members:
+                raise CompileError(
+                    f"Trigger group {trigger.id} 的 master 必须包含在 members 中"
+                )
+
+        output: list[dict[str, Any]] = []
+        by_node: set[str] = set()
+        resources: set[str] = set()
+        for binding in project.sport_bindings:
+            if binding.node in by_node:
+                raise CompileError(f"SPORT 节点重复绑定: {binding.node}")
+            by_node.add(binding.node)
+            node = graph.nodes.get(binding.node)
+            if node is None:
+                raise CompileError(f"SPORT binding 引用不存在的节点: {binding.node}")
+            if node.component not in (
+                "orpheus.builtin.sport_tdm_in", "orpheus.builtin.sport_tdm_out"
+            ):
+                raise CompileError(f"SPORT binding 节点不是 SPORT 边界组件: {binding.node}")
+            channels = int(node.params.get("channels", 0) or 0)
+            mapped: set[int] = set()
+            streams: list[dict[str, Any]] = []
+            for stream in binding.streams:
+                if stream.resource in resources:
+                    raise CompileError(f"SPORT resource 重复绑定: {stream.resource}")
+                resources.add(stream.resource)
+                if len(stream.slots) != len(stream.channels):
+                    raise CompileError(
+                        f"SPORT {stream.resource} 的 slots/channels 长度不一致"
+                    )
+                if any(slot >= stream.slot_count for slot in stream.slots):
+                    raise CompileError(f"SPORT {stream.resource} 的 slot 超出 slot_count")
+                if any(channel >= channels for channel in stream.channels):
+                    raise CompileError(f"SPORT {stream.resource} 的逻辑通道越界")
+                overlap = mapped & set(stream.channels)
+                if overlap:
+                    raise CompileError(
+                        f"SPORT 节点 {binding.node} 的逻辑通道重复映射: {sorted(overlap)}"
+                    )
+                mapped.update(stream.channels)
+                streams.append({
+                    "resource": stream.resource,
+                    "slots": list(stream.slots),
+                    "channels": list(stream.channels),
+                    "slot_count": stream.slot_count,
+                    "format": stream.format,
+                })
+            if mapped != set(range(channels)):
+                missing = sorted(set(range(channels)) - mapped)
+                raise CompileError(
+                    f"SPORT 节点 {binding.node} 未完整映射 {channels} 个逻辑通道，缺少: {missing}"
+                )
+            output.append({
+                "node": binding.node,
+                "direction": "input" if node.component.endswith("_in") else "output",
+                "task": node.task,
+                "streams": streams,
+            })
+
+        sport_nodes = {
+            node.id for node in graph.nodes.values()
+            if node.component in (
+                "orpheus.builtin.sport_tdm_in", "orpheus.builtin.sport_tdm_out"
+            )
+        }
+        missing_bindings = sorted(sport_nodes - by_node)
+        if missing_bindings:
+            raise CompileError(f"SPORT 边界缺少 sport_bindings: {missing_bindings}")
+        for task in project.tasks.values():
+            if not task.trigger_group:
+                continue
+            trigger = project.trigger_groups[task.trigger_group]
+            if trigger.dispatch == "caller":
+                continue
+            required = {
+                stream["resource"]
+                for binding in output
+                if binding["task"] == task.id and binding["direction"] == "input"
+                for stream in binding["streams"]
+            }
+            missing = sorted(required - set(trigger.members))
+            if missing:
+                raise CompileError(
+                    f"Trigger group {trigger.id} 未包含 Task {task.id} 的 SPORT 输入: {missing}"
+                )
+        return output
 
     def prepare_debug_project(self, project: Project) -> tuple[Project, list[str]]:
         """复制工程并裁剪调试时不参与执行的游离节点/无时钟残留流。"""
@@ -317,13 +441,17 @@ class GraphCompiler:
         graph = project.graph
         resolved_platform = _resolution.platform
         default_task = project.get_default_task()
-        resolved_task = self._resolve_source_rate(project, default_task)
-        # 时钟源采样率覆盖所有 task，保证跨任务端口解析时 sample_rate 一致
-        for t in project.tasks.values():
-            t.sample_rate = resolved_task.sample_rate
+        task_values = list(project.tasks.values()) or [default_task]
+        resolved_tasks = {
+            task.id: self._resolve_source_rate(project, task)
+            for task in task_values
+        }
+        resolved_task = resolved_tasks[default_task.id]
 
         def node_task(node: Node) -> Task:
-            return project.tasks.get(node.task, resolved_task)
+            return resolved_tasks.get(node.task, resolved_task)
+
+        sport_bindings = self._validate_external_contract(project, graph)
 
         # 声明式平台节点（execution.none，如 platform_hook）：不参与执行计划，
         # 仅作为声明进入 plan.declarations，生成器据此产出用户钩子（不连线）。
@@ -500,7 +628,7 @@ class GraphCompiler:
                     )
 
         # 2.5 Clock domains: every flow must be driven by exactly one clock
-        self._validate_clock_domains(graph)
+        self._validate_clock_domains(graph, node_task)
 
         # 2.6 控制连接校验（control_source/bindable/类型/形状），产出 plan.control_links
         control_links = self._validate_control_links(graph, project.control_connections, node_task)
@@ -509,7 +637,9 @@ class GraphCompiler:
         execution_order = self._topological_sort(graph)
 
         # 3.5 Rate divisor propagation (multi-rate scheduling)
-        node_divisor = self._propagate_rate_divisors(graph, expanded_ports, execution_order, resolved_task)
+        node_divisor = self._propagate_rate_divisors(
+            graph, expanded_ports, execution_order, node_task
+        )
 
         # 4. Build execution plan
         plan = ExecutionPlan(
@@ -526,6 +656,25 @@ class GraphCompiler:
         plan.target = resolved_platform
         plan.control_links = control_links
         plan.ignored_nodes = ignored_nodes
+        plan.clock_domains = [
+            {
+                "id": domain.id,
+                "sample_rate": domain.sample_rate,
+                "assurance": domain.assurance,
+            }
+            for domain in project.clock_domains.values()
+        ]
+        plan.trigger_groups = [
+            {
+                "id": trigger.id,
+                "clock_domain": trigger.clock_domain,
+                "dispatch": trigger.dispatch,
+                "master": trigger.master,
+                "members": list(trigger.members),
+            }
+            for trigger in project.trigger_groups.values()
+        ]
+        plan.sport_bindings = sport_bindings
 
         # per-node processing quantum: the producer buffer's frame count
         # (differs from task block size in rate-shifted domains)
@@ -642,11 +791,12 @@ class GraphCompiler:
         for node_id, cfg in plan.node_configs.items():
             frames_n = int(cfg["frames"])
             rate_n = _node_stream_rate(node_id)
-            num = frames_n * plan.sample_rate
+            task_rate = node_task(graph.nodes[node_id]).sample_rate
+            num = frames_n * task_rate
             if rate_n <= 0 or num % rate_n != 0:
                 raise CompileError(
-                    f"时钟链不匹配：节点 {node_id} 的触发间隔无法折算为图速率整数帧"
-                    f"（frames={frames_n}, node_rate={rate_n}, graph_rate={plan.sample_rate}）"
+                    f"时钟链不匹配：节点 {node_id} 的触发间隔无法折算为 Task 速率整数帧"
+                    f"（frames={frames_n}, node_rate={rate_n}, task_rate={task_rate}）"
                 )
             intervals[node_id] = num // rate_n
         tick = 0
@@ -655,11 +805,16 @@ class GraphCompiler:
         if tick <= 0:
             tick = plan.block_size
         periods = {nid: iv // tick for nid, iv in intervals.items()}
-        plan.schedule = {"tick": tick, "periods": periods}
+        task_domains = {task.clock_domain for task in resolved_tasks.values() if task.clock_domain}
+        plan.schedule = {
+            "tick": tick,
+            "periods": periods,
+            "multi_clock": len(task_domains) > 1,
+        }
         for nid, cfg in plan.node_configs.items():
             cfg["period"] = periods[nid]
 
-        effective_tasks = list(project.tasks.values()) or [resolved_task]
+        effective_tasks = list(resolved_tasks.values()) or [resolved_task]
         for task in effective_tasks:
             task_nodes = [
                 nid for nid in execution_order
@@ -677,6 +832,8 @@ class GraphCompiler:
                     "sample_rate": task.sample_rate,
                     "block_size": task.block_size,
                     "priority": task.priority,
+                    "clock_domain": task.clock_domain,
+                    "trigger_group": task.trigger_group,
                     "nodes": task_nodes,
                     "execution_order": task_nodes,
                     "schedule": {
@@ -990,7 +1147,7 @@ class GraphCompiler:
             modules.append({"path": path, "id": ids[path], "leaves": leaves})
         return modules
 
-    def _validate_clock_domains(self, graph: Graph) -> None:
+    def _validate_clock_domains(self, graph: Graph, node_task) -> None:
         """Every connected flow must be driven by exactly one clock domain.
 
         Clock sources are components tagged `clock_source: true` with a
@@ -1008,6 +1165,13 @@ class GraphCompiler:
             return x
 
         for conn in graph.connections:
+            source_task = node_task(graph.nodes[conn.from_ref.node_id])
+            target_task = node_task(graph.nodes[conn.to_ref.node_id])
+            target_info = self.registry.get(graph.nodes[conn.to_ref.node_id].component)
+            target_scheduling = (target_info.manifest.get("scheduling") or {}) \
+                if target_info else {}
+            if source_task.id != target_task.id and target_scheduling.get("async_bridge"):
+                continue
             a, b = find(conn.from_ref.node_id), find(conn.to_ref.node_id)
             if a != b:
                 parent[a] = b
@@ -1021,10 +1185,21 @@ class GraphCompiler:
         for members in components.values():
             domains: set[str] = set()
             for nid in members:
-                info = self.registry.get(graph.nodes[nid].component)
+                node = graph.nodes[nid]
+                task = node_task(node)
+                if task.clock_domain:
+                    domains.add(task.clock_domain)
+                info = self.registry.get(node.component)
                 manifest = info.manifest if info else {}
+                scheduling = manifest.get("scheduling") or {}
+                if not task.clock_domain and scheduling.get("async_bridge"):
+                    domains.add(f"task:{task.id}")
                 if manifest.get("clock_source"):
-                    domains.add(manifest.get("clock_domain", graph.nodes[nid].component))
+                    domains.add(
+                        str(node.params.get("clock_domain") or
+                            task.clock_domain or
+                            manifest.get("clock_domain", node.component))
+                    )
             strong = domains - {"file"}
             if len(strong) > 1:
                 raise CompileError(
@@ -1046,7 +1221,7 @@ class GraphCompiler:
         graph: Graph,
         expanded_ports: dict[str, list[dict[str, Any]]],
         execution_order: list[str],
-        task: Task,
+        node_task,
     ) -> dict[str, int]:
         """Propagate rate divisors along edges.
 
@@ -1075,6 +1250,7 @@ class GraphCompiler:
             factor_expr = (comp.manifest.get("scheduling") or {}).get("divisor") if comp else None
             factor = 1
             if factor_expr is not None:
+                task = node_task(node)
                 resolved = _resolve_value(factor_expr, node, task)
                 if resolved is None:
                     raise CompileError(f"cannot resolve rate divisor for node {node_id}")

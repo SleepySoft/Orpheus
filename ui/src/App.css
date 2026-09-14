@@ -1761,9 +1761,34 @@ pre {
 
 .task-settings-row {
   display: grid;
-  grid-template-columns: minmax(72px, 0.8fr) 1.2fr 92px 82px 64px;
+  grid-template-columns: minmax(72px, 0.8fr) 1.2fr 82px 72px 58px 100px 110px;
   gap: 6px;
   align-items: center;
+}
+
+.task-settings-row input {
+  min-width: 0;
+}
+
+.clock-settings-row,
+.trigger-settings-row {
+  display: grid;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.clock-settings-row {
+  grid-template-columns: 1fr 100px 140px auto;
+}
+
+.trigger-settings-row {
+  grid-template-columns: 1fr 1fr 90px 1fr 1.4fr auto;
+}
+
+.clock-settings-row input,
+.trigger-settings-row input {
+  min-width: 0;
 }
 
 .task-settings-row code {

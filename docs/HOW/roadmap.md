@@ -87,6 +87,7 @@
 
 ## P4 时间线模型
 
+- [x] ADSP-21593 SPORT Boundary V1：Clock Domain / Trigger Group / Task 绑定、slot/格式静态映射、外部 epoch/frame/sequence Task 入口与违约统计；EREV CCES 壳集成构建通过。
 - [x] P0a：ABI v4 增加 `frame_index/epoch/valid_frames/timeline_flags`；动态/生成路径填写节点本地绝对帧和派生 timestamp，Task 独立推进，首次触发标记 discontinuity。
 - [ ] P0b：reset/seek/restart 递增 epoch；动态/生成通过可观测测试组件逐字段一致性验证。
 - [ ] P0c：plan 显式记录外部节拍/主动推进触发，UI 只在 active 下显示 pacing。
