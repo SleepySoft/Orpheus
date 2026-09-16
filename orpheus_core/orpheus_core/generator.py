@@ -1921,6 +1921,12 @@ class CodeGenerator:
             '    if ((sample & 0x00800000) != 0) sample |= (int32_t)0xFF000000;',
             '    return (float)sample * (1.0f / 8388608.0f);',
             '}',
+            'static float orpheus_decode_s24_left(int32_t value) {',
+            '    uint32_t raw = (uint32_t)value;',
+            '    uint32_t sample = raw >> 8;',
+            '    if ((raw & 0x80000000u) != 0) sample |= 0xFF000000u;',
+            '    return (float)(int32_t)sample * (1.0f / 8388608.0f);',
+            '}',
             'static int32_t orpheus_encode_q31(float value) {',
             '    if (value >= 1.0f) return INT32_MAX;',
             '    if (value <= -1.0f) return INT32_MIN;',
@@ -1930,6 +1936,12 @@ class CodeGenerator:
             '    if (value >= 1.0f) return 0x007FFFFF;',
             '    if (value <= -1.0f) return (int32_t)0xFF800000;',
             '    return (int32_t)(value * 8388608.0f);',
+            '}',
+            'static int32_t orpheus_encode_s24_left(float value) {',
+            '    if (value >= 1.0f) return (int32_t)0x7FFFFF00u;',
+            '    if (value <= -1.0f) return (int32_t)0x80000000u;',
+            '    uint32_t sample = (uint32_t)(int32_t)(value * 8388608.0f);',
+            '    return (int32_t)(sample << 8);',
             '}',
             '',
         ]
@@ -1999,6 +2011,8 @@ class CodeGenerator:
                                 expr = raw
                             elif stream["format"] == "s24_right_in_s32":
                                 expr = f'orpheus_decode_s24_right({raw})'
+                            elif stream["format"] == "s24_left_in_s32":
+                                expr = f'orpheus_decode_s24_left({raw})'
                             else:
                                 expr = f'orpheus_decode_q31({raw})'
                             source.append(
@@ -2024,6 +2038,8 @@ class CodeGenerator:
                             expr = value
                         elif stream["format"] == "s24_right_in_s32":
                             expr = f'orpheus_encode_s24_right({value})'
+                        elif stream["format"] == "s24_left_in_s32":
+                            expr = f'orpheus_encode_s24_left({value})'
                         else:
                             expr = f'orpheus_encode_q31({value})'
                         source.append(

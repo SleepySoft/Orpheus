@@ -128,6 +128,27 @@ def test_sport_contract_roundtrip_compile_and_generate(tmp_path: Path) -> None:
     assert abi_header.startswith("#ifndef ORPHEUS_API\n#define ORPHEUS_API")
 
 
+def test_sport_s24_left_format_is_generated(tmp_path: Path) -> None:
+    document = _project_document()
+    for binding in document["sport_bindings"]:
+        for stream in binding["streams"]:
+            stream["format"] = "s24_left_in_s32"
+
+    path = tmp_path / "sport-s24-left.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    plan = GraphCompiler(_registry()).compile(
+        ProjectLoader().load(path), target="adsp21593"
+    )
+    generated = tmp_path / "generated"
+    CodeGenerator(_registry(), ROOT).generate(plan, generated)
+
+    source = (generated / "src" / "orpheus_sport.c").read_text(encoding="utf-8")
+    assert "static float orpheus_decode_s24_left" in source
+    assert "static int32_t orpheus_encode_s24_left" in source
+    assert "orpheus_decode_s24_left(io->sport0b_rx[" in source
+    assert "orpheus_encode_s24_left(g_sport_out_sport_out[" in source
+
+
 def test_independent_clock_domains_keep_independent_task_rates(tmp_path: Path) -> None:
     document = _project_document()
     document["clock_domains"].append(

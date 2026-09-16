@@ -1,6 +1,7 @@
 id: orpheus.builtin.sport_tdm_out
 name: SPORT/TDM 输出
-category: 平台/ADI SHARC
+category: 平台/ADI DSP
+description: 图内交错 f32 到 SPORT/TDM DMA slot 的输出边界；物理 slot 映射和格式由工程顶层 sport_bindings 配置
 platforms: [adsp21593]
 version: 1.0.0
 abi_version: 4
@@ -20,6 +21,7 @@ ports:
 parameters:
   - id: channels
     name: 逻辑通道数
+    description: 图内逻辑通道数；与 SPORT TDM slot 总数无关，slot 映射由顶层 sport_bindings 声明
     type: int
     default: 2
     range: [1, 64]
@@ -27,6 +29,7 @@ parameters:
     affects_signature: true
   - id: sample_rate
     name: 采样率
+    description: 图端口采样率；必须与其所属时钟域和 Task 一致
     type: int
     default: 48000
     range: [1000, 384000]

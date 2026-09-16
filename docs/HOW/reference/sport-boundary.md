@@ -142,3 +142,151 @@ const OrpheusTriggerStats* orpheus_generated_trigger_stats_audio(void);
 EREV 生产壳验证：SPORT0A callback 为 master，同时传入 SPORT0A/0B RX 与 SPORT2A/2B TX；生成 wrapper 完成32通道映射和Q1.31转换。CCES 2.11.1 Release clean build 为0错误0警告。
 
 尚未完成板卡/JTAG音频、cycle deadline、cache coherency和失锁恢复实测。
+
+## 8. 适用范围与平台层级
+
+应区分“实现验证目标”和“架构适配层级”：
+
+| 层级 | 范围 | Orpheus 状态 |
+| --- | --- | --- |
+| 当前 target | `adsp21593`（ADSP-21593） | 已实现编译器/生成器契约，并通过 CCES 2.11.1 生产壳集成构建 |
+| 架构模式 | ADI SHARC/SHARC+ 21xxx 的 SPORT/TDM、外设 DMA、DAI/SRU、PCG 边界 | 可复用的接入模式，不是自动可移植承诺 |
+| 候选目标 | ADSP-2156x、ADSP-2159x、具备同等 SPORT/TDM/DMA 能力的 SHARC+ SC5xx 型号 | 未验证；不得标注为当前支持 |
+
+ADI 文档说明 ADSP-2159x 与 ADSP-2156x 引脚兼容，其中 ADSP-21593 与 ADSP-21569/21567/21566 引脚兼容。因此 ADSP-21569 是合理的候选目标；但当前 `platforms.yaml` 只有 `sharc -> adsp21593`，生成器也仍以 `adsp21593` 为当前 DSP target，缺少 `adsp21569` target profile、CCES 构建验证和板级测试，所以它仍不是“已支持平台”。
+
+不应把范围上推到“所有 ADI DSP”。Blackfin、SigmaDSP、旧 SHARC 21xxx 和不同 SHARC+ 世代在外设地址、SRU/DAI 形态、DMA 模型、时钟生成和工具链约束上不同；仅凭“都有 SPORT/TDM”不足以移植。合理描述是：
+
+```text
+当前 ADSP-21593 实现
+  -> ADI SHARC/SHARC+ 21xxx 架构模式
+  -> 具备 full-duplex SPORT、TDM、SPORT/PDMA DMA、DAI/SRU、PCG 的 ADI DSP
+```
+
+扩展新 target 至少需要：`platforms.yaml` 增加平台链；manifest `platforms` 更新；生成器消除当前 DSP target 硬编码；按 HRM/board profile 适配 SPORT、DAI/SRU、PCG、DMA 和 cache；完成 CCES 构建与双路径/生成路径一致性测试。
+
+## 9. DSP 集成方法
+
+### 9.1 工程契约
+
+工程必须显式声明 DSP target、时钟域、触发组、Task 和 SPORT binding：
+
+```yaml
+target: adsp21593
+clock_domains:
+  - id: audio48
+    sample_rate: 48000
+    assurance: user_guaranteed
+trigger_groups:
+  - id: a2b_block
+    clock_domain: audio48
+    dispatch: master
+    master: sport0a_rx
+    members: [sport0a_rx, sport0b_rx]
+tasks:
+  - id: audio
+    sample_rate: 48000
+    block_size: 32
+    clock_domain: audio48
+    trigger_group: a2b_block
+sport_bindings:
+  - node: sport_in
+    streams:
+      - resource: sport0b_rx
+        slots: [0, 1]
+        channels: [0, 1]
+        slot_count: 16
+        format: q1_31
+  - node: sport_out
+    streams:
+      - resource: sport2a_tx
+        slots: [0, 1]
+        channels: [0, 1]
+        slot_count: 16
+        format: q1_31
+```
+
+编译器会校验每个 SPORT 节点只有一个 binding、resource 全局唯一、slot/channels 一一对应、slot 不越界，以及 master trigger group 覆盖 Task 的全部 SPORT 输入。
+
+### 9.2 生成代码
+
+```powershell
+python -m orpheus_core.cli generate examples/adsp21593_sport_gain.yaml <out_dir> --target adsp21593
+```
+
+将以下生成文件和组件源码加入 CCES 工程，并保持 C11：
+
+- `src/orpheus_graph.c`
+- `src/orpheus_sport.c`
+- `src/orpheus_sport_tdm_in.c` / `src/orpheus_sport_tdm_out.c`（按生成工程实际布局）
+- 工程引用的普通组件源码
+- `include/` 下的 ABI、图和组件头文件
+- 若部署链需要，包含 bridge/link 相关文件
+
+### 9.3 板级初始化
+
+Orpheus 生成的是图与 SPORT 数据边界适配，不负责以下板级内容：
+
+- DAI/SRU routing 和引脚复用；
+- PCG、codec、MCLK/BCLK/LRCLK 配置；
+- SPORT 协议、TDM slot 数、slot 宽度和数据 endianness；
+- DMA descriptor、circular buffer、双 bank 和中断/callback 注册；
+- cache 对齐、invalidate/flush 与一致性；
+- master/follower 时序和失锁恢复。
+
+这些必须在 CCES 板级工程中按 ADSP-21593 HRM、板卡资料和 codec datasheet 实现。
+
+### 9.4 运行期调用
+
+初始化生成图：
+
+```c
+orpheus_generated_init(sample_rate, block_size);
+```
+
+在每个 SPORT callback 中收齐同组 buffer，然后构造生成的 IO 和 trigger context：
+
+```c
+OrpheusSportIo_audio io = {
+    .sport0b_rx = rx_b,
+    .sport0a_rx = rx_a,
+    .sport2a_tx = tx_a,
+    .sport2b_tx = tx_b
+};
+
+OrpheusExternalTriggerContext trigger = {
+    .epoch = epoch,
+    .frame_index = absolute_frame,
+    .sequence = sequence,
+    .frames = 32u,
+    .flags = first_or_resync ? ORPHEUS_TIMELINE_DISCONTINUITY : 0u
+};
+
+int result = orpheus_graph_process_task_audio_sport(&io, &trigger);
+```
+
+调用契约：
+
+- `frames == task.block_size`；
+- `epoch` 在重启、重新锁相或不连续后递增；
+- `frame_index` 是本块首样本的绝对位置；
+- `sequence` 每次同组触发递增；
+- 首次触发或失锁恢复设置 `ORPHEUS_TIMELINE_DISCONTINUITY`。
+
+运行期可读取：
+
+```c
+const OrpheusTriggerStats* stats = orpheus_generated_trigger_stats_audio();
+```
+
+关注 `calls`、`sequence_errors` 和 `frame_errors`。统计是契约违约观测，不能替代硬件锁相证明。
+
+### 9.5 数据路径
+
+生成 wrapper 的固定顺序是：
+
+```text
+DMA RX -> slot gather / 定点转 f32 -> graph task _at -> f32 转定点 / slot scatter -> DMA TX
+```
+
+输入组件消费 adapter 准备好的 `src`；输出组件把图结果交给 `dst`。Orpheus 只保证生成的静态映射和格式转换，不生成跨 callback barrier；多个 follower 需要板级 adapter 收齐同一 sequence 后调用。
