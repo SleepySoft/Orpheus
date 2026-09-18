@@ -8,7 +8,7 @@ graph:
   nodes:
     - id: src
       component: orpheus.builtin.signal_gen
-      params: {type: sine, freq: 1000.0, amplitude: 0.5, channels: 4}
+      params: {frequency: 1000.0, amplitude: 0.5, channels: 4}
       position: {x: 40, y: 100}
     - id: ramper
       component: orpheus.builtin.gain_ramper

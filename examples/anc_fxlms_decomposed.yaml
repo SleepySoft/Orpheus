@@ -21,7 +21,7 @@ subcomponents:
       nodes:
         - id: gain_src
           component: orpheus.builtin.gain
-          params: {gain_db: "0", channels: 1}
+          params: {gain_db: 0.0, channels: 1}
           position: {x: 40, y: 100}
         - id: sdelay
           component: orpheus.builtin.delay_line
@@ -29,7 +29,7 @@ subcomponents:
           position: {x: 220, y: 40}
         - id: sgain
           component: orpheus.builtin.gain
-          params: {gain_db: "0", channels: 1}
+          params: {gain_db: 0.0, channels: 1}
           position: {x: 220, y: 200}
         - id: core
           component: orpheus.builtin.adaptive_fir
@@ -50,12 +50,12 @@ graph:
     - id: wx
       component: orpheus.builtin.wav_in
       task: default
-      params: {file_path: noise_x.wav, channels: 1}
+      params: {file_path: test_input.wav, channels: 1}
       position: {x: 40, y: 120}
     - id: wd
       component: orpheus.builtin.wav_in
       task: default
-      params: {file_path: noise_d.wav, channels: 1}
+      params: {file_path: test_input.wav, channels: 1}
       position: {x: 40, y: 280}
     - id: anc
       component: sub:anc_fxlms

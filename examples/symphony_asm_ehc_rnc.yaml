@@ -336,7 +336,7 @@ subcomponents:
           component: orpheus.builtin.sine_mod
           task: tid1
           params:
-            freq_hz: 0.0
+            freq_hz: 0.01
             depth: 0.0
             channels: 8
           position:

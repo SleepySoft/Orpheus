@@ -11,8 +11,7 @@ graph:
   - id: music_src
     component: orpheus.builtin.signal_gen
     params:
-      type: sine
-      freq: 500.0
+      frequency: 500.0
       amplitude: 0.2
       channels: 30
     position:
@@ -21,8 +20,7 @@ graph:
   - id: treble_src
     component: orpheus.builtin.signal_gen
     params:
-      type: sine
-      freq: 8000.0
+      frequency: 8000.0
       amplitude: 0.1
       channels: 2
     position:
@@ -31,8 +29,7 @@ graph:
   - id: mono_src
     component: orpheus.builtin.signal_gen
     params:
-      type: sine
-      freq: 250.0
+      frequency: 250.0
       amplitude: 0.1
       channels: 1
     position:
@@ -41,8 +38,7 @@ graph:
   - id: treble_surround_src
     component: orpheus.builtin.signal_gen
     params:
-      type: sine
-      freq: 4000.0
+      frequency: 4000.0
       amplitude: 0.1
       channels: 7
     position:
@@ -1060,7 +1056,7 @@ subcomponents:
       params:
         channels: 1
         max_delay_samples: 4800
-        delays_samples: 0
+        delays_samples: "0"
       position:
         x: 200
         y: 460

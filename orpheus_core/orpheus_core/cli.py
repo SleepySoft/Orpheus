@@ -14,6 +14,7 @@ from orpheus_core.generator import CodeGenerator
 from orpheus_core.project import ProjectLoader
 from orpheus_core.registry import Registry
 from orpheus_core.subgraph import flatten_project
+from orpheus_core.validation import discover_project_files, validate_project
 
 
 @click.group()
@@ -26,6 +27,72 @@ from orpheus_core.subgraph import flatten_project
 def cli(ctx: click.Context, project_root: Path) -> None:
     ctx.ensure_object(dict)
     ctx.obj["project_root"] = project_root
+
+
+@cli.command()
+@click.argument("paths", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
+@click.option("--target", "target", default=None,
+              help="目标平台覆盖（auto/win/dsp/adsp21593）；缺省读工程 target 字段")
+@click.option("--json", "as_json", is_flag=True, help="输出机器可读 JSON 报告")
+@click.option("--no-compile", is_flag=True, help="只做 YAML/Schema/引用检查，不编译执行图")
+@click.pass_context
+def validate(ctx: click.Context, paths: tuple[Path, ...], target: str | None,
+             as_json: bool, no_compile: bool) -> None:
+    """独立校验工程 YAML，不启动 Orpheus 主进程。"""
+    root = ctx.obj["project_root"]
+    registry = Registry()
+    registry.add_search_path(root / "components")
+    registry.scan()
+
+    project_files = discover_project_files(list(paths))
+    if not project_files:
+        click.echo("no project YAML files found", err=True)
+        sys.exit(2)
+
+    reports = [
+        validate_project(
+            project_file,
+            registry,
+            target=target,
+            compile_graph=not no_compile,
+            display_root=root,
+        )
+        for project_file in project_files
+    ]
+
+    if as_json:
+        valid_count = sum(report.valid for report in reports)
+        payload = {
+            "summary": {
+                "checked": len(reports),
+                "valid": valid_count,
+                "invalid": len(reports) - valid_count,
+                "errors": sum(report.summary["errors"] for report in reports),
+                "warnings": sum(report.summary["warnings"] for report in reports),
+            },
+            "projects": [report.to_dict() for report in reports],
+        }
+        click.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        for report in reports:
+            status = "PASS" if report.valid else "FAIL"
+            click.echo(f"{status} {report.path}")
+            for issue in sorted(report.issues, key=lambda item: (
+                0 if item.severity == "error" else 1, item.stage, item.json_path, item.message
+            )):
+                click.echo(
+                    f"  {issue.severity.upper():7s} {issue.stage:14s} "
+                    f"{issue.json_path}: {issue.message}"
+                )
+        valid_count = sum(report.valid for report in reports)
+        click.echo(
+            f"summary: {valid_count}/{len(reports)} valid, "
+            f"{sum(report.summary['errors'] for report in reports)} errors, "
+            f"{sum(report.summary['warnings'] for report in reports)} warnings"
+        )
+
+    if any(not report.valid for report in reports):
+        sys.exit(1)
 
 
 @cli.command()

@@ -10,8 +10,7 @@ graph:
   - id: src
     component: orpheus.builtin.signal_gen
     params:
-      type: sine
-      freq: 1000.0
+      frequency: 1000.0
       amplitude: 0.5
       channels: 32
     position:

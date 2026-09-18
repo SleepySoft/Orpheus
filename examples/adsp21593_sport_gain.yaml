@@ -54,7 +54,7 @@ graph:
     - id: sport_in
       component: orpheus.builtin.sport_tdm_in
       task: audio
-      params: {channels: 32, sample_rate: 48000, clock_domain: audio48}
+      params: {channels: 32, sample_rate: 48000}
       position: {x: 80, y: 220}
     - id: gain
       component: orpheus.builtin.gain
@@ -64,7 +64,7 @@ graph:
     - id: sport_out
       component: orpheus.builtin.sport_tdm_out
       task: audio
-      params: {channels: 32, sample_rate: 48000, clock_domain: audio48}
+      params: {channels: 32, sample_rate: 48000}
       position: {x: 640, y: 220}
   connections:
     - {from: "sport_in:out", to: "gain:in"}
