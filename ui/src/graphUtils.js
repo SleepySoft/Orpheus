@@ -6,6 +6,14 @@ export const isSubRef = (component) => component?.startsWith(SUB_PREFIX);
 export const subIdOf = (component) => component.slice(SUB_PREFIX.length);
 export const subViewKey = (subId) => `${SUB_PREFIX}${subId}`;
 
+const graphToViewDocument = (graph, subIds) => ({
+  ...(graph || { nodes: [], connections: [] }),
+  nodes: (graph?.nodes || []).map((node) => ({
+    ...node,
+    component: subIds.has(node.component) ? subViewKey(node.component) : node.component,
+  })),
+});
+
 /** Default parameter values from a component manifest's parameter schema. */
 export function defaultParams(component) {
   const params = {};
@@ -222,7 +230,7 @@ export function flowToGraph(nodes, edges) {
   return {
     nodes: nodes.map((n) => ({
       id: n.id,
-      component: n.data.component,
+      component: isSubRef(n.data.component) ? subIdOf(n.data.component) : n.data.component,
         task: n.data.task || 'default',
       params: n.data.params || {},
       position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
@@ -250,13 +258,20 @@ export function docToViews(doc, globalComponents) {
     description: s.description || '',
     ports: s.ports || [],
     public_parameters: s.public_parameters || [],
+    read_only: !!s.read_only,
   }));
   const catalogById = Object.fromEntries(
     mergedCatalog(globalComponents, subsMeta).map((c) => [c.id, c])
   );
-  const views = { main: graphToFlow(doc.graph, catalogById, doc.control_connections, doc.bridges) };
+  const subIds = new Set(subsMeta.map((sub) => sub.id));
+  const views = {
+    main: graphToFlow(
+      graphToViewDocument(doc.graph, subIds), catalogById,
+      doc.control_connections, doc.bridges
+    ),
+  };
   for (const s of doc.subcomponents || []) {
-    views[subViewKey(s.id)] = graphToFlow(s.graph, catalogById);
+    views[subViewKey(s.id)] = graphToFlow(graphToViewDocument(s.graph, subIds), catalogById);
   }
   return { views, subsMeta };
 }
@@ -321,6 +336,7 @@ export function viewsToDoc(views, subsMeta, baseDoc) {
         id: s.id,
         name: s.name,
         description: s.description || '',
+        ...(s.read_only ? { read_only: true } : {}),
         ports: s.ports,
         ...(s.public_parameters?.length ? { public_parameters: s.public_parameters } : {}),
         graph: flowToGraph(view.nodes, view.edges),

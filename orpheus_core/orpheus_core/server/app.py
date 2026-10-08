@@ -205,7 +205,7 @@ def create_app(project_root: Path, *,
     registry = Registry()
     registry.add_search_path(root / "components")
     registry.scan()
-    manager = ProjectManager(root)
+    manager = ProjectManager(root, registry)
     builder = ComponentBuilder(root, root / "build", registry)
     rt_sessions = RuntimeSessionManager()
     hlos_adapters = transport_adapters or default_hlos_adapters()
@@ -223,8 +223,9 @@ def create_app(project_root: Path, *,
         target：目标平台覆盖（None=工程 target 字段/auto）。平台解析（alter 组
         激活、平台交集校验）在 GraphCompiler.compile 内部完成。"""
         try:
+            project_registry = rec.project.registry or registry
             flat = flatten_project(rec.project)
-            plan = GraphCompiler(registry).compile(flat, target=target)
+            plan = GraphCompiler(project_registry).compile(flat, target=target)
         except CompileError as exc:
             raise HTTPException(status_code=400, detail=f"compile error: {exc}") from exc
         plan_path = rec.path.with_suffix(".plan.json")
@@ -264,7 +265,7 @@ def create_app(project_root: Path, *,
         resolve 在编译期报错，此处不再另行拦截设备组件。"""
         plan, _ = compile_record(rec)
         gen_dir = rec.directory / "generated"
-        CodeGenerator(registry, root).generate(plan, gen_dir)
+        CodeGenerator(rec.project.registry or registry, root).generate(plan, gen_dir)
         return plan, gen_dir
 
     def ensure_cmake_configured() -> None:
@@ -276,16 +277,23 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=500, detail=f"cmake configure error: {exc}") from exc
         state["cmake_configured"] = True
 
-    def ensure_components_built(flat) -> list[str]:
+    def ensure_components_built(rec: ProjectRecord, flat) -> list[str]:
         """Build every atomic component referenced by the flattened graph."""
         built: list[str] = []
+        project_registry = rec.project.registry or registry
+        project_builder = ComponentBuilder(root, root / "build", project_registry)
         component_ids = {n.component for n in flat.graph.nodes.values()}
-        for cid in sorted(component_ids):
-            if builder.find_library(cid) is not None:
-                continue
-            ensure_cmake_configured()
+        missing = [cid for cid in component_ids if project_builder.find_library(cid) is None]
+        if missing:
             try:
-                builder.build_component(cid)
+                project_builder.configure_imported_components()
+            except BuildError as exc:
+                raise HTTPException(status_code=500, detail=f"configure error: {exc}") from exc
+        for cid in sorted(component_ids):
+            if project_builder.find_library(cid) is not None:
+                continue
+            try:
+                project_builder.build_component(cid)
             except BuildError as exc:
                 raise HTTPException(status_code=500, detail=f"build error for {cid}: {exc}") from exc
             built.append(cid)
@@ -331,10 +339,33 @@ def create_app(project_root: Path, *,
     def list_components() -> list[dict[str, Any]]:
         return [_component_to_dict(i) for i in registry.list_components()]
 
+    @app.get("/api/projects/{name}/components")
+    def list_project_components(name: str) -> list[dict[str, Any]]:
+        try:
+            project = manager.get(name).project
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        project_registry = project.registry or registry
+        return [_component_to_dict(info) for info in project_registry.list_components()]
+
     @app.get("/api/components/{component_id}/readme")
     def get_component_readme(component_id: str) -> FileResponse:
         """返回组件目录下的 README.md；不存在则 404。"""
         info = registry.get(component_id)
+        if info is None:
+            raise HTTPException(status_code=404, detail=f"组件不存在: {component_id}")
+        readme_path = info.root_dir / "README.md"
+        if not readme_path.is_file():
+            raise HTTPException(status_code=404, detail=f"组件暂无 README: {component_id}")
+        return FileResponse(readme_path, media_type="text/markdown; charset=utf-8")
+
+    @app.get("/api/projects/{name}/components/{component_id}/readme")
+    def get_project_component_readme(name: str, component_id: str) -> FileResponse:
+        try:
+            project = manager.get(name).project
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        info = (project.registry or registry).get(component_id)
         if info is None:
             raise HTTPException(status_code=404, detail=f"组件不存在: {component_id}")
         readme_path = info.root_dir / "README.md"
@@ -520,7 +551,7 @@ def create_app(project_root: Path, *,
         compile_error = None
         try:
             flat = flatten_project(rec.project)
-            plan = GraphCompiler(registry).compile(flat)
+            plan = GraphCompiler(rec.project.registry or registry).compile(flat)
         except CompileError as exc:
             compile_error = str(exc)
         return evaluate_lesson(rec.project, flat, plan, compile_error)
@@ -628,10 +659,10 @@ def create_app(project_root: Path, *,
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         flat = flattened_project(rec)
-        active_flat, _ = GraphCompiler(registry).prepare_debug_project(flat)
+        active_flat, _ = GraphCompiler(rec.project.registry or registry).prepare_debug_project(flat)
         has_device = any(n.component in DEVICE_COMPONENTS for n in active_flat.graph.nodes.values())
 
-        built = ensure_components_built(active_flat)
+        built = ensure_components_built(rec, active_flat)
         # 动态路径只在 PC 上运行：含设备组件时锁定 win 解析（即使工程 target=dsp，
         # alter 组也会在 win 下激活 device_in/out，保证「▶ 运行」语义直观）
         plan, plan_path = compile_record(rec, target="win" if has_device else None)
@@ -910,7 +941,7 @@ def create_app(project_root: Path, *,
                 status_code=400,
                 detail=f"未知目标: {target}（可选 local / serial / tcp / pipe）",
             )
-        ensure_components_built(flattened_project(rec))
+        ensure_components_built(rec, flattened_project(rec))
         plan, plan_path = compile_record(rec)
         suffix = ".exe" if sys.platform == "win32" else ""
         rt_exe = ensure_target_built("orpheus_rt_host", f"orpheus_rt_host{suffix}")

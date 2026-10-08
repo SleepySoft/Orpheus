@@ -121,6 +121,37 @@
         }
       }
     },
+    "imports": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["component"],
+            "properties": {
+              "component": { "type": "string" },
+              "version": { "type": "string" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" }
+            }
+          }
+        ]
+      },
+      "description": "Component definitions imported by path/directory or global component id"
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "file": { "type": "string" },
+          "format": { "type": "string", "enum": ["json", "csv", "f32le"], "default": "json" },
+          "shape": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+          "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" }
+        }
+      }
+    },
     "graph": { "$ref": "#/definitions/graph" },
     "control_connections": {
       "type": "array",
@@ -143,6 +174,7 @@
           "id": { "type": "string" },
           "name": { "type": "string" },
           "description": { "type": "string" },
+          "read_only": { "type": "boolean" },
           "ports": {
             "type": "array",
             "items": {

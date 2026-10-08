@@ -172,7 +172,11 @@ def _check_raw_document(
                         f"{graph_path}.nodes[{index}].component",
                     )
                     component_errors += 1
-            elif isinstance(component, str) and registry.get(component) is None:
+            elif (
+                isinstance(component, str)
+                and registry.get(component) is None
+                and not data.get("imports")
+            ):
                 report.add_error(
                     "component",
                     f"组件不存在: {component}（节点 {node_id}）",
@@ -403,7 +407,7 @@ def validate_project(
         return report
 
     try:
-        project = ProjectLoader().load(resolved_file)
+        project = ProjectLoader(registry).load(resolved_file)
     except Exception as exc:
         report.add_error("project_model", f"无法构造工程模型: {exc}")
         report._set_stage("project_model", "failed")
@@ -412,8 +416,9 @@ def validate_project(
         return report
 
     report._set_stage("project_model", "passed")
+    project_registry = project.registry or registry
     loaded_reference_failed = _check_loaded_project(
-        project, resolved_file, registry, report
+        project, resolved_file, project_registry, report
     )
     report._set_stage(
         "references",
@@ -432,7 +437,7 @@ def validate_project(
 
     try:
         flat = flatten_project(project)
-        plan = GraphCompiler(registry).compile(flat, target=target)
+        plan = GraphCompiler(project_registry).compile(flat, target=target)
         if plan.ignored_nodes:
             report.add_warning(
                 "compile",
@@ -467,6 +472,24 @@ def discover_project_files(paths: list[Path]) -> list[Path]:
         if path.is_file():
             files.add(path.resolve())
         elif path.is_dir():
-            files.update(path.rglob("*.yaml"))
-            files.update(path.rglob("*.yml"))
+            direct_entry = path / "project.yaml"
+            if direct_entry.is_file():
+                files.add(direct_entry.resolve())
+                continue
+            entries = {entry.resolve() for entry in path.rglob("project.yaml")}
+            if entries:
+                files.update(entries)
+                continue
+            files.update(
+                candidate.resolve()
+                for candidate in path.rglob("*.yaml")
+                if not candidate.name.endswith(".component.yaml")
+                and candidate.name != "component.yaml"
+            )
+            files.update(
+                candidate.resolve()
+                for candidate in path.rglob("*.yml")
+                if not candidate.name.endswith(".component.yml")
+                and candidate.name != "component.yml"
+            )
     return sorted(files)

@@ -2,6 +2,16 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-10-08（第六十四次：统一组件包与目录工程）
+
+- 工程新增 `imports`：可按任意相对文件/目录或全局组件 ID 解析 source/binary/composite，图节点统一使用裸组件 ID，不再以 `sub:` 区分实现形式。
+- 每个工程从全局 Registry 创建隔离快照；显式 import 拒绝重复 ID、路径/符号链接逃逸、版本/hash 不匹配和递归依赖环。
+- composite manifest 支持递归图、直接子实例端口映射和公开参数穿透；flatten 后 Compiler/Runtime/Generator 继续只接收原子图，ABI 不变。
+- ProjectManager GET 物化复合定义供 UI 编辑，PUT 按来源写回独立 component manifest；新建命名空间组件自动外置，`project.yaml` 不被重新拍平。
+- 大系数新增 `$resource` 引用，支持 `f32le/json/csv + shape + sha256`；加载期物化为现有 BULK 参数，保存时保留符号引用，动态/生成路径共用 plan 数值。
+- 项目私有源码组件通过 `ORPHEUS_EXTRA_COMPONENT_DIRS` 进入既有 CMake；Server/UI 使用项目级组件目录和 README 路由。
+- 新增目录加载、嵌套复合、全局依赖、资源完整性、持久化、路径安全与构建注入测试；全量后端回归、Jest 24 项和 UI 生产构建通过。
+
 ## 2026-09-14（第六十三次：ADSP-21593 SPORT Boundary 与外部触发契约）
 
 - 新增 Clock Domain、Trigger Group、Task clock/trigger 绑定与结构化 `sport_bindings`；编译器按 Task 独立解析外部采样率，不再把单个源速率覆盖全部 Task。

@@ -77,6 +77,10 @@ workspace/<工程名>/
 
 `workspace/` 已 gitignore。`GET /api/projects/{name}/download` 打包 zip。
 
+## 目录工程与统一组件包
+
+复杂工程使用 `project.yaml + imports + *.component.yaml + assets/`。物理目录与逻辑图层次解耦，源码、二进制和复合组件统一按组件 ID 引用；完整格式、递归组合和资源规则见 `docs/HOW/reference/component-packages.md`。
+
 ## 路径规则
 
 - 工程内 `file_path` 参数一律**相对工程目录**（运行子进程 cwd=工程目录）；导入示例时后端自动把绝对路径改写为相对路径并拷贝输入文件（依据：节点有入连接无出连接=输出型→outputs/，否则=输入型→拷入）

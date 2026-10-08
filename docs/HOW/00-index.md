@@ -23,6 +23,7 @@ HOW 记录“怎么做”：架构、实现、验证和历史。
 11. [[11-operations|运行与部署]]
 12. [[12-teaching-and-examples|教学与示例]]
 13. [[13-external-model-alignment|外部参考模型对齐]]
+14. [[reference/component-packages|统一组件包与目录工程]]
 
 ## 详细参考
 

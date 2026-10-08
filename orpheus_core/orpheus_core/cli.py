@@ -122,19 +122,24 @@ def compile(ctx: click.Context, project_file: Path, target: str | None,
     registry.add_search_path(root / "components")
     registry.scan()
 
-    loader = ProjectLoader()
+    loader = ProjectLoader(registry)
     project = loader.load(project_file)
     if debug_mode is not None:
         project.debug_mode = debug_mode
 
-    compiler = GraphCompiler(registry)
+    project_registry = project.registry or registry
+    compiler = GraphCompiler(project_registry)
     try:
         plan = compiler.compile(flatten_project(project), target=target)
     except CompileError as exc:
         click.echo(f"compile error: {exc}", err=True)
         sys.exit(1)
 
-    output = project_file.with_suffix(".plan.json")
+    output = (
+        project_file / "project.plan.json"
+        if project_file.is_dir()
+        else project_file.with_suffix(".plan.json")
+    )
     with open(output, "w", encoding="utf-8") as f:
         json.dump(plan.__dict__, f, indent=2, ensure_ascii=False)
     if plan.ignored_nodes:
@@ -210,19 +215,20 @@ def generate(ctx: click.Context, project_file: Path, output_dir: Path,
     registry.add_search_path(root / "components")
     registry.scan()
 
-    loader = ProjectLoader()
+    loader = ProjectLoader(registry)
     project = loader.load(project_file)
     if debug_mode is not None:
         project.debug_mode = debug_mode
 
-    compiler = GraphCompiler(registry)
+    project_registry = project.registry or registry
+    compiler = GraphCompiler(project_registry)
     try:
         plan = compiler.compile(flatten_project(project), target=target)
     except CompileError as exc:
         click.echo(f"compile error: {exc}", err=True)
         sys.exit(1)
 
-    generator = CodeGenerator(registry, root)
+    generator = CodeGenerator(project_registry, root)
     generator.generate(plan, output_dir)
     if plan.ignored_nodes:
         click.echo(f"debug bypass ignored nodes: {', '.join(plan.ignored_nodes)}")
@@ -233,9 +239,9 @@ def generate(ctx: click.Context, project_file: Path, output_dir: Path,
 @click.argument("name")
 @click.pass_context
 def new(ctx: click.Context, name: str) -> None:
-    """Create a minimal project YAML."""
+    """Create a minimal directory project under workspace/."""
     root = ctx.obj["project_root"]
-    path = root / "examples" / f"{name}.yaml"
+    path = root / "workspace" / name / "project.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     loader = ProjectLoader()
     from orpheus_core.project import Graph, Project, Task
@@ -248,7 +254,7 @@ def new(ctx: click.Context, name: str) -> None:
     project.tasks["default"] = Task(id="default", sample_rate=48000, block_size=128)
     project.graph = Graph()
     loader.save(project, path)
-    click.echo(f"created {path}")
+    click.echo(f"created directory project at {path.parent}")
 
 
 @cli.command("new-component")

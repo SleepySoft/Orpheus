@@ -64,11 +64,11 @@ class ProjectRecord:
 class ProjectManager:
     """Manages projects in memory, persisted under workspace/<name>/."""
 
-    def __init__(self, project_root: Path):
+    def __init__(self, project_root: Path, registry=None):
         self.project_root = Path(project_root).resolve()
         self.workspace = self.project_root / "workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
-        self._loader = ProjectLoader()
+        self._loader = ProjectLoader(registry)
         self._schema = schemas.load_project_schema()
         self._records: dict[str, ProjectRecord] = {}
         self._lock = threading.Lock()
@@ -199,7 +199,91 @@ class ProjectManager:
 
     def get_document(self, name: str) -> dict[str, Any]:
         """Return the project as a plain JSON-serializable document."""
-        return project_to_dict(self.get(name).project)
+        return project_to_dict(self.get(name).project, materialize_imports=True)
+
+    @staticmethod
+    def _merge_composite_manifest(existing: dict[str, Any], sub: dict[str, Any]) -> dict[str, Any]:
+        manifest = dict(existing)
+        manifest.update({
+            "id": sub["id"],
+            "name": sub.get("name", sub["id"]),
+            "description": sub.get("description", ""),
+            "version": manifest.get("version", "1.0.0"),
+            "abi_version": manifest.get("abi_version", 1),
+            "package_type": "composite",
+            "category": manifest.get("category", "工程/复合组件"),
+            "graph": sub.get("graph", {"nodes": [], "connections": []}),
+        })
+        old_ports = {port["id"]: port for port in manifest.get("ports", []) or []}
+        ports = []
+        for port in sub.get("ports", []) or []:
+            merged = dict(old_ports.get(port["id"], {}))
+            merged.update(port)
+            merged.setdefault("type", "audio")
+            merged.setdefault("sample_format", "f32")
+            ports.append(merged)
+        manifest["ports"] = ports
+        old_parameters = {
+            parameter["id"]: parameter
+            for parameter in manifest.get("parameters", []) or []
+        }
+        parameters = []
+        for parameter in sub.get("public_parameters", []) or []:
+            merged = dict(old_parameters.get(parameter["id"], {}))
+            merged.update(parameter)
+            merged.setdefault("type", "float")
+            parameters.append(merged)
+        manifest["parameters"] = parameters
+        manifest.pop("public_ports", None)
+        manifest.pop("public_parameters", None)
+        return manifest
+
+    def _persist_composite_definitions(
+        self,
+        name: str,
+        document: dict[str, Any],
+        current: Project,
+    ) -> dict[str, Any]:
+        """Write materialized composite definitions back to their own files."""
+        root_document = dict(document)
+        imports = list(root_document.get("imports", []) or [])
+        existing_paths = {
+            sub.id: sub.source_path
+            for sub in current.subcomponents
+            if sub.imported and not sub.read_only and sub.source_path is not None
+        }
+        inline: list[dict[str, Any]] = []
+        for sub in root_document.get("subcomponents", []) or []:
+            component_id = sub.get("id", "")
+            if sub.get("read_only"):
+                continue
+            source_path = existing_paths.get(component_id)
+            if source_path is None:
+                if "." not in component_id:
+                    inline.append(sub)
+                    continue
+                source_path = self.project_dir(name) / "components" / f"{component_id}.component.yaml"
+                relative = source_path.relative_to(self.project_dir(name)).as_posix()
+                if relative not in imports:
+                    imports.append(relative)
+            existing: dict[str, Any] = {}
+            if source_path.is_file():
+                with open(source_path, "r", encoding="utf-8") as stream:
+                    existing = yaml.safe_load(stream) or {}
+            manifest = self._merge_composite_manifest(existing, sub)
+            schemas.validate(manifest, schemas.load_component_manifest_schema())
+            source_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(source_path, "w", encoding="utf-8") as stream:
+                yaml.safe_dump(manifest, stream, sort_keys=False, allow_unicode=True)
+        if imports:
+            root_document["imports"] = imports
+        else:
+            root_document.pop("imports", None)
+        if inline:
+            root_document["subcomponents"] = inline
+        else:
+            root_document.pop("subcomponents", None)
+        return root_document
 
     def put(self, name: str, doc: dict[str, Any]) -> ProjectRecord:
         """Validate and persist a full project document (write-through)."""
@@ -211,8 +295,15 @@ class ProjectManager:
                 schemas.validate(doc, self._schema)
             except Exception as exc:
                 raise ProjectValidationError(f"invalid project document: {exc}") from exc
+            current_record = self._records.get(name)
+            current = (
+                current_record.project
+                if current_record is not None
+                else self._loader.load(yaml_path)
+            )
+            persistent_doc = self._persist_composite_definitions(name, doc, current)
             with open(yaml_path, "w", encoding="utf-8") as f:
-                yaml.safe_dump(doc, f, sort_keys=False, allow_unicode=True)
+                yaml.safe_dump(persistent_doc, f, sort_keys=False, allow_unicode=True)
             try:
                 project = self._loader.load(yaml_path)
             except Exception as exc:

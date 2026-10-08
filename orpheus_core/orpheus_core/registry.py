@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -34,13 +35,21 @@ class Registry:
     def add_search_path(self, path: Path) -> None:
         self.search_paths.append(Path(path))
 
+    def fork(self) -> Registry:
+        """Create an isolated registry snapshot for one project."""
+        clone = Registry(list(self.search_paths))
+        clone._components = copy.deepcopy(self._components)
+        return clone
+
     def scan(self) -> dict[str, ComponentInfo]:
         """Scan all search paths and return discovered components by id."""
         self._components = {}
         for base in self.search_paths:
             if not base.exists():
                 continue
-            for manifest_path in base.rglob("component.yaml"):
+            manifests = set(base.rglob("component.yaml"))
+            manifests.update(base.rglob("*.component.yaml"))
+            for manifest_path in sorted(manifests):
                 try:
                     info = self._load_manifest(manifest_path)
                 except Exception as exc:
@@ -51,6 +60,23 @@ class Registry:
                 if existing is None or info.version > existing.version:
                     self._components[info.id] = info
         return dict(self._components)
+
+    def add_manifest(self, manifest_path: Path, *, replace: bool = False) -> ComponentInfo:
+        """Register one explicitly imported component manifest.
+
+        Explicit imports are deterministic: duplicate ids are rejected instead
+        of silently selecting whichever file happened to be scanned last.
+        """
+        path = Path(manifest_path).resolve()
+        info = self._load_manifest(path)
+        existing = self._components.get(info.id)
+        if existing is not None and existing.manifest_path.resolve() != path and not replace:
+            raise ValueError(
+                f"duplicate component id {info.id!r}: "
+                f"{existing.manifest_path} and {path}"
+            )
+        self._components[info.id] = info
+        return info
 
     def _load_manifest(self, manifest_path: Path) -> ComponentInfo:
         with open(manifest_path, "r", encoding="utf-8") as f:

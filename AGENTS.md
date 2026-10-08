@@ -19,7 +19,7 @@
 | 实时运行时 | C++11，CMake + Ninja + MinGW GCC（`orpheus_runtime/`） |
 | 组件 | C11（入口经 `ORPHEUS_ENTRY_NAME` 宏导出 C ABI），允许 C++11 |
 | 音频后端 | miniaudio（vendored，`third_party/`） |
-| 工程格式 | YAML（`project.yaml`）+ JSON Schema 校验 |
+| 工程格式 | 目录工程（`project.yaml` + imports + 组件定义 + assets）+ JSON Schema 校验 |
 | 测试 | pytest（Python）、C++ ABI smoke test、动态/生成双路径一致性测试 |
 
 ## 目录结构速查
@@ -34,7 +34,7 @@
 | `orpheus_runtime/` | C++：`runtime.cpp`（执行引擎）、`rt_host.cpp`（实时设备宿主）、`main.cpp`（文件宿主）、`wav_io` |
 | `ui/src/` | React 前端：`App.js` 主控、`widgets.js` 参数控件注册表、`nodeWidgets.js` 节点本体注册表、`graphUtils.js` |
 | `examples/*.yaml` | 示例工程（可导入 UI） |
-| `workspace/<name>/project.yaml` | 用户工程（唯一事实来源，已 gitignore） |
+| `workspace/<name>/` | 用户目录工程：`project.yaml` 顶层图，imports 指向组件定义与资源（已 gitignore） |
 | `docs/` | `WHAT.md`（需求）、`HOW.md`（架构+实现记录）、`IMPLEMENTATION_PLAN.md`、`implementation_log.md` |
 | `SKILL/SKILL.md` | 仓库专用开发技能：组件开发、调试、红线清单 |
 
@@ -54,7 +54,7 @@
 - 每个组件有 `component.yaml` manifest：id/name/category、sources、ports、parameters（含 `update_policy`、`affects_signature`）、memory、execution。
 - 端口可引用参数实现可变签名：`channels: param:channels`、`count: param:channels`，编译期展开（如 `out0..outN-1`）。影响签名的参数必须是 `restart_required`。
 - 多端口组件：`ctx->inputs[]/outputs[]` 槽位按 manifest 端口声明顺序绑定；**未连接引脚为 NULL，process 必须判空**。
-- 复合组件：工程文档内嵌 `subcomponents:`，编译前 `flatten_project` 递归展开为纯原子图；实例以 `component: "sub:<id>"` 引用。
+- 统一组件包：图节点始终以裸组件 ID 引用；source/binary/composite 仅实现形式不同。`imports` 可从任意工程内相对路径或全局组件 ID 解析定义，物理目录不表达逻辑层次；`flatten_project` 递归展开 composite 为纯原子图。旧 `sub:`/内嵌 `subcomponents` 仅保留兼容读取。
 
 ### 运行时与宿主
 
@@ -68,7 +68,7 @@
 - **目标平台与 alter**：组件 manifest 可选 `platforms`（如 device_in/out=[win]、embed_in/out=[dsp]，缺省=全平台）；工程顶层 `target`（auto/win/dsp），节点级 `alters` 声明替代组（同接口、占同一槽位，按平台激活一个成员）。`resolve.py` 做合规校验与整链平台可达性判定（并集→交集→选成员→边重映射），编译器 `compile(project, target)` 先解析后编译。UI 自动按 alters 连通组绘制「N 选 1」框；Windows/DSP 节点分别使用蓝/琥珀色条和文字徽标。示例：`examples/pc_dsp_dual_target.yaml`。
 - **Access Bridge（设备调音）**：工程顶层 `bridges` 是部署事实，画布无端口「访问桥」节点是配置投影；legacy `uart_link` 自动迁移。统一 Bridge 以半双工单 outstanding CALL 为最低基线，全双工按能力开启主动通知与流水化；Transport/Codec/Log Sink 可替换。当前 Python `BridgeSession` 核心与 `uart + olink` 已贯通；HLOS 已提供 stdio/process、TCP、Windows Named Pipe/POSIX Unix Socket Adapter 和 LengthPrefixCodec，运行日志写入工程 `logs/`；本机文本 `RtSession` 后续由二进制 Pipe Endpoint 替换。设计见 `docs/HOW/reference/access-bridge.md` / `docs/HOW/reference/bridge-protocol.md` / `docs/HOW/reference/hlos-transport.md`。
 - **控制参数链路**：工程顶层 `control_connections`（`node:param` → `node:param`）声明参数驱动；manifest 参数可声明 `bindable`（目标，禁 affects_signature/restart_required）/ `control_source`（源，须可读）/ `shape`（维度表达式，如 `matrix_mul.matrix: [param:rows, param:cols]`）。compiler 校验（策略/签名约束、类型与 shape 严格相等、禁隐式转换、目标唯一不重复）后产出 `plan.control_links`；**动态路径** runtime 每图块末尾两相快照 `control_tick`（先全读后全写，每链 1 块延迟，闭环合法）；**生成路径** generator 在 `orpheus_generated_process` 末尾生成等价 `control_tick()`（静态分配、直线代码），双路径逐字节一致（`test_generated_run_matches_dynamic_run_with_control_link`）。运行期执行 float/int/bool 标量 + string 透传（256B 上限），count>1 数组链仅编译期校验。UI：工具栏「控制链路」开关（默认关=界面与旧版一致），控制 handle 为橙色方形（`ctl:<param>` id）、虚线动画边 + 形状标注（失配标红），onConnect 做源/目标/类型/shape 校验。示例 `examples/control_link_demo.yaml`；设计 `docs/HOW/reference/control-links.md`；测试 `orpheus_core/tests/test_control_links.py`。UI 控件注册表在 `widgets.js`/`nodeWidgets.js`，控制边组件在 `ui/src/ControlEdge.js`。
-- **子组件公开参数**：`subcomponents[].public_parameters` 把实例参数/控制点映射到内部原子节点参数；input 支持实例默认值覆盖，input/output 均可作为顶层控制连接端点，flatten 后映射为 `<实例>__<节点>:<参数>`。
+- **复合组件公开参数**：component manifest 的 `parameters[].maps_to/direction` 把实例参数/控制点映射到直接子实例；允许递归穿透到原子参数，flatten 后映射为 `<实例>__<节点>:<参数>`。
 - **外部参考模型 模型对齐**：ASM 与 参考工程 B out 生成代码的已验证映射、字段数量和哈希见 `docs/HOW/reference/external-models/model-alignment.md`。新增 `rnc_mimo_nlms`（12×8×125）与 `soft_clipper`，TOP 数组统一用 `scripts/extract_external_model_top.py` 提取。
 - **教学包**：工程顶层 `lesson` 可声明 `steps` 与结构检查 `checks`；后端 `/api/projects/{name}/lesson/check` 在扁平图/plan 上执行规则，UI 仅对含 lesson 的工程显示「教学」入口。参考工程 A 示例自带 5 条可执行检查。
 - **调试旁路**：工程顶层 `debug_mode: true` 时，compiler 在工程副本上裁剪完全孤立节点和未接入有效时钟源的残留流，plan 通过 `ignored_nodes` 报告；画布/YAML 不删除节点，保留执行的有效流仍走完整硬校验。默认关闭。

@@ -23,6 +23,7 @@ option(ORPHEUS_BUILD_TESTS "Build tests" ON)
 option(ORPHEUS_BUILD_UI "Build UI" OFF)
 option(ORPHEUS_STRICT_WARNINGS "Enable strict compiler warnings" OFF)
 option(ORPHEUS_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+set(ORPHEUS_EXTRA_COMPONENT_DIRS "" CACHE STRING "Semicolon-separated external component source directories")
 
 if(ORPHEUS_STRICT_WARNINGS)
     if(MSVC)
@@ -53,6 +54,17 @@ endif()
 
 if(ORPHEUS_BUILD_COMPONENTS)
     add_subdirectory(components)
+    set(_orpheus_external_index 0)
+    foreach(_orpheus_component_dir IN LISTS ORPHEUS_EXTRA_COMPONENT_DIRS)
+        if(NOT EXISTS "${_orpheus_component_dir}/CMakeLists.txt")
+            message(FATAL_ERROR "External component has no CMakeLists.txt: ${_orpheus_component_dir}")
+        endif()
+        math(EXPR _orpheus_external_index "${_orpheus_external_index} + 1")
+        add_subdirectory(
+            "${_orpheus_component_dir}"
+            "${CMAKE_BINARY_DIR}/external_components/${_orpheus_external_index}"
+        )
+    endforeach()
 endif()
 
 if(ORPHEUS_BUILD_TESTS)

@@ -256,8 +256,12 @@ const { screenToFlowPosition } = useReactFlow();
         if (current && current !== name && rt.running) {
           await api.rtStop(current);
         }
-        const document = presetDoc || (await api.getProject(name));
-        loadDocument(name, document, catalog);
+        const [document, projectComponents] = await Promise.all([
+          presetDoc ? Promise.resolve(presetDoc) : api.getProject(name),
+          api.listProjectComponents(name),
+        ]);
+        setCatalog(projectComponents);
+        loadDocument(name, document, projectComponents);
         setStatus(`已打开工程 ${name}`);
       } catch (e) {
         setStatus(`打开工程失败: ${api.errorDetail(e)}`);
@@ -293,8 +297,12 @@ const { screenToFlowPosition } = useReactFlow();
           })
           .catch(() => {});
         if (projs.length > 0) {
-          const document = await api.getProject(projs[0].name);
-          loadDocument(projs[0].name, document, comps);
+          const [document, projectComponents] = await Promise.all([
+            api.getProject(projs[0].name),
+            api.listProjectComponents(projs[0].name),
+          ]);
+          setCatalog(projectComponents);
+          loadDocument(projs[0].name, document, projectComponents);
           setStatus(`已打开工程 ${projs[0].name}`);
         }
       } catch (e) {
@@ -754,7 +762,7 @@ const { screenToFlowPosition } = useReactFlow();
         ? `${comp.description}\n\n> 该组件暂无 README。`
         : '该组件暂无 README。';
       try {
-        const md = await api.getComponentReadme(componentId);
+        const md = await api.getComponentReadme(componentId, current);
         setReadmeComponentId(componentId);
         setReadmeContent(md || fallback);
         setReadmeError(null);
@@ -770,7 +778,7 @@ const { screenToFlowPosition } = useReactFlow();
         }
       }
     },
-    [catalogById]
+    [catalogById, current]
   );
 
   /** 更新某个节点的实例笔记（保存在 node-notes.json，不写入 project.yaml）。 */
@@ -1012,11 +1020,11 @@ const { screenToFlowPosition } = useReactFlow();
   // ---------------------------------------------------------- subcomponents
 
   const promptSubId = useCallback(() => {
-    const name = window.prompt('子组件 id（字母/数字/-/_）:');
+    const name = window.prompt('复合组件 id（如 company.product.module）:');
     if (!name) return null;
     const id = name.trim();
-    if (!/^[A-Za-z0-9_-]+$/.test(id)) {
-      setStatus(`非法子组件 id: ${id}`);
+    if (!/^[a-z0-9_]+(\.[a-z0-9_]+)+$/.test(id)) {
+      setStatus(`非法组件 id: ${id}（需要至少两段小写命名空间）`);
       return null;
     }
     if (subsMeta.some((s) => s.id === id)) {

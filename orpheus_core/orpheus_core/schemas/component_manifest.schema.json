@@ -76,7 +76,8 @@
           "block_size": { "type": ["integer", "string"] },
           "count": { "type": ["integer", "string"], "description": "Variable pin count expression, e.g. param:channels; port is replicated as <id>0..<id>N-1" },
           "is_variable": { "type": "boolean" },
-          "channels_param": { "type": "string" }
+          "channels_param": { "type": "string" },
+          "maps_to": { "type": "string", "description": "Composite implementation boundary target: direct_child:port" }
         }
       }
     },
@@ -118,7 +119,9 @@
             "type": "array",
             "items": { "type": ["integer", "string"] },
             "description": "参数维度声明：整数常量或 param:xxx 表达式（复用端口表达式语法）；缺省 = 标量 []"
-          }
+          },
+          "direction": { "type": "string", "enum": ["input", "output"], "description": "Composite public parameter direction" },
+          "maps_to": { "type": "string", "description": "Composite public parameter target: direct_child:param" }
         }
       }
     },
@@ -153,6 +156,37 @@
       }
     },
     "graph": { "type": "object" },
+    "imports": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["component"],
+            "properties": {
+              "component": { "type": "string" },
+              "version": { "type": "string" },
+              "sha256": { "type": "string" }
+            }
+          }
+        ]
+      },
+      "description": "Additional local files/directories or global component ids required by this definition"
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "file": { "type": "string" },
+          "format": { "type": "string", "enum": ["json", "csv", "f32le"] },
+          "shape": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+          "sha256": { "type": "string" }
+        }
+      }
+    },
     "public_ports": { "type": "array" },
     "public_parameters": { "type": "array" },
     "custom_handles": {

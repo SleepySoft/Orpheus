@@ -282,7 +282,7 @@ def build_topology(
         main_nodes.append(
             {
                 "id": sub_id,
-                "component": f"sub:{sub_id}",
+                "component": sub_id,
                 "position": {"x": 40 + (i + 1) * 280, "y": 200},
             }
         )
@@ -308,7 +308,7 @@ def build_topology(
         main_nodes.append(
             {
                 "id": tap_id,
-                "component": f"sub:{tap_id}",
+                "component": tap_id,
                 "position": {"x": x + 180, "y": 560},
             }
         )

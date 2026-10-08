@@ -164,6 +164,27 @@ class ComponentBuilder:
         if result.returncode != 0:
             raise BuildError(f"cmake configure failed:\n{result.stderr}\n{result.stdout}")
 
+    def configure_imported_components(self) -> None:
+        """Configure source components imported outside the repository library."""
+        global_root = (self.project_root / "components").resolve()
+        external_dirs: list[str] = []
+        for info in self.registry.list_components():
+            if info.package_type != "source":
+                continue
+            component_root = info.root_dir.resolve()
+            try:
+                component_root.relative_to(global_root)
+                continue
+            except ValueError:
+                pass
+            if not (component_root / "CMakeLists.txt").is_file():
+                raise BuildError(
+                    f"imported source component {info.id} has no CMakeLists.txt: {component_root}"
+                )
+            external_dirs.append(str(component_root))
+        argument = ";".join(sorted(set(external_dirs)))
+        self.configure([f"-DORPHEUS_EXTRA_COMPONENT_DIRS={argument}"])
+
     def build_component(self, component_id: str) -> Path:
         info = self.registry.get(component_id)
         if info is None:

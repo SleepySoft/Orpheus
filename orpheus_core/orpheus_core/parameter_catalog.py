@@ -29,13 +29,15 @@ ID_KIND_BITS = {"RTC": 0x0, "TUNE": 0x1, "PROBE": 0x2, "STATE": 0x3, "CUSTOM": 0
 ID_SLOT_MODULE = 0xFFFF  # 模块包条目占用的槽号（不与数据点槽冲突）
 
 
-def is_subcomponent_ref(component: str) -> bool:
-    return component.startswith(SUB_PREFIX)
+def is_subcomponent_ref(
+    component: str, subs: dict[str, Subcomponent] | None = None
+) -> bool:
+    return component.startswith(SUB_PREFIX) or bool(subs and component in subs)
 
 
 def subcomponent_id(component: str) -> str:
-    """'sub:accumulator' -> 'accumulator'。"""
-    return component[len(SUB_PREFIX):]
+    """Return a logical id from legacy prefixed or uniform bare references."""
+    return component[len(SUB_PREFIX):] if component.startswith(SUB_PREFIX) else component
 
 
 def kind_of(param: dict[str, Any]) -> str:
@@ -121,7 +123,7 @@ def build_catalog(project: Project, registry: Registry) -> list[CatalogEntry]:
 
     def walk(graph: Graph, view_path: list[str], path: list[dict[str, str]]) -> None:
         for node in graph.nodes.values():
-            if is_subcomponent_ref(node.component):
+            if is_subcomponent_ref(node.component, subs):
                 if any(p["id"] == node.id for p in path):
                     continue  # 环保护（后端 flatten 会报错）
                 sub = subs.get(subcomponent_id(node.component))
@@ -129,7 +131,7 @@ def build_catalog(project: Project, registry: Registry) -> list[CatalogEntry]:
                     continue
                 walk(
                     sub.graph,
-                    [*view_path, node.component],
+                    [*view_path, f"{SUB_PREFIX}{sub.id}"],
                     [*path, {"id": node.id, "label": node.id}],
                 )
                 continue
@@ -163,7 +165,7 @@ def _locate_node(project: Project, entry: CatalogEntry):
     container: Graph = project.graph
     for step in entry.path[:-1]:
         instance = container.nodes.get(step["id"])
-        if instance is None or not is_subcomponent_ref(instance.component):
+        if instance is None or not is_subcomponent_ref(instance.component, subs):
             return None
         sub = subs.get(subcomponent_id(instance.component))
         if sub is None:

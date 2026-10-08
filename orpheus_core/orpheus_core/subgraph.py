@@ -1,13 +1,9 @@
 """Subcomponent (composite) expansion: flatten hierarchical graphs before compile.
 
-Subcomponents are project-private composites referenced by nodes with
-``component: "sub:<sub_id>"``. Flattening expands every instance recursively
+Composite components are referenced by the same component ids as atomic
+components. Flattening expands every composite instance recursively
 into a pure-atomic graph, so the compiler / runtime / codegen never see the
 hierarchy (Simulink "virtual subsystem" style).
-
-v1 restrictions:
-- ``maps_to`` of a sub port must reference an *atomic* internal node port.
-- No parameter promotion (mask parameters) on instances.
 """
 
 from __future__ import annotations
@@ -25,16 +21,16 @@ BRIDGE_COMPONENTS = {
 }
 
 
-def is_subcomponent_ref(component: str) -> bool:
-    return component.startswith(SUB_PREFIX)
+def is_subcomponent_ref(component: str, subs: dict[str, Subcomponent] | None = None) -> bool:
+    return component.startswith(SUB_PREFIX) or bool(subs and component in subs)
 
 
 def subcomponent_id(component: str) -> str:
-    """'sub:accumulator' -> 'accumulator'."""
-    return component[len(SUB_PREFIX):]
+    """Return the logical id for legacy ``sub:id`` or a uniform bare id."""
+    return component[len(SUB_PREFIX):] if component.startswith(SUB_PREFIX) else component
 
 
-def _validate_subcomponent(sub: Subcomponent) -> None:
+def _validate_subcomponent(sub: Subcomponent, subs: dict[str, Subcomponent]) -> None:
     bridge_nodes = [node.id for node in sub.graph.nodes.values() if node.component in BRIDGE_COMPONENTS]
     if bridge_nodes:
         raise CompileError(
@@ -56,11 +52,6 @@ def _validate_subcomponent(sub: Subcomponent) -> None:
             raise CompileError(
                 f"subcomponent {sub.id}: port {port.id!r} maps to unknown node {ref.node_id!r}"
             )
-        if is_subcomponent_ref(node.component):
-            raise CompileError(
-                f"subcomponent {sub.id}: port {port.id!r} maps to nested subcomponent "
-                f"instance {ref.node_id!r}; map to an atomic node instead"
-            )
     seen_params: set[str] = set()
     for param in sub.public_parameters:
         if param.id in seen_params:
@@ -81,11 +72,59 @@ def _validate_subcomponent(sub: Subcomponent) -> None:
             raise CompileError(
                 f"subcomponent {sub.id}: public parameter {param.id!r} maps to unknown node {ref.node_id!r}"
             )
-        if is_subcomponent_ref(node.component):
-            raise CompileError(
-                f"subcomponent {sub.id}: public parameter {param.id!r} maps to nested subcomponent "
-                f"instance {ref.node_id!r}; map to an atomic node instead"
-            )
+
+
+def _resolve_boundary_port(
+    sub: Subcomponent,
+    port_id: str,
+    subs: dict[str, Subcomponent],
+    stack: tuple[str, ...] = (),
+) -> PortRef:
+    port = next((candidate for candidate in sub.ports if candidate.id == port_id), None)
+    if port is None:
+        raise CompileError(f"component {sub.id!r} has no port {port_id!r}")
+    target = PortRef.parse(port.maps_to)
+    node = sub.graph.nodes[target.node_id]
+    if not is_subcomponent_ref(node.component, subs):
+        return target
+    child_id = subcomponent_id(node.component)
+    if child_id in stack:
+        raise CompileError("component cycle: " + " -> ".join((*stack, child_id)))
+    child = subs.get(child_id)
+    if child is None:
+        raise CompileError(f"undefined composite component: {node.component!r}")
+    nested = _resolve_boundary_port(child, target.port_id, subs, (*stack, sub.id))
+    return PortRef(node_id=f"{target.node_id}{NODE_SEP}{nested.node_id}", port_id=nested.port_id)
+
+
+def _resolve_public_parameter(
+    sub: Subcomponent,
+    parameter_id: str,
+    subs: dict[str, Subcomponent],
+    stack: tuple[str, ...] = (),
+) -> tuple[Subcomponent, object, PortRef]:
+    public = next(
+        (candidate for candidate in sub.public_parameters if candidate.id == parameter_id),
+        None,
+    )
+    if public is None:
+        raise CompileError(f"component {sub.id!r} has no public parameter {parameter_id!r}")
+    target = PortRef.parse(public.maps_to)
+    node = sub.graph.nodes[target.node_id]
+    if not is_subcomponent_ref(node.component, subs):
+        return sub, public, target
+    child_id = subcomponent_id(node.component)
+    if child_id in stack:
+        raise CompileError("component cycle: " + " -> ".join((*stack, child_id)))
+    child = subs.get(child_id)
+    if child is None:
+        raise CompileError(f"undefined composite component: {node.component!r}")
+    _, leaf_public, nested = _resolve_public_parameter(
+        child, target.port_id, subs, (*stack, sub.id)
+    )
+    return child, leaf_public, PortRef(
+        node_id=f"{target.node_id}{NODE_SEP}{nested.node_id}", port_id=nested.port_id
+    )
 
 
 def _expand_graph(
@@ -98,7 +137,7 @@ def _expand_graph(
     flat = Graph()
 
     for node in graph.nodes.values():
-        if not is_subcomponent_ref(node.component):
+        if not is_subcomponent_ref(node.component, subs):
             cloned = copy.deepcopy(node)
             cloned.id = prefix + node.id
             flat.nodes[cloned.id] = cloned
@@ -126,7 +165,7 @@ def _expand_graph(
             value = node.params.get(public.id, public.default)
             if value is None:
                 continue
-            target = PortRef.parse(public.maps_to)
+            _, _, target = _resolve_public_parameter(sub, public.id, subs)
             flat_target = f"{prefix}{node.id}{NODE_SEP}{target.node_id}"
             inner.nodes[flat_target].params[target.port_id] = copy.deepcopy(value)
         flat.nodes.update(inner.nodes)
@@ -134,18 +173,13 @@ def _expand_graph(
 
     def map_endpoint(ref: PortRef) -> PortRef:
         node = graph.nodes.get(ref.node_id)
-        if node is None or not is_subcomponent_ref(node.component):
+        if node is None or not is_subcomponent_ref(node.component, subs):
             return PortRef(node_id=prefix + ref.node_id, port_id=ref.port_id)
         sub = subs[subcomponent_id(node.component)]
-        for port in sub.ports:
-            if port.id == ref.port_id:
-                inner = PortRef.parse(port.maps_to)
-                return PortRef(
-                    node_id=f"{prefix}{ref.node_id}{NODE_SEP}{inner.node_id}",
-                    port_id=inner.port_id,
-                )
-        raise CompileError(
-            f"node {ref.node_id}: subcomponent {node.component!r} has no port {ref.port_id!r}"
+        inner = _resolve_boundary_port(sub, ref.port_id, subs)
+        return PortRef(
+            node_id=f"{prefix}{ref.node_id}{NODE_SEP}{inner.node_id}",
+            port_id=inner.port_id,
         )
 
     for conn in graph.connections:
@@ -160,25 +194,20 @@ def flatten_project(project: Project) -> Project:
     """Return a new Project whose graph contains only atomic components."""
     subs = {s.id: s for s in project.subcomponents}
     for sub in subs.values():
-        _validate_subcomponent(sub)
+        _validate_subcomponent(sub, subs)
 
     def map_control_endpoint(ref: PortRef, expected_direction: str) -> PortRef:
         node = project.graph.nodes.get(ref.node_id)
-        if node is None or not is_subcomponent_ref(node.component):
+        if node is None or not is_subcomponent_ref(node.component, subs):
             return copy.deepcopy(ref)
         sub = subs[subcomponent_id(node.component)]
-        public = next((p for p in sub.public_parameters if p.id == ref.port_id), None)
-        if public is None:
-            raise CompileError(
-                f"节点 {node.id}: 子组件 {node.component!r} 没有公开参数 {ref.port_id!r}"
-            )
+        _, public, target = _resolve_public_parameter(sub, ref.port_id, subs)
         if public.direction != expected_direction:
             role = "源" if expected_direction == "output" else "目标"
             raise CompileError(
                 f"控制连接{role} {ref} 的公开参数方向应为 {expected_direction}，"
                 f"实际为 {public.direction}"
             )
-        target = PortRef.parse(public.maps_to)
         return PortRef(node_id=f"{node.id}{NODE_SEP}{target.node_id}", port_id=target.port_id)
 
     flat_control: list[ControlConnection] = []

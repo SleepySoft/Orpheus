@@ -215,7 +215,7 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
     const subDoc = {
       ...doc,
       graph: {
-        nodes: [{ id: 'chain1', component: 'sub:chain', params: { gain: -12 } }],
+        nodes: [{ id: 'chain1', component: 'chain', params: { gain: -12 } }],
         connections: [],
       },
       control_connections: [{ from: 'chain1:level', to: 'chain1:gain' }],
@@ -230,10 +230,12 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
       }],
     };
     const { views, subsMeta } = docToViews(subDoc, catalog);
+    expect(views.main.nodes[0].data.component).toBe('sub:chain');
     const params = views.main.nodes[0].data.parameters;
     expect(params.find((p) => p.id === 'level').control_source).toBe(true);
     expect(params.find((p) => p.id === 'gain').bindable).toBe(true);
     const out = viewsToDoc(views, subsMeta, subDoc);
+    expect(out.graph.nodes[0].component).toBe('chain');
     expect(out.subcomponents[0].public_parameters).toEqual(subDoc.subcomponents[0].public_parameters);
   });
 

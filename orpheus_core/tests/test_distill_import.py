@@ -127,7 +127,8 @@ def test_distill_symphony_sas_topology_expansion() -> None:
         # 主音频链（TID0：9 链，含 FDP 内联）+ 4 个降速率分析抽头（TID2 inline 不生成抽头）
         assert len(doc["graph"]["nodes"]) == 23
         assert len(doc["subcomponents"]) == 13
-        assert any(n["component"].startswith("sub:") for n in doc["graph"]["nodes"])
+        sub_ids = {sub["id"] for sub in doc["subcomponents"]}
+        assert any(n["component"] in sub_ids for n in doc["graph"]["nodes"])
         downrates = {
             n["id"]: n["params"].get("factor")
             for n in doc["graph"]["nodes"]

@@ -183,11 +183,11 @@ def test_flatten_invalid_maps_to():
         flatten_project(project)
 
 
-def test_flatten_maps_to_nested_instance_rejected():
+def test_flatten_maps_to_self_nested_instance_reports_cycle():
     project = make_project()
     project.subcomponents[0].graph.nodes["nested"] = Node(id="nested", component="sub:chain")
     project.subcomponents[0].ports[0] = SubPort(id="in", direction="input", maps_to="nested:in")
-    with pytest.raises(CompileError, match="atomic"):
+    with pytest.raises(CompileError, match="cycle"):
         flatten_project(project)
 
 

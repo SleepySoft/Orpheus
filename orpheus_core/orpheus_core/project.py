@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 from pathlib import Path
+import json
+import math
+import struct
 from typing import Any
 
 import yaml
 
 from orpheus_core import schemas
+from orpheus_core.registry import ComponentInfo, Registry
 
 
 @dataclass
@@ -38,6 +43,7 @@ class Node:
     params: dict[str, Any] = field(default_factory=dict)
     position: dict[str, float] = field(default_factory=dict)
     alters: list[str] = field(default_factory=list)  # 用户声明的替代组（同图节点 id）
+    param_resources: dict[str, str] = field(default_factory=dict, repr=False)
 
 
 @dataclass
@@ -92,6 +98,9 @@ class Subcomponent:
     ports: list[SubPort] = field(default_factory=list)
     public_parameters: list[SubParameter] = field(default_factory=list)
     graph: Graph = field(default_factory=Graph)
+    imported: bool = False
+    source_path: Path | None = None
+    read_only: bool = False
 
 
 @dataclass
@@ -164,6 +173,11 @@ class Project:
     bridges: list[Bridge] = field(default_factory=list)
     graph: Graph = field(default_factory=Graph)
     subcomponents: list[Subcomponent] = field(default_factory=list)
+    imports: list[Any] = field(default_factory=list)
+    root_dir: Path | None = field(default=None, repr=False, compare=False)
+    component_manifests: list[Path] = field(default_factory=list, repr=False, compare=False)
+    registry: Registry | None = field(default=None, repr=False, compare=False)
+    resources: dict[str, dict[str, Any]] = field(default_factory=dict)
     # 控制连接（顶层段）：编译期校验后进入 plan.control_links，运行期块边界两相快照投递
     control_connections: list[ControlConnection] = field(default_factory=list)
     # 顶层未知字段（如 presets、model_tree 蒸馏注释）：schema 放行但 loader 不认识，
@@ -180,18 +194,31 @@ class Project:
         return next(iter(self.tasks.values()))
 
 
-def _parse_graph(graph_data: dict[str, Any]) -> Graph:
+def _parse_graph(
+    graph_data: dict[str, Any], resource_values: dict[str, Any] | None = None
+) -> Graph:
     graph = Graph()
     for n in graph_data.get("nodes", []):
+        params = dict(n.get("params", {}) or {})
+        param_resources: dict[str, str] = {}
+        for param_id, value in list(params.items()):
+            if not isinstance(value, dict) or "$resource" not in value:
+                continue
+            resource_id = value["$resource"]
+            if not resource_values or resource_id not in resource_values:
+                raise ValueError(f"node {n['id']}: undefined resource {resource_id!r}")
+            params[param_id] = resource_values[resource_id]
+            param_resources[param_id] = resource_id
         node = Node(
             id=n["id"],
             component=n["component"],
             label=n.get("label", ""),
             version=n.get("version"),
             task=n.get("task", "default"),
-            params=n.get("params", {}),
+            params=params,
             position=n.get("position", {}),
             alters=list(n.get("alters", []) or []),
+            param_resources=param_resources,
         )
         graph.nodes[node.id] = node
     for c in graph_data.get("connections", []):
@@ -213,7 +240,10 @@ def _graph_to_dict(graph: Graph) -> dict[str, Any]:
                 **({"label": n.label} if n.label else {}),
                 **({"version": n.version} if n.version else {}),
                 "task": n.task,
-                "params": n.params,
+                "params": {
+                    key: ({"$resource": n.param_resources[key]} if key in n.param_resources else value)
+                    for key, value in n.params.items()
+                },
                 "position": n.position,
                 **({"alters": n.alters} if n.alters else {}),
             }
@@ -226,7 +256,9 @@ def _graph_to_dict(graph: Graph) -> dict[str, Any]:
     }
 
 
-def project_to_dict(project: Project) -> dict[str, Any]:
+def project_to_dict(
+    project: Project, *, materialize_imports: bool = False
+) -> dict[str, Any]:
     """Serialize a Project to the plain dict shape used by YAML/JSON documents."""
     doc = {
         "version": project.version,
@@ -251,6 +283,10 @@ def project_to_dict(project: Project) -> dict[str, Any]:
         ],
         "graph": _graph_to_dict(project.graph),
     }
+    if project.imports:
+        doc["imports"] = project.imports
+    if project.resources:
+        doc["resources"] = project.resources
     if project.clock_domains:
         doc["clock_domains"] = [
             {
@@ -305,12 +341,16 @@ def project_to_dict(project: Project) -> dict[str, Any]:
             {"from": str(c.from_ref), "to": str(c.to_ref)}
             for c in project.control_connections
         ]
-    if project.subcomponents:
+    persisted_subcomponents = [
+        sub for sub in project.subcomponents if materialize_imports or not sub.imported
+    ]
+    if persisted_subcomponents:
         doc["subcomponents"] = [
             {
                 "id": s.id,
                 "name": s.name,
                 "description": s.description,
+                **({"read_only": True} if s.read_only else {}),
                 "ports": [
                     {"id": p.id, "direction": p.direction, "maps_to": p.maps_to}
                     for p in s.ports
@@ -332,23 +372,235 @@ def project_to_dict(project: Project) -> dict[str, Any]:
                 } if s.public_parameters else {}),
                 "graph": _graph_to_dict(s.graph),
             }
-            for s in project.subcomponents
+            for s in persisted_subcomponents
         ]
     if project.extra:
         doc.update(project.extra)
     return doc
 
 
+def _flatten_numbers(value: Any) -> list[float]:
+    if isinstance(value, list):
+        output: list[float] = []
+        for item in value:
+            output.extend(_flatten_numbers(item))
+        return output
+    return [float(value)]
+
+
+def _load_resource_values(
+    definitions: dict[str, dict[str, Any]], base: Path
+) -> dict[str, str]:
+    values: dict[str, str] = {}
+    resolved_base = base.resolve()
+    for resource_id, definition in definitions.items():
+        relative = definition.get("file")
+        if not isinstance(relative, str) or not relative:
+            raise ValueError(f"resource {resource_id!r} missing file")
+        path = (resolved_base / relative).resolve()
+        try:
+            path.relative_to(resolved_base)
+        except ValueError as exc:
+            raise ValueError(f"resource {resource_id!r} escapes its project/package") from exc
+        raw = path.read_bytes()
+        expected_hash = definition.get("sha256")
+        digest = hashlib.sha256(raw).hexdigest()
+        if expected_hash and digest != expected_hash:
+            raise ValueError(
+                f"resource {resource_id!r} sha256 mismatch: expected {expected_hash}, got {digest}"
+            )
+        resource_format = definition.get("format", "json")
+        if resource_format == "f32le":
+            if len(raw) % 4:
+                raise ValueError(f"resource {resource_id!r} f32le byte length is not divisible by 4")
+            numbers = list(struct.unpack(f"<{len(raw) // 4}f", raw))
+        elif resource_format == "json":
+            decoded = json.loads(raw.decode("utf-8"))
+            if isinstance(decoded, dict):
+                decoded = decoded.get("values", decoded.get("data"))
+            numbers = _flatten_numbers(decoded)
+        elif resource_format == "csv":
+            text = raw.decode("utf-8").replace("\n", ",")
+            numbers = [float(token.strip()) for token in text.split(",") if token.strip()]
+        else:
+            raise ValueError(f"resource {resource_id!r} has unsupported format {resource_format!r}")
+        shape = definition.get("shape", []) or []
+        if shape:
+            expected_count = math.prod(int(dimension) for dimension in shape)
+            if len(numbers) != expected_count:
+                raise ValueError(
+                    f"resource {resource_id!r} shape {shape} requires {expected_count} values, "
+                    f"got {len(numbers)}"
+                )
+        values[resource_id] = ",".join(format(number, ".9g") for number in numbers)
+    return values
+
+
+def _subcomponent_from_manifest(info: ComponentInfo) -> Subcomponent:
+    manifest = info.manifest
+    if info.package_type != "composite":
+        raise ValueError(f"component {info.id!r} is not composite")
+    ports = []
+    for port in manifest.get("ports", []) or []:
+        if not port.get("maps_to"):
+            raise ValueError(f"composite {info.id}: port {port.get('id')!r} missing maps_to")
+        ports.append(SubPort(
+            id=port["id"], direction=port["direction"], maps_to=port["maps_to"]
+        ))
+    public_parameters = []
+    for parameter in manifest.get("parameters", []) or []:
+        if not parameter.get("maps_to"):
+            continue
+        public_parameters.append(SubParameter(
+            id=parameter["id"],
+            direction=parameter.get("direction", "input"),
+            maps_to=parameter["maps_to"],
+            name=parameter.get("name", parameter["id"]),
+            type=parameter.get("type", "float"),
+            default=parameter.get("default"),
+            shape=list(parameter.get("shape", []) or []),
+            update_policy=parameter.get("update_policy", "immediate"),
+        ))
+    resource_values = _load_resource_values(
+        dict(manifest.get("resources", {}) or {}), info.root_dir
+    )
+    return Subcomponent(
+        id=info.id,
+        name=manifest.get("name", info.id),
+        description=manifest.get("description", ""),
+        ports=ports,
+        public_parameters=public_parameters,
+        graph=_parse_graph(
+            manifest.get("graph", {"nodes": [], "connections": []}),
+            resource_values,
+        ),
+        imported=True,
+        source_path=info.manifest_path,
+    )
+
+
 class ProjectLoader:
-    def __init__(self) -> None:
+    def __init__(self, registry: Registry | None = None) -> None:
         self._schema = schemas.load_project_schema()
+        self._registry = registry
+
+    @staticmethod
+    def _entry_path(path: Path) -> Path:
+        candidate = Path(path)
+        return candidate / "project.yaml" if candidate.is_dir() else candidate
+
+    @staticmethod
+    def _secure_path(base: Path, owner: Path, relative: str) -> Path:
+        requested = Path(relative)
+        if requested.is_absolute():
+            raise ValueError(f"component import must be relative: {relative}")
+        target = (owner.parent / requested).resolve()
+        try:
+            target.relative_to(base)
+        except ValueError as exc:
+            raise ValueError(f"component import escapes project directory: {relative}") from exc
+        return target
+
+    def _load_imports(self, project: Project, entry_path: Path, registry: Registry) -> None:
+        if not project.imports:
+            return
+        base = entry_path.parent.resolve()
+        seen_paths: set[Path] = set()
+        seen_ids: dict[str, Path] = {}
+        resolving_ids: list[str] = []
+
+        def register_info(info: ComponentInfo) -> None:
+            previous = seen_ids.get(info.id)
+            if previous is not None and previous != info.manifest_path:
+                raise ValueError(
+                    f"duplicate imported component id {info.id!r}: {previous} and {info.manifest_path}"
+                )
+            seen_ids[info.id] = info.manifest_path
+            if info.manifest_path not in project.component_manifests:
+                project.component_manifests.append(info.manifest_path)
+            if info.package_type == "composite" and not any(
+                sub.id == info.id for sub in project.subcomponents
+            ):
+                subcomponent = _subcomponent_from_manifest(info)
+                try:
+                    info.manifest_path.resolve().relative_to(base)
+                    subcomponent.read_only = False
+                except ValueError:
+                    subcomponent.read_only = True
+                project.subcomponents.append(subcomponent)
+
+        def visit_file(manifest_path: Path, containment: Path) -> None:
+            resolved = manifest_path.resolve()
+            if resolved in seen_paths:
+                return
+            seen_paths.add(resolved)
+            if not resolved.is_file():
+                raise FileNotFoundError(f"component import not found: {resolved}")
+            info = registry.add_manifest(resolved)
+            register_info(info)
+            for nested in info.manifest.get("imports", []) or []:
+                visit_import(nested, resolved, containment)
+
+        def visit_import(item: Any, owner: Path, containment: Path) -> None:
+            if isinstance(item, dict):
+                component_id = item.get("component")
+                if not component_id:
+                    raise ValueError(f"invalid component import: {item!r}")
+                info = registry.get(component_id)
+                if info is None:
+                    raise ValueError(f"global component import not found: {component_id}")
+                if component_id in resolving_ids:
+                    cycle = " -> ".join([*resolving_ids, component_id])
+                    raise ValueError(f"component import cycle: {cycle}")
+                required_version = item.get("version")
+                if required_version and info.version != required_version:
+                    raise ValueError(
+                        f"global component {component_id!r} version mismatch: "
+                        f"required {required_version}, found {info.version}"
+                    )
+                required_hash = item.get("sha256")
+                if required_hash:
+                    actual_hash = hashlib.sha256(info.manifest_path.read_bytes()).hexdigest()
+                    if actual_hash != required_hash:
+                        raise ValueError(
+                            f"global component {component_id!r} manifest sha256 mismatch"
+                        )
+                register_info(info)
+                resolving_ids.append(component_id)
+                try:
+                    for nested in info.manifest.get("imports", []) or []:
+                        visit_import(nested, info.manifest_path, info.root_dir.resolve())
+                finally:
+                    resolving_ids.pop()
+                return
+            if not isinstance(item, str) or not item:
+                raise ValueError(f"invalid component import: {item!r}")
+            target = self._secure_path(containment, owner, item)
+            if target.is_dir():
+                manifests = set(target.rglob("component.yaml"))
+                manifests.update(target.rglob("*.component.yaml"))
+                if not manifests:
+                    raise FileNotFoundError(f"component import directory is empty: {target}")
+                for path in sorted(manifests):
+                    visit_file(path, containment)
+            else:
+                visit_file(target, containment)
+
+        for imported in project.imports:
+            visit_import(imported, entry_path, base)
 
     def load(self, path: Path) -> Project:
+        path = self._entry_path(path).resolve()
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         schemas.validate(data, self._schema)
 
         project = Project(version=data.get("version", "0.1.0"))
+        project.registry = self._registry.fork() if self._registry is not None else Registry()
+        project.root_dir = path.parent
+        project.imports = list(data.get("imports", []) or [])
+        project.resources = dict(data.get("resources", {}) or {})
+        resource_values = _load_resource_values(project.resources, path.parent)
         project.metadata = data.get("metadata", {})
         project.sample_rate = data.get("sample_rate", 48000)
         project.block_size = data.get("block_size", 128)
@@ -423,7 +675,9 @@ class ProjectLoader:
             for bridge in data.get("bridges", []) or []
         ]
 
-        project.graph = _parse_graph(data.get("graph", {"nodes": [], "connections": []}))
+        project.graph = _parse_graph(
+            data.get("graph", {"nodes": [], "connections": []}), resource_values
+        )
         for c in data.get("control_connections", []) or []:
             project.control_connections.append(
                 ControlConnection(
@@ -449,15 +703,19 @@ class ProjectLoader:
                     )
                     for p in s.get("public_parameters", [])
                 ],
-                graph=_parse_graph(s.get("graph", {"nodes": [], "connections": []})),
+                graph=_parse_graph(
+                    s.get("graph", {"nodes": [], "connections": []}), resource_values
+                ),
+                read_only=bool(s.get("read_only", False)),
             )
             project.subcomponents.append(sub)
+        self._load_imports(project, path, project.registry)
         # 保留未知顶层字段（presets / model_tree 等），往返不丢
         known = {
             "version", "metadata", "sample_rate", "block_size", "buffer_size",
             "double_bank", "target", "debug_mode", "tasks", "clock_domains", "trigger_groups",
             "sport_bindings", "bridges", "graph", "subcomponents",
-            "control_connections",
+            "control_connections", "imports", "resources",
         }
         for key, value in data.items():
             if key not in known:

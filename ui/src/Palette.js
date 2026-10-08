@@ -65,7 +65,7 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
   // 模糊搜索：中文显示名 / 英文 id / 分类路径 / 描述均参与匹配；命中时平铺展示结果
   const flat = useMemo(
     () => [
-      ...subsMeta.map((s) => ({ item: subCatalogEntry(s), deletable: true, sub: true })),
+      ...subsMeta.map((s) => ({ item: subCatalogEntry(s), deletable: !s.read_only, sub: true })),
       ...flattenItems(tree).map((c) => ({ item: c, deletable: false })),
     ],
     [subsMeta, tree]
