@@ -16,14 +16,14 @@ graph:
       component: orpheus.builtin.wav_in
       task: default
       params:
-        file_path: test_input.wav
+        file_path: ../test_input.wav
         channels: 1
       position: {x: 40, y: 80}
     - id: wd
       component: orpheus.builtin.wav_in
       task: default
       params:
-        file_path: test_input.wav
+        file_path: ../test_input.wav
         channels: 1
       position: {x: 40, y: 240}
     - id: anc

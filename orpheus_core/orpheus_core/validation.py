@@ -477,14 +477,13 @@ def discover_project_files(paths: list[Path]) -> list[Path]:
                 files.add(direct_entry.resolve())
                 continue
             entries = {entry.resolve() for entry in path.rglob("project.yaml")}
-            if entries:
-                files.update(entries)
-                continue
+            files.update(entries)
             files.update(
                 candidate.resolve()
                 for candidate in path.rglob("*.yaml")
                 if not candidate.name.endswith(".component.yaml")
                 and candidate.name != "component.yaml"
+                and candidate.name != "project.yaml"
             )
             files.update(
                 candidate.resolve()

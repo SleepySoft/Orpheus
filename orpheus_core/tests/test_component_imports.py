@@ -517,6 +517,26 @@ def test_standalone_validation_accepts_directory_project_with_imports(tmp_path: 
     assert report.valid, [issue.message for issue in report.issues]
 
 
+def test_discovery_keeps_flat_projects_beside_directory_projects(tmp_path: Path) -> None:
+    root = tmp_path / "examples"
+    write_yaml(root / "flat.yaml", project_document([], "orpheus.builtin.gain"))
+    write_yaml(
+        root / "directory" / "project.yaml",
+        project_document([], "orpheus.builtin.gain"),
+    )
+    write_yaml(
+        root / "recycled" / "old.yaml",
+        project_document([], "orpheus.builtin.gain"),
+    )
+    assert discover_project_files([root]) == sorted(
+        [
+            (root / "flat.yaml").resolve(),
+            (root / "directory" / "project.yaml").resolve(),
+            (root / "recycled" / "old.yaml").resolve(),
+        ]
+    )
+
+
 def test_imported_source_directory_is_forwarded_to_cmake(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -764,7 +764,7 @@ orpheus_platform_memory_section_bind(...);
 - **`orpheus.builtin.mp3_in`**：基于 vendored miniaudio 的 `ma_decoder`（内嵌 dr_mp3 0.7.3）解码 MP3；prepare 时整文件解码为 f32（按图采样率/通道数重采样，与 wav_in 的读取语义一致），`total_frames` readback 供离线宿主确定时长。manifest 声明 `deps: [miniaudio]`。
 - **文件控件扩展**：参数级 `file_ext`（如 `.mp3`）控制文件浏览/上传的扩展名过滤（`widgets.js` FileWidget），默认仍为 `.wav`。
 - **代码生成**：生成器改为按 manifest `sources` 列表编译组件（支持多源文件），并复制 `third_party/miniaudio.h` 到生成工程（自包含，可脱离仓库编译）；修复生成 main 不调用 `destroy` 导致 wav_out 不落盘的问题（此前一致性测试空洞通过——比较的是动态运行留下的同一文件）。
-- 示例：`examples/mp3_play.yaml`（MP3 → Gain → WAV），测试素材 `examples/test_input.mp3`（ffmpeg 生成的 2s 440Hz 正弦）。
+- 历史示例：`examples/recycled/mp3_play.yaml`（MP3 → Gain → WAV），测试素材 `examples/test_input.mp3`（ffmpeg 生成的 2s 440Hz 正弦）。
 - **Windows 中文文件名**：wav_in / mp3_in 的文件路径是 UTF-8，而 Windows 窄 `fopen` 按 ANSI 代码页解释，中文/特殊字符文件名会打不开（prepare 返回 -6）。已改用宽字符 API（`_wfopen` / `ma_decoder_init_file_w`）打开。
 
 ## 26. 输出 fan-out、监控增强、FIR/扫频/频谱、子组件框选（已实现 v1）
@@ -905,7 +905,7 @@ orpheus_platform_memory_section_bind(...);
   次级路径模型用简化的 `secondary_gain` + `secondary_delay`，
   对参考信号先滤波得 filtered-x 再更新。
 - **学习文档**：`components/orpheus/builtin/anc_fxlms/README.md`（原理、数学、参数、用法）。
-  示例工程：`examples/anc_fxlms_demo.yaml`。
+  历史单体示例：`examples/recycled/anc_fxlms_demo.yaml`；当前教学入口使用 `examples/anc_fxlms_decomposed.yaml`。
 
 
 ## 32. FxLMS 主动降噪的可分解版（已实现）

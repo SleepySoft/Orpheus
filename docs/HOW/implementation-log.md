@@ -810,7 +810,7 @@
 
 - 新增 `orpheus.builtin.mp3_in`：miniaudio `ma_decoder`（dr_mp3）解码，prepare 整文件转 f32（按图速率重采样），`total_frames` readback；manifest `deps: [miniaudio]` + 参数 `file_ext: .mp3`。
 - 代码生成：按 manifest `sources` 编译组件、复制 miniaudio.h 保证生成工程自包含；修复生成 main 缺 destroy 导致 wav_out 不落盘（一致性测试此前空洞通过）。
-- 示例 `examples/mp3_play.yaml` + 素材 `examples/test_input.mp3` + e2e 测试（上传 mp3 → 离线运行 → 输出 WAV）。
+- 示例 `examples/recycled/mp3_play.yaml` + 素材 `examples/test_input.mp3` + e2e 测试（上传 mp3 → 离线运行 → 输出 WAV；示例后归档）。
 
 ## 2026-08-04
 
@@ -986,7 +986,7 @@
 
 ### 验证
 - `cli scan` 发现全部 8 个；`cli build` 编译通过（8 个 DLL）；`pytest test_server.py::test_components_have_chinese_name_and_category`、`test_variable_ports.py` 全绿。
-- 端到端离线运行（`examples/smoke_big6.yaml`：sig->mute->bass->treble->midrange->balance->rms->wav_out，48k×480k 帧，RMS 0.443，WAV 写出）；`smoke_fade.yaml`（4ch fade，RMS 0.313）；`smoke_routing.yaml`（output_router 2->6 上混 + input_select 6->2，RMS 0.345）均跑通。
+- 端到端离线运行（`examples/recycled/smoke_big6.yaml`：sig->mute->bass->treble->midrange->balance->rms->wav_out，48k×480k 帧，RMS 0.443，WAV 写出）；`recycled/smoke_fade.yaml`（4ch fade，RMS 0.313）；`recycled/smoke_routing.yaml`（output_router 2->6 上混 + input_select 6->2，RMS 0.345）均跑通；三者后归档。
 
 ### 已知环境问题（非本迭代引入）
 - 若 `orpheus_rt_host.exe` 在运行，会锁定已加载组件 DLL，导致 `cli build` 对该 DLL 报 `Permission denied`（如 biquad）。停掉实时会话后即可全量 build。新组件 DLL 不受影响。

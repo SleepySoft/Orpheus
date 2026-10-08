@@ -16,7 +16,7 @@ graph:
     component: orpheus.builtin.wav_in
     task: default
     params:
-      file_path: test_input.wav
+      file_path: ../test_input.wav
       channels: 2
     position:
       x: 100
