@@ -78,11 +78,11 @@ $$
 - `p2=0.714285731`
 - high/low 两档相同
 
-Orpheus 组件：`orpheus.builtin.baf_soft_clipper`。`examples/symphony_baf_structural_reference.yaml` 使用生成代码的二次分段实现，不再使用 tanh 近似。
+Orpheus 组件：`orpheus.builtin.baf_soft_clipper`。`examples/recycled/symphony_baf_structural_reference.yaml` 使用生成代码的二次分段实现，不再使用 tanh 近似。
 
 ## BAF 结构参考
 
-`examples/symphony_baf_structural_reference.yaml` 以 EREV BAF 1.0.3 的生成输出为调查边界，合并了此前分散的 SAS step0、PostProcess 和组件验证模型：
+`examples/recycled/symphony_baf_structural_reference.yaml` 以 EREV BAF 1.0.3 的生成输出为调查边界，合并了此前分散的 SAS step0、PostProcess 和组件验证模型；它已归档为蒸馏底稿，不再作为 UI 示例：
 
 - Baf1 / `Model_1_1`：6 个 TID、全速率 SAS、PostProcess 与 Audiopilot；
 - Baf2 / `Model_1_2`：5 个 TID、Deci FDP/Mixing、Peripheral/Headrest/Overhead EQ 与 Deci PostHoligram；

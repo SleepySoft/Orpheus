@@ -13,5 +13,6 @@
 | `test_gain_chain.yaml` | 编译器 fixture | 自动化编译测试 |
 | `test_slc_matrix_mul.yaml` | SLC 组件 fixture | 自动化数值测试 |
 | `wav_gain_chain.yaml` | 被更完整文件效果链覆盖 | `../wav_gain_biquad.yaml` |
+| `symphony_baf_structural_reference.*` | 全模型结构调查底稿，不是算法等价示例 | `../symphony_baf_heq/` 及后续可执行切片 |
 
 回收工程继续通过 `orpheus_core.cli validate examples/recycled` 校验，但不会被 `GET /api/examples` 列出。

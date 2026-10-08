@@ -30,8 +30,9 @@
 ## 外部模型
 
 - `symphony_asm_ehc_rnc.yaml`：ASM/EHC/RNC 多 Task 参考。
-- `symphony_baf_structural_reference.yaml`：BAF 全局结构调查参考。
 - `symphony_baf_heq/`：目录工程形式的 Model_1_2 HEQ 可执行蒸馏切片。
+
+BAF 全局结构调查底稿已归档到 `recycled/symphony_baf_structural_reference.*`，后续由可执行目录切片逐步替代。
 
 ## 收录准则
 

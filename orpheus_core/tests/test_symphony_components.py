@@ -10,7 +10,7 @@ from orpheus_core.registry import Registry
 from orpheus_core.subgraph import flatten_project
 
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE = ROOT / "examples" / "symphony_baf_structural_reference.yaml"
+EXAMPLE = ROOT / "examples" / "recycled" / "symphony_baf_structural_reference.yaml"
 
 
 def test_symphony_components_compile() -> None:

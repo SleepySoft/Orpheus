@@ -48,7 +48,7 @@ def test_asm_rnc_uses_generated_model_dimensions(compiler: GraphCompiler) -> Non
 
 
 def test_sas_uses_generated_piecewise_soft_clipper(compiler: GraphCompiler) -> None:
-    plan = compile_example(compiler, "symphony_baf_structural_reference.yaml")
+    plan = compile_example(compiler, "recycled/symphony_baf_structural_reference.yaml")
     config = plan.node_configs["post_process__sclip"]
     assert config["component"] == "orpheus.builtin.baf_soft_clipper"
     assert config["params"]["xmin"] == pytest.approx(0.65)
@@ -59,14 +59,14 @@ def test_sas_uses_generated_piecewise_soft_clipper(compiler: GraphCompiler) -> N
 def test_baf_structural_reference_does_not_claim_control_equivalence(
     compiler: GraphCompiler,
 ) -> None:
-    plan = compile_example(compiler, "symphony_baf_structural_reference.yaml")
+    plan = compile_example(compiler, "recycled/symphony_baf_structural_reference.yaml")
     assert sum(node.startswith("model_1_2__") for node in plan.node_configs) == 16
     assert plan.control_links == []
 
 
 def test_baf_structural_reference_declares_fidelity_and_documents_every_node() -> None:
-    project_path = ROOT / "examples" / "symphony_baf_structural_reference.yaml"
-    notes_path = ROOT / "examples" / "symphony_baf_structural_reference.node-notes.json"
+    project_path = ROOT / "examples" / "recycled" / "symphony_baf_structural_reference.yaml"
+    notes_path = ROOT / "examples" / "recycled" / "symphony_baf_structural_reference.node-notes.json"
     document = yaml.safe_load(project_path.read_text(encoding="utf-8"))
     notes = json.loads(notes_path.read_text(encoding="utf-8"))
     fidelity = document["model_tree"]["fidelity"]

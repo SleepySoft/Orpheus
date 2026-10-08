@@ -62,7 +62,7 @@ def _compile(name: str) -> dict:
 )
 def test_symphony_baf_structural_reference_compile() -> None:
     """Baf1+Baf2 结构子组件能编译。"""
-    plan = _compile("symphony_baf_structural_reference.yaml")
+    plan = _compile("recycled/symphony_baf_structural_reference.yaml")
     comps = {cfg["component"] for cfg in plan.node_configs.values()}
     # 子组件展开后不应再出现 sub: 前缀
     assert not any(c.startswith("sub:") for c in comps)
@@ -85,7 +85,7 @@ def test_symphony_baf_structural_reference_run_end_to_end(client) -> None:
     name = f"baf_{uuid.uuid4().hex[:8]}"
     _CREATED.append(name)
     assert client.post("/api/projects", json={"name": name}).status_code == 201
-    src = _load_example("symphony_baf_structural_reference.yaml")
+    src = _load_example("recycled/symphony_baf_structural_reference.yaml")
     doc = client.get(f"/api/projects/{name}").json()
     doc["sample_rate"] = src["sample_rate"]
     doc["block_size"] = src["block_size"]
