@@ -117,11 +117,17 @@ class ProjectManager:
         return result
 
     def list_examples(self) -> list[str]:
-        """List importable example projects from <root>/examples/*.yaml."""
+        """List flat YAML and directory examples under <root>/examples/."""
         examples = self.project_root / "examples"
         if not examples.exists():
             return []
-        return sorted(p.stem for p in examples.glob("*.yaml"))
+        names = {path.stem for path in examples.glob("*.yaml")}
+        names.update(
+            child.name
+            for child in examples.iterdir()
+            if child.is_dir() and (child / "project.yaml").is_file()
+        )
+        return sorted(names)
 
     def create(self, name: str, from_example: str | None = None) -> ProjectRecord:
         with self._lock:
@@ -150,6 +156,13 @@ class ProjectManager:
             return rec
 
     def _import_example(self, example: str, pdir: Path) -> Project:
+        example_root = self.project_root / "examples" / example
+        if (example_root / "project.yaml").is_file():
+            shutil.copytree(example_root, pdir, dirs_exist_ok=True)
+            for generated in pdir.glob("*.plan.json"):
+                generated.unlink()
+            return self._loader.load(pdir / "project.yaml")
+
         src = self.project_root / "examples" / f"{example}.yaml"
         if not src.exists():
             raise ProjectNotFoundError(f"example not found: {example}")

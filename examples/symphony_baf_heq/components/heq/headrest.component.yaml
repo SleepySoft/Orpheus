@@ -1,0 +1,42 @@
+id: baf.medusa.headrest_heq
+name: Medusa Headrest HEQ 默认 FIR
+category: BAF/Model_1_2/HEQ
+description: Model_1_2 p10 默认 Headrest HEQ FIR 主支路；40 个 530-tap filter，由 10 路输入映射产生 40 路输出
+version: 7.736.0
+abi_version: 1
+package_type: composite
+imports:
+  - component: orpheus.builtin.mapped_fir_bank
+ports:
+  - {id: in, direction: input, type: audio, sample_format: f32, channels: 10, maps_to: bank:in}
+  - {id: out, direction: output, type: audio, sample_format: f32, channels: 40, maps_to: bank:out}
+parameters: []
+resources:
+  baf.headrest.fir:
+    file: assets/headrest_fir.f32
+    format: f32le
+    shape: [40, 530]
+    sha256: 2310cfbe35d2fd693a702dc1b9769232146f64670711a923765f94c0c3b13f9d
+  baf.headrest.iir:
+    file: assets/headrest_iir.f32
+    format: f32le
+    shape: [40, 140]
+    sha256: 38d097477228baf52838e2dc91b50ef64f70e9a65030941869f3d31b96d4b8f7
+graph:
+  nodes:
+    - id: bank
+      component: orpheus.builtin.mapped_fir_bank
+      params:
+        input_channels: 10
+        filter_count: 40
+        output_channels: 40
+        filter_lengths: "530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530,530"
+        coefficient_mapping: "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39"
+        input_mapping: "0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9"
+        output_starts: "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39"
+        output_delay_samples: 2
+        coefficients: {$resource: baf.headrest.fir}
+  connections: []
+execution:
+  latency_samples: 531
+  realtime_safe: true

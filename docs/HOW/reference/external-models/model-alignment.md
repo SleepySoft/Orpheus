@@ -91,6 +91,23 @@ Orpheus 组件：`orpheus.builtin.baf_soft_clipper`。`examples/symphony_baf_str
 
 该工程明确标记为 `structural_reference`：数组控制总线只做结构记录，1/2/7/22 路块数据使用显式音频端口，FDP、Audiopilot、Medusa HEQ/VLS 和多 Task 调度尚未数值对齐。字段、周期和缺口见同名 `.notes.md` 与 `model_tree.fidelity`。
 
+## Model_1_2 Headrest / Overhead HEQ 可执行切片
+
+`examples/symphony_baf_heq/` 是目录工程机制落地后的第一个真实算法蒸馏切片：
+
+- `p10_b1.MedusaHeadrestCompEqFirCoeffsTarget[21200]`：40 个 530-tap filter；每个默认仅 tap 529 为 1.0。
+- `p10_b0.MedusaHeadrestCompEqFirInputMapping[40]`：10 路输入按 `0..9` 重复四次；OutputMapping 为 `0..39`，输出 40 路。
+- `p9_b1.MedusaOverheadHeqFirCoeffsTarget[10600]`：20 个 530-tap filter；每个默认仅 tap 529 为 0.2。
+- `p9_b0.MedusaOverheadHeqFirInputMapping[20]`：`[0,2,4,6,8,1,3,5,7,9,10,12,14,16,18,11,13,15,17,19]`。
+- Overhead OutputMapping `[0,5,10,15]` 把每五个 filter 求和为一路；两条链均保留生成代码的两样本跨块 carry。
+
+通用组件 `orpheus.builtin.mapped_fir_bank` 实现输入映射、系数集映射、变长 FIR、输出分组求和和统一输出延迟。系数由 `scripts/extract_baf_heq.py` 从 TOP 生成 `f32le` 资源并以 shape/hash 校验：
+
+- Headrest FIR SHA-256：`2310cfbe35d2fd693a702dc1b9769232146f64670711a923765f94c0c3b13f9d`
+- Overhead FIR SHA-256：`c0e4d8b1f7d5f24f7426f1c6613489a25b3ba2a2af12f0825071f06e0bcf572a`
+
+当前 p9/p10 PoolIIR TOP 系数全零，因此默认输出的有效算法部分是 FIR 主支路。运行期 room-mode IIR 系数更新、enable/bypass 仍是该子系统后续阶段，不能据此宣称所有调音状态等价。
+
 ## 当前验证
 
 - RNC MIMO NLMS：非零初始权值卷积 golden + 两帧归一化更新 golden。
@@ -98,6 +115,7 @@ Orpheus 组件：`orpheus.builtin.baf_soft_clipper`。`examples/symphony_baf_str
 - ASM 与 BAF 结构参考均可编译为 plan。
 - BAF 结构 plan 展开为 114 个原子节点，其中 Baf2 为 16 个。
 - 123 个可见节点均有工程注释；测试强制 fidelity 声明和 100% 注释覆盖。
+- HEQ 目录工程通过 import/resource/flatten/compile/codegen 测试，资源可从外部 TOP 字节级重复生成。
 - 两个生成程序均完成少量图块运行；ASM 全局入口及 TID1/TID5/TID6 入口返回 0。
 - ASM 工程附带教学包：编译、MIMO NLMS 组件/维度、跨子图控制链与异步桥数量均可在 UI 一键检查。
 

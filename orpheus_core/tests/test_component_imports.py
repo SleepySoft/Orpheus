@@ -572,3 +572,28 @@ def test_project_component_catalog_exposes_local_definition_and_readme(tmp_path:
         readme = client.get("/api/projects/demo/components/test.local/readme")
         assert readme.status_code == 200
         assert "Local component" in readme.text
+
+
+def test_directory_example_import_copies_definitions_resources_and_notes(tmp_path: Path) -> None:
+    example = tmp_path / "examples" / "directory_demo"
+    write_yaml(
+        example / "components" / "chain.component.yaml",
+        composite_manifest("demo.chain", "orpheus.builtin.gain", "gain"),
+    )
+    write_yaml(
+        example / "project.yaml",
+        project_document(["components/chain.component.yaml"], "demo.chain"),
+    )
+    (example / "assets").mkdir(parents=True)
+    (example / "assets" / "marker.bin").write_bytes(b"asset")
+    (example / "notes.md").write_text("directory notes\n", encoding="utf-8")
+    registry = Registry([ROOT / "components"])
+    registry.scan()
+    manager = ProjectManager(tmp_path, registry)
+    assert "directory_demo" in manager.list_examples()
+    record = manager.create("imported", from_example="directory_demo")
+    assert record.project.metadata["name"] == "imported"
+    assert (record.directory / "components" / "chain.component.yaml").is_file()
+    assert (record.directory / "assets" / "marker.bin").read_bytes() == b"asset"
+    assert (record.directory / "notes.md").read_text(encoding="utf-8") == "directory notes\n"
+    assert {sub.id for sub in record.project.subcomponents} == {"demo.chain"}

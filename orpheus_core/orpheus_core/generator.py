@@ -44,6 +44,15 @@ class CodeGenerator:
                 output.append(char)
         return "".join(output)
 
+    @classmethod
+    def _c_string_literal(cls, value: str, chunk_size: int = 1024) -> str:
+        """Return one or more adjacent C string literals with bounded token size."""
+        text = str(value)
+        if not text:
+            return '""'
+        chunks = [text[index:index + chunk_size] for index in range(0, len(text), chunk_size)]
+        return "\n        ".join(f'"{cls._c_escape(chunk)}"' for chunk in chunks)
+
     @staticmethod
     def _schedule_tick(plan: ExecutionPlan) -> int:
         """静态调度主步长（图速率帧）；旧 plan 无 schedule 时回退 plan.block_size。"""
@@ -943,7 +952,7 @@ class CodeGenerator:
                     vals.append(f'{{ .type = ORPHEUS_VALUE_FLOAT, .value.f32 = {pval}f }}')
                 else:
                     vals.append(
-                        f'{{ .type = ORPHEUS_VALUE_STRING, .value.str = "{self._c_escape(str(pval))}" }}'
+                        f'{{ .type = ORPHEUS_VALUE_STRING, .value.str = {self._c_string_literal(str(pval))} }}'
                     )
             lines.append(f'static OrpheusValue g_param_vals_{s}[] = {{')
             lines.append(f'    {", ".join(vals)}')

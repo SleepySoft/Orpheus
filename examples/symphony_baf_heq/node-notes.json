@@ -1,0 +1,9 @@
+{
+  "headrest_input": "10 路 Headrest 测试输入。",
+  "headrest": "p10 Headrest HEQ 默认 FIR 可执行复合组件。",
+  "overhead_input": "20 路 Overhead 测试输入。",
+  "overhead": "p9 Overhead HEQ 默认 FIR 可执行复合组件。",
+  "overhead_sink": "消费四路 Overhead 分组输出。",
+  "sub:baf.medusa.headrest_heq/bank": "40x530 mapped FIR bank，系数来自 p10_b1。",
+  "sub:baf.medusa.overhead_heq/bank": "20x530 mapped FIR bank，五个 filter 求和为一路。"
+}

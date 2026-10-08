@@ -58,6 +58,7 @@ ui/yarn-error.log*
 # Test outputs
 examples/test_output.wav
 examples/*.plan.json
+examples/**/*.plan.json
 
 # Logs
 *.log
