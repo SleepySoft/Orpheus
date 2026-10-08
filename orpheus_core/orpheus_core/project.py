@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import copy
 import hashlib
 from pathlib import Path
 import json
@@ -43,7 +44,7 @@ class Node:
     params: dict[str, Any] = field(default_factory=dict)
     position: dict[str, float] = field(default_factory=dict)
     alters: list[str] = field(default_factory=list)  # 用户声明的替代组（同图节点 id）
-    param_resources: dict[str, str] = field(default_factory=dict, repr=False)
+    param_resources: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
 
 
 @dataclass
@@ -195,20 +196,30 @@ class Project:
 
 
 def _parse_graph(
-    graph_data: dict[str, Any], resource_values: dict[str, Any] | None = None
+    graph_data: dict[str, Any], resource_values: dict[str, list[float]] | None = None
 ) -> Graph:
     graph = Graph()
     for n in graph_data.get("nodes", []):
         params = dict(n.get("params", {}) or {})
-        param_resources: dict[str, str] = {}
+        param_resources: dict[str, dict[str, Any]] = {}
         for param_id, value in list(params.items()):
             if not isinstance(value, dict) or "$resource" not in value:
                 continue
             resource_id = value["$resource"]
             if not resource_values or resource_id not in resource_values:
                 raise ValueError(f"node {n['id']}: undefined resource {resource_id!r}")
-            params[param_id] = resource_values[resource_id]
-            param_resources[param_id] = resource_id
+            numbers = resource_values[resource_id]
+            offset = int(value.get("offset", 0))
+            count = int(value.get("count", len(numbers) - offset))
+            if offset < 0 or count < 0 or offset + count > len(numbers):
+                raise ValueError(
+                    f"node {n['id']}: resource {resource_id!r} slice "
+                    f"[{offset}:{offset + count}] exceeds {len(numbers)} values"
+                )
+            params[param_id] = ",".join(
+                format(number, ".9g") for number in numbers[offset:offset + count]
+            )
+            param_resources[param_id] = copy.deepcopy(value)
         node = Node(
             id=n["id"],
             component=n["component"],
@@ -241,7 +252,7 @@ def _graph_to_dict(graph: Graph) -> dict[str, Any]:
                 **({"version": n.version} if n.version else {}),
                 "task": n.task,
                 "params": {
-                    key: ({"$resource": n.param_resources[key]} if key in n.param_resources else value)
+                    key: (copy.deepcopy(n.param_resources[key]) if key in n.param_resources else value)
                     for key, value in n.params.items()
                 },
                 "position": n.position,
@@ -390,8 +401,8 @@ def _flatten_numbers(value: Any) -> list[float]:
 
 def _load_resource_values(
     definitions: dict[str, dict[str, Any]], base: Path
-) -> dict[str, str]:
-    values: dict[str, str] = {}
+) -> dict[str, list[float]]:
+    values: dict[str, list[float]] = {}
     resolved_base = base.resolve()
     for resource_id, definition in definitions.items():
         relative = definition.get("file")
@@ -432,7 +443,7 @@ def _load_resource_values(
                     f"resource {resource_id!r} shape {shape} requires {expected_count} values, "
                     f"got {len(numbers)}"
                 )
-        values[resource_id] = ",".join(format(number, ".9g") for number in numbers)
+        values[resource_id] = numbers
     return values
 
 

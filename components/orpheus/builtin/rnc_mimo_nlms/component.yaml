@@ -1,7 +1,7 @@
 id: orpheus.builtin.rnc_mimo_nlms
 name: RNC 多参考 NLMS
 category: 高级/自适应与降噪
-description: 对齐 BAF RNC AdaptFilter 的多参考多输出 NLMS 核心；支持 12×8×125 初始权值与逐输出步长
+description: 对齐外部 RNC AdaptFilter 的多参考多输出 NLMS 核心；支持 12×8×125 初始权值与逐输出步长
 version: 1.0.0
 abi_version: 3
 package_type: source

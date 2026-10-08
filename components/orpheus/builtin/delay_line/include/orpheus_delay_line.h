@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define DELAY_LINE_MAX_CHANNELS 32
+#define DELAY_LINE_MAX_CHANNELS 64
 #define DELAY_LINE_MAX_DELAY    192000
 
 typedef struct {

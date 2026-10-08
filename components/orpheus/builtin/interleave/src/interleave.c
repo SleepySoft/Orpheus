@@ -6,7 +6,7 @@
 static const OrpheusParameter params[] = {
     { .id = "channels", .name = "Channels", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
-      .min_i32 = 1, .max_i32 = 32, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+    .min_i32 = 1, .max_i32 = 64, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true, .affects_signature = true }
 };
 
@@ -65,7 +65,7 @@ static int get_param(void* state, const char* id, OrpheusValue* v) {
 static int register_slots(void* state, const OrpheusRegistry* reg) {
     InterleaveState* s = (InterleaveState*)state;
     ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
-                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=64,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);

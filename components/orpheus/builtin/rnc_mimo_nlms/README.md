@@ -2,7 +2,7 @@
 
 ## 功能
 
-实现 BAF ASM RNC `AdaptFilter` 的多参考、多扬声器时域 NLMS 核心。每个输出都由全部参考通道的 FIR 权值共同生成，并使用上游提供的 filtered error 更新权值。
+实现外部 ASM RNC `AdaptFilter` 的多参考、多扬声器时域 NLMS 核心。每个输出都由全部参考通道的 FIR 权值共同生成，并使用上游提供的 filtered error 更新权值。
 
 权值索引为：
 
@@ -29,7 +29,7 @@
 ## 端口
 
 - `ref`：多路加速度计参考，通道数=`reference_channels`。
-- `filtered_error`：每个输出对应的 filtered error。完整 BAF 模型会先通过 Mic-to-Speaker 和 Speaker-to-Speaker Wiener FIR 计算此信号。
+- `filtered_error`：每个输出对应的 filtered error。完整外部模型会先通过 Mic-to-Speaker 和 Speaker-to-Speaker Wiener FIR 计算此信号。
 - `out`：多输出自适应 FIR 输出。
 
 ## 边界

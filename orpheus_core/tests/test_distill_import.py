@@ -89,8 +89,8 @@ def test_parse_flow_splits_blocks_and_respects_parens() -> None:
     assert map_block("PreqOut1") == "orpheus.builtin.output_router"
 
 
-def test_distill_symphony_sas_topology_expansion() -> None:
-    """BAF 结构参考的 Model_1_1 model_tree.chains 在导入时展开为拓扑：
+def test_distill_external_sas_topology_expansion() -> None:
+    """外部结构参考的 Model_1_1 model_tree.chains 在导入时展开为拓扑：
     主图含全部链子模块，未映射块用占位组件 id（UI 标红「组件缺失」），注释保留。
 
     结构参考本身已是可执行工程，蒸馏端点只会在骨架图（<=3 节点）
@@ -99,7 +99,7 @@ def test_distill_symphony_sas_topology_expansion() -> None:
 
     name = _new_name()
     data = yaml.safe_load(
-        (ROOT / "examples" / "recycled" / "symphony_baf_structural_reference.yaml").read_text(encoding="utf-8")
+        (ROOT / "examples" / "recycled" / "external_model_structural_reference.yaml").read_text(encoding="utf-8")
     )
     # 蒸馏端点只在骨架图上展开 model_tree
     data["graph"] = {

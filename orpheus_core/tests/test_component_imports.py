@@ -435,7 +435,10 @@ def test_f32_resource_is_materialized_for_compile_and_serialized_as_reference(
                 {
                     "id": "fir",
                     "component": "orpheus.builtin.fir",
-                    "params": {"channels": 1, "coefficients": {"$resource": "demo.fir"}},
+                    "params": {
+                        "channels": 1,
+                        "coefficients": {"$resource": "demo.fir", "offset": 1, "count": 2},
+                    },
                 },
                 {
                     "id": "sink",
@@ -452,12 +455,16 @@ def test_f32_resource_is_materialized_for_compile_and_serialized_as_reference(
     write_yaml(project_dir / "project.yaml", document)
     registry = builtin_registry()
     project = ProjectLoader(registry).load(project_dir)
-    assert project.graph.nodes["fir"].params["coefficients"] == "0.25,-0.5,1"
+    assert project.graph.nodes["fir"].params["coefficients"] == "-0.5,1"
     serialized = project_to_dict(project)
     fir_node = next(node for node in serialized["graph"]["nodes"] if node["id"] == "fir")
-    assert fir_node["params"]["coefficients"] == {"$resource": "demo.fir"}
+    assert fir_node["params"]["coefficients"] == {
+        "$resource": "demo.fir",
+        "offset": 1,
+        "count": 2,
+    }
     plan = GraphCompiler(project.registry or registry).compile(flatten_project(project))
-    assert plan.node_configs["fir"]["params"]["coefficients"] == "0.25,-0.5,1"
+    assert plan.node_configs["fir"]["params"]["coefficients"] == "-0.5,1"
 
 
 @pytest.mark.parametrize(

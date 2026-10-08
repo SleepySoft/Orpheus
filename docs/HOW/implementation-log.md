@@ -11,7 +11,7 @@
 - 大系数新增 `$resource` 引用，支持 `f32le/json/csv + shape + sha256`；加载期物化为现有 BULK 参数，保存时保留符号引用，动态/生成路径共用 plan 数值。
 - 项目私有源码组件通过 `ORPHEUS_EXTRA_COMPONENT_DIRS` 进入既有 CMake；Server/UI 使用项目级组件目录和 README 路由。
 - 新增目录加载、嵌套复合、全局依赖、资源完整性、持久化、路径安全与构建注入测试；全量后端回归、Jest 24 项和 UI 生产构建通过。
-- 基于新机制启动 BAF 算法蒸馏：新增通用 `mapped_fir_bank`，复现 Model_1_2 Headrest/Overhead HEQ 的映射 FIR、分组求和与两样本 carry；p9/p10 共 31800 个真实 float 系数以哈希固定的 f32 资源进入目录工程。
+- 基于新机制启动外部 HEQ 算法蒸馏：Headrest 展开为 40 个基础 FIR，Overhead 展开为 20 个 FIR + 16 个 mixer，并用 deinterleave/interleave/delay_line 完成路由与两样本 carry；p9/p10 共 31800 个 float 系数以哈希固定的 f32 资源进入目录工程。
 
 ## 2026-09-14（第六十三次：ADSP-21593 SPORT Boundary 与外部触发契约）
 

@@ -7,7 +7,7 @@
 以下节点写法对原子源码、预编译二进制和递归复合组件完全相同：
 
 ```yaml
-component: baf.medusa.fdp
+component: external_model.spatial.fdp
 ```
 
 `sub:` 仅作为旧工程和 UI 内部视图键兼容，不属于新工程持久化格式。
@@ -113,7 +113,7 @@ graph:
 
 ```yaml
 resources:
-  baf.headrest.fir:
+  reference.headrest.fir:
     file: assets/headrest.f32
     format: f32le
     shape: [10, 1280]
@@ -125,10 +125,12 @@ graph:
       component: orpheus.builtin.fir
       params:
         channels: 10
-        coefficients: {$resource: baf.headrest.fir}
+        coefficients: {$resource: reference.headrest.fir, offset: 0, count: 1280}
 ```
 
 支持 `f32le`、`json`、`csv`。加载时校验 hash 和 shape，再转换为现有 BULK 参数；序列化时仍保留 `$resource`。因此动态路径和代码生成路径继续消费同一个 plan 数值。
+
+参数引用可带 `offset/count`，让多个基础组件共享一个大资源文件而不复制数据。
 
 ## 加载与保存
 

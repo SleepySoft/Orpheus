@@ -1,0 +1,673 @@
+id: external_model.heq.headrest
+name: HEQ Headrest 默认 FIR
+category: 外部模型/均衡器
+description: 10 路输入、40 个 530-tap 基础 FIR、40 路分组输出的可展开组合
+version: 7.736.0
+abi_version: 1
+package_type: composite
+imports:
+- component: orpheus.builtin.deinterleave
+- component: orpheus.builtin.fir
+- component: orpheus.builtin.mixer
+- component: orpheus.builtin.interleave
+- component: orpheus.builtin.delay_line
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  maps_to: split:in
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 40
+  maps_to: carry:out
+parameters: []
+resources:
+  external_model.heq.headrest_fir:
+    file: assets/headrest_fir.f32
+    format: f32le
+    shape:
+    - 40
+    - 530
+    sha256: 2310cfbe35d2fd693a702dc1b9769232146f64670711a923765f94c0c3b13f9d
+  external_model.heq.headrest_iir:
+    file: assets/headrest_iir.f32
+    format: f32le
+    shape:
+    - 40
+    - 140
+    sha256: 38d097477228baf52838e2dc91b50ef64f70e9a65030941869f3d31b96d4b8f7
+graph:
+  nodes:
+  - id: split
+    component: orpheus.builtin.deinterleave
+    params:
+      channels: 10
+    position:
+      x: 40
+      y: 450
+  - id: fir_00
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 0
+        count: 530
+    position:
+      x: 260
+      y: 40
+  - id: fir_01
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 530
+        count: 530
+    position:
+      x: 260
+      y: 140
+  - id: fir_02
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 1060
+        count: 530
+    position:
+      x: 260
+      y: 240
+  - id: fir_03
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 1590
+        count: 530
+    position:
+      x: 260
+      y: 340
+  - id: fir_04
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 2120
+        count: 530
+    position:
+      x: 260
+      y: 440
+  - id: fir_05
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 2650
+        count: 530
+    position:
+      x: 260
+      y: 540
+  - id: fir_06
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 3180
+        count: 530
+    position:
+      x: 260
+      y: 640
+  - id: fir_07
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 3710
+        count: 530
+    position:
+      x: 260
+      y: 740
+  - id: fir_08
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 4240
+        count: 530
+    position:
+      x: 260
+      y: 840
+  - id: fir_09
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 4770
+        count: 530
+    position:
+      x: 260
+      y: 940
+  - id: fir_10
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 5300
+        count: 530
+    position:
+      x: 480
+      y: 40
+  - id: fir_11
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 5830
+        count: 530
+    position:
+      x: 480
+      y: 140
+  - id: fir_12
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 6360
+        count: 530
+    position:
+      x: 480
+      y: 240
+  - id: fir_13
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 6890
+        count: 530
+    position:
+      x: 480
+      y: 340
+  - id: fir_14
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 7420
+        count: 530
+    position:
+      x: 480
+      y: 440
+  - id: fir_15
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 7950
+        count: 530
+    position:
+      x: 480
+      y: 540
+  - id: fir_16
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 8480
+        count: 530
+    position:
+      x: 480
+      y: 640
+  - id: fir_17
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 9010
+        count: 530
+    position:
+      x: 480
+      y: 740
+  - id: fir_18
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 9540
+        count: 530
+    position:
+      x: 480
+      y: 840
+  - id: fir_19
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 10070
+        count: 530
+    position:
+      x: 480
+      y: 940
+  - id: fir_20
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 10600
+        count: 530
+    position:
+      x: 700
+      y: 40
+  - id: fir_21
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 11130
+        count: 530
+    position:
+      x: 700
+      y: 140
+  - id: fir_22
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 11660
+        count: 530
+    position:
+      x: 700
+      y: 240
+  - id: fir_23
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 12190
+        count: 530
+    position:
+      x: 700
+      y: 340
+  - id: fir_24
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 12720
+        count: 530
+    position:
+      x: 700
+      y: 440
+  - id: fir_25
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 13250
+        count: 530
+    position:
+      x: 700
+      y: 540
+  - id: fir_26
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 13780
+        count: 530
+    position:
+      x: 700
+      y: 640
+  - id: fir_27
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 14310
+        count: 530
+    position:
+      x: 700
+      y: 740
+  - id: fir_28
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 14840
+        count: 530
+    position:
+      x: 700
+      y: 840
+  - id: fir_29
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 15370
+        count: 530
+    position:
+      x: 700
+      y: 940
+  - id: fir_30
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 15900
+        count: 530
+    position:
+      x: 920
+      y: 40
+  - id: fir_31
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 16430
+        count: 530
+    position:
+      x: 920
+      y: 140
+  - id: fir_32
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 16960
+        count: 530
+    position:
+      x: 920
+      y: 240
+  - id: fir_33
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 17490
+        count: 530
+    position:
+      x: 920
+      y: 340
+  - id: fir_34
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 18020
+        count: 530
+    position:
+      x: 920
+      y: 440
+  - id: fir_35
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 18550
+        count: 530
+    position:
+      x: 920
+      y: 540
+  - id: fir_36
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 19080
+        count: 530
+    position:
+      x: 920
+      y: 640
+  - id: fir_37
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 19610
+        count: 530
+    position:
+      x: 920
+      y: 740
+  - id: fir_38
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 20140
+        count: 530
+    position:
+      x: 920
+      y: 840
+  - id: fir_39
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 20670
+        count: 530
+    position:
+      x: 920
+      y: 940
+  - id: join
+    component: orpheus.builtin.interleave
+    params:
+      channels: 40
+    position:
+      x: 1200
+      y: 450
+  - id: carry
+    component: orpheus.builtin.delay_line
+    params:
+      channels: 40
+      max_delay_samples: 2
+      delays_samples: 2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2
+    position:
+      x: 1420
+      y: 450
+  connections:
+  - from: split:out0
+    to: fir_00:in
+  - from: split:out1
+    to: fir_01:in
+  - from: split:out2
+    to: fir_02:in
+  - from: split:out3
+    to: fir_03:in
+  - from: split:out4
+    to: fir_04:in
+  - from: split:out5
+    to: fir_05:in
+  - from: split:out6
+    to: fir_06:in
+  - from: split:out7
+    to: fir_07:in
+  - from: split:out8
+    to: fir_08:in
+  - from: split:out9
+    to: fir_09:in
+  - from: split:out0
+    to: fir_10:in
+  - from: split:out1
+    to: fir_11:in
+  - from: split:out2
+    to: fir_12:in
+  - from: split:out3
+    to: fir_13:in
+  - from: split:out4
+    to: fir_14:in
+  - from: split:out5
+    to: fir_15:in
+  - from: split:out6
+    to: fir_16:in
+  - from: split:out7
+    to: fir_17:in
+  - from: split:out8
+    to: fir_18:in
+  - from: split:out9
+    to: fir_19:in
+  - from: split:out0
+    to: fir_20:in
+  - from: split:out1
+    to: fir_21:in
+  - from: split:out2
+    to: fir_22:in
+  - from: split:out3
+    to: fir_23:in
+  - from: split:out4
+    to: fir_24:in
+  - from: split:out5
+    to: fir_25:in
+  - from: split:out6
+    to: fir_26:in
+  - from: split:out7
+    to: fir_27:in
+  - from: split:out8
+    to: fir_28:in
+  - from: split:out9
+    to: fir_29:in
+  - from: split:out0
+    to: fir_30:in
+  - from: split:out1
+    to: fir_31:in
+  - from: split:out2
+    to: fir_32:in
+  - from: split:out3
+    to: fir_33:in
+  - from: split:out4
+    to: fir_34:in
+  - from: split:out5
+    to: fir_35:in
+  - from: split:out6
+    to: fir_36:in
+  - from: split:out7
+    to: fir_37:in
+  - from: split:out8
+    to: fir_38:in
+  - from: split:out9
+    to: fir_39:in
+  - from: fir_00:out
+    to: join:in0
+  - from: fir_01:out
+    to: join:in1
+  - from: fir_02:out
+    to: join:in2
+  - from: fir_03:out
+    to: join:in3
+  - from: fir_04:out
+    to: join:in4
+  - from: fir_05:out
+    to: join:in5
+  - from: fir_06:out
+    to: join:in6
+  - from: fir_07:out
+    to: join:in7
+  - from: fir_08:out
+    to: join:in8
+  - from: fir_09:out
+    to: join:in9
+  - from: fir_10:out
+    to: join:in10
+  - from: fir_11:out
+    to: join:in11
+  - from: fir_12:out
+    to: join:in12
+  - from: fir_13:out
+    to: join:in13
+  - from: fir_14:out
+    to: join:in14
+  - from: fir_15:out
+    to: join:in15
+  - from: fir_16:out
+    to: join:in16
+  - from: fir_17:out
+    to: join:in17
+  - from: fir_18:out
+    to: join:in18
+  - from: fir_19:out
+    to: join:in19
+  - from: fir_20:out
+    to: join:in20
+  - from: fir_21:out
+    to: join:in21
+  - from: fir_22:out
+    to: join:in22
+  - from: fir_23:out
+    to: join:in23
+  - from: fir_24:out
+    to: join:in24
+  - from: fir_25:out
+    to: join:in25
+  - from: fir_26:out
+    to: join:in26
+  - from: fir_27:out
+    to: join:in27
+  - from: fir_28:out
+    to: join:in28
+  - from: fir_29:out
+    to: join:in29
+  - from: fir_30:out
+    to: join:in30
+  - from: fir_31:out
+    to: join:in31
+  - from: fir_32:out
+    to: join:in32
+  - from: fir_33:out
+    to: join:in33
+  - from: fir_34:out
+    to: join:in34
+  - from: fir_35:out
+    to: join:in35
+  - from: fir_36:out
+    to: join:in36
+  - from: fir_37:out
+    to: join:in37
+  - from: fir_38:out
+    to: join:in38
+  - from: fir_39:out
+    to: join:in39
+  - from: join:out
+    to: carry:in
+execution:
+  latency_samples: 531
+  realtime_safe: true

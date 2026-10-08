@@ -26,7 +26,7 @@ parameters:
     name: 通道数
     type: int
     default: 2
-    range: [1, 32]
+    range: [1, 64]
     update_policy: restart_required
     affects_signature: true
   - id: max_delay_samples
@@ -46,7 +46,7 @@ bulk_slots:
   - id: delays_samples
     name: 每通道延迟样本数
     type: float
-    count: 32
+    count: 64
     double_bank: true
 memory:
   state_size: 0

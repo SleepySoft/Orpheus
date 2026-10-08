@@ -167,12 +167,12 @@ UI 使用流程：左上角「导入示例…」导入示例工程 → 画布编
 
 **统一组件包**：在画布中框选一组节点 → 工具栏「包装为复合组件」→ 自动生成边界端口并替换为单个实例节点；**双击实例**在独立标签页中打开内部图。源码、二进制和复合实现统一以组件 ID 引用，工程 `imports` 负责从任意相对目录或全局组件库解析；物理目录与逻辑图层次无关，编译时递归展开为原子图（Runtime 无感知）。
 
-子组件还可通过 `public_parameters` 公开内部参数与控制点；实例参数可覆盖内部默认值，顶层控制链可跨子图映射。工程支持多 Task 独立入口，跨 Task 音频通过 `async_bridge` 固定容量 SPSC Ring Buffer 传递。带 `lesson` 的课程工程会显示「教学」入口，可执行结构化自动检查。
+复合组件可通过 manifest 的 `parameters[].maps_to/direction` 公开内部参数与控制点；实例参数可覆盖内部默认值，顶层控制链可跨递归子图映射。工程支持多 Task 独立入口，跨 Task 音频通过 `async_bridge` 固定容量 SPSC Ring Buffer 传递。带 `lesson` 的课程工程会显示「教学」入口，可执行结构化自动检查。
 
 调试临时改线时可开启工具栏「调试旁路」（切换后立即保存）：完全孤立的节点，以及存在有效时钟源时未接入任何时钟源的残留音频流，会保留在画布与 `project.yaml` 中但不进入执行计划。保留执行的有效链路仍执行端口类型、通道、Task、时钟与平台校验；编译/运行日志会列出跳过的节点，关闭开关即恢复严格编译。
 命令行可用 `python -m orpheus_core.cli compile <project.yaml> --debug` 临时开启，或用 `--strict` 临时覆盖工程设置；两者都不会改写工程文件。
 
-- 工程持久化在 `workspace/<工程名>/`（`project.yaml` 为唯一事实来源，已 gitignore）；WAV 路径相对工程目录，可移植。
-- 组件是全局只读库（`components/` 扫描），工程是用户文档（`workspace/`），子组件定义内嵌于工程文档。
+- 工程持久化在 `workspace/<工程名>/`（已 gitignore）；`project.yaml` 保存顶层图和 imports，复合/源码/二进制组件定义及 assets 可放在工程内任意相对目录。
+- 全局组件库与工程私有组件使用同一组件 ID/manifest 机制；物理目录不表达逻辑层次，Resolver 按 imports 解析并在编译前递归展开。
 - 后端 API：`GET/PUT /api/projects/{name}`、`POST .../compile`、`POST .../run`、`GET .../download`、`GET /api/components` 等，见 `orpheus_core/orpheus_core/server/app.py`。
 - 当前验证基线：pytest 266 项通过、1 项跳过、CTest 7 项通过、Jest 17 项通过、Playwright 2 项核心流程通过；以 CI 实际结果为准。

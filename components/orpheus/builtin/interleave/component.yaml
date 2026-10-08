@@ -27,7 +27,7 @@ parameters:
     name: 通道数
     type: int
     default: 2
-    range: [1, 32]
+    range: [1, 64]
     update_policy: restart_required
     affects_signature: true
 memory:

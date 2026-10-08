@@ -1,0 +1,549 @@
+id: external_model.heq.overhead
+name: HEQ Overhead 默认 FIR
+category: 外部模型/均衡器
+description: 20 路输入、20 个 530-tap 基础 FIR、4 路分组输出的可展开组合
+version: 7.736.0
+abi_version: 1
+package_type: composite
+imports:
+- component: orpheus.builtin.deinterleave
+- component: orpheus.builtin.fir
+- component: orpheus.builtin.mixer
+- component: orpheus.builtin.interleave
+- component: orpheus.builtin.delay_line
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 20
+  maps_to: split:in
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 4
+  maps_to: carry:out
+parameters: []
+resources:
+  external_model.heq.overhead_fir:
+    file: assets/overhead_fir.f32
+    format: f32le
+    shape:
+    - 20
+    - 530
+    sha256: c0e4d8b1f7d5f24f7426f1c6613489a25b3ba2a2af12f0825071f06e0bcf572a
+  external_model.heq.overhead_iir:
+    file: assets/overhead_iir.f32
+    format: f32le
+    shape:
+    - 20
+    - 140
+    sha256: 7c46dffc7e70d2ce09cd67afeed97dee59420e070fc87a7cb9997552bf59f441
+graph:
+  nodes:
+  - id: split
+    component: orpheus.builtin.deinterleave
+    params:
+      channels: 20
+    position:
+      x: 40
+      y: 800
+  - id: fir_00
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 0
+        count: 530
+    position:
+      x: 260
+      y: 40
+  - id: fir_01
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 530
+        count: 530
+    position:
+      x: 260
+      y: 130
+  - id: fir_02
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 1060
+        count: 530
+    position:
+      x: 260
+      y: 220
+  - id: fir_03
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 1590
+        count: 530
+    position:
+      x: 260
+      y: 310
+  - id: fir_04
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 2120
+        count: 530
+    position:
+      x: 260
+      y: 400
+  - id: fir_05
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 2650
+        count: 530
+    position:
+      x: 260
+      y: 490
+  - id: fir_06
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 3180
+        count: 530
+    position:
+      x: 260
+      y: 580
+  - id: fir_07
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 3710
+        count: 530
+    position:
+      x: 260
+      y: 670
+  - id: fir_08
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 4240
+        count: 530
+    position:
+      x: 260
+      y: 760
+  - id: fir_09
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 4770
+        count: 530
+    position:
+      x: 260
+      y: 850
+  - id: fir_10
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 5300
+        count: 530
+    position:
+      x: 260
+      y: 940
+  - id: fir_11
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 5830
+        count: 530
+    position:
+      x: 260
+      y: 1030
+  - id: fir_12
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 6360
+        count: 530
+    position:
+      x: 260
+      y: 1120
+  - id: fir_13
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 6890
+        count: 530
+    position:
+      x: 260
+      y: 1210
+  - id: fir_14
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 7420
+        count: 530
+    position:
+      x: 260
+      y: 1300
+  - id: fir_15
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 7950
+        count: 530
+    position:
+      x: 260
+      y: 1390
+  - id: fir_16
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 8480
+        count: 530
+    position:
+      x: 260
+      y: 1480
+  - id: fir_17
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 9010
+        count: 530
+    position:
+      x: 260
+      y: 1570
+  - id: fir_18
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 9540
+        count: 530
+    position:
+      x: 260
+      y: 1660
+  - id: fir_19
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.overhead_fir
+        offset: 10070
+        count: 530
+    position:
+      x: 260
+      y: 1750
+  - id: sum_g00_l0_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 540
+      y: 80
+  - id: sum_g00_l0_1
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 540
+      y: 190
+  - id: sum_g00_l1_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 760
+      y: 80
+  - id: sum_g00_l2_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 980
+      y: 80
+  - id: sum_g01_l0_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 540
+      y: 510
+  - id: sum_g01_l0_1
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 540
+      y: 620
+  - id: sum_g01_l1_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 760
+      y: 510
+  - id: sum_g01_l2_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 980
+      y: 510
+  - id: sum_g02_l0_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 540
+      y: 940
+  - id: sum_g02_l0_1
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 540
+      y: 1050
+  - id: sum_g02_l1_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 760
+      y: 940
+  - id: sum_g02_l2_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 980
+      y: 940
+  - id: sum_g03_l0_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 540
+      y: 1370
+  - id: sum_g03_l0_1
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 540
+      y: 1480
+  - id: sum_g03_l1_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 760
+      y: 1370
+  - id: sum_g03_l2_0
+    component: orpheus.builtin.mixer
+    params:
+      channels: 1
+      gain0: 0.0
+      gain1: 0.0
+    position:
+      x: 980
+      y: 1370
+  - id: join
+    component: orpheus.builtin.interleave
+    params:
+      channels: 4
+    position:
+      x: 1200
+      y: 700
+  - id: carry
+    component: orpheus.builtin.delay_line
+    params:
+      channels: 4
+      max_delay_samples: 2
+      delays_samples: 2,2,2,2
+    position:
+      x: 1420
+      y: 700
+  connections:
+  - from: split:out0
+    to: fir_00:in
+  - from: split:out2
+    to: fir_01:in
+  - from: split:out4
+    to: fir_02:in
+  - from: split:out6
+    to: fir_03:in
+  - from: split:out8
+    to: fir_04:in
+  - from: split:out1
+    to: fir_05:in
+  - from: split:out3
+    to: fir_06:in
+  - from: split:out5
+    to: fir_07:in
+  - from: split:out7
+    to: fir_08:in
+  - from: split:out9
+    to: fir_09:in
+  - from: split:out10
+    to: fir_10:in
+  - from: split:out12
+    to: fir_11:in
+  - from: split:out14
+    to: fir_12:in
+  - from: split:out16
+    to: fir_13:in
+  - from: split:out18
+    to: fir_14:in
+  - from: split:out11
+    to: fir_15:in
+  - from: split:out13
+    to: fir_16:in
+  - from: split:out15
+    to: fir_17:in
+  - from: split:out17
+    to: fir_18:in
+  - from: split:out19
+    to: fir_19:in
+  - from: fir_00:out
+    to: sum_g00_l0_0:in0
+  - from: fir_01:out
+    to: sum_g00_l0_0:in1
+  - from: fir_02:out
+    to: sum_g00_l0_1:in0
+  - from: fir_03:out
+    to: sum_g00_l0_1:in1
+  - from: sum_g00_l0_0:out
+    to: sum_g00_l1_0:in0
+  - from: sum_g00_l0_1:out
+    to: sum_g00_l1_0:in1
+  - from: sum_g00_l1_0:out
+    to: sum_g00_l2_0:in0
+  - from: fir_04:out
+    to: sum_g00_l2_0:in1
+  - from: fir_05:out
+    to: sum_g01_l0_0:in0
+  - from: fir_06:out
+    to: sum_g01_l0_0:in1
+  - from: fir_07:out
+    to: sum_g01_l0_1:in0
+  - from: fir_08:out
+    to: sum_g01_l0_1:in1
+  - from: sum_g01_l0_0:out
+    to: sum_g01_l1_0:in0
+  - from: sum_g01_l0_1:out
+    to: sum_g01_l1_0:in1
+  - from: sum_g01_l1_0:out
+    to: sum_g01_l2_0:in0
+  - from: fir_09:out
+    to: sum_g01_l2_0:in1
+  - from: fir_10:out
+    to: sum_g02_l0_0:in0
+  - from: fir_11:out
+    to: sum_g02_l0_0:in1
+  - from: fir_12:out
+    to: sum_g02_l0_1:in0
+  - from: fir_13:out
+    to: sum_g02_l0_1:in1
+  - from: sum_g02_l0_0:out
+    to: sum_g02_l1_0:in0
+  - from: sum_g02_l0_1:out
+    to: sum_g02_l1_0:in1
+  - from: sum_g02_l1_0:out
+    to: sum_g02_l2_0:in0
+  - from: fir_14:out
+    to: sum_g02_l2_0:in1
+  - from: fir_15:out
+    to: sum_g03_l0_0:in0
+  - from: fir_16:out
+    to: sum_g03_l0_0:in1
+  - from: fir_17:out
+    to: sum_g03_l0_1:in0
+  - from: fir_18:out
+    to: sum_g03_l0_1:in1
+  - from: sum_g03_l0_0:out
+    to: sum_g03_l1_0:in0
+  - from: sum_g03_l0_1:out
+    to: sum_g03_l1_0:in1
+  - from: sum_g03_l1_0:out
+    to: sum_g03_l2_0:in0
+  - from: fir_19:out
+    to: sum_g03_l2_0:in1
+  - from: sum_g00_l2_0:out
+    to: join:in0
+  - from: sum_g01_l2_0:out
+    to: join:in1
+  - from: sum_g02_l2_0:out
+    to: join:in2
+  - from: sum_g03_l2_0:out
+    to: join:in3
+  - from: join:out
+    to: carry:in
+execution:
+  latency_samples: 531
+  realtime_safe: true

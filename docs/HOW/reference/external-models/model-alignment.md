@@ -78,30 +78,30 @@ $$
 - `p2=0.714285731`
 - high/low 两档相同
 
-Orpheus 组件：`orpheus.builtin.baf_soft_clipper`。`examples/recycled/symphony_baf_structural_reference.yaml` 使用生成代码的二次分段实现，不再使用 tanh 近似。
+Orpheus 组件：`orpheus.builtin.piecewise_soft_clipper`。`examples/recycled/external_model_structural_reference.yaml` 使用生成代码的二次分段实现，不再使用 tanh 近似。
 
-## BAF 结构参考
+## 外部模型结构参考
 
-`examples/recycled/symphony_baf_structural_reference.yaml` 以 EREV BAF 1.0.3 的生成输出为调查边界，合并了此前分散的 SAS step0、PostProcess 和组件验证模型；它已归档为蒸馏底稿，不再作为 UI 示例：
+`examples/recycled/external_model_structural_reference.yaml` 以外部生成输出为调查边界，合并了此前分散的主链、PostProcess 和组件验证模型；它已归档为蒸馏底稿，不再作为 UI 示例：
 
-- Baf1 / `Model_1_1`：6 个 TID、全速率 SAS、PostProcess 与 Audiopilot；
-- Baf2 / `Model_1_2`：5 个 TID、Deci FDP/Mixing、Peripheral/Headrest/Overhead EQ 与 Deci PostHoligram；
-- `BVP_Config.yml`：Baf1->Baf2 的 488 元素总线和 Baf2->Baf1 的 1193 元素总线；
+- Runtime A / `Model_1_1`：6 个 TID、全速率 SAS、PostProcess 与 Audiopilot；
+- Runtime B / `Model_1_2`：5 个 TID、Deci FDP/Mixing、Peripheral/Headrest/Overhead EQ 与 Deci PostHoligram；
+- 接口配置：Runtime A->B 的 488 元素总线和 Runtime B->A 的 1193 元素总线；
 - BVP 数组字段的数量和方向记录。
 
-该工程明确标记为 `structural_reference`：数组控制总线只做结构记录，1/2/7/22 路块数据使用显式音频端口，FDP、Audiopilot、Medusa HEQ/VLS 和多 Task 调度尚未数值对齐。字段、周期和缺口见同名 `.notes.md` 与 `model_tree.fidelity`。
+该工程明确标记为 `structural_reference`：数组控制总线只做结构记录，1/2/7/22 路块数据使用显式音频端口，FDP、Audiopilot、降速 HEQ/VLS 和多 Task 调度尚未数值对齐。字段、周期和缺口见同名 `.notes.md` 与 `model_tree.fidelity`。
 
 ## Model_1_2 Headrest / Overhead HEQ 可执行切片
 
-`examples/symphony_baf_heq/` 是目录工程机制落地后的第一个真实算法蒸馏切片：
+`examples/external_model_heq/` 是目录工程机制落地后的第一个真实算法蒸馏切片：
 
-- `p10_b1.MedusaHeadrestCompEqFirCoeffsTarget[21200]`：40 个 530-tap filter；每个默认仅 tap 529 为 1.0。
-- `p10_b0.MedusaHeadrestCompEqFirInputMapping[40]`：10 路输入按 `0..9` 重复四次；OutputMapping 为 `0..39`，输出 40 路。
-- `p9_b1.MedusaOverheadHeqFirCoeffsTarget[10600]`：20 个 530-tap filter；每个默认仅 tap 529 为 0.2。
-- `p9_b0.MedusaOverheadHeqFirInputMapping[20]`：`[0,2,4,6,8,1,3,5,7,9,10,12,14,16,18,11,13,15,17,19]`。
+- p10 Headrest FIR target `[21200]`：40 个 530-tap filter；每个默认仅 tap 529 为 1.0。
+- p10 Headrest input mapping `[40]`：10 路输入按 `0..9` 重复四次；output mapping 为 `0..39`，输出 40 路。
+- p9 Overhead FIR target `[10600]`：20 个 530-tap filter；每个默认仅 tap 529 为 0.2。
+- p9 Overhead input mapping `[20]`：`[0,2,4,6,8,1,3,5,7,9,10,12,14,16,18,11,13,15,17,19]`。
 - Overhead OutputMapping `[0,5,10,15]` 把每五个 filter 求和为一路；两条链均保留生成代码的两样本跨块 carry。
 
-通用组件 `orpheus.builtin.mapped_fir_bank` 实现输入映射、系数集映射、变长 FIR、输出分组求和和统一输出延迟。系数由 `scripts/extract_baf_heq.py` 从 TOP 生成 `f32le` 资源并以 shape/hash 校验：
+两个复合组件完全由 `deinterleave`、基础 `fir`、`mixer`、`interleave` 和 `delay_line` 组成；展开后 Headrest 为 43 个节点，Overhead 为 39 个节点。系数由 `scripts/extract_external_heq.py` 从 TOP 生成 `f32le` 资源并以 shape/hash 校验：
 
 - Headrest FIR SHA-256：`2310cfbe35d2fd693a702dc1b9769232146f64670711a923765f94c0c3b13f9d`
 - Overhead FIR SHA-256：`c0e4d8b1f7d5f24f7426f1c6613489a25b3ba2a2af12f0825071f06e0bcf572a`
@@ -112,8 +112,8 @@ Orpheus 组件：`orpheus.builtin.baf_soft_clipper`。`examples/recycled/symphon
 
 - RNC MIMO NLMS：非零初始权值卷积 golden + 两帧归一化更新 golden。
 - 外部参考模型 SoftClipper：阈值以下、二次曲线、上限饱和、负号与 active mask golden。
-- ASM 与 BAF 结构参考均可编译为 plan。
-- BAF 结构 plan 展开为 114 个原子节点，其中 Baf2 为 16 个。
+- ASM 与外部模型结构参考均可编译为 plan。
+- 结构 plan 展开为 114 个原子节点，其中 Runtime B 为 16 个。
 - 123 个可见节点均有工程注释；测试强制 fidelity 声明和 100% 注释覆盖。
 - HEQ 目录工程通过 import/resource/flatten/compile/codegen 测试，资源可从外部 TOP 字节级重复生成。
 - 两个生成程序均完成少量图块运行；ASM 全局入口及 TID1/TID5/TID6 入口返回 0。

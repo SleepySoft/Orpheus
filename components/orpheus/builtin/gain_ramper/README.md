@@ -1,6 +1,6 @@
 # gain_ramper - 多通道增益斜坡器
 
-> Orpheus 通用原语组件（L0），对应 Symphony SAS 的 Rgainx/Rgainy blocklib 块。
+> Orpheus 通用原语组件（L0），对应外部模型的 Rgainx/Rgainy 块。
 
 ## 功能
 
@@ -66,7 +66,7 @@
 
 ## 源码映射
 
-| Symphony SAS 源码 | 本组件 |
+| 外部模型源码 | 本组件 |
 |---|---|
 | `blocklib/lib/preamp/rgainx.slx` | 整体对应 |
 | `rgainx_Mask.m` RamperState {currentGain, targetGain, rampCoeff, frameCount} | `RamperSlot` 结构 |

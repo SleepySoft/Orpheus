@@ -41,27 +41,16 @@ target_include_directories(rnc_mimo_nlms_smoke PRIVATE
 target_compile_definitions(rnc_mimo_nlms_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME rnc_mimo_nlms_smoke COMMAND rnc_mimo_nlms_smoke)
 
-add_executable(baf_soft_clipper_smoke
-	baf_soft_clipper_smoke.c
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/baf_soft_clipper/src/baf_soft_clipper.c
+add_executable(piecewise_soft_clipper_smoke
+	piecewise_soft_clipper_smoke.c
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/piecewise_soft_clipper/src/piecewise_soft_clipper.c
 )
-target_include_directories(baf_soft_clipper_smoke PRIVATE
+target_include_directories(piecewise_soft_clipper_smoke PRIVATE
 	${CMAKE_SOURCE_DIR}/orpheus_abi/include
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/baf_soft_clipper/include
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/piecewise_soft_clipper/include
 )
-target_compile_definitions(baf_soft_clipper_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
-add_test(NAME baf_soft_clipper_smoke COMMAND baf_soft_clipper_smoke)
-
-add_executable(mapped_fir_bank_smoke
-	mapped_fir_bank_smoke.c
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mapped_fir_bank/src/mapped_fir_bank.c
-)
-target_include_directories(mapped_fir_bank_smoke PRIVATE
-	${CMAKE_SOURCE_DIR}/orpheus_abi/include
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mapped_fir_bank/include
-)
-target_compile_definitions(mapped_fir_bank_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
-add_test(NAME mapped_fir_bank_smoke COMMAND mapped_fir_bank_smoke)
+target_compile_definitions(piecewise_soft_clipper_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME piecewise_soft_clipper_smoke COMMAND piecewise_soft_clipper_smoke)
 
 add_executable(loudness_normalizer_smoke
 	loudness_normalizer_smoke.c
