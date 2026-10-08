@@ -78,26 +78,26 @@ $$
 - `p2=0.714285731`
 - high/low 两档相同
 
-Orpheus 组件：`orpheus.builtin.baf_soft_clipper`。`examples/symphony_baf_complete.yaml` 使用生成代码的二次分段实现，不再使用 tanh 近似。
+Orpheus 组件：`orpheus.builtin.baf_soft_clipper`。`examples/symphony_baf_structural_reference.yaml` 使用生成代码的二次分段实现，不再使用 tanh 近似。
 
-## BAF 完整结构蒸馏
+## BAF 结构参考
 
-`examples/symphony_baf_complete.yaml` 以 EREV BAF 1.0.3 的最新生成输出为边界，合并了此前分散的 SAS step0、PostProcess 和组件验证模型：
+`examples/symphony_baf_structural_reference.yaml` 以 EREV BAF 1.0.3 的生成输出为调查边界，合并了此前分散的 SAS step0、PostProcess 和组件验证模型：
 
 - Baf1 / `Model_1_1`：6 个 TID、全速率 SAS、PostProcess 与 Audiopilot；
 - Baf2 / `Model_1_2`：5 个 TID、Deci FDP/Mixing、Peripheral/Headrest/Overhead EQ 与 Deci PostHoligram；
 - `BVP_Config.yml`：Baf1->Baf2 的 488 元素总线和 Baf2->Baf1 的 1193 元素总线；
-- 4 条可执行标量控制链：Audiopilot 自适应增益两条、Baf1->Baf2 电平一条、Baf2->Baf1 Deci 增益一条。
+- BVP 数组字段的数量和方向记录。
 
-数组控制总线当前只做结构与形状记录；1/2/7/22 路块数据使用显式音频端口。完整字段、数量、调度周期与数值忠实度边界见同名 `.notes.md` 和 YAML 顶层 `model_tree`。
+该工程明确标记为 `structural_reference`：数组控制总线只做结构记录，1/2/7/22 路块数据使用显式音频端口，FDP、Audiopilot、Medusa HEQ/VLS 和多 Task 调度尚未数值对齐。字段、周期和缺口见同名 `.notes.md` 与 `model_tree.fidelity`。
 
 ## 当前验证
 
 - RNC MIMO NLMS：非零初始权值卷积 golden + 两帧归一化更新 golden。
 - 外部参考模型 SoftClipper：阈值以下、二次曲线、上限饱和、负号与 active mask golden。
-- ASM 与 BAF 完整示例均可编译为 plan。
-- BAF 完整 plan 展开为 115 个原子节点，其中 Baf2 为 16 个；4 条控制链均映射到原子参数。
-- BAF 对齐、控制链、蒸馏导入、组件覆盖与端到端运行聚焦测试共 32 项通过。
+- ASM 与 BAF 结构参考均可编译为 plan。
+- BAF 结构 plan 展开为 114 个原子节点，其中 Baf2 为 16 个。
+- 123 个可见节点均有工程注释；测试强制 fidelity 声明和 100% 注释覆盖。
 - 两个生成程序均完成少量图块运行；ASM 全局入口及 TID1/TID5/TID6 入口返回 0。
 - ASM 工程附带教学包：编译、MIMO NLMS 组件/维度、跨子图控制链与异步桥数量均可在 UI 一键检查。
 

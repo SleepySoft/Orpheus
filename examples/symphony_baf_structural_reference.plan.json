@@ -95,21 +95,20 @@
         "audiopilot__pooliir_sink",
         "pre_amp__volume",
         "post_process__calib",
-        "audiopilot__adaptive_control",
+        "audiopilot__wide_gain",
         "pre_amp__preemp",
         "post_process__freq_comp",
-        "audiopilot__wide_gain",
+        "ap_probe",
         "pre_amp__level_detect",
         "post_process__out_delay",
         "post_process__audio_out_router",
-        "ap_probe",
+        "ap_out",
+        "model_1_2__fullrate_input",
         "pre_amp__ld_sink",
         "main_probe",
         "post_process__audio_sink",
-        "ap_out",
-        "model_1_2__fullrate_control",
-        "main_out",
         "model_1_2__part1_bands",
+        "main_out",
         "model_1_2__part1_mono",
         "model_1_2__part1_treble",
         "deci_mono_sink",
@@ -212,21 +211,20 @@
         "audiopilot__pooliir_sink",
         "pre_amp__volume",
         "post_process__calib",
-        "audiopilot__adaptive_control",
+        "audiopilot__wide_gain",
         "pre_amp__preemp",
         "post_process__freq_comp",
-        "audiopilot__wide_gain",
+        "ap_probe",
         "pre_amp__level_detect",
         "post_process__out_delay",
         "post_process__audio_out_router",
-        "ap_probe",
+        "ap_out",
+        "model_1_2__fullrate_input",
         "pre_amp__ld_sink",
         "main_probe",
         "post_process__audio_sink",
-        "ap_out",
-        "model_1_2__fullrate_control",
-        "main_out",
         "model_1_2__part1_bands",
+        "main_out",
         "model_1_2__part1_mono",
         "model_1_2__part1_treble",
         "deci_mono_sink",
@@ -331,21 +329,20 @@
           "audiopilot__pooliir_sink": 1,
           "pre_amp__volume": 1,
           "post_process__calib": 1,
-          "audiopilot__adaptive_control": 1,
+          "audiopilot__wide_gain": 1,
           "pre_amp__preemp": 1,
           "post_process__freq_comp": 1,
-          "audiopilot__wide_gain": 1,
+          "ap_probe": 1,
           "pre_amp__level_detect": 1,
           "post_process__out_delay": 1,
           "post_process__audio_out_router": 1,
-          "ap_probe": 1,
+          "ap_out": 1,
+          "model_1_2__fullrate_input": 1,
           "pre_amp__ld_sink": 1,
           "main_probe": 1,
           "post_process__audio_sink": 1,
-          "ap_out": 1,
-          "model_1_2__fullrate_control": 1,
-          "main_out": 1,
           "model_1_2__part1_bands": 1,
+          "main_out": 1,
           "model_1_2__part1_mono": 1,
           "model_1_2__part1_treble": 1,
           "deci_mono_sink": 1,
@@ -440,7 +437,6 @@
     "audiopilot__bpf_delay",
     "audiopilot__sum",
     "audiopilot__wide_gain",
-    "audiopilot__adaptive_control",
     "audiopilot__sine_mod",
     "audiopilot__mod_matrix",
     "audiopilot__pooliir_buf",
@@ -465,7 +461,7 @@
     "main_out",
     "ap_probe",
     "ap_out",
-    "model_1_2__fullrate_control",
+    "model_1_2__fullrate_input",
     "model_1_2__part1_bands",
     "model_1_2__part1_mono",
     "model_1_2__part1_treble",
@@ -569,21 +565,20 @@
     "audiopilot__pooliir_sink",
     "pre_amp__volume",
     "post_process__calib",
-    "audiopilot__adaptive_control",
+    "audiopilot__wide_gain",
     "pre_amp__preemp",
     "post_process__freq_comp",
-    "audiopilot__wide_gain",
+    "ap_probe",
     "pre_amp__level_detect",
     "post_process__out_delay",
     "post_process__audio_out_router",
-    "ap_probe",
+    "ap_out",
+    "model_1_2__fullrate_input",
     "pre_amp__ld_sink",
     "main_probe",
     "post_process__audio_sink",
-    "ap_out",
-    "model_1_2__fullrate_control",
-    "main_out",
     "model_1_2__part1_bands",
+    "main_out",
     "model_1_2__part1_mono",
     "model_1_2__part1_treble",
     "deci_mono_sink",
@@ -2507,35 +2502,6 @@
       },
       "period": 1
     },
-    "audiopilot__adaptive_control": {
-      "component": "orpheus.builtin.loudness_gain_control",
-      "version": "1.0.0",
-      "params": {
-        "level": 0.0,
-        "target_db": -20.0,
-        "min_gain_db": -12.0,
-        "max_gain_db": 12.0,
-        "channels": 10
-      },
-      "task": "default",
-      "divisor": 1,
-      "block_size": 32,
-      "frames": 32,
-      "sample_rate": 48000,
-      "input_ports": [
-        "in"
-      ],
-      "output_ports": [
-        "out"
-      ],
-      "output_port_block_sizes": {
-        "out": 32
-      },
-      "output_port_channels": {
-        "out": 10
-      },
-      "period": 1
-    },
     "audiopilot__sine_mod": {
       "component": "orpheus.builtin.sine_mod",
       "version": "1.0.0",
@@ -3036,7 +3002,7 @@
       "component": "orpheus.builtin.wav_out",
       "version": "1.0.0",
       "params": {
-        "file_path": "symphony_baf_complete_main_out.wav",
+        "file_path": "symphony_baf_structural_reference_main_out.wav",
         "channels": 22,
         "sample_rate": "48000"
       },
@@ -3082,7 +3048,7 @@
       "component": "orpheus.builtin.wav_out",
       "version": "1.0.0",
       "params": {
-        "file_path": "symphony_baf_complete_ap_out.wav",
+        "file_path": "symphony_baf_structural_reference_ap_out.wav",
         "channels": 10,
         "sample_rate": "48000"
       },
@@ -3099,15 +3065,13 @@
       "output_port_channels": {},
       "period": 1
     },
-    "model_1_2__fullrate_control": {
-      "component": "orpheus.builtin.loudness_gain_control",
+    "model_1_2__fullrate_input": {
+      "component": "orpheus.builtin.output_router",
       "version": "1.0.0",
       "params": {
-        "level": 0.0,
-        "target_db": -20.0,
-        "min_gain_db": -12.0,
-        "max_gain_db": 12.0,
-        "channels": 10
+        "channels_in": 10,
+        "channels_out": 10,
+        "matrix": "identity"
       },
       "task": "default",
       "divisor": 1,
@@ -4027,411 +3991,404 @@
     },
     "buf_59": {
       "from": "audiopilot__sum:out",
-      "to": "audiopilot__adaptive_control:in",
-      "sample_format": "f32",
-      "channels": 10,
-      "frame_count": 32
-    },
-    "buf_60": {
-      "from": "audiopilot__adaptive_control:out",
       "to": "audiopilot__wide_gain:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_61": {
+    "buf_60": {
       "from": "audiopilot__sine_mod:out",
       "to": "audiopilot__mod_matrix:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_62": {
+    "buf_61": {
       "from": "audiopilot__mod_matrix:out",
       "to": "audiopilot__pooliir_buf:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_63": {
+    "buf_62": {
       "from": "audiopilot__pooliir_buf:out",
       "to": "audiopilot__pooliir_sink:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_64": {
+    "buf_63": {
       "from": "audiopilot__hf_est:out",
       "to": "audiopilot__hf_psd:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_65": {
+    "buf_64": {
       "from": "audiopilot__hf_psd:out",
       "to": "audiopilot__hf_sink:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_66": {
+    "buf_65": {
       "from": "audiopilot__mic_ld:out",
       "to": "audiopilot__ref_delay:in",
       "sample_format": "f32",
       "channels": 1,
       "frame_count": 32
     },
-    "buf_67": {
+    "buf_66": {
       "from": "audiopilot__mic_ld:out",
       "to": "audiopilot__mic_sink:in",
       "sample_format": "f32",
       "channels": 1,
       "frame_count": 32
     },
-    "buf_68": {
+    "buf_67": {
       "from": "audiopilot__ref_delay:out",
       "to": "audiopilot__ref_sink:in",
       "sample_format": "f32",
       "channels": 1,
       "frame_count": 32
     },
-    "buf_69": {
+    "buf_68": {
       "from": "audiopilot__mono_ld:out",
       "to": "audiopilot__lf_interp:in",
       "sample_format": "f32",
       "channels": 1,
       "frame_count": 32
     },
-    "buf_70": {
+    "buf_69": {
       "from": "audiopilot__mono_ld:out",
       "to": "audiopilot__mono_sink:in",
       "sample_format": "f32",
       "channels": 1,
       "frame_count": 32
     },
-    "buf_71": {
+    "buf_70": {
       "from": "audiopilot__lf_interp:out",
       "to": "audiopilot__lf_sink:in",
       "sample_format": "f32",
       "channels": 1,
       "frame_count": 32
     },
-    "buf_72": {
+    "buf_71": {
       "from": "audiopilot__fdp_ld:out",
       "to": "audiopilot__coh_power:in",
       "sample_format": "f32",
       "channels": 4,
       "frame_count": 32
     },
-    "buf_73": {
+    "buf_72": {
       "from": "audiopilot__fdp_ld:out",
       "to": "audiopilot__fdp_sink:in",
       "sample_format": "f32",
       "channels": 4,
       "frame_count": 32
     },
-    "buf_74": {
+    "buf_73": {
       "from": "audiopilot__coh_power:out",
       "to": "audiopilot__coh_sat:in",
       "sample_format": "f32",
       "channels": 4,
       "frame_count": 32
     },
-    "buf_75": {
+    "buf_74": {
       "from": "audiopilot__coh_sat:out",
       "to": "audiopilot__coh_sink:in",
       "sample_format": "f32",
       "channels": 4,
       "frame_count": 32
     },
-    "buf_76": {
-      "from": "model_1_2__fullrate_control:out",
+    "buf_75": {
+      "from": "model_1_2__fullrate_input:out",
       "to": "model_1_2__part1_bands:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_77": {
+    "buf_76": {
       "from": "model_1_2__part1_bands:out",
       "to": "model_1_2__part1_mono:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_78": {
+    "buf_77": {
       "from": "model_1_2__part1_bands:out",
       "to": "model_1_2__part1_treble:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_79": {
+    "buf_78": {
       "from": "model_1_2__part1_treble:out",
       "to": "model_1_2__part2_fdp_deci:in",
       "sample_format": "f32",
       "channels": 2,
       "frame_count": 32
     },
-    "buf_80": {
+    "buf_79": {
       "from": "model_1_2__part2_fdp_deci:out",
       "to": "model_1_2__treble_surround_expand:in",
       "sample_format": "f32",
       "channels": 6,
       "frame_count": 32
     },
-    "buf_81": {
+    "buf_80": {
       "from": "model_1_2__part2_fdp_deci:out",
       "to": "model_1_2__part3_deci_mixing:in",
       "sample_format": "f32",
       "channels": 6,
       "frame_count": 32
     },
-    "buf_82": {
+    "buf_81": {
       "from": "model_1_2__part3_deci_mixing:out",
       "to": "model_1_2__part4_deci_peripheral_eq:in",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_83": {
+    "buf_82": {
       "from": "model_1_2__part4_deci_peripheral_eq:out",
       "to": "model_1_2__headrest_select:in",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_84": {
+    "buf_83": {
       "from": "model_1_2__headrest_select:out",
       "to": "model_1_2__headrest_eq:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_85": {
+    "buf_84": {
       "from": "model_1_2__headrest_eq:out",
       "to": "model_1_2__headrest_expand:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_86": {
+    "buf_85": {
       "from": "model_1_2__part4_deci_peripheral_eq:out",
       "to": "model_1_2__overhead_select:in",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_87": {
+    "buf_86": {
       "from": "model_1_2__overhead_select:out",
       "to": "model_1_2__overhead_eq:in",
       "sample_format": "f32",
       "channels": 8,
       "frame_count": 32
     },
-    "buf_88": {
+    "buf_87": {
       "from": "model_1_2__overhead_eq:out",
       "to": "model_1_2__overhead_expand:in",
       "sample_format": "f32",
       "channels": 8,
       "frame_count": 32
     },
-    "buf_89": {
+    "buf_88": {
       "from": "model_1_2__headrest_expand:out",
       "to": "model_1_2__eq_merge:in0",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_90": {
+    "buf_89": {
       "from": "model_1_2__overhead_expand:out",
       "to": "model_1_2__eq_merge:in1",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_91": {
+    "buf_90": {
       "from": "model_1_2__eq_merge:out",
       "to": "model_1_2__post_hologram:in",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_92": {
+    "buf_91": {
       "from": "music_src:out",
       "to": "music_mixer:in0",
       "sample_format": "f32",
       "channels": 30,
       "frame_count": 32
     },
-    "buf_93": {
+    "buf_92": {
       "from": "treble_src:out",
       "to": "part2_fdp__treble_delay:in",
       "sample_format": "f32",
       "channels": 2,
       "frame_count": 32
     },
-    "buf_94": {
+    "buf_93": {
       "from": "treble_surround_src:out",
       "to": "part3_mixing__ts_delay:in",
       "sample_format": "f32",
       "channels": 7,
       "frame_count": 32
     },
-    "buf_95": {
+    "buf_94": {
       "from": "part2_fdp__fdp_matrix:out",
       "to": "part3_mixing__buf_expand:in",
       "sample_format": "f32",
       "channels": 6,
       "frame_count": 32
     },
-    "buf_96": {
+    "buf_95": {
       "from": "part3_mixing__merge2:out",
       "to": "part4_peripheral_eq__enable:in",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_97": {
+    "buf_96": {
       "from": "part4_peripheral_eq__ch_delay:out",
       "to": "part5_6__split:in",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_98": {
+    "buf_97": {
       "from": "part5_6__spatial_fader:out",
       "to": "feedback_delay:in",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_99": {
+    "buf_98": {
       "from": "feedback_delay:out",
       "to": "feedback_expand:in",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_100": {
+    "buf_99": {
       "from": "feedback_expand:out",
       "to": "music_mixer:in1",
       "sample_format": "f32",
       "channels": 30,
       "frame_count": 32
     },
-    "buf_101": {
+    "buf_100": {
       "from": "music_mixer:out",
       "to": "input_select__ent_sel:in",
       "sample_format": "f32",
       "channels": 30,
       "frame_count": 32
     },
-    "buf_102": {
+    "buf_101": {
       "from": "input_select__ent_sel:out",
       "to": "pre_amp__makeup:in",
       "sample_format": "f32",
       "channels": 12,
       "frame_count": 32
     },
-    "buf_103": {
+    "buf_102": {
       "from": "pre_amp__buf_router:out",
       "to": "post_process__asd_router:in",
       "sample_format": "f32",
       "channels": 32,
       "frame_count": 32
     },
-    "buf_104": {
+    "buf_103": {
       "from": "pre_amp__buf1_sel:out",
       "to": "audiopilot__buf_split:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_105": {
+    "buf_104": {
       "from": "pre_amp__buf2_sel:out",
       "to": "audiopilot__mic_ld:in",
       "sample_format": "f32",
       "channels": 1,
       "frame_count": 32
     },
-    "buf_106": {
+    "buf_105": {
       "from": "mono_src:out",
       "to": "audiopilot__mono_ld:in",
       "sample_format": "f32",
       "channels": 1,
       "frame_count": 32
     },
-    "buf_107": {
+    "buf_106": {
       "from": "part2_fdp__fdp_matrix:out",
       "to": "fdp_tap:in",
       "sample_format": "f32",
       "channels": 6,
       "frame_count": 32
     },
-    "buf_108": {
+    "buf_107": {
       "from": "fdp_tap:out",
       "to": "audiopilot__fdp_ld:in",
       "sample_format": "f32",
       "channels": 4,
       "frame_count": 32
     },
-    "buf_109": {
+    "buf_108": {
       "from": "post_process__out_delay:out",
       "to": "main_probe:in",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_110": {
+    "buf_109": {
       "from": "main_probe:out",
       "to": "main_out:in",
       "sample_format": "f32",
       "channels": 22,
       "frame_count": 32
     },
-    "buf_111": {
+    "buf_110": {
       "from": "audiopilot__wide_gain:out",
       "to": "ap_probe:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_112": {
+    "buf_111": {
       "from": "ap_probe:out",
       "to": "ap_out:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_113": {
+    "buf_112": {
       "from": "ap_probe:out",
-      "to": "model_1_2__fullrate_control:in",
+      "to": "model_1_2__fullrate_input:in",
       "sample_format": "f32",
       "channels": 10,
       "frame_count": 32
     },
-    "buf_114": {
+    "buf_113": {
       "from": "model_1_2__part1_mono:out",
       "to": "deci_mono_sink:in",
       "sample_format": "f32",
       "channels": 1,
       "frame_count": 32
     },
-    "buf_115": {
+    "buf_114": {
       "from": "model_1_2__part1_treble:out",
       "to": "deci_treble_sink:in",
       "sample_format": "f32",
       "channels": 2,
       "frame_count": 32
     },
-    "buf_116": {
+    "buf_115": {
       "from": "model_1_2__treble_surround_expand:out",
       "to": "deci_surround_sink:in",
       "sample_format": "f32",
       "channels": 7,
       "frame_count": 32
     },
-    "buf_117": {
+    "buf_116": {
       "from": "model_1_2__post_hologram:out",
       "to": "deci_hologram_sink:in",
       "sample_format": "f32",
@@ -4737,298 +4694,293 @@
     },
     {
       "from": "audiopilot__sum:out",
-      "to": "audiopilot__adaptive_control:in",
-      "buffer": "buf_59"
-    },
-    {
-      "from": "audiopilot__adaptive_control:out",
       "to": "audiopilot__wide_gain:in",
-      "buffer": "buf_60"
+      "buffer": "buf_59"
     },
     {
       "from": "audiopilot__sine_mod:out",
       "to": "audiopilot__mod_matrix:in",
-      "buffer": "buf_61"
+      "buffer": "buf_60"
     },
     {
       "from": "audiopilot__mod_matrix:out",
       "to": "audiopilot__pooliir_buf:in",
-      "buffer": "buf_62"
+      "buffer": "buf_61"
     },
     {
       "from": "audiopilot__pooliir_buf:out",
       "to": "audiopilot__pooliir_sink:in",
-      "buffer": "buf_63"
+      "buffer": "buf_62"
     },
     {
       "from": "audiopilot__hf_est:out",
       "to": "audiopilot__hf_psd:in",
-      "buffer": "buf_64"
+      "buffer": "buf_63"
     },
     {
       "from": "audiopilot__hf_psd:out",
       "to": "audiopilot__hf_sink:in",
-      "buffer": "buf_65"
+      "buffer": "buf_64"
     },
     {
       "from": "audiopilot__mic_ld:out",
       "to": "audiopilot__ref_delay:in",
-      "buffer": "buf_66"
+      "buffer": "buf_65"
     },
     {
       "from": "audiopilot__mic_ld:out",
       "to": "audiopilot__mic_sink:in",
-      "buffer": "buf_67"
+      "buffer": "buf_66"
     },
     {
       "from": "audiopilot__ref_delay:out",
       "to": "audiopilot__ref_sink:in",
-      "buffer": "buf_68"
+      "buffer": "buf_67"
     },
     {
       "from": "audiopilot__mono_ld:out",
       "to": "audiopilot__lf_interp:in",
-      "buffer": "buf_69"
+      "buffer": "buf_68"
     },
     {
       "from": "audiopilot__mono_ld:out",
       "to": "audiopilot__mono_sink:in",
-      "buffer": "buf_70"
+      "buffer": "buf_69"
     },
     {
       "from": "audiopilot__lf_interp:out",
       "to": "audiopilot__lf_sink:in",
-      "buffer": "buf_71"
+      "buffer": "buf_70"
     },
     {
       "from": "audiopilot__fdp_ld:out",
       "to": "audiopilot__coh_power:in",
-      "buffer": "buf_72"
+      "buffer": "buf_71"
     },
     {
       "from": "audiopilot__fdp_ld:out",
       "to": "audiopilot__fdp_sink:in",
-      "buffer": "buf_73"
+      "buffer": "buf_72"
     },
     {
       "from": "audiopilot__coh_power:out",
       "to": "audiopilot__coh_sat:in",
-      "buffer": "buf_74"
+      "buffer": "buf_73"
     },
     {
       "from": "audiopilot__coh_sat:out",
       "to": "audiopilot__coh_sink:in",
-      "buffer": "buf_75"
+      "buffer": "buf_74"
     },
     {
-      "from": "model_1_2__fullrate_control:out",
+      "from": "model_1_2__fullrate_input:out",
       "to": "model_1_2__part1_bands:in",
-      "buffer": "buf_76"
+      "buffer": "buf_75"
     },
     {
       "from": "model_1_2__part1_bands:out",
       "to": "model_1_2__part1_mono:in",
-      "buffer": "buf_77"
+      "buffer": "buf_76"
     },
     {
       "from": "model_1_2__part1_bands:out",
       "to": "model_1_2__part1_treble:in",
-      "buffer": "buf_78"
+      "buffer": "buf_77"
     },
     {
       "from": "model_1_2__part1_treble:out",
       "to": "model_1_2__part2_fdp_deci:in",
-      "buffer": "buf_79"
+      "buffer": "buf_78"
     },
     {
       "from": "model_1_2__part2_fdp_deci:out",
       "to": "model_1_2__treble_surround_expand:in",
-      "buffer": "buf_80"
+      "buffer": "buf_79"
     },
     {
       "from": "model_1_2__part2_fdp_deci:out",
       "to": "model_1_2__part3_deci_mixing:in",
-      "buffer": "buf_81"
+      "buffer": "buf_80"
     },
     {
       "from": "model_1_2__part3_deci_mixing:out",
       "to": "model_1_2__part4_deci_peripheral_eq:in",
-      "buffer": "buf_82"
+      "buffer": "buf_81"
     },
     {
       "from": "model_1_2__part4_deci_peripheral_eq:out",
       "to": "model_1_2__headrest_select:in",
-      "buffer": "buf_83"
+      "buffer": "buf_82"
     },
     {
       "from": "model_1_2__headrest_select:out",
       "to": "model_1_2__headrest_eq:in",
-      "buffer": "buf_84"
+      "buffer": "buf_83"
     },
     {
       "from": "model_1_2__headrest_eq:out",
       "to": "model_1_2__headrest_expand:in",
-      "buffer": "buf_85"
+      "buffer": "buf_84"
     },
     {
       "from": "model_1_2__part4_deci_peripheral_eq:out",
       "to": "model_1_2__overhead_select:in",
-      "buffer": "buf_86"
+      "buffer": "buf_85"
     },
     {
       "from": "model_1_2__overhead_select:out",
       "to": "model_1_2__overhead_eq:in",
-      "buffer": "buf_87"
+      "buffer": "buf_86"
     },
     {
       "from": "model_1_2__overhead_eq:out",
       "to": "model_1_2__overhead_expand:in",
-      "buffer": "buf_88"
+      "buffer": "buf_87"
     },
     {
       "from": "model_1_2__headrest_expand:out",
       "to": "model_1_2__eq_merge:in0",
-      "buffer": "buf_89"
+      "buffer": "buf_88"
     },
     {
       "from": "model_1_2__overhead_expand:out",
       "to": "model_1_2__eq_merge:in1",
-      "buffer": "buf_90"
+      "buffer": "buf_89"
     },
     {
       "from": "model_1_2__eq_merge:out",
       "to": "model_1_2__post_hologram:in",
-      "buffer": "buf_91"
+      "buffer": "buf_90"
     },
     {
       "from": "music_src:out",
       "to": "music_mixer:in0",
-      "buffer": "buf_92"
+      "buffer": "buf_91"
     },
     {
       "from": "treble_src:out",
       "to": "part2_fdp__treble_delay:in",
-      "buffer": "buf_93"
+      "buffer": "buf_92"
     },
     {
       "from": "treble_surround_src:out",
       "to": "part3_mixing__ts_delay:in",
-      "buffer": "buf_94"
+      "buffer": "buf_93"
     },
     {
       "from": "part2_fdp__fdp_matrix:out",
       "to": "part3_mixing__buf_expand:in",
-      "buffer": "buf_95"
+      "buffer": "buf_94"
     },
     {
       "from": "part3_mixing__merge2:out",
       "to": "part4_peripheral_eq__enable:in",
-      "buffer": "buf_96"
+      "buffer": "buf_95"
     },
     {
       "from": "part4_peripheral_eq__ch_delay:out",
       "to": "part5_6__split:in",
-      "buffer": "buf_97"
+      "buffer": "buf_96"
     },
     {
       "from": "part5_6__spatial_fader:out",
       "to": "feedback_delay:in",
-      "buffer": "buf_98"
+      "buffer": "buf_97"
     },
     {
       "from": "feedback_delay:out",
       "to": "feedback_expand:in",
-      "buffer": "buf_99"
+      "buffer": "buf_98"
     },
     {
       "from": "feedback_expand:out",
       "to": "music_mixer:in1",
-      "buffer": "buf_100"
+      "buffer": "buf_99"
     },
     {
       "from": "music_mixer:out",
       "to": "input_select__ent_sel:in",
-      "buffer": "buf_101"
+      "buffer": "buf_100"
     },
     {
       "from": "input_select__ent_sel:out",
       "to": "pre_amp__makeup:in",
-      "buffer": "buf_102"
+      "buffer": "buf_101"
     },
     {
       "from": "pre_amp__buf_router:out",
       "to": "post_process__asd_router:in",
-      "buffer": "buf_103"
+      "buffer": "buf_102"
     },
     {
       "from": "pre_amp__buf1_sel:out",
       "to": "audiopilot__buf_split:in",
-      "buffer": "buf_104"
+      "buffer": "buf_103"
     },
     {
       "from": "pre_amp__buf2_sel:out",
       "to": "audiopilot__mic_ld:in",
-      "buffer": "buf_105"
+      "buffer": "buf_104"
     },
     {
       "from": "mono_src:out",
       "to": "audiopilot__mono_ld:in",
-      "buffer": "buf_106"
+      "buffer": "buf_105"
     },
     {
       "from": "part2_fdp__fdp_matrix:out",
       "to": "fdp_tap:in",
-      "buffer": "buf_107"
+      "buffer": "buf_106"
     },
     {
       "from": "fdp_tap:out",
       "to": "audiopilot__fdp_ld:in",
-      "buffer": "buf_108"
+      "buffer": "buf_107"
     },
     {
       "from": "post_process__out_delay:out",
       "to": "main_probe:in",
-      "buffer": "buf_109"
+      "buffer": "buf_108"
     },
     {
       "from": "main_probe:out",
       "to": "main_out:in",
-      "buffer": "buf_110"
+      "buffer": "buf_109"
     },
     {
       "from": "audiopilot__wide_gain:out",
       "to": "ap_probe:in",
-      "buffer": "buf_111"
+      "buffer": "buf_110"
     },
     {
       "from": "ap_probe:out",
       "to": "ap_out:in",
-      "buffer": "buf_112"
+      "buffer": "buf_111"
     },
     {
       "from": "ap_probe:out",
-      "to": "model_1_2__fullrate_control:in",
-      "buffer": "buf_113"
+      "to": "model_1_2__fullrate_input:in",
+      "buffer": "buf_112"
     },
     {
       "from": "model_1_2__part1_mono:out",
       "to": "deci_mono_sink:in",
-      "buffer": "buf_114"
+      "buffer": "buf_113"
     },
     {
       "from": "model_1_2__part1_treble:out",
       "to": "deci_treble_sink:in",
-      "buffer": "buf_115"
+      "buffer": "buf_114"
     },
     {
       "from": "model_1_2__treble_surround_expand:out",
       "to": "deci_surround_sink:in",
-      "buffer": "buf_116"
+      "buffer": "buf_115"
     },
     {
       "from": "model_1_2__post_hologram:out",
       "to": "deci_hologram_sink:in",
-      "buffer": "buf_117"
+      "buffer": "buf_116"
     }
   ],
   "duration_frames": 0,
@@ -5076,11 +5028,11 @@
           "slot": 8
         },
         {
-          "node": "main_probe",
+          "node": "ap_out",
           "slot": 9
         },
         {
-          "node": "ap_out",
+          "node": "main_probe",
           "slot": 10
         },
         {
@@ -5218,12 +5170,8 @@
           "slot": 26
         },
         {
-          "node": "audiopilot__adaptive_control",
-          "slot": 27
-        },
-        {
           "node": "audiopilot__wide_gain",
-          "slot": 28
+          "slot": 27
         }
       ]
     },
@@ -5242,7 +5190,7 @@
       "id": 3,
       "leaves": [
         {
-          "node": "model_1_2__fullrate_control",
+          "node": "model_1_2__fullrate_input",
           "slot": 0
         },
         {
@@ -6001,32 +5949,6 @@
     },
     {
       "id": 268435490,
-      "node": "main_probe",
-      "key": "channels",
-      "kind": "TUNE",
-      "form": "SCALAR",
-      "type": "int",
-      "count": 1,
-      "name": "通道数",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 536870947,
-      "node": "main_probe",
-      "key": "rms",
-      "kind": "PROBE",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "RMS",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268435492,
       "node": "ap_out",
       "key": "file_path",
       "kind": "TUNE",
@@ -6039,7 +5961,7 @@
       "reply": false
     },
     {
-      "id": 268435493,
+      "id": 268435491,
       "node": "ap_out",
       "key": "channels",
       "kind": "TUNE",
@@ -6052,7 +5974,7 @@
       "reply": false
     },
     {
-      "id": 268435494,
+      "id": 268435492,
       "node": "ap_out",
       "key": "sample_rate",
       "kind": "TUNE",
@@ -6060,6 +5982,32 @@
       "type": "int",
       "count": 1,
       "name": "采样率",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 268435493,
+      "node": "main_probe",
+      "key": "channels",
+      "kind": "TUNE",
+      "form": "SCALAR",
+      "type": "int",
+      "count": 1,
+      "name": "通道数",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 536870950,
+      "node": "main_probe",
+      "key": "rms",
+      "kind": "PROBE",
+      "form": "SCALAR",
+      "type": "float",
+      "count": 1,
+      "name": "RMS",
       "runtime": false,
       "double_bank": false,
       "reply": false
@@ -7210,175 +7158,6 @@
     },
     {
       "id": 65617,
-      "node": "audiopilot__adaptive_control",
-      "key": "level",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "输入线性 RMS",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 65618,
-      "node": "audiopilot__adaptive_control",
-      "key": "target_db",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "目标 RMS 电平",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 65619,
-      "node": "audiopilot__adaptive_control",
-      "key": "min_gain_db",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "最大衰减",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 65620,
-      "node": "audiopilot__adaptive_control",
-      "key": "max_gain_db",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "最大提升",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 65621,
-      "node": "audiopilot__adaptive_control",
-      "key": "gate_db",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "静音门",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 65622,
-      "node": "audiopilot__adaptive_control",
-      "key": "detector_attack_ms",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "检测启动时间",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 65623,
-      "node": "audiopilot__adaptive_control",
-      "key": "detector_release_ms",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "检测释放时间",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 65624,
-      "node": "audiopilot__adaptive_control",
-      "key": "gain_attack_ms",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "压低响应时间",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 65625,
-      "node": "audiopilot__adaptive_control",
-      "key": "gain_release_ms",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "抬升响应时间",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268501082,
-      "node": "audiopilot__adaptive_control",
-      "key": "channels",
-      "kind": "TUNE",
-      "form": "SCALAR",
-      "type": "int",
-      "count": 1,
-      "name": "通道数",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 536936539,
-      "node": "audiopilot__adaptive_control",
-      "key": "input_db",
-      "kind": "PROBE",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "平滑输入电平",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 536936540,
-      "node": "audiopilot__adaptive_control",
-      "key": "gain_db",
-      "kind": "PROBE",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "当前目标增益",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 536936541,
-      "node": "audiopilot__adaptive_control",
-      "key": "output_db",
-      "kind": "PROBE",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "估算输出电平",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 65630,
       "node": "audiopilot__wide_gain",
       "key": "gain_db",
       "kind": "RTC",
@@ -7391,7 +7170,7 @@
       "reply": false
     },
     {
-      "id": 268501087,
+      "id": 268501074,
       "node": "audiopilot__wide_gain",
       "key": "ramp_ms",
       "kind": "TUNE",
@@ -7404,7 +7183,7 @@
       "reply": false
     },
     {
-      "id": 268501088,
+      "id": 268501075,
       "node": "audiopilot__wide_gain",
       "key": "channels",
       "kind": "TUNE",
@@ -7417,7 +7196,7 @@
       "reply": false
     },
     {
-      "id": 268501089,
+      "id": 268501076,
       "node": "audiopilot__wide_gain",
       "key": "num_rampers",
       "kind": "TUNE",
@@ -7430,7 +7209,7 @@
       "reply": false
     },
     {
-      "id": 268501090,
+      "id": 268501077,
       "node": "audiopilot__wide_gain",
       "key": "chan_map",
       "kind": "TUNE",
@@ -7482,176 +7261,46 @@
       "reply": false
     },
     {
-      "id": 196608,
-      "node": "model_1_2__fullrate_control",
-      "key": "level",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "输入线性 RMS",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 196609,
-      "node": "model_1_2__fullrate_control",
-      "key": "target_db",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "目标 RMS 电平",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 196610,
-      "node": "model_1_2__fullrate_control",
-      "key": "min_gain_db",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "最大衰减",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 196611,
-      "node": "model_1_2__fullrate_control",
-      "key": "max_gain_db",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "最大提升",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 196612,
-      "node": "model_1_2__fullrate_control",
-      "key": "gate_db",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "静音门",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 196613,
-      "node": "model_1_2__fullrate_control",
-      "key": "detector_attack_ms",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "检测启动时间",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 196614,
-      "node": "model_1_2__fullrate_control",
-      "key": "detector_release_ms",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "检测释放时间",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 196615,
-      "node": "model_1_2__fullrate_control",
-      "key": "gain_attack_ms",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "压低响应时间",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 196616,
-      "node": "model_1_2__fullrate_control",
-      "key": "gain_release_ms",
-      "kind": "RTC",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "抬升响应时间",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268632073,
-      "node": "model_1_2__fullrate_control",
-      "key": "channels",
+      "id": 268632064,
+      "node": "model_1_2__fullrate_input",
+      "key": "channels_in",
       "kind": "TUNE",
       "form": "SCALAR",
       "type": "int",
       "count": 1,
-      "name": "通道数",
+      "name": "输入通道数",
       "runtime": false,
       "double_bank": false,
       "reply": false
     },
     {
-      "id": 537067530,
-      "node": "model_1_2__fullrate_control",
-      "key": "input_db",
-      "kind": "PROBE",
+      "id": 268632065,
+      "node": "model_1_2__fullrate_input",
+      "key": "channels_out",
+      "kind": "TUNE",
       "form": "SCALAR",
-      "type": "float",
+      "type": "int",
       "count": 1,
-      "name": "平滑输入电平",
+      "name": "输出通道数",
       "runtime": false,
       "double_bank": false,
       "reply": false
     },
     {
-      "id": 537067531,
-      "node": "model_1_2__fullrate_control",
-      "key": "gain_db",
-      "kind": "PROBE",
+      "id": 268632066,
+      "node": "model_1_2__fullrate_input",
+      "key": "matrix",
+      "kind": "TUNE",
       "form": "SCALAR",
-      "type": "float",
+      "type": "string",
       "count": 1,
-      "name": "当前目标增益",
+      "name": "混音矩阵",
       "runtime": false,
       "double_bank": false,
       "reply": false
     },
     {
-      "id": 537067532,
-      "node": "model_1_2__fullrate_control",
-      "key": "output_db",
-      "kind": "PROBE",
-      "form": "SCALAR",
-      "type": "float",
-      "count": 1,
-      "name": "估算输出电平",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268632077,
+      "id": 268632067,
       "node": "model_1_2__part1_bands",
       "key": "channels",
       "kind": "TUNE",
@@ -7664,7 +7313,7 @@
       "reply": false
     },
     {
-      "id": 268632078,
+      "id": 268632068,
       "node": "model_1_2__part1_bands",
       "key": "num_stages",
       "kind": "TUNE",
@@ -7677,7 +7326,7 @@
       "reply": false
     },
     {
-      "id": 268632079,
+      "id": 268632069,
       "node": "model_1_2__part1_bands",
       "key": "coefs_mode",
       "kind": "TUNE",
@@ -7690,7 +7339,7 @@
       "reply": false
     },
     {
-      "id": 268632080,
+      "id": 268632070,
       "node": "model_1_2__part1_bands",
       "key": "coefs",
       "kind": "TUNE",
@@ -7703,7 +7352,7 @@
       "reply": false
     },
     {
-      "id": 268632081,
+      "id": 268632071,
       "node": "model_1_2__part1_bands",
       "key": "coefs_per_channel",
       "kind": "TUNE",
@@ -7716,7 +7365,7 @@
       "reply": false
     },
     {
-      "id": 268632082,
+      "id": 268632072,
       "node": "model_1_2__part1_mono",
       "key": "channels_in",
       "kind": "TUNE",
@@ -7729,7 +7378,7 @@
       "reply": false
     },
     {
-      "id": 268632083,
+      "id": 268632073,
       "node": "model_1_2__part1_mono",
       "key": "channels_out",
       "kind": "TUNE",
@@ -7742,7 +7391,7 @@
       "reply": false
     },
     {
-      "id": 268632084,
+      "id": 268632074,
       "node": "model_1_2__part1_mono",
       "key": "select",
       "kind": "TUNE",
@@ -7755,7 +7404,7 @@
       "reply": false
     },
     {
-      "id": 268632085,
+      "id": 268632075,
       "node": "model_1_2__part1_treble",
       "key": "channels_in",
       "kind": "TUNE",
@@ -7768,7 +7417,7 @@
       "reply": false
     },
     {
-      "id": 268632086,
+      "id": 268632076,
       "node": "model_1_2__part1_treble",
       "key": "channels_out",
       "kind": "TUNE",
@@ -7781,7 +7430,7 @@
       "reply": false
     },
     {
-      "id": 268632087,
+      "id": 268632077,
       "node": "model_1_2__part1_treble",
       "key": "select",
       "kind": "TUNE",
@@ -7794,7 +7443,7 @@
       "reply": false
     },
     {
-      "id": 268632088,
+      "id": 268632078,
       "node": "model_1_2__part2_fdp_deci",
       "key": "rows",
       "kind": "TUNE",
@@ -7807,7 +7456,7 @@
       "reply": false
     },
     {
-      "id": 268632089,
+      "id": 268632079,
       "node": "model_1_2__part2_fdp_deci",
       "key": "cols",
       "kind": "TUNE",
@@ -7820,7 +7469,7 @@
       "reply": false
     },
     {
-      "id": 268632090,
+      "id": 268632080,
       "node": "model_1_2__part2_fdp_deci",
       "key": "matrix",
       "kind": "TUNE",
@@ -7833,7 +7482,7 @@
       "reply": false
     },
     {
-      "id": 268632091,
+      "id": 268632081,
       "node": "model_1_2__treble_surround_expand",
       "key": "channels_in",
       "kind": "TUNE",
@@ -7846,7 +7495,7 @@
       "reply": false
     },
     {
-      "id": 268632092,
+      "id": 268632082,
       "node": "model_1_2__treble_surround_expand",
       "key": "channels_out",
       "kind": "TUNE",
@@ -7859,7 +7508,7 @@
       "reply": false
     },
     {
-      "id": 268632093,
+      "id": 268632083,
       "node": "model_1_2__treble_surround_expand",
       "key": "matrix",
       "kind": "TUNE",
@@ -7872,7 +7521,7 @@
       "reply": false
     },
     {
-      "id": 268632094,
+      "id": 268632084,
       "node": "model_1_2__part3_deci_mixing",
       "key": "channels_in",
       "kind": "TUNE",
@@ -7885,7 +7534,7 @@
       "reply": false
     },
     {
-      "id": 268632095,
+      "id": 268632085,
       "node": "model_1_2__part3_deci_mixing",
       "key": "channels_out",
       "kind": "TUNE",
@@ -7898,7 +7547,7 @@
       "reply": false
     },
     {
-      "id": 268632096,
+      "id": 268632086,
       "node": "model_1_2__part3_deci_mixing",
       "key": "matrix",
       "kind": "TUNE",
@@ -7911,7 +7560,7 @@
       "reply": false
     },
     {
-      "id": 268632097,
+      "id": 268632087,
       "node": "model_1_2__part4_deci_peripheral_eq",
       "key": "channels",
       "kind": "TUNE",
@@ -7924,7 +7573,7 @@
       "reply": false
     },
     {
-      "id": 268632098,
+      "id": 268632088,
       "node": "model_1_2__part4_deci_peripheral_eq",
       "key": "num_stages",
       "kind": "TUNE",
@@ -7937,7 +7586,7 @@
       "reply": false
     },
     {
-      "id": 268632099,
+      "id": 268632089,
       "node": "model_1_2__part4_deci_peripheral_eq",
       "key": "coefs_mode",
       "kind": "TUNE",
@@ -7950,7 +7599,7 @@
       "reply": false
     },
     {
-      "id": 268632100,
+      "id": 268632090,
       "node": "model_1_2__part4_deci_peripheral_eq",
       "key": "coefs",
       "kind": "TUNE",
@@ -7963,7 +7612,7 @@
       "reply": false
     },
     {
-      "id": 268632101,
+      "id": 268632091,
       "node": "model_1_2__part4_deci_peripheral_eq",
       "key": "coefs_per_channel",
       "kind": "TUNE",
@@ -7976,7 +7625,7 @@
       "reply": false
     },
     {
-      "id": 268632102,
+      "id": 268632092,
       "node": "model_1_2__headrest_select",
       "key": "channels_in",
       "kind": "TUNE",
@@ -7989,7 +7638,7 @@
       "reply": false
     },
     {
-      "id": 268632103,
+      "id": 268632093,
       "node": "model_1_2__headrest_select",
       "key": "channels_out",
       "kind": "TUNE",
@@ -7997,207 +7646,207 @@
       "type": "int",
       "count": 1,
       "name": "输出通道数",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 268632094,
+      "node": "model_1_2__headrest_select",
+      "key": "select",
+      "kind": "TUNE",
+      "form": "SCALAR",
+      "type": "string",
+      "count": 1,
+      "name": "选择映射",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 268632095,
+      "node": "model_1_2__overhead_select",
+      "key": "channels_in",
+      "kind": "TUNE",
+      "form": "SCALAR",
+      "type": "int",
+      "count": 1,
+      "name": "输入通道数",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 268632096,
+      "node": "model_1_2__overhead_select",
+      "key": "channels_out",
+      "kind": "TUNE",
+      "form": "SCALAR",
+      "type": "int",
+      "count": 1,
+      "name": "输出通道数",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 268632097,
+      "node": "model_1_2__overhead_select",
+      "key": "select",
+      "kind": "TUNE",
+      "form": "SCALAR",
+      "type": "string",
+      "count": 1,
+      "name": "选择映射",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 268632098,
+      "node": "model_1_2__headrest_eq",
+      "key": "coefficients",
+      "kind": "TUNE",
+      "form": "BULK",
+      "type": "string",
+      "count": 1,
+      "name": "系数",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 268632099,
+      "node": "model_1_2__headrest_eq",
+      "key": "channels",
+      "kind": "TUNE",
+      "form": "SCALAR",
+      "type": "int",
+      "count": 1,
+      "name": "通道数",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 537067556,
+      "node": "model_1_2__headrest_eq",
+      "key": "taps",
+      "kind": "PROBE",
+      "form": "SCALAR",
+      "type": "int",
+      "count": 1,
+      "name": "阶数",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 268632101,
+      "node": "model_1_2__overhead_eq",
+      "key": "coefficients",
+      "kind": "TUNE",
+      "form": "BULK",
+      "type": "string",
+      "count": 1,
+      "name": "系数",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 268632102,
+      "node": "model_1_2__overhead_eq",
+      "key": "channels",
+      "kind": "TUNE",
+      "form": "SCALAR",
+      "type": "int",
+      "count": 1,
+      "name": "通道数",
+      "runtime": false,
+      "double_bank": false,
+      "reply": false
+    },
+    {
+      "id": 537067559,
+      "node": "model_1_2__overhead_eq",
+      "key": "taps",
+      "kind": "PROBE",
+      "form": "SCALAR",
+      "type": "int",
+      "count": 1,
+      "name": "阶数",
       "runtime": false,
       "double_bank": false,
       "reply": false
     },
     {
       "id": 268632104,
-      "node": "model_1_2__headrest_select",
-      "key": "select",
+      "node": "model_1_2__headrest_expand",
+      "key": "channels_in",
       "kind": "TUNE",
       "form": "SCALAR",
-      "type": "string",
+      "type": "int",
       "count": 1,
-      "name": "选择映射",
+      "name": "输入通道数",
       "runtime": false,
       "double_bank": false,
       "reply": false
     },
     {
       "id": 268632105,
-      "node": "model_1_2__overhead_select",
-      "key": "channels_in",
+      "node": "model_1_2__headrest_expand",
+      "key": "channels_out",
       "kind": "TUNE",
       "form": "SCALAR",
       "type": "int",
       "count": 1,
-      "name": "输入通道数",
+      "name": "输出通道数",
       "runtime": false,
       "double_bank": false,
       "reply": false
     },
     {
       "id": 268632106,
-      "node": "model_1_2__overhead_select",
-      "key": "channels_out",
+      "node": "model_1_2__headrest_expand",
+      "key": "matrix",
       "kind": "TUNE",
       "form": "SCALAR",
-      "type": "int",
+      "type": "string",
       "count": 1,
-      "name": "输出通道数",
+      "name": "混音矩阵",
       "runtime": false,
       "double_bank": false,
       "reply": false
     },
     {
       "id": 268632107,
-      "node": "model_1_2__overhead_select",
-      "key": "select",
+      "node": "model_1_2__overhead_expand",
+      "key": "channels_in",
       "kind": "TUNE",
       "form": "SCALAR",
-      "type": "string",
+      "type": "int",
       "count": 1,
-      "name": "选择映射",
+      "name": "输入通道数",
       "runtime": false,
       "double_bank": false,
       "reply": false
     },
     {
       "id": 268632108,
-      "node": "model_1_2__headrest_eq",
-      "key": "coefficients",
+      "node": "model_1_2__overhead_expand",
+      "key": "channels_out",
       "kind": "TUNE",
-      "form": "BULK",
-      "type": "string",
+      "form": "SCALAR",
+      "type": "int",
       "count": 1,
-      "name": "系数",
+      "name": "输出通道数",
       "runtime": false,
       "double_bank": false,
       "reply": false
     },
     {
       "id": 268632109,
-      "node": "model_1_2__headrest_eq",
-      "key": "channels",
-      "kind": "TUNE",
-      "form": "SCALAR",
-      "type": "int",
-      "count": 1,
-      "name": "通道数",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 537067566,
-      "node": "model_1_2__headrest_eq",
-      "key": "taps",
-      "kind": "PROBE",
-      "form": "SCALAR",
-      "type": "int",
-      "count": 1,
-      "name": "阶数",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268632111,
-      "node": "model_1_2__overhead_eq",
-      "key": "coefficients",
-      "kind": "TUNE",
-      "form": "BULK",
-      "type": "string",
-      "count": 1,
-      "name": "系数",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268632112,
-      "node": "model_1_2__overhead_eq",
-      "key": "channels",
-      "kind": "TUNE",
-      "form": "SCALAR",
-      "type": "int",
-      "count": 1,
-      "name": "通道数",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 537067569,
-      "node": "model_1_2__overhead_eq",
-      "key": "taps",
-      "kind": "PROBE",
-      "form": "SCALAR",
-      "type": "int",
-      "count": 1,
-      "name": "阶数",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268632114,
-      "node": "model_1_2__headrest_expand",
-      "key": "channels_in",
-      "kind": "TUNE",
-      "form": "SCALAR",
-      "type": "int",
-      "count": 1,
-      "name": "输入通道数",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268632115,
-      "node": "model_1_2__headrest_expand",
-      "key": "channels_out",
-      "kind": "TUNE",
-      "form": "SCALAR",
-      "type": "int",
-      "count": 1,
-      "name": "输出通道数",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268632116,
-      "node": "model_1_2__headrest_expand",
-      "key": "matrix",
-      "kind": "TUNE",
-      "form": "SCALAR",
-      "type": "string",
-      "count": 1,
-      "name": "混音矩阵",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268632117,
-      "node": "model_1_2__overhead_expand",
-      "key": "channels_in",
-      "kind": "TUNE",
-      "form": "SCALAR",
-      "type": "int",
-      "count": 1,
-      "name": "输入通道数",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268632118,
-      "node": "model_1_2__overhead_expand",
-      "key": "channels_out",
-      "kind": "TUNE",
-      "form": "SCALAR",
-      "type": "int",
-      "count": 1,
-      "name": "输出通道数",
-      "runtime": false,
-      "double_bank": false,
-      "reply": false
-    },
-    {
-      "id": 268632119,
       "node": "model_1_2__overhead_expand",
       "key": "matrix",
       "kind": "TUNE",
@@ -8210,7 +7859,7 @@
       "reply": false
     },
     {
-      "id": 196664,
+      "id": 196654,
       "node": "model_1_2__eq_merge",
       "key": "gain0",
       "kind": "RTC",
@@ -8223,7 +7872,7 @@
       "reply": false
     },
     {
-      "id": 196665,
+      "id": 196655,
       "node": "model_1_2__eq_merge",
       "key": "gain1",
       "kind": "RTC",
@@ -8236,7 +7885,7 @@
       "reply": false
     },
     {
-      "id": 268632122,
+      "id": 268632112,
       "node": "model_1_2__eq_merge",
       "key": "channels",
       "kind": "TUNE",
@@ -8249,7 +7898,7 @@
       "reply": false
     },
     {
-      "id": 196667,
+      "id": 196657,
       "node": "model_1_2__post_hologram",
       "key": "gain_index",
       "kind": "RTC",
@@ -8262,7 +7911,7 @@
       "reply": false
     },
     {
-      "id": 268632124,
+      "id": 268632114,
       "node": "model_1_2__post_hologram",
       "key": "offset",
       "kind": "TUNE",
@@ -8275,7 +7924,7 @@
       "reply": false
     },
     {
-      "id": 268632125,
+      "id": 268632115,
       "node": "model_1_2__post_hologram",
       "key": "mutes_bass",
       "kind": "TUNE",
@@ -8288,7 +7937,7 @@
       "reply": false
     },
     {
-      "id": 268632126,
+      "id": 268632116,
       "node": "model_1_2__post_hologram",
       "key": "ramp_ms",
       "kind": "TUNE",
@@ -8301,7 +7950,7 @@
       "reply": false
     },
     {
-      "id": 268632127,
+      "id": 268632117,
       "node": "model_1_2__post_hologram",
       "key": "channels",
       "kind": "TUNE",
@@ -8314,7 +7963,7 @@
       "reply": false
     },
     {
-      "id": 268632128,
+      "id": 268632118,
       "node": "model_1_2__post_hologram",
       "key": "chan_map",
       "kind": "TUNE",
@@ -8327,7 +7976,7 @@
       "reply": false
     },
     {
-      "id": 268632129,
+      "id": 268632119,
       "node": "model_1_2__post_hologram",
       "key": "table_idx",
       "kind": "TUNE",
@@ -8340,7 +7989,7 @@
       "reply": false
     },
     {
-      "id": 268632130,
+      "id": 268632120,
       "node": "model_1_2__post_hologram",
       "key": "table_db",
       "kind": "TUNE",
@@ -11201,44 +10850,7 @@
     }
   ],
   "target": "win",
-  "control_links": [
-    {
-      "src_node": "audiopilot__mic_ld",
-      "src_param": "level",
-      "dst_node": "audiopilot__adaptive_control",
-      "dst_param": "level",
-      "type": "float",
-      "shape": [],
-      "count": 1
-    },
-    {
-      "src_node": "audiopilot__adaptive_control",
-      "src_param": "gain_db",
-      "dst_node": "audiopilot__wide_gain",
-      "dst_param": "gain_db",
-      "type": "float",
-      "shape": [],
-      "count": 1
-    },
-    {
-      "src_node": "ap_probe",
-      "src_param": "rms",
-      "dst_node": "model_1_2__fullrate_control",
-      "dst_param": "level",
-      "type": "float",
-      "shape": [],
-      "count": 1
-    },
-    {
-      "src_node": "model_1_2__fullrate_control",
-      "src_param": "gain_db",
-      "dst_node": "part5_6__fade_ctrl",
-      "dst_param": "gain_db",
-      "type": "float",
-      "shape": [],
-      "count": 1
-    }
-  ],
+  "control_links": [],
   "ignored_nodes": [],
   "schedule": {
     "tick": 32,
@@ -11313,7 +10925,6 @@
       "audiopilot__bpf_delay": 1,
       "audiopilot__sum": 1,
       "audiopilot__wide_gain": 1,
-      "audiopilot__adaptive_control": 1,
       "audiopilot__sine_mod": 1,
       "audiopilot__mod_matrix": 1,
       "audiopilot__pooliir_buf": 1,
@@ -11338,7 +10949,7 @@
       "main_out": 1,
       "ap_probe": 1,
       "ap_out": 1,
-      "model_1_2__fullrate_control": 1,
+      "model_1_2__fullrate_input": 1,
       "model_1_2__part1_bands": 1,
       "model_1_2__part1_mono": 1,
       "model_1_2__part1_treble": 1,
@@ -11362,9 +10973,9 @@
     "multi_clock": false
   },
   "bridge_identity": {
-    "graph_hash": 8029774623844062640,
-    "plan_hash": 3094072908585330085,
-    "id_map_hash": 7310107368230370699
+    "graph_hash": 8415728347409349543,
+    "plan_hash": 4952858155113757342,
+    "id_map_hash": 2245075120636654621
   },
   "clock_domains": [],
   "trigger_groups": [],

@@ -1,4 +1,4 @@
-"""Symphony BAF 完整工程的蒸馏组件覆盖。"""
+"""Symphony BAF 结构参考的组件覆盖。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from orpheus_core.registry import Registry
 from orpheus_core.subgraph import flatten_project
 
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE = ROOT / "examples" / "symphony_baf_complete.yaml"
+EXAMPLE = ROOT / "examples" / "symphony_baf_structural_reference.yaml"
 
 
 def test_symphony_components_compile() -> None:
@@ -27,7 +27,6 @@ def test_symphony_components_compile() -> None:
         "orpheus.builtin.sleeping_beauty",
         "orpheus.builtin.input_mixer_3d",
         "orpheus.builtin.baf_soft_clipper",
-        "orpheus.builtin.loudness_gain_control",
         "orpheus.builtin.fir",
     ):
         assert cid in comps, f"missing {cid}"

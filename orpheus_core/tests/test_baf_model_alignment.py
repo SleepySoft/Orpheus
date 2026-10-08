@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from orpheus_core.compiler import GraphCompiler
 from orpheus_core.generator import CodeGenerator
@@ -46,7 +48,7 @@ def test_asm_rnc_uses_generated_model_dimensions(compiler: GraphCompiler) -> Non
 
 
 def test_sas_uses_generated_piecewise_soft_clipper(compiler: GraphCompiler) -> None:
-    plan = compile_example(compiler, "symphony_baf_complete.yaml")
+    plan = compile_example(compiler, "symphony_baf_structural_reference.yaml")
     config = plan.node_configs["post_process__sclip"]
     assert config["component"] == "orpheus.builtin.baf_soft_clipper"
     assert config["params"]["xmin"] == pytest.approx(0.65)
@@ -54,18 +56,30 @@ def test_sas_uses_generated_piecewise_soft_clipper(compiler: GraphCompiler) -> N
     assert config["params"]["p2"] == pytest.approx(0.714285731)
 
 
-def test_complete_baf_includes_model_1_2_and_control_loops(compiler: GraphCompiler) -> None:
-    plan = compile_example(compiler, "symphony_baf_complete.yaml")
+def test_baf_structural_reference_does_not_claim_control_equivalence(
+    compiler: GraphCompiler,
+) -> None:
+    plan = compile_example(compiler, "symphony_baf_structural_reference.yaml")
     assert sum(node.startswith("model_1_2__") for node in plan.node_configs) == 16
-    assert {
-        (link["src_node"], link["src_param"], link["dst_node"], link["dst_param"])
-        for link in plan.control_links
-    } == {
-        ("audiopilot__mic_ld", "level", "audiopilot__adaptive_control", "level"),
-        ("audiopilot__adaptive_control", "gain_db", "audiopilot__wide_gain", "gain_db"),
-        ("ap_probe", "rms", "model_1_2__fullrate_control", "level"),
-        ("model_1_2__fullrate_control", "gain_db", "part5_6__fade_ctrl", "gain_db"),
-    }
+    assert plan.control_links == []
+
+
+def test_baf_structural_reference_declares_fidelity_and_documents_every_node() -> None:
+    project_path = ROOT / "examples" / "symphony_baf_structural_reference.yaml"
+    notes_path = ROOT / "examples" / "symphony_baf_structural_reference.node-notes.json"
+    document = yaml.safe_load(project_path.read_text(encoding="utf-8"))
+    notes = json.loads(notes_path.read_text(encoding="utf-8"))
+    fidelity = document["model_tree"]["fidelity"]
+    assert fidelity["level"] == "structural_reference"
+    assert fidelity["executable_equivalence"] is False
+    assert fidelity["numerical_equivalence"] is False
+    node_ids = {node["id"] for node in document["graph"]["nodes"]}
+    node_ids.update(
+        f"sub:{subcomponent['id']}/{node['id']}"
+        for subcomponent in document.get("subcomponents", [])
+        for node in subcomponent["graph"]["nodes"]
+    )
+    assert set(notes) == node_ids
 
 
 def test_asm_codegen_allocates_discard_outputs(compiler: GraphCompiler, tmp_path: Path) -> None:

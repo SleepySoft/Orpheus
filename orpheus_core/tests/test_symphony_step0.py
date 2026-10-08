@@ -1,4 +1,4 @@
-"""Symphony BAF 完整蒸馏工程验证。"""
+"""Symphony BAF 结构参考工程验证。"""
 
 from __future__ import annotations
 
@@ -60,9 +60,9 @@ def _compile(name: str) -> dict:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
-def test_symphony_baf_complete_compile() -> None:
-    """Baf1+Baf2 子组件和控制链能编译。"""
-    plan = _compile("symphony_baf_complete.yaml")
+def test_symphony_baf_structural_reference_compile() -> None:
+    """Baf1+Baf2 结构子组件能编译。"""
+    plan = _compile("symphony_baf_structural_reference.yaml")
     comps = {cfg["component"] for cfg in plan.node_configs.values()}
     # 子组件展开后不应再出现 sub: 前缀
     assert not any(c.startswith("sub:") for c in comps)
@@ -72,7 +72,7 @@ def test_symphony_baf_complete_compile() -> None:
     assert any("main_out" in nid for nid in plan.execution_order)
     assert any("ap_out" in nid for nid in plan.execution_order)
     assert sum(nid.startswith("model_1_2__") for nid in plan.node_configs) == 16
-    assert len(plan.control_links) == 4
+    assert plan.control_links == []
 
 
 @pytest.mark.skipif(
@@ -80,12 +80,12 @@ def test_symphony_baf_complete_compile() -> None:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
-def test_symphony_baf_complete_run_end_to_end(client) -> None:
-    """完整蒸馏工程离线运行成功，主输出与 Audiopilot 输出均有能量。"""
+def test_symphony_baf_structural_reference_run_end_to_end(client) -> None:
+    """结构参考工程离线运行成功，主输出与 Audiopilot 输出均有能量。"""
     name = f"baf_{uuid.uuid4().hex[:8]}"
     _CREATED.append(name)
     assert client.post("/api/projects", json={"name": name}).status_code == 201
-    src = _load_example("symphony_baf_complete.yaml")
+    src = _load_example("symphony_baf_structural_reference.yaml")
     doc = client.get(f"/api/projects/{name}").json()
     doc["sample_rate"] = src["sample_rate"]
     doc["block_size"] = src["block_size"]

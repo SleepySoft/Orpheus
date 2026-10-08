@@ -1,7 +1,7 @@
 version: 0.1.0
 metadata:
-  name: symphony_baf_complete
-  description: EREV BAF 1.0.3 完整结构蒸馏：Baf1/Model_1_1 全速率 SAS、Baf2/Model_1_2 降速率 Medusa 与双向控制总线
+  name: symphony_baf_structural_reference
+  description: EREV BAF 1.0.3 结构参考：保留 Baf1/Baf2 拓扑、任务和 BVP 边界，不宣称算法或数值等价
   distilled_from: cart-cicd-erev components/baf/src (Baf1+Baf2, 2026-10-08)
 sample_rate: 48000
 block_size: 32
@@ -131,7 +131,7 @@ graph:
   - id: main_out
     component: orpheus.builtin.wav_out
     params:
-      file_path: symphony_baf_complete_main_out.wav
+      file_path: symphony_baf_structural_reference_main_out.wav
       channels: 22
       sample_rate: 48000
     position:
@@ -147,7 +147,7 @@ graph:
   - id: ap_out
     component: orpheus.builtin.wav_out
     params:
-      file_path: symphony_baf_complete_ap_out.wav
+      file_path: symphony_baf_structural_reference_ap_out.wav
       channels: 10
       sample_rate: 48000
     position:
@@ -225,15 +225,6 @@ graph:
     to: deci_surround_sink:in
   - from: model_1_2:post_hologram
     to: deci_hologram_sink:in
-control_connections:
-  - from: audiopilot:mic_level
-    to: audiopilot:adaptive_level
-  - from: audiopilot:adaptive_gain_db
-    to: audiopilot:wide_gain_db
-  - from: ap_probe:rms
-    to: model_1_2:full_rate_level
-  - from: model_1_2:deci_gain_db
-    to: part5_6:deci_gain_db
 subcomponents:
 - id: part2_fdp
   name: Symphony Part2 FDP
@@ -508,13 +499,6 @@ subcomponents:
   - id: out
     direction: output
     maps_to: spatial_fader:out
-  public_parameters:
-  - id: deci_gain_db
-    name: 降速全息回灌增益
-    direction: input
-    maps_to: fade_ctrl:gain_db
-    type: float
-    default: 0.0
   graph:
     nodes:
     - id: split
@@ -960,29 +944,6 @@ subcomponents:
   - id: out
     direction: output
     maps_to: wide_gain:out
-  public_parameters:
-  - id: mic_level
-    name: 麦克风电平
-    direction: output
-    maps_to: mic_ld:level
-    type: float
-  - id: adaptive_level
-    name: 自适应控制输入电平
-    direction: input
-    maps_to: adaptive_control:level
-    type: float
-    default: 0.0
-  - id: adaptive_gain_db
-    name: 自适应增益
-    direction: output
-    maps_to: adaptive_control:gain_db
-    type: float
-  - id: wide_gain_db
-    name: 宽频目标增益
-    direction: input
-    maps_to: wide_gain:gain_db
-    type: float
-    default: 0.0
   graph:
     nodes:
     - id: buf_split
@@ -1063,17 +1024,6 @@ subcomponents:
       position:
         x: 920
         y: 90
-    - id: adaptive_control
-      component: orpheus.builtin.loudness_gain_control
-      params:
-        level: 0.0
-        target_db: -20.0
-        min_gain_db: -12.0
-        max_gain_db: 12.0
-        channels: 10
-      position:
-        x: 740
-        y: 180
     - id: sine_mod
       component: orpheus.builtin.sine_mod
       params:
@@ -1253,8 +1203,6 @@ subcomponents:
     - from: lpf_gain:out
       to: sum:in1
     - from: sum:out
-      to: adaptive_control:in
-    - from: adaptive_control:out
       to: wide_gain:in
     - from: sine_mod:out
       to: mod_matrix:in
@@ -1289,11 +1237,11 @@ subcomponents:
 
 - id: model_1_2
   name: Baf2 Model_1_2 降速率 Medusa
-  description: BVP 488 元素全速率输入经 Part1/2/3/4/5 生成 1193 元素回传；块信号拆为显式端口，标量控制经公开参数连接
+  description: BVP 488/1193 元素总线的结构投影；仅块信号进入执行图，数组控制与完整 Medusa 算法尚未实现
   ports:
   - id: full_rate_bus
     direction: input
-    maps_to: fullrate_control:in
+    maps_to: fullrate_input:in
   - id: mono
     direction: output
     maps_to: part1_mono:out
@@ -1306,23 +1254,11 @@ subcomponents:
   - id: post_hologram
     direction: output
     maps_to: post_hologram:out
-  public_parameters:
-  - id: full_rate_level
-    name: Baf1 全速率总线电平
-    direction: input
-    maps_to: fullrate_control:level
-    type: float
-    default: 0.0
-  - id: deci_gain_db
-    name: Baf2 降速率回灌增益
-    direction: output
-    maps_to: fullrate_control:gain_db
-    type: float
   graph:
     nodes:
-    - id: fullrate_control
-      component: orpheus.builtin.loudness_gain_control
-      params: {level: 0.0, target_db: -20.0, min_gain_db: -12.0, max_gain_db: 12.0, channels: 10}
+    - id: fullrate_input
+      component: orpheus.builtin.output_router
+      params: {channels_in: 10, channels_out: 10, matrix: identity}
       position: {x: 40, y: 120}
     - id: part1_bands
       component: orpheus.builtin.iir_bank
@@ -1390,7 +1326,7 @@ subcomponents:
         chan_map: "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
       position: {x: 1840, y: 120}
     connections:
-    - {from: fullrate_control:out, to: part1_bands:in}
+    - {from: fullrate_input:out, to: part1_bands:in}
     - {from: part1_bands:out, to: part1_mono:in}
     - {from: part1_bands:out, to: part1_treble:in}
     - {from: part1_treble:out, to: part2_fdp_deci:in}
@@ -1407,10 +1343,31 @@ subcomponents:
     - {from: overhead_expand:out, to: eq_merge:in1}
     - {from: eq_merge:out, to: post_hologram:in}
 
-# Baf1 + Baf2 完整结构、参数分区、TID 与跨模型总线
+# Baf1 + Baf2 结构参考、参数分区、TID 与跨模型总线
 model_tree:
-  name: EREV BAF Symphony/Medusa 完整蒸馏
+  name: EREV BAF Symphony/Medusa 结构参考
   source: cart-cicd-erev components/baf/src 1.0.3; Model_1_1.c + Model_1_2.c + BVP_Config.yml
+  fidelity:
+    level: structural_reference
+    executable_equivalence: false
+    numerical_equivalence: false
+    node_notes_required: true
+    source_grounded:
+      - Baf1/Baf2 外部端口与 BVP 488/1193 元素字段布局
+      - Model_1_1 step0..5 与 Model_1_2 step0..4 的任务周期
+      - 通道尺寸、主要路由、延迟容量、IIR/FIR 级数与 TOP 分区归属
+      - BAF 二次分段 SoftClipper 公式与默认参数
+    projected_not_equivalent:
+      - Model_1_1 FDP 256 点 STFT、瞬态检测、四路混响提取与 overlap-add
+      - Audiopilot HF/LF 噪声估计、BoostMap 和增益计算状态机
+      - Model_1_2 Deci FDP 双速率 STFT
+      - Model_1_2 Part3 26/70/70 数组增益与 FastSequence 斜坡状态机
+      - Model_1_2 Peripheral/Headrest/Overhead HEQ 的多滤波器 FIR/IIR bank
+      - Model_1_2 Part5 VLS Row1/Row2 生成 FIR 与串扰消除 IIR
+      - 真实多 Task 调度、跨模型数组控制写入与 RTC/TOP 更新语义
+    forbidden_claims:
+      - 不得称为完整算法蒸馏
+      - 不得用于与生成模型逐样本或听感等价的结论
   base_rate: 1500Hz (48kHz/32样本块)
   task_flows:
     - tid: 0
@@ -1466,7 +1423,7 @@ model_tree:
       total_values: 1193
       fields:
         - {id: MedusaPart1Bands_CaeEnable, count: 1, projection: documented_scalar_control}
-        - {id: MedusaPart1Bands_DecayRate, count: 1, projection: deci_gain_db}
+        - {id: MedusaPart1Bands_DecayRate, count: 1, projection: documented_scalar_control}
         - {id: MedusaPart1Bands_Mono, count: 32, projection: mono_1ch_x_32}
         - {id: MedusaPart1Bands_TrebleLr, count: 64, projection: treble_lr_2ch_x_32}
         - {id: MedusaPart1Bands_TrebleSurround, count: 224, projection: treble_surround_7ch_x_32}
@@ -1476,13 +1433,9 @@ model_tree:
         - {id: MedusaPart5DeciRatePostHoligram_AudioOut, count: 704, projection: post_hologram_22ch_x_32}
         - {id: MedusaPart3MixingControl_FastSequence, count: 1, projection: documented_scalar_control}
   control_projection:
-    executable:
-      - audiopilot.mic_level -> audiopilot.adaptive_level
-      - audiopilot.adaptive_gain_db -> audiopilot.wide_gain_db
-      - ap_probe.rms -> model_1_2.full_rate_level
-      - model_1_2.deci_gain_db -> part5_6.deci_gain_db
+    executable: []
     documented_only:
-      reason: 当前运行时只执行标量/string 控制链；26/70 元素矩阵总线保留精确形状，音频块改用显式端口
+      reason: BVP 控制包含 26/70/70 等数组与专用状态机；当前工程只保留字段形状，未伪造标量闭环
   chains:
     - id: input_select
       label: InputSelect（输入路由）
