@@ -46,12 +46,26 @@ def test_asm_rnc_uses_generated_model_dimensions(compiler: GraphCompiler) -> Non
 
 
 def test_sas_uses_generated_piecewise_soft_clipper(compiler: GraphCompiler) -> None:
-    plan = compile_example(compiler, "symphony_sas_step0.yaml")
+    plan = compile_example(compiler, "symphony_baf_complete.yaml")
     config = plan.node_configs["post_process__sclip"]
     assert config["component"] == "orpheus.builtin.baf_soft_clipper"
     assert config["params"]["xmin"] == pytest.approx(0.65)
     assert config["params"]["xmax"] == pytest.approx(1.35)
     assert config["params"]["p2"] == pytest.approx(0.714285731)
+
+
+def test_complete_baf_includes_model_1_2_and_control_loops(compiler: GraphCompiler) -> None:
+    plan = compile_example(compiler, "symphony_baf_complete.yaml")
+    assert sum(node.startswith("model_1_2__") for node in plan.node_configs) == 16
+    assert {
+        (link["src_node"], link["src_param"], link["dst_node"], link["dst_param"])
+        for link in plan.control_links
+    } == {
+        ("audiopilot__mic_ld", "level", "audiopilot__adaptive_control", "level"),
+        ("audiopilot__adaptive_control", "gain_db", "audiopilot__wide_gain", "gain_db"),
+        ("ap_probe", "rms", "model_1_2__fullrate_control", "level"),
+        ("model_1_2__fullrate_control", "gain_db", "part5_6__fade_ctrl", "gain_db"),
+    }
 
 
 def test_asm_codegen_allocates_discard_outputs(compiler: GraphCompiler, tmp_path: Path) -> None:

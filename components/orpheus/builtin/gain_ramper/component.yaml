@@ -29,6 +29,7 @@ parameters:
     range: [-96.0, 24.0]
     unit: dB
     update_policy: smoothed
+    bindable: true
   - id: ramp_ms
     name: 斜坡时间
     type: float

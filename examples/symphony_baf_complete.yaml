@@ -1,9 +1,8 @@
 version: 0.1.0
 metadata:
-  name: symphony_sas_step0
-  description: Symphony SAS Model_1_1.c step0 骨架：Symphony 链 -> 反馈 -> InputSelect/PreAmp/PostProcess/Audiopilot，子系统用
-    passthrough/占位实现
-  distilled_from: Model_1_1.c
+  name: symphony_baf_complete
+  description: EREV BAF 1.0.3 完整结构蒸馏：Baf1/Model_1_1 全速率 SAS、Baf2/Model_1_2 降速率 Medusa 与双向控制总线
+  distilled_from: cart-cicd-erev components/baf/src (Baf1+Baf2, 2026-10-08)
 sample_rate: 48000
 block_size: 32
 graph:
@@ -132,7 +131,7 @@ graph:
   - id: main_out
     component: orpheus.builtin.wav_out
     params:
-      file_path: symphony_step0_main_out.wav
+      file_path: symphony_baf_complete_main_out.wav
       channels: 22
       sample_rate: 48000
     position:
@@ -148,12 +147,31 @@ graph:
   - id: ap_out
     component: orpheus.builtin.wav_out
     params:
-      file_path: symphony_step0_ap_out.wav
+      file_path: symphony_baf_complete_ap_out.wav
       channels: 10
       sample_rate: 48000
     position:
       x: 1360
       y: 360
+  - id: model_1_2
+    component: sub:model_1_2
+    position: {x: 1580, y: 360}
+  - id: deci_mono_sink
+    component: orpheus.builtin.null_sink
+    params: {channels: 1}
+    position: {x: 1800, y: 300}
+  - id: deci_treble_sink
+    component: orpheus.builtin.null_sink
+    params: {channels: 2}
+    position: {x: 1800, y: 380}
+  - id: deci_surround_sink
+    component: orpheus.builtin.null_sink
+    params: {channels: 7}
+    position: {x: 1800, y: 460}
+  - id: deci_hologram_sink
+    component: orpheus.builtin.null_sink
+    params: {channels: 22}
+    position: {x: 1800, y: 540}
   connections:
   - from: music_src:out
     to: music_mixer:in0
@@ -197,6 +215,25 @@ graph:
     to: ap_probe:in
   - from: ap_probe:out
     to: ap_out:in
+  - from: ap_probe:out
+    to: model_1_2:full_rate_bus
+  - from: model_1_2:mono
+    to: deci_mono_sink:in
+  - from: model_1_2:treble_lr
+    to: deci_treble_sink:in
+  - from: model_1_2:treble_surround
+    to: deci_surround_sink:in
+  - from: model_1_2:post_hologram
+    to: deci_hologram_sink:in
+control_connections:
+  - from: audiopilot:mic_level
+    to: audiopilot:adaptive_level
+  - from: audiopilot:adaptive_gain_db
+    to: audiopilot:wide_gain_db
+  - from: ap_probe:rms
+    to: model_1_2:full_rate_level
+  - from: model_1_2:deci_gain_db
+    to: part5_6:deci_gain_db
 subcomponents:
 - id: part2_fdp
   name: Symphony Part2 FDP
@@ -471,6 +508,13 @@ subcomponents:
   - id: out
     direction: output
     maps_to: spatial_fader:out
+  public_parameters:
+  - id: deci_gain_db
+    name: 降速全息回灌增益
+    direction: input
+    maps_to: fade_ctrl:gain_db
+    type: float
+    default: 0.0
   graph:
     nodes:
     - id: split
@@ -916,6 +960,29 @@ subcomponents:
   - id: out
     direction: output
     maps_to: wide_gain:out
+  public_parameters:
+  - id: mic_level
+    name: 麦克风电平
+    direction: output
+    maps_to: mic_ld:level
+    type: float
+  - id: adaptive_level
+    name: 自适应控制输入电平
+    direction: input
+    maps_to: adaptive_control:level
+    type: float
+    default: 0.0
+  - id: adaptive_gain_db
+    name: 自适应增益
+    direction: output
+    maps_to: adaptive_control:gain_db
+    type: float
+  - id: wide_gain_db
+    name: 宽频目标增益
+    direction: input
+    maps_to: wide_gain:gain_db
+    type: float
+    default: 0.0
   graph:
     nodes:
     - id: buf_split
@@ -996,6 +1063,17 @@ subcomponents:
       position:
         x: 920
         y: 90
+    - id: adaptive_control
+      component: orpheus.builtin.loudness_gain_control
+      params:
+        level: 0.0
+        target_db: -20.0
+        min_gain_db: -12.0
+        max_gain_db: 12.0
+        channels: 10
+      position:
+        x: 740
+        y: 180
     - id: sine_mod
       component: orpheus.builtin.sine_mod
       params:
@@ -1175,6 +1253,8 @@ subcomponents:
     - from: lpf_gain:out
       to: sum:in1
     - from: sum:out
+      to: adaptive_control:in
+    - from: adaptive_control:out
       to: wide_gain:in
     - from: sine_mod:out
       to: mod_matrix:in
@@ -1207,10 +1287,130 @@ subcomponents:
     - from: coh_sat:out
       to: coh_sink:in
 
-# 从 symphony_sas_full.yaml 迁移的完整 model_tree（结构/参数量/分区/TID 任务）
+- id: model_1_2
+  name: Baf2 Model_1_2 降速率 Medusa
+  description: BVP 488 元素全速率输入经 Part1/2/3/4/5 生成 1193 元素回传；块信号拆为显式端口，标量控制经公开参数连接
+  ports:
+  - id: full_rate_bus
+    direction: input
+    maps_to: fullrate_control:in
+  - id: mono
+    direction: output
+    maps_to: part1_mono:out
+  - id: treble_lr
+    direction: output
+    maps_to: part1_treble:out
+  - id: treble_surround
+    direction: output
+    maps_to: treble_surround_expand:out
+  - id: post_hologram
+    direction: output
+    maps_to: post_hologram:out
+  public_parameters:
+  - id: full_rate_level
+    name: Baf1 全速率总线电平
+    direction: input
+    maps_to: fullrate_control:level
+    type: float
+    default: 0.0
+  - id: deci_gain_db
+    name: Baf2 降速率回灌增益
+    direction: output
+    maps_to: fullrate_control:gain_db
+    type: float
+  graph:
+    nodes:
+    - id: fullrate_control
+      component: orpheus.builtin.loudness_gain_control
+      params: {level: 0.0, target_db: -20.0, min_gain_db: -12.0, max_gain_db: 12.0, channels: 10}
+      position: {x: 40, y: 120}
+    - id: part1_bands
+      component: orpheus.builtin.iir_bank
+      params: {channels: 10, num_stages: 4, coefs_mode: per_channel}
+      position: {x: 220, y: 120}
+    - id: part1_mono
+      component: orpheus.builtin.input_select
+      params: {channels_in: 10, channels_out: 1, select: "1"}
+      position: {x: 400, y: 40}
+    - id: part1_treble
+      component: orpheus.builtin.input_select
+      params: {channels_in: 10, channels_out: 2, select: "1,2"}
+      position: {x: 400, y: 120}
+    - id: part2_fdp_deci
+      component: orpheus.builtin.matrix_mul
+      params: {rows: 6, cols: 2, matrix: "1,0,0,1,0,0,0,0,0,0,0,0"}
+      position: {x: 580, y: 120}
+    - id: treble_surround_expand
+      component: orpheus.builtin.output_router
+      params: {channels_in: 6, channels_out: 7, matrix: identity}
+      position: {x: 760, y: 40}
+    - id: part3_deci_mixing
+      component: orpheus.builtin.output_router
+      params: {channels_in: 6, channels_out: 22, matrix: identity}
+      position: {x: 760, y: 120}
+    - id: part4_deci_peripheral_eq
+      component: orpheus.builtin.iir_bank
+      params: {channels: 22, num_stages: 13, coefs_mode: per_channel}
+      position: {x: 940, y: 120}
+    - id: headrest_select
+      component: orpheus.builtin.input_select
+      params: {channels_in: 22, channels_out: 10, select: "1,2,3,4,5,6,7,8,9,10"}
+      position: {x: 1120, y: 40}
+    - id: headrest_eq
+      component: orpheus.builtin.fir
+      params: {channels: 10, coefficients: "1"}
+      position: {x: 1300, y: 40}
+    - id: headrest_expand
+      component: orpheus.builtin.output_router
+      params: {channels_in: 10, channels_out: 22, matrix: identity}
+      position: {x: 1480, y: 40}
+    - id: overhead_select
+      component: orpheus.builtin.input_select
+      params: {channels_in: 22, channels_out: 8, select: "11,12,13,14,15,16,17,18"}
+      position: {x: 1120, y: 200}
+    - id: overhead_eq
+      component: orpheus.builtin.fir
+      params: {channels: 8, coefficients: "1"}
+      position: {x: 1300, y: 200}
+    - id: overhead_expand
+      component: orpheus.builtin.output_router
+      params: {channels_in: 8, channels_out: 22, matrix: identity}
+      position: {x: 1480, y: 200}
+    - id: eq_merge
+      component: orpheus.builtin.mixer
+      params: {channels: 22, gain0: 0.0, gain1: 0.0}
+      position: {x: 1660, y: 120}
+    - id: post_hologram
+      component: orpheus.builtin.sleeping_beauty
+      params:
+        channels: 22
+        gain_index: 128.0
+        offset: 128.0
+        ramp_ms: 30.0
+        chan_map: "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+      position: {x: 1840, y: 120}
+    connections:
+    - {from: fullrate_control:out, to: part1_bands:in}
+    - {from: part1_bands:out, to: part1_mono:in}
+    - {from: part1_bands:out, to: part1_treble:in}
+    - {from: part1_treble:out, to: part2_fdp_deci:in}
+    - {from: part2_fdp_deci:out, to: treble_surround_expand:in}
+    - {from: part2_fdp_deci:out, to: part3_deci_mixing:in}
+    - {from: part3_deci_mixing:out, to: part4_deci_peripheral_eq:in}
+    - {from: part4_deci_peripheral_eq:out, to: headrest_select:in}
+    - {from: headrest_select:out, to: headrest_eq:in}
+    - {from: headrest_eq:out, to: headrest_expand:in}
+    - {from: part4_deci_peripheral_eq:out, to: overhead_select:in}
+    - {from: overhead_select:out, to: overhead_eq:in}
+    - {from: overhead_eq:out, to: overhead_expand:in}
+    - {from: headrest_expand:out, to: eq_merge:in0}
+    - {from: overhead_expand:out, to: eq_merge:in1}
+    - {from: eq_merge:out, to: post_hologram:in}
+
+# Baf1 + Baf2 完整结构、参数分区、TID 与跨模型总线
 model_tree:
-  name: Symphony Symphony SAS 空间音频系统（完整蒸馏）
-  source: Model_1_1.c v7.736 (905KB, 20642 行静态 C)
+  name: EREV BAF Symphony/Medusa 完整蒸馏
+  source: cart-cicd-erev components/baf/src 1.0.3; Model_1_1.c + Model_1_2.c + BVP_Config.yml
   base_rate: 1500Hz (48kHz/32样本块)
   task_flows:
     - tid: 0
@@ -1245,6 +1445,44 @@ model_tree:
       call_interval: 768
       label: Audiopilot 相干求和
       chains: [tid5_coherence_sum]
+  model_1_2_task_flows:
+    - {tid: 0, rate_hz: 4500, call_interval: 1, label: 仅执行 rate_monotonic_scheduler}
+    - {tid: 1, rate_hz: 1500, call_interval: 3, base_task: true, label: Part1 Bands + Part3 MixingControl + Part5 Deci PostHoligram}
+    - {tid: 2, rate_hz: 375, call_interval: 12, label: Part1 Bands 慢速状态}
+    - {tid: 3, rate_hz: 346.153846, call_interval: 13, label: Deci FDP + Mixing + Peripheral/Headrest/Overhead EQ + PostHoligram}
+    - {tid: 4, rate_hz: 86.538462, call_interval: 52, label: Deci FDP 慢速核心}
+  cross_model_buses:
+    - id: Model_1_1_N01S1_1_D1_2_F3
+      direction: Model_1_1_to_Model_1_2
+      total_values: 488
+      fields:
+        - {id: Audiopilot35_Out1, count: 320, projection: full_rate_bus_10ch_x_32}
+        - {id: MedusaPart3FullRateMixing_CsCurrentGain, count: 26, projection: documented_array_control}
+        - {id: MedusaPart3FullRateMixing_LeftCurrentGain, count: 70, projection: documented_array_control}
+        - {id: MedusaPart3FullRateMixing_RightCurrentGain, count: 70, projection: documented_array_control}
+        - {id: MedusaPart6SummationAndPreAmp_FadeGains, count: 2, projection: documented_array_control}
+    - id: Model_1_2_N00S1_2_D1_1_F3
+      direction: Model_1_2_to_Model_1_1
+      total_values: 1193
+      fields:
+        - {id: MedusaPart1Bands_CaeEnable, count: 1, projection: documented_scalar_control}
+        - {id: MedusaPart1Bands_DecayRate, count: 1, projection: deci_gain_db}
+        - {id: MedusaPart1Bands_Mono, count: 32, projection: mono_1ch_x_32}
+        - {id: MedusaPart1Bands_TrebleLr, count: 64, projection: treble_lr_2ch_x_32}
+        - {id: MedusaPart1Bands_TrebleSurround, count: 224, projection: treble_surround_7ch_x_32}
+        - {id: MedusaPart3MixingControl_FullRateCsTargetGains, count: 26, projection: documented_array_control}
+        - {id: MedusaPart3MixingControl_FullRateLeftTargetGains, count: 70, projection: documented_array_control}
+        - {id: MedusaPart3MixingControl_FullRateRightTargetGains, count: 70, projection: documented_array_control}
+        - {id: MedusaPart5DeciRatePostHoligram_AudioOut, count: 704, projection: post_hologram_22ch_x_32}
+        - {id: MedusaPart3MixingControl_FastSequence, count: 1, projection: documented_scalar_control}
+  control_projection:
+    executable:
+      - audiopilot.mic_level -> audiopilot.adaptive_level
+      - audiopilot.adaptive_gain_db -> audiopilot.wide_gain_db
+      - ap_probe.rms -> model_1_2.full_rate_level
+      - model_1_2.deci_gain_db -> part5_6.deci_gain_db
+    documented_only:
+      reason: 当前运行时只执行标量/string 控制链；26/70 元素矩阵总线保留精确形状，音频块改用显式端口
   chains:
     - id: input_select
       label: InputSelect（输入路由）
@@ -1336,7 +1574,7 @@ model_tree:
     - id: tid3_hf_noise_est
       label: TID3 HF 噪声估计（÷64, 多参考相干）
       flow: "Windowing(sine+cosine 窗, 10ch) -> RFFT(256点, 10ch->65bin) -> FormCoherenceMatrixGXY(多重相干, Schur补, K=16, threshold=0.88) -> PSD(噪声谱Gnn, 下限保护, 供自适应)"
-      note: "实证见 symphony_sas_analysis §11.6；音乐/噪声功率分离，无需显式 H；分析回灌无法连线"
+      note: "音乐/噪声功率分离无需显式 H；标量结果已通过控制链回灌，矩阵结果保留在 cross_model_buses"
     - id: tid4_lf_speed_bounds
       label: TID4 LF 噪声速度界限（÷256）
       flow: "SpeedBounds(速度轴128点查表, min/max dB SPL) -> NoiseSlew(噪声斜坡)"
@@ -1387,6 +1625,9 @@ model_tree:
     - partition: PostProcess_p0_b0
       label: PostProcess(ASDRouter+Limiter+SoftClipper+EQ)
       fields: "ASDRouterMainSelect(22), AuxSelect(22), EnableAux(1), OutputEQpooliirCoeffs(matrix), FreqCompxpooliirCoeffs(matrix), Limiter(16=8×2带), SoftClipper(6=3×2带), OutputSclip(6=3×2带), MuteRampTime, MuteRampRate, AllMuteRampTime, RmdlMuteRampTime, MuteMapSwitch"
+    - partition: Model_1_2_PreAmp_p1_p2_p4_p6_p7_p9_p10_p11
+      label: Baf2 Medusa Deci/Headrest/Overhead 全部分区
+      fields: "Part1 Bands, Part2 FDP DeciRate, Part3 MixingControl/DeciRateMixing, Part4 Deci PeripheralEq, HeadrestEq, OverheadEq, Part5 DeciRatePostHoligram"
   const_params:
     pooled_arrays: 16
     fir_taps: [348, 351, 525, 525]
@@ -1394,5 +1635,5 @@ model_tree:
     index_tables: [36, 36]
     misc: [11, 34, 22, 26, 80, 70, 13]
   subsystem_hierarchy:
-    root: PreAmp/Selection_HCI_nonHCI_Subsystem/HCI_Content/DecRate/SAS/SAS6System
-    parts: [Part1Bands(输入分带), Part2FdpFullRate(FDP频域), Part3FullRateMixing(混合), Part4FullRatePeripheralEq(外围EQ), Part5FullRatePostHoligram(全息后处理), Part6SummationAndPreAmp(求和预放)]
+    model_1_1: [Part1Bands(输入分带), Part2FdpFullRate(FDP频域), Part3FullRateMixing(混合), Part4FullRatePeripheralEq(外围EQ), Part5FullRatePostHoligram(全息后处理), Part6SummationAndPreAmp(求和预放), PostProcess, Audiopilot35]
+    model_1_2: [MedusaPart1Bands, MedusaPart2FdpDeciRate, MedusaPart3MixingControl, MedusaPart3DeciRateMixing, MedusaPart4DeciRatePeripheralEq, MedusaPart4HeadrestEq, MedusaPart4OverheadEq, MedusaPart5DeciRatePostHoligram]

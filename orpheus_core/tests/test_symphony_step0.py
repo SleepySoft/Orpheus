@@ -1,9 +1,4 @@
-"""Symphony SAS step0 / PostProcess 端到端骨架验证。
-
-- symphony_postprocess.yaml：32ch -> 22ch 后处理链路，覆盖 iir_bank/limiter/soft_clipper/
-  delay_line/gain_ramper/input_select/output_router。
-- symphony_sas_step0.yaml：完整 step0 子组件层级结构，含 Symphony 反馈环（用 1 块延迟打破）。
-"""
+"""Symphony BAF 完整蒸馏工程验证。"""
 
 from __future__ import annotations
 
@@ -60,56 +55,14 @@ def _compile(name: str) -> dict:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
-def test_symphony_postprocess_compile() -> None:
-    """PostProcess 骨架能编译，并包含预期组件。"""
-    plan = _compile("symphony_postprocess.yaml")
-    comps = {cfg["component"] for cfg in plan.node_configs.values()}
-    for cid in (
-        "orpheus.builtin.input_select",
-        "orpheus.builtin.gain_ramper",
-        "orpheus.builtin.limiter",
-        "orpheus.builtin.iir_bank",
-        "orpheus.builtin.soft_clipper",
-        "orpheus.builtin.output_router",
-        "orpheus.builtin.delay_line",
-    ):
-        assert cid in comps, f"missing {cid}"
-
-
 @pytest.mark.skipif(
     not (ROOT / "build" / "orpheus_runtime.exe").exists()
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
-def test_symphony_postprocess_run_end_to_end(client) -> None:
-    """PostProcess 骨架离线运行并产生非零输出。"""
-    name = f"bpp_{uuid.uuid4().hex[:8]}"
-    _CREATED.append(name)
-    assert client.post("/api/projects", json={"name": name}).status_code == 201
-    src = _load_example("symphony_postprocess.yaml")
-    doc = client.get(f"/api/projects/{name}").json()
-    doc["sample_rate"] = src["sample_rate"]
-    doc["block_size"] = src["block_size"]
-    doc["graph"] = src["graph"]
-    doc["subcomponents"] = src.get("subcomponents", [])
-    assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
-
-    resp = client.post(f"/api/projects/{name}/run")
-    assert resp.status_code == 200, resp.text
-    result = resp.json()
-    assert result["status"] == "ok", result["stderr"]
-    rms = [p for p in result["probes"] if p["node"] == "probe" and p["param"] == "rms"]
-    assert rms and rms[-1]["value"] > 0.01
-
-
-@pytest.mark.skipif(
-    not (ROOT / "build" / "orpheus_runtime.exe").exists()
-    or not (ROOT / "build" / "components").exists(),
-    reason="runtime and components not built",
-)
-def test_symphony_sas_step0_compile() -> None:
-    """step0 子组件层级结构能编译。"""
-    plan = _compile("symphony_sas_step0.yaml")
+def test_symphony_baf_complete_compile() -> None:
+    """Baf1+Baf2 子组件和控制链能编译。"""
+    plan = _compile("symphony_baf_complete.yaml")
     comps = {cfg["component"] for cfg in plan.node_configs.values()}
     # 子组件展开后不应再出现 sub: 前缀
     assert not any(c.startswith("sub:") for c in comps)
@@ -118,6 +71,8 @@ def test_symphony_sas_step0_compile() -> None:
     # 主输出和 Audiopilot 输出节点都存在
     assert any("main_out" in nid for nid in plan.execution_order)
     assert any("ap_out" in nid for nid in plan.execution_order)
+    assert sum(nid.startswith("model_1_2__") for nid in plan.node_configs) == 16
+    assert len(plan.control_links) == 4
 
 
 @pytest.mark.skipif(
@@ -125,17 +80,18 @@ def test_symphony_sas_step0_compile() -> None:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
-def test_symphony_sas_step0_run_end_to_end(client) -> None:
-    """step0 骨架离线运行成功，主输出与 Audiopilot 输出均有能量。"""
-    name = f"bs0_{uuid.uuid4().hex[:8]}"
+def test_symphony_baf_complete_run_end_to_end(client) -> None:
+    """完整蒸馏工程离线运行成功，主输出与 Audiopilot 输出均有能量。"""
+    name = f"baf_{uuid.uuid4().hex[:8]}"
     _CREATED.append(name)
     assert client.post("/api/projects", json={"name": name}).status_code == 201
-    src = _load_example("symphony_sas_step0.yaml")
+    src = _load_example("symphony_baf_complete.yaml")
     doc = client.get(f"/api/projects/{name}").json()
     doc["sample_rate"] = src["sample_rate"]
     doc["block_size"] = src["block_size"]
     doc["graph"] = src["graph"]
     doc["subcomponents"] = src.get("subcomponents", [])
+    doc["control_connections"] = src.get("control_connections", [])
     assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
 
     resp = client.post(f"/api/projects/{name}/run")
