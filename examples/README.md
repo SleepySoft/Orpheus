@@ -30,7 +30,7 @@
 ## 外部模型
 
 - `external_model_asm.yaml`：ASM/EHC/RNC 多 Task 参考。
-- `external_model_heq/`：目录工程形式的 Model_1_2 HEQ 基础组件分解切片。
+- `external_model_heq/`：按头枕补偿 bank 与顶置合成组递归展开的 Model_1_2 HEQ 可执行切片。
 
 外部模型全局结构调查底稿已归档到 `recycled/external_model_structural_reference.*`，后续由可执行目录切片逐步替代。
 

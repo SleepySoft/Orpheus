@@ -64,11 +64,22 @@ def test_committed_heq_resources_match_generated_default_patterns() -> None:
 def test_heq_directory_project_resolves_resources_and_compiles() -> None:
     base_registry = registry()
     project = ProjectLoader(base_registry).load(PROJECT_DIR)
-    assert {sub.id for sub in project.subcomponents} == {
+    subcomponents = {sub.id: sub for sub in project.subcomponents}
+    assert set(subcomponents) == {
         "external_model.heq.headrest",
         "external_model.heq.overhead",
+        *{
+            f"external_model.heq.{name}.group_{group}"
+            for name in ("headrest", "overhead")
+            for group in range(4)
+        },
     }
     assert all(node.position for sub in project.subcomponents for node in sub.graph.nodes.values())
+    assert len(subcomponents["external_model.heq.headrest"].graph.nodes) == 7
+    assert len(subcomponents["external_model.heq.overhead"].graph.nodes) == 7
+    for group in range(4):
+        assert len(subcomponents[f"external_model.heq.headrest.group_{group}"].graph.nodes) == 10
+        assert len(subcomponents[f"external_model.heq.overhead.group_{group}"].graph.nodes) == 9
     flat = flatten_project(project)
     headrest_components = Counter(
         node.component for node_id, node in flat.graph.nodes.items()
@@ -93,8 +104,12 @@ def test_heq_directory_project_resolves_resources_and_compiles() -> None:
     }
     project_registry = project.registry or base_registry
     plan = GraphCompiler(project_registry).compile(flat)
-    assert len(plan.node_configs["headrest__fir_00"]["params"]["coefficients"].split(",")) == 530
-    assert len(plan.node_configs["overhead__fir_19"]["params"]["coefficients"].split(",")) == 530
+    assert len(
+        plan.node_configs["headrest__group_0__fir_00"]["params"]["coefficients"].split(",")
+    ) == 530
+    assert len(
+        plan.node_configs["overhead__group_3__fir_19"]["params"]["coefficients"].split(",")
+    ) == 530
     assert plan.node_configs["headrest__join"]["params"]["channels"] == 40
     assert plan.node_configs["headrest__carry"]["params"]["delays_samples"].split(",") == ["2"] * 40
     assert plan.node_configs["overhead__carry"]["params"]["delays_samples"] == "2,2,2,2"
@@ -112,8 +127,8 @@ def test_heq_codegen_contains_basic_components_and_headrest_discard(tmp_path: Pa
         assert (output / "components" / f"orpheus_builtin_{component}").is_dir()
     graph_source = (output / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
     assert "g_discard_headrest__carry_out" in graph_source
-    assert "headrest__fir_39" in graph_source
-    assert "overhead__sum_g03" in graph_source
+    assert "headrest__group_3__fir_39" in graph_source
+    assert "overhead__group_3__sum_l2_0" in graph_source
     literals = re.findall(r'"(?:\\.|[^"\\])*"', graph_source)
     assert max(map(len, literals)) <= 1100
 

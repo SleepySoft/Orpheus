@@ -1,7 +1,7 @@
 version: "1.0.0"
 metadata:
   name: external_model_heq
-  description: 外部 Model_1_2 Headrest/Overhead HEQ 基础组件分解，验证目录 imports、递归 composite 与 f32 资源
+  description: 学习同源多目标独立补偿与多支路先补偿后合成，并可递归查看每条处理路径
 sample_rate: 48000
 block_size: 32
 imports:

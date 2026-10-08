@@ -1,0 +1,261 @@
+id: external_model.heq.headrest.group_2
+name: 头枕补偿输出组 3
+category: 外部模型/均衡器
+description: 让同一组 10 路源信号在送往输出 20..29 前分别使用独立补偿曲线，便于按目标输出调音
+version: 7.736.0
+abi_version: 1
+package_type: composite
+imports:
+- component: orpheus.builtin.fir
+ports:
+- id: in0
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_20:in
+- id: in1
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_21:in
+- id: in2
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_22:in
+- id: in3
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_23:in
+- id: in4
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_24:in
+- id: in5
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_25:in
+- id: in6
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_26:in
+- id: in7
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_27:in
+- id: in8
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_28:in
+- id: in9
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_29:in
+- id: out0
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_20:out
+- id: out1
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_21:out
+- id: out2
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_22:out
+- id: out3
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_23:out
+- id: out4
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_24:out
+- id: out5
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_25:out
+- id: out6
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_26:out
+- id: out7
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_27:out
+- id: out8
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_28:out
+- id: out9
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  maps_to: fir_29:out
+parameters: []
+resources:
+  external_model.heq.headrest_fir:
+    file: assets/headrest_fir.f32
+    format: f32le
+    shape:
+    - 40
+    - 530
+    sha256: 2310cfbe35d2fd693a702dc1b9769232146f64670711a923765f94c0c3b13f9d
+  external_model.heq.headrest_iir:
+    file: assets/headrest_iir.f32
+    format: f32le
+    shape:
+    - 40
+    - 140
+    sha256: 38d097477228baf52838e2dc91b50ef64f70e9a65030941869f3d31b96d4b8f7
+graph:
+  nodes:
+  - id: fir_20
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 10600
+        count: 530
+    position:
+      x: 260
+      y: 40
+  - id: fir_21
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 11130
+        count: 530
+    position:
+      x: 260
+      y: 140
+  - id: fir_22
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 11660
+        count: 530
+    position:
+      x: 260
+      y: 240
+  - id: fir_23
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 12190
+        count: 530
+    position:
+      x: 260
+      y: 340
+  - id: fir_24
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 12720
+        count: 530
+    position:
+      x: 260
+      y: 440
+  - id: fir_25
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 13250
+        count: 530
+    position:
+      x: 260
+      y: 540
+  - id: fir_26
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 13780
+        count: 530
+    position:
+      x: 260
+      y: 640
+  - id: fir_27
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 14310
+        count: 530
+    position:
+      x: 260
+      y: 740
+  - id: fir_28
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 14840
+        count: 530
+    position:
+      x: 260
+      y: 840
+  - id: fir_29
+    component: orpheus.builtin.fir
+    params:
+      channels: 1
+      coefficients:
+        $resource: external_model.heq.headrest_fir
+        offset: 15370
+        count: 530
+    position:
+      x: 260
+      y: 940
+  connections: []
+execution:
+  realtime_safe: true

@@ -65,9 +65,7 @@ def integers(values: list[float], field: str) -> list[int]:
     return result
 
 
-def add_sum_tree(
-    nodes: list[dict], connections: list[dict], sources: list[str], group: int
-) -> str:
+def add_sum_tree(nodes: list[dict], connections: list[dict], sources: list[str]) -> str:
     level = 0
     queue = list(sources)
     while len(queue) > 1:
@@ -76,14 +74,14 @@ def add_sum_tree(
             if pair + 1 >= len(queue):
                 next_queue.append(queue[pair])
                 continue
-            mixer_id = f"sum_g{group:02d}_l{level}_{pair // 2}"
+            mixer_id = f"sum_l{level}_{pair // 2}"
             nodes.append({
                 "id": mixer_id,
                 "component": "orpheus.builtin.mixer",
                 "params": {"channels": 1, "gain0": 0.0, "gain1": 0.0},
                 "position": {
                     "x": 540 + level * 220,
-                    "y": 80 + group * 430 + (pair // 2) * 110,
+                    "y": 80 + (pair // 2) * 110,
                 },
             })
             connections.extend([
@@ -96,65 +94,190 @@ def add_sum_tree(
     return queue[0]
 
 
+def resource_definitions(name: str, spec: dict, metadata: dict) -> dict:
+    return {
+        f"external_model.heq.{name}_fir": {
+            "file": f"assets/{name}_fir.f32",
+            "format": "f32le",
+            "shape": [spec["filter_count"], 530],
+            "sha256": metadata["coefficient_sha256"],
+        },
+        f"external_model.heq.{name}_iir": {
+            "file": f"assets/{name}_iir.f32",
+            "format": "f32le",
+            "shape": [spec["filter_count"], 140],
+            "sha256": metadata["iir_coefficient_sha256"],
+        },
+    }
+
+
+def coefficient_offsets(metadata: dict) -> list[int]:
+    offsets: list[int] = []
+    cursor = 0
+    for length in metadata["filter_lengths"]:
+        offsets.append(cursor)
+        cursor += length
+    return offsets
+
+
+def fir_node(name: str, index: int, metadata: dict, x: int, y: int) -> dict:
+    coefficient_set = metadata["coefficient_mapping"][index]
+    offsets = coefficient_offsets(metadata)
+    return {
+        "id": f"fir_{index:02d}",
+        "component": "orpheus.builtin.fir",
+        "params": {
+            "channels": 1,
+            "coefficients": {
+                "$resource": f"external_model.heq.{name}_fir",
+                "offset": offsets[coefficient_set],
+                "count": metadata["filter_lengths"][coefficient_set],
+            },
+        },
+        "position": {"x": x, "y": y},
+    }
+
+
+def group_document(name: str, group: int, spec: dict, metadata: dict) -> dict:
+    if name == "headrest":
+        indices = list(range(group * 10, group * 10 + 10))
+        nodes = [
+            fir_node(name, index, metadata, 260, 40 + local * 100)
+            for local, index in enumerate(indices)
+        ]
+        ports = [
+            {
+                "id": f"in{local}",
+                "direction": "input",
+                "type": "audio",
+                "sample_format": "f32",
+                "channels": 1,
+                "maps_to": f"fir_{index:02d}:in",
+            }
+            for local, index in enumerate(indices)
+        ]
+        ports.extend(
+            {
+                "id": f"out{local}",
+                "direction": "output",
+                "type": "audio",
+                "sample_format": "f32",
+                "channels": 1,
+                "maps_to": f"fir_{index:02d}:out",
+            }
+            for local, index in enumerate(indices)
+        )
+        connections: list[dict] = []
+        display_name = f"头枕补偿输出组 {group + 1}"
+        description = (
+            f"让同一组 10 路源信号在送往输出 {indices[0]}..{indices[-1]} 前"
+            "分别使用独立补偿曲线，便于按目标输出调音"
+        )
+        imports = [{"component": "orpheus.builtin.fir"}]
+    else:
+        start = metadata["output_starts"][group]
+        end = metadata["output_starts"][group + 1] if group < 3 else spec["filter_count"]
+        indices = list(range(start, end))
+        nodes = [
+            fir_node(name, index, metadata, 260, 40 + local * 100)
+            for local, index in enumerate(indices)
+        ]
+        connections = []
+        output = add_sum_tree(
+            nodes,
+            connections,
+            [f"fir_{index:02d}:out" for index in indices],
+        )
+        ports = [
+            {
+                "id": f"in{local}",
+                "direction": "input",
+                "type": "audio",
+                "sample_format": "f32",
+                "channels": 1,
+                "maps_to": f"fir_{index:02d}:in",
+            }
+            for local, index in enumerate(indices)
+        ]
+        ports.append({
+            "id": "out",
+            "direction": "output",
+            "type": "audio",
+            "sample_format": "f32",
+            "channels": 1,
+            "maps_to": output,
+        })
+        display_name = f"顶置输出合成组 {group + 1}"
+        mapped_inputs = [metadata["input_mapping"][index] for index in indices]
+        description = (
+            f"先分别修正输入通道 {mapped_inputs}，再合成为一路输出，"
+            "避免用一条公共 EQ 覆盖各支路差异"
+        )
+        imports = [
+            {"component": "orpheus.builtin.fir"},
+            {"component": "orpheus.builtin.mixer"},
+        ]
+
+    return {
+        "id": f"external_model.heq.{name}.group_{group}",
+        "name": display_name,
+        "category": "外部模型/均衡器",
+        "description": description,
+        "version": "7.736.0",
+        "abi_version": 1,
+        "package_type": "composite",
+        "imports": imports,
+        "ports": ports,
+        "parameters": [],
+        "resources": resource_definitions(name, spec, metadata),
+        "graph": {"nodes": nodes, "connections": connections},
+        "execution": {"realtime_safe": True},
+    }
+
+
 def composite_document(name: str, spec: dict, metadata: dict) -> dict:
     input_channels = spec["input_channels"]
-    filter_count = spec["filter_count"]
     output_count = spec["output_count"]
     nodes: list[dict] = [{
         "id": "split",
         "component": "orpheus.builtin.deinterleave",
         "params": {"channels": input_channels},
-        "position": {"x": 40, "y": 450 if name == "headrest" else 800},
+        "position": {"x": 40, "y": 260},
     }]
     connections: list[dict] = []
-    coefficient_offsets: list[int] = []
-    cursor = 0
-    for length in metadata["filter_lengths"]:
-        coefficient_offsets.append(cursor)
-        cursor += length
-    filter_outputs: list[str] = []
-    for index in range(filter_count):
-        filter_id = f"fir_{index:02d}"
-        coefficient_set = metadata["coefficient_mapping"][index]
+    for group in range(4):
+        group_id = f"group_{group}"
         nodes.append({
-            "id": filter_id,
-            "component": "orpheus.builtin.fir",
-            "params": {
-                "channels": 1,
-                "coefficients": {
-                    "$resource": f"external_model.heq.{name}_fir",
-                    "offset": coefficient_offsets[coefficient_set],
-                    "count": metadata["filter_lengths"][coefficient_set],
-                },
-            },
-            "position": (
-                {"x": 260 + (index // 10) * 220, "y": 40 + (index % 10) * 100}
-                if name == "headrest"
-                else {"x": 260, "y": 40 + index * 90}
-            ),
+            "id": group_id,
+            "component": f"external_model.heq.{name}.group_{group}",
+            "position": {"x": 300, "y": 40 + group * 160},
         })
-        connections.append({
-            "from": f"split:out{metadata['input_mapping'][index]}",
-            "to": f"{filter_id}:in",
-        })
-        filter_outputs.append(f"{filter_id}:out")
-
-    group_outputs: list[str] = []
-    for output in range(output_count):
-        start = metadata["output_starts"][output]
-        end = (
-            metadata["output_starts"][output + 1]
-            if output + 1 < output_count
-            else filter_count
-        )
-        group_outputs.append(add_sum_tree(nodes, connections, filter_outputs[start:end], output))
+        if name == "headrest":
+            for local in range(10):
+                index = group * 10 + local
+                connections.extend([
+                    {
+                        "from": f"split:out{metadata['input_mapping'][index]}",
+                        "to": f"{group_id}:in{local}",
+                    },
+                    {"from": f"{group_id}:out{local}", "to": f"join:in{index}"},
+                ])
+        else:
+            start = metadata["output_starts"][group]
+            end = metadata["output_starts"][group + 1] if group < 3 else spec["filter_count"]
+            for local, index in enumerate(range(start, end)):
+                connections.append({
+                    "from": f"split:out{metadata['input_mapping'][index]}",
+                    "to": f"{group_id}:in{local}",
+                })
+            connections.append({"from": f"{group_id}:out", "to": f"join:in{group}"})
 
     nodes.extend([
         {
             "id": "join",
             "component": "orpheus.builtin.interleave",
             "params": {"channels": output_count},
-            "position": {"x": 1200, "y": 450 if name == "headrest" else 700},
+            "position": {"x": 620, "y": 260},
         },
         {
             "id": "carry",
@@ -164,28 +287,28 @@ def composite_document(name: str, spec: dict, metadata: dict) -> dict:
                 "max_delay_samples": 2,
                 "delays_samples": ",".join(["2"] * output_count),
             },
-            "position": {"x": 1420, "y": 450 if name == "headrest" else 700},
+            "position": {"x": 860, "y": 260},
         },
     ])
-    for output, source in enumerate(group_outputs):
-        connections.append({"from": source, "to": f"join:in{output}"})
     connections.append({"from": "join:out", "to": "carry:in"})
 
+    display_name = "头枕补偿均衡" if name == "headrest" else "顶置声道合成均衡"
+    description = (
+        "让 10 路源信号面向四组目标输出分别调音，避免不同目标共用同一组补偿系数"
+        if name == "headrest"
+        else "在合成四路顶置输出前逐支路补偿，使每个输入对目标声道的贡献可独立校正"
+    )
     return {
         "id": f"external_model.heq.{name}",
-        "name": f"HEQ {name.title()} 默认 FIR",
+        "name": display_name,
         "category": "外部模型/均衡器",
-        "description": (
-            f"{input_channels} 路输入、{filter_count} 个 530-tap 基础 FIR、"
-            f"{output_count} 路分组输出的可展开组合"
-        ),
+        "description": description,
         "version": "7.736.0",
         "abi_version": 1,
         "package_type": "composite",
         "imports": [
+            *[f"{name}_group_{group}.component.yaml" for group in range(4)],
             {"component": "orpheus.builtin.deinterleave"},
-            {"component": "orpheus.builtin.fir"},
-            {"component": "orpheus.builtin.mixer"},
             {"component": "orpheus.builtin.interleave"},
             {"component": "orpheus.builtin.delay_line"},
         ],
@@ -194,20 +317,6 @@ def composite_document(name: str, spec: dict, metadata: dict) -> dict:
             {"id": "out", "direction": "output", "type": "audio", "sample_format": "f32", "channels": output_count, "maps_to": "carry:out"},
         ],
         "parameters": [],
-        "resources": {
-            f"external_model.heq.{name}_fir": {
-                "file": f"assets/{name}_fir.f32",
-                "format": "f32le",
-                "shape": [filter_count, 530],
-                "sha256": metadata["coefficient_sha256"],
-            },
-            f"external_model.heq.{name}_iir": {
-                "file": f"assets/{name}_iir.f32",
-                "format": "f32le",
-                "shape": [filter_count, 140],
-                "sha256": metadata["iir_coefficient_sha256"],
-            },
-        },
         "graph": {"nodes": nodes, "connections": connections},
         "execution": {"latency_samples": 531, "realtime_safe": True},
     }
@@ -215,32 +324,48 @@ def composite_document(name: str, spec: dict, metadata: dict) -> dict:
 
 def write_node_notes(project_root: Path, documents: dict[str, dict], metadata: dict[str, dict]) -> None:
     notes = {
-        "headrest_input": "10 路 Headrest 测试输入。",
-        "headrest": "可展开的 10->40 路 HEQ 基础组件组合。",
-        "overhead_input": "20 路 Overhead 测试输入。",
-        "overhead": "可展开的 20-filter、四组求和 HEQ 基础组件组合。",
-        "overhead_sink": "消费四路 Overhead 分组输出。",
+        "headrest_input": "提供可重复的十路测试信号，用来检查四组补偿输出是否保持正确的通道对应关系。",
+        "headrest": "为同一组十路源信号准备四套可独立调音的输出路径，便于不同目标输出使用不同补偿曲线。",
+        "overhead_input": "提供可重复的二十路测试信号，用来检查每个顶置输出只汇聚约定的五条支路。",
+        "overhead": "先逐支路修正频响再合成四路输出，避免合成后只能用一条公共 EQ 修正所有来源。",
+        "overhead_sink": "吸收四路结果，使示例可以完整编译运行并检查顶置合成链路。",
     }
-    for name, document in documents.items():
+    for component_id, document in documents.items():
         component_id = document["id"]
+        name = "headrest" if ".headrest" in component_id else "overhead"
         input_mapping = metadata[name]["input_mapping"]
         for node in document["graph"]["nodes"]:
             key = f"sub:{component_id}/{node['id']}"
             if node["id"] == "split":
-                notes[key] = "把多通道输入拆为单通道 FIR 输入。"
+                notes[key] = "把总线通道暴露给各条补偿路径，便于同一源通道按 InputMapping 扇出到不同目标。"
+            elif node["id"].startswith("group_"):
+                group = int(node["id"].split("_")[1])
+                if name == "headrest":
+                    notes[key] = (
+                        f"让输入 0..9 在送往输出 {group * 10}..{group * 10 + 9} 前分别调音；"
+                        "单独成组是为了保留这一目标组的独立系数更新边界。"
+                    )
+                else:
+                    start = metadata[name]["output_starts"][group]
+                    end = metadata[name]["output_starts"][group + 1] if group < 3 else 20
+                    mapped = input_mapping[start:end]
+                    notes[key] = (
+                        f"把输入通道 {mapped} 对该目标输出的贡献分别校正后相加；"
+                        "先滤波再求和可保留各支路不同的补偿需求。"
+                    )
             elif node["id"].startswith("fir_"):
                 index = int(node["id"].split("_")[1])
                 reference = node["params"]["coefficients"]
                 notes[key] = (
-                    f"第 {index} 个 530-tap FIR；输入通道 {input_mapping[index]}；"
-                    f"资源切片 offset={reference['offset']} count={reference['count']}。"
+                    f"在源输入通道 {input_mapping[index]} 送往输出支路 {index} 前做独立频响与相位补偿；"
+                    f"使用原模型的 530-tap 系数切片（offset={reference['offset']}）。"
                 )
             elif node["id"].startswith("sum_"):
-                notes[key] = "单通道二输入求和节点，属于五路 filter 的平衡 mixer 树。"
+                notes[key] = "逐级汇聚已补偿支路；使用平衡二叉树是为了复用通用二输入 mixer，同时避免一条过长的串行求和链。"
             elif node["id"] == "join":
-                notes[key] = "把各单通道结果重新交错为多通道输出。"
+                notes[key] = "按下游约定的 OutputMapping 顺序打包结果，避免补偿正确但输出通道错位。"
             elif node["id"] == "carry":
-                notes[key] = "复现生成实现的两样本跨块 carry。"
+                notes[key] = "补回生成实现跨帧保留的两个样本，使块边界时序与参考链一致，避免整体提前两样本。"
     (project_root / "node-notes.json").write_text(
         json.dumps(notes, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -281,12 +406,31 @@ def extract_one(source_root: Path, output_dir: Path, name: str, spec: dict) -> d
     (output_dir / f"{name}_metadata.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    component_path = output_dir.parent / f"{name}.component.yaml"
-    component_path.write_text(
-        yaml.safe_dump(composite_document(name, spec, metadata), sort_keys=False, allow_unicode=True),
+    return metadata
+
+
+def write_components(output_dir: Path, name: str, spec: dict, metadata: dict) -> dict[str, dict]:
+    documents = {
+        f"external_model.heq.{name}": composite_document(name, spec, metadata),
+        **{
+            f"external_model.heq.{name}.group_{group}": group_document(
+                name, group, spec, metadata
+            )
+            for group in range(4)
+        },
+    }
+    component_root = output_dir.parent
+    (component_root / f"{name}.component.yaml").write_text(
+        yaml.safe_dump(documents[f"external_model.heq.{name}"], sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
-    return metadata
+    for group in range(4):
+        component_id = f"external_model.heq.{name}.group_{group}"
+        (component_root / f"{name}_group_{group}.component.yaml").write_text(
+            yaml.safe_dump(documents[component_id], sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+    return documents
 
 
 def main() -> int:
@@ -298,9 +442,7 @@ def main() -> int:
     documents = {}
     for name, spec in SPECS.items():
         summary[name] = extract_one(args.source_root, args.output_dir, name, spec)
-        documents[name] = yaml.safe_load(
-            (args.output_dir.parent / f"{name}.component.yaml").read_text(encoding="utf-8")
-        )
+        documents.update(write_components(args.output_dir, name, spec, summary[name]))
     write_node_notes(args.output_dir.parents[2], documents, summary)
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
     return 0

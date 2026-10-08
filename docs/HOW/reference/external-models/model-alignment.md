@@ -95,13 +95,13 @@ Orpheus 组件：`orpheus.builtin.piecewise_soft_clipper`。`examples/recycled/e
 
 `examples/external_model_heq/` 是目录工程机制落地后的第一个真实算法蒸馏切片：
 
-- p10 Headrest FIR target `[21200]`：40 个 530-tap filter；每个默认仅 tap 529 为 1.0。
-- p10 Headrest input mapping `[40]`：10 路输入按 `0..9` 重复四次；output mapping 为 `0..39`，输出 40 路。
-- p9 Overhead FIR target `[10600]`：20 个 530-tap filter；每个默认仅 tap 529 为 0.2。
-- p9 Overhead input mapping `[20]`：`[0,2,4,6,8,1,3,5,7,9,10,12,14,16,18,11,13,15,17,19]`。
-- Overhead OutputMapping `[0,5,10,15]` 把每五个 filter 求和为一路；两条链均保留生成代码的两样本跨块 carry。
+- 头枕链让同一组 10 路源信号面向四组目标输出分别调音。这样不同目标可以使用独立补偿曲线，不必共享一条公共 EQ。对应证据是 input mapping `0..9` 重复四次、output mapping 为 `0..39`。
+- 顶置链在每路目标输出合成前分别修正五条输入支路。这样各输入到目标的传递差异可以独立校正；若先求和再 EQ，这些差异将无法分离。对应证据是 input mapping `[0,2,4,6,8,1,3,5,7,9,10,12,14,16,18,11,13,15,17,19]` 与 OutputMapping `[0,5,10,15]`。
+- 两条链保留两样本跨块 carry，用来对齐参考实现的帧边界状态，避免输出整体提前。
 
-两个复合组件完全由 `deinterleave`、基础 `fir`、`mixer`、`interleave` 和 `delay_line` 组成；展开后 Headrest 为 43 个节点，Overhead 为 39 个节点。系数由 `scripts/extract_external_heq.py` 从 TOP 生成 `f32le` 资源并以 shape/hash 校验：
+头枕链的用途可写成 $y_{g,c}=h_{g,c}*x_c$：同一源通道 $c$ 针对目标组 $g$ 使用不同系数。四组只按生成模型可证实的连续输出索引命名，不推测座位或模式含义。默认 40 条 FIR 仅在 tap 529 取 1.0，作为可运行的延迟基线；顶置链默认 20 条 FIR 在 tap 529 取 0.2，使每五条相加后的标称总增益保持 1.0。
+
+两个顶层复合组件各显示 7 个语义节点，并可递归打开 8 个分组子组件；完全展开后仍只使用 `deinterleave`、基础 `fir`、`mixer`、`interleave` 和 `delay_line`，Headrest 为 43 个原子节点，Overhead 为 39 个原子节点。系数由 `scripts/extract_external_heq.py` 从 TOP 生成 `f32le` 资源并以 shape/hash 校验：
 
 - Headrest FIR SHA-256：`2310cfbe35d2fd693a702dc1b9769232146f64670711a923765f94c0c3b13f9d`
 - Overhead FIR SHA-256：`c0e4d8b1f7d5f24f7426f1c6613489a25b3ba2a2af12f0825071f06e0bcf572a`

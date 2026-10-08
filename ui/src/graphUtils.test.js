@@ -239,6 +239,39 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
     expect(out.subcomponents[0].public_parameters).toEqual(subDoc.subcomponents[0].public_parameters);
   });
 
+  test('子组件视图中的复合节点仍可递归打开并无损往返', () => {
+    const recursiveDoc = {
+      ...doc,
+      graph: {
+        nodes: [{ id: 'system', component: 'parent', params: {} }],
+        connections: [],
+      },
+      subcomponents: [
+        {
+          id: 'parent',
+          ports: [],
+          graph: {
+            nodes: [{ id: 'bank', component: 'child', params: {} }],
+            connections: [],
+          },
+        },
+        {
+          id: 'child',
+          ports: [],
+          graph: {
+            nodes: [{ id: 'gain', component: 'orpheus.builtin.gain', params: {} }],
+            connections: [],
+          },
+        },
+      ],
+    };
+    const { views, subsMeta } = docToViews(recursiveDoc, catalog);
+    expect(views.main.nodes[0].data.component).toBe('sub:parent');
+    expect(views['sub:parent'].nodes[0].data.component).toBe('sub:child');
+    const out = viewsToDoc(views, subsMeta, recursiveDoc);
+    expect(out.subcomponents.find((sub) => sub.id === 'parent').graph.nodes[0].component).toBe('child');
+  });
+
   test('顶层 bridges 投影为无端口节点并保存回顶层', () => {
     const bridgeDoc = {
       ...doc,
