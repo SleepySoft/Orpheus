@@ -1649,6 +1649,10 @@ button.danger {
 .signal-legend i { display: inline-block; width: 18px; height: 0; }
 .legend-audio { color: #075f57; }
 .legend-audio i { border-top: 2px solid #16877c; }
+.legend-projection-audio { color: #145c85; }
+.legend-projection-audio i { border-top: 2px solid #1971a8; }
+.legend-projection-control { color: #9a4e00; }
+.legend-projection-control i { border-top: 2px dashed #d97706; }
 .legend-control { color: #9a4e00; }
 .legend-control i { border-top: 2px dashed #d97706; }
 
@@ -2223,25 +2227,43 @@ pre {
   letter-spacing: 0;
 }
 
-.react-flow__handle.message-handle {
+.react-flow__handle.projection-handle {
   width: 9px;
   height: 9px;
-  border: 2px solid #0f625a;
-  background: #58c3b6;
 }
 
-.message-edge-label {
+.react-flow__handle.projection-handle-audio {
+  border: 2px solid #145c85;
+  background: #74c0e3;
+}
+
+.react-flow__handle.projection-handle-control {
+  border: 2px solid #9a4e00;
+  background: #f7b955;
+  border-radius: 2px;
+}
+
+.projection-edge-label {
   position: absolute;
   pointer-events: all;
   padding: 2px 6px;
-  border: 1px solid #147d72;
   border-radius: 3px;
-  color: #0f514a;
-  background: #ddf7f3;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0;
   white-space: nowrap;
+}
+
+.projection-edge-label-audio {
+  border: 1px solid #1971a8;
+  color: #145c85;
+  background: #e7f5ff;
+}
+
+.projection-edge-label-control {
+  border: 1px solid #d97706;
+  color: #7a3e00;
+  background: #fff4df;
 }
 
 .node-notes-textarea {

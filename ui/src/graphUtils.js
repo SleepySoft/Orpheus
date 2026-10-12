@@ -156,38 +156,69 @@ export function alterGroupScreenBounds(nodes, memberIds, viewport, padding = 18)
 
 /** graph {nodes, connections} + 顶层 control_connections -> { nodes, edges } for React Flow. */
 export function graphToFlow(graph, catalogById, controlConnections = [], bridges = [], algorithmProjection = {}) {
-  const messagePorts = {};
+  const projectionPorts = {};
   const runtimeNodes = algorithmProjection?.runtime_nodes || {};
-  const messageEdges = (algorithmProjection?.buses || []).flatMap((bus, index) => {
+  const typesById = Object.fromEntries((algorithmProjection?.types || []).map((type) => [type.id, type]));
+  const wordCount = (field) => {
+    const shape = typesById[field.type_ref]?.shape || [];
+    return shape.reduce((total, dimension) => total * dimension, 1);
+  };
+  const runtimeLabel = (runtime) => runtime.replace(/^runtime_/, '').toUpperCase();
+  const projectionEdges = (algorithmProjection?.buses || []).flatMap((bus, busIndex) => {
     const source = runtimeNodes[bus.producer_runtime];
     const target = runtimeNodes[bus.consumer_runtime];
     if (!source || !target) return [];
-    const sourceHandle = `msg:${bus.id}:out`;
-    const targetHandle = `msg:${bus.id}:in`;
-    messagePorts[source] = [...(messagePorts[source] || []), {
-      id: sourceHandle, direction: 'output', label: `${bus.id} · ${bus.total_words} words`,
-    }];
-    messagePorts[target] = [...(messagePorts[target] || []), {
-      id: targetHandle, direction: 'input', label: `${bus.id} · ${bus.total_words} words`,
-    }];
-    return [{
-      id: `em-${bus.id}`,
-      source,
-      target,
-      sourceHandle,
-      targetHandle,
-      type: 'message',
-      selectable: false,
-      deletable: false,
-      focusable: false,
-      data: {
-        label: `${bus.total_words} words`,
-        busId: bus.id,
-        fields: bus.fields || [],
-        atomicity: bus.atomicity || 'unverified',
-        curveOffset: index % 2 === 0 ? -54 : 54,
+    const directionLabel = `${runtimeLabel(bus.producer_runtime)}→${runtimeLabel(bus.consumer_runtime)}`;
+    const groups = [
+      {
+        kind: 'audio',
+        label: '音频',
+        fields: (bus.fields || []).filter((field) => typesById[field.type_ref]?.kind === 'audio'),
       },
-    }];
+      {
+        kind: 'control',
+        label: '控制/状态',
+        fields: (bus.fields || []).filter((field) => typesById[field.type_ref]?.kind !== 'audio'),
+      },
+    ];
+    return groups.flatMap((group) => {
+      if (!group.fields.length) return [];
+      const sourceHandle = `projection:${bus.id}:${group.kind}:out`;
+      const targetHandle = `projection:${bus.id}:${group.kind}:in`;
+      const words = group.fields.reduce((total, field) => total + wordCount(field), 0);
+      const label = `${directionLabel} ${group.label} · ${words} words`;
+      const port = (direction) => ({
+        id: direction === 'output' ? sourceHandle : targetHandle,
+        direction,
+        kind: group.kind,
+        label,
+      });
+      projectionPorts[source] = [...(projectionPorts[source] || []), port('output')];
+      projectionPorts[target] = [...(projectionPorts[target] || []), port('input')];
+      return [{
+        id: `ep-${bus.id}-${group.kind}`,
+        source,
+        target,
+        sourceHandle,
+        targetHandle,
+        type: 'projection',
+        selectable: false,
+        deletable: false,
+        focusable: false,
+        data: {
+          label,
+          busId: bus.id,
+          projectionKind: group.kind,
+          fields: group.fields.map((field) => ({
+            ...field,
+            shape: typesById[field.type_ref]?.shape || [],
+            words: wordCount(field),
+          })),
+          atomicity: bus.atomicity || 'unverified',
+          curveOffset: (busIndex % 2 === 0 ? -1 : 1) * (group.kind === 'audio' ? 90 : 35),
+        },
+      }];
+    });
   });
   const nodes = (graph?.nodes || []).map((n) => {
     const comp = catalogById[n.component];
@@ -206,7 +237,7 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
         parameters: comp?.parameters || [],
         packageType: comp?.package_type || 'source',
         blockers: comp?.blockers || [],
-        messagePorts: messagePorts[n.id] || [],
+        projectionPorts: projectionPorts[n.id] || [],
         // 替代组声明（同图内节点 id 列表）与组件平台标签，往返保留
         alters: Array.isArray(n.alters) ? n.alters : [],
         platforms: comp?.platforms || [],
@@ -260,7 +291,7 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
       type: 'control',
     };
   });
-  return { nodes, edges: [...edges, ...controlEdges, ...messageEdges] };
+  return { nodes, edges: [...edges, ...controlEdges, ...projectionEdges] };
 }
 
 /** React Flow nodes/edges -> graph {nodes, connections}（控制边不进 connections，由 viewsToDoc 单独写回顶层段）。 */
@@ -277,7 +308,11 @@ export function flowToGraph(nodes, edges) {
       ...(Array.isArray(n.data.alters) && n.data.alters.length ? { alters: n.data.alters } : {}),
     })),
     connections: edges
-      .filter((e) => e.sourceHandle && e.targetHandle && !['control', 'message'].includes(e.type))
+      .filter((edge) => edge.sourceHandle
+        && edge.targetHandle
+        && !['control', 'projection'].includes(edge.type)
+        && !edge.sourceHandle.startsWith('projection:')
+        && !edge.targetHandle.startsWith('projection:'))
       .map((e) => ({
         from: `${e.source}:${e.sourceHandle}`,
         to: `${e.target}:${e.targetHandle}`,
@@ -355,28 +390,30 @@ export function viewsToDoc(views, subsMeta, baseDoc) {
   } else {
     delete doc.bridges;
   }
-  // 控制连接只存在于主图（子组件视图不参与）：剥掉 ctl: 前缀写回顶层段，空则省略
+  // 控制连接只存在于主图：剥掉 ctl: 前缀写回顶层段，空则省略。
   const controlEdges = (views.main?.edges || []).filter(
-    (e) => e.type === 'control' && isControlHandle(e.sourceHandle) && isControlHandle(e.targetHandle)
+    (edge) => edge.type === 'control'
+      && isControlHandle(edge.sourceHandle)
+      && isControlHandle(edge.targetHandle)
   );
   if (controlEdges.length > 0) {
-    doc.control_connections = controlEdges.map((e) => ({
-      from: `${e.source}:${ctlParamId(e.sourceHandle)}`,
-      to: `${e.target}:${ctlParamId(e.targetHandle)}`,
+    doc.control_connections = controlEdges.map((edge) => ({
+      from: `${edge.source}:${ctlParamId(edge.sourceHandle)}`,
+      to: `${edge.target}:${ctlParamId(edge.targetHandle)}`,
     }));
   } else {
     delete doc.control_connections;
   }
   if (subsMeta.length > 0) {
-    doc.subcomponents = subsMeta.map((s) => {
-      const view = views[subViewKey(s.id)] || { nodes: [], edges: [] };
+    doc.subcomponents = subsMeta.map((sub) => {
+      const view = views[subViewKey(sub.id)] || { nodes: [], edges: [] };
       return {
-        id: s.id,
-        name: s.name,
-        description: s.description || '',
-        ...(s.read_only ? { read_only: true } : {}),
-        ports: s.ports,
-        ...(s.public_parameters?.length ? { public_parameters: s.public_parameters } : {}),
+        id: sub.id,
+        name: sub.name,
+        description: sub.description || '',
+        ...(sub.read_only ? { read_only: true } : {}),
+        ports: sub.ports,
+        ...(sub.public_parameters?.length ? { public_parameters: sub.public_parameters } : {}),
         graph: flowToGraph(view.nodes, view.edges),
       };
     });

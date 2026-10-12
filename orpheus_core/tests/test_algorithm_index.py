@@ -32,6 +32,7 @@ INDEX = ROOT / "examples" / "recycled" / "external_model_structural_reference" /
 FULL_PROJECT = ROOT / "examples" / "external_model_full"
 _SOURCE_ROOT_VALUE = os.environ.get("ORPHEUS_EXTERNAL_MODEL_ROOT")
 SOURCE_ROOT = Path(_SOURCE_ROOT_VALUE) if _SOURCE_ROOT_VALUE else None
+MANUAL_PROJECT_FILES = {"TODO.md", "analysis/distillation-process.md"}
 
 
 def builtin_registry() -> Registry:
@@ -40,11 +41,12 @@ def builtin_registry() -> Registry:
     return registry
 
 
-def tree_bytes(root: Path) -> dict[str, bytes]:
+def tree_bytes(root: Path, exclude: set[str] | None = None) -> dict[str, bytes]:
+    excluded = exclude or set()
     return {
         path.relative_to(root).as_posix(): path.read_bytes()
         for path in sorted(root.rglob("*"))
-        if path.is_file()
+        if path.is_file() and path.relative_to(root).as_posix() not in excluded
     }
 
 
@@ -212,6 +214,7 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     project = yaml.safe_load((first / "project.yaml").read_text(encoding="utf-8"))
     projection = project["algorithm_projection"]
     assert projection["definition_count"] == 66
+    assert projection["types"] == document["types"]
     assert len(projection["tasks"]) == 11
     assert len(projection["parameter_partitions"]) == 17
     assert projection["unlowered_edges"]
@@ -229,6 +232,19 @@ def test_projection_refuses_to_overwrite_unmarked_directory(tmp_path: Path) -> N
     with pytest.raises(AlgorithmIndexError, match="refusing to overwrite"):
         emit_structural_project(load_algorithm_index(INDEX), output)
     assert (output / "keep.txt").read_text(encoding="utf-8") == "user data"
+
+
+def test_projection_preserves_manual_handoff_files(tmp_path: Path) -> None:
+    output = tmp_path / "projection"
+    emit_structural_project(load_algorithm_index(INDEX), output)
+    analysis = output / "analysis" / "distillation-process.md"
+    analysis.parent.mkdir()
+    analysis.write_text("analysis handoff", encoding="utf-8")
+    todo = output / "TODO.md"
+    todo.write_text("todo handoff", encoding="utf-8")
+    emit_structural_project(load_algorithm_index(INDEX), output)
+    assert analysis.read_text(encoding="utf-8") == "analysis handoff"
+    assert todo.read_text(encoding="utf-8") == "todo handoff"
 
 
 def test_committed_full_project_loads_recursively_and_notes_every_visible_node() -> None:
@@ -254,8 +270,8 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
     assert project_registry.get("external_model.index.a_bus_exchange") is None
     assert project_registry.get("external_model.index.b_bus_exchange") is None
     notes = json.loads((FULL_PROJECT / "node-notes.json").read_text(encoding="utf-8"))
-    assert "仅投影为只读消息链路" in notes["a_runtime"]
-    assert "仅投影为只读消息链路" in notes["b_runtime"]
+    assert "Runtime 间音频与控制/状态链路" in notes["a_runtime"]
+    assert "Runtime 间音频与控制/状态链路" in notes["b_runtime"]
     expected = set(project.graph.nodes)
     expected.update(
         f"sub:{sub.id}/{node.id}"
@@ -280,7 +296,7 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
 def test_committed_projection_matches_fresh_generation(tmp_path: Path) -> None:
     output = tmp_path / "projection"
     emit_structural_project(load_algorithm_index(INDEX), output)
-    assert tree_bytes(output) == tree_bytes(FULL_PROJECT)
+    assert tree_bytes(output) == tree_bytes(FULL_PROJECT, MANUAL_PROJECT_FILES)
 
 
 def test_full_research_graph_is_published_but_evidence_project_is_hidden() -> None:

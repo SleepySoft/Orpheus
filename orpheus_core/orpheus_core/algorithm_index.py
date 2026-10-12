@@ -411,7 +411,7 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
         node_notes[root_definition["node_id"]] = (
             f"用途：{root_definition['purpose']}。双击进入按源码边界组织的算法子系统。"
             f"跨 Runtime typed bus（{', '.join(related_buses)}）是调度/部署事务合同，"
-            "仅投影为只读消息链路，不写入可执行音频 connections；"
+            "按字段类型分别投影为只读的 Runtime 间音频与控制/状态链路，不写入可执行 connections；"
             "字段生产者、消费者和 offset 见 algorithm_projection.buses。"
         )
     root_set = set(roots)
@@ -518,6 +518,7 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
                 definitions[root]["runtime_ref"]: definitions[root]["node_id"]
                 for root in roots
             },
+            "types": document["types"],
             "tasks": document["tasks"],
             "parameter_partitions": document["parameter_partitions"],
             "io_projection": document["system"]["io_projection"],
@@ -569,10 +570,14 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
         "# Algorithm IR 全量研究图\n\n"
         f"本工程由 `algorithm-index.yaml` 确定性生成，共 {len(document['definitions'])} 个递归算法定义、"
         f"{len(document['tasks'])} 个任务和 {len(document['parameter_partitions'])} 个参数分区。\n\n"
-        "双击 Runtime 和子系统可递归查看音频拓扑。control/message/spectrum/state 边无法投影为普通音频线，"
+        "双击 Runtime 和子系统可递归查看音频拓扑。递归子系统内部尚未 lowering 的 "
+        "control/message/spectrum/state 边不伪装成普通音频线，"
         "完整记录保存在 `project.yaml` 的 `algorithm_projection` 与原始 IR 中。\n\n"
-        "顶层三条实线是 `2ch 节目输入 -> 30ch 系统输入装配 -> Runtime A -> 22ch 主输出`。"
-        "A/B 之间的两条青色虚线由 typed bus 合同只读投影，不属于音频处理，也不会写入 graph.connections。\n\n"
+        "顶层主链是 `2ch 节目输入 -> 30ch 系统输入装配 -> Runtime A -> 22ch 主输出`。"
+        "A/B 的 typed bus 按字段类型拆成 Runtime 间音频与控制/状态只读投影，"
+        "用于解释算法因果，但不会写入 graph.connections。\n\n"
+        "交接材料见 [`analysis/distillation-process.md`](analysis/distillation-process.md) 与 "
+        "[`TODO.md`](TODO.md)；重新生成工程时这两个手工维护文件会保留。\n\n"
         "叶节点为 placeholder 时表示算法尚未完成 golden 或运行时能力仍缺失，编译器会主动拒绝；"
         "这张图用于完整分析和逐模块替换，不得宣称可执行或数值等价。\n",
         encoding="utf-8",

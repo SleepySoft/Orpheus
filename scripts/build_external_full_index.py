@@ -274,11 +274,11 @@ def build_document() -> dict[str, Any]:
     extra_types = [
         {"id": "gains26", "kind": "bulk", "dtype": "f32", "shape": [26]},
         {"id": "gains70", "kind": "bulk", "dtype": "f32", "shape": [70]},
-        {"id": "audio1_block", "kind": "audio", "dtype": "f32", "shape": [32]},
-        {"id": "audio2_block", "kind": "audio", "dtype": "f32", "shape": [64]},
-        {"id": "audio7_block", "kind": "audio", "dtype": "f32", "shape": [224]},
-        {"id": "audio10_block", "kind": "audio", "dtype": "f32", "shape": [320]},
-        {"id": "audio22_block", "kind": "audio", "dtype": "f32", "shape": [704]},
+        {"id": "audio1_block", "kind": "audio", "dtype": "f32", "shape": [1, 32], "axes": ["channel", "frame"]},
+        {"id": "audio2_block", "kind": "audio", "dtype": "f32", "shape": [2, 32], "axes": ["channel", "frame"]},
+        {"id": "audio7_block", "kind": "audio", "dtype": "f32", "shape": [7, 32], "axes": ["channel", "frame"]},
+        {"id": "audio10_block", "kind": "audio", "dtype": "f32", "shape": [10, 32], "axes": ["channel", "frame"]},
+        {"id": "audio22_block", "kind": "audio", "dtype": "f32", "shape": [22, 32], "axes": ["channel", "frame"]},
     ]
     types.extend(extra_types)
     buses = [

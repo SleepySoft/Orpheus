@@ -359,27 +359,47 @@ types:
   kind: audio
   dtype: f32
   shape:
+  - 1
   - 32
+  axes:
+  - channel
+  - frame
 - id: audio2_block
   kind: audio
   dtype: f32
   shape:
-  - 64
+  - 2
+  - 32
+  axes:
+  - channel
+  - frame
 - id: audio7_block
   kind: audio
   dtype: f32
   shape:
-  - 224
+  - 7
+  - 32
+  axes:
+  - channel
+  - frame
 - id: audio10_block
   kind: audio
   dtype: f32
   shape:
-  - 320
+  - 10
+  - 32
+  axes:
+  - channel
+  - frame
 - id: audio22_block
   kind: audio
   dtype: f32
   shape:
-  - 704
+  - 22
+  - 32
+  axes:
+  - channel
+  - frame
 runtimes:
 - id: runtime_a
   clock_hz:

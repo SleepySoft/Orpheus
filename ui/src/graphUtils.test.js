@@ -290,12 +290,24 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
     expect(views.main.nodes[0].data.blockers).toEqual(placeholder.blockers);
   });
 
-  test('typed bus 仅投影为 message 边且保存时不进入音频连接', () => {
+  test('typed bus 按音频和控制字段拆分投影且保存时不进入执行连接', () => {
     const projection = {
       runtime_nodes: { runtime_a: 'a', runtime_b: 'b' },
+      types: [
+        { id: 'audio320', kind: 'audio', shape: [10, 32] },
+        { id: 'audio1024', kind: 'audio', shape: [32, 32] },
+        { id: 'state168', kind: 'bulk', shape: [168] },
+        { id: 'state169', kind: 'event', shape: [169] },
+      ],
       buses: [
-        { id: 'a_to_b', producer_runtime: 'runtime_a', consumer_runtime: 'runtime_b', total_words: 488, fields: [{ id: 'audio' }], atomicity: 'unverified' },
-        { id: 'b_to_a', producer_runtime: 'runtime_b', consumer_runtime: 'runtime_a', total_words: 1193, fields: [{ id: 'targets' }], atomicity: 'unverified' },
+        { id: 'a_to_b', producer_runtime: 'runtime_a', consumer_runtime: 'runtime_b', total_words: 488, fields: [
+          { id: 'audio', type_ref: 'audio320', offset_words: 0 },
+          { id: 'current', type_ref: 'state168', offset_words: 320 },
+        ], atomicity: 'unverified' },
+        { id: 'b_to_a', producer_runtime: 'runtime_b', consumer_runtime: 'runtime_a', total_words: 1193, fields: [
+          { id: 'audio', type_ref: 'audio1024', offset_words: 0 },
+          { id: 'targets', type_ref: 'state169', offset_words: 1024 },
+        ], atomicity: 'unverified' },
       ],
     };
     const busDoc = {
@@ -310,13 +322,28 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
       algorithm_projection: projection,
     };
     const { views, subsMeta } = docToViews(busDoc, catalog);
-    const messageEdges = views.main.edges.filter((edge) => edge.type === 'message');
-    expect(messageEdges).toHaveLength(2);
-    expect(messageEdges).toEqual(expect.arrayContaining([
+    const projectionEdges = views.main.edges.filter((edge) => edge.type === 'projection');
+    expect(projectionEdges).toHaveLength(4);
+    expect(projectionEdges.filter((edge) => edge.data.projectionKind === 'audio')).toHaveLength(2);
+    expect(projectionEdges.filter((edge) => edge.data.projectionKind === 'control')).toHaveLength(2);
+    expect(projectionEdges.map((edge) => edge.data.label)).toEqual(expect.arrayContaining([
+      'A→B 音频 · 320 words',
+      'A→B 控制/状态 · 168 words',
+      'B→A 音频 · 1024 words',
+      'B→A 控制/状态 · 169 words',
+    ]));
+    expect(projectionEdges).toEqual(expect.arrayContaining([
       expect.objectContaining({ selectable: false, deletable: false, focusable: false }),
     ]));
-    expect(views.main.nodes.find((node) => node.id === 'a').data.messagePorts).toHaveLength(2);
-    expect(views.main.nodes.find((node) => node.id === 'b').data.messagePorts).toHaveLength(2);
+    expect(views.main.nodes.find((node) => node.id === 'a').data.projectionPorts).toHaveLength(4);
+    expect(views.main.nodes.find((node) => node.id === 'b').data.projectionPorts).toHaveLength(4);
+    views.main.edges.push({
+      id: 'invalid-user-edge',
+      source: 'a',
+      target: 'b',
+      sourceHandle: 'projection:a_to_b:audio:out',
+      targetHandle: 'in',
+    });
     const out = viewsToDoc(views, subsMeta, busDoc);
     expect(out.graph.connections).toEqual([]);
     expect(out.algorithm_projection).toEqual(projection);

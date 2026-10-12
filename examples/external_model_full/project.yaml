@@ -57,6 +57,317 @@ algorithm_projection:
   runtime_nodes:
     runtime_a: a_runtime
     runtime_b: b_runtime
+  types:
+  - id: audio1
+    kind: audio
+    dtype: f32
+    shape:
+    - 1
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio2
+    kind: audio
+    dtype: f32
+    shape:
+    - 2
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio4
+    kind: audio
+    dtype: f32
+    shape:
+    - 4
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio6
+    kind: audio
+    dtype: f32
+    shape:
+    - 6
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio7
+    kind: audio
+    dtype: f32
+    shape:
+    - 7
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio8
+    kind: audio
+    dtype: f32
+    shape:
+    - 8
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio10
+    kind: audio
+    dtype: f32
+    shape:
+    - 10
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio12
+    kind: audio
+    dtype: f32
+    shape:
+    - 12
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio13
+    kind: audio
+    dtype: f32
+    shape:
+    - 13
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio17
+    kind: audio
+    dtype: f32
+    shape:
+    - 17
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio20
+    kind: audio
+    dtype: f32
+    shape:
+    - 20
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio21
+    kind: audio
+    dtype: f32
+    shape:
+    - 21
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio22
+    kind: audio
+    dtype: f32
+    shape:
+    - 22
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio30
+    kind: audio
+    dtype: f32
+    shape:
+    - 30
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio32
+    kind: audio
+    dtype: f32
+    shape:
+    - 32
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio40
+    kind: audio
+    dtype: f32
+    shape:
+    - 40
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio52
+    kind: audio
+    dtype: f32
+    shape:
+    - 52
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio54
+    kind: audio
+    dtype: f32
+    shape:
+    - 54
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
+  - id: audio2_128
+    kind: audio
+    dtype: f32
+    shape:
+    - 2
+    - 128
+    sample_rate_hz: 48000
+    block_size: 128
+  - id: audio6_128
+    kind: audio
+    dtype: f32
+    shape:
+    - 6
+    - 128
+    sample_rate_hz: 48000
+    block_size: 128
+  - id: audio8_128
+    kind: audio
+    dtype: f32
+    shape:
+    - 8
+    - 128
+    sample_rate_hz: 48000
+    block_size: 128
+  - id: audio10_2
+    kind: audio
+    dtype: f32
+    shape:
+    - 10
+    - 2
+    sample_rate_hz: 3000
+    block_size: 2
+  - id: spectrum2
+    kind: spectrum
+    dtype: complex_f32
+    shape:
+    - 2
+    - 129
+  - id: spectrum4
+    kind: spectrum
+    dtype: complex_f32
+    shape:
+    - 4
+    - 129
+  - id: spectrum6
+    kind: spectrum
+    dtype: complex_f32
+    shape:
+    - 6
+    - 129
+  - id: spectrum8
+    kind: spectrum
+    dtype: complex_f32
+    shape:
+    - 8
+    - 129
+  - id: control1
+    kind: control
+    dtype: f32
+    shape:
+    - 1
+  - id: control2
+    kind: control
+    dtype: f32
+    shape:
+    - 2
+  - id: control4
+    kind: control
+    dtype: f32
+    shape:
+    - 4
+  - id: control10
+    kind: control
+    dtype: f32
+    shape:
+    - 10
+  - id: gains40
+    kind: bulk
+    dtype: f32
+    shape:
+    - 40
+  - id: gains80
+    kind: bulk
+    dtype: f32
+    shape:
+    - 80
+  - id: gains166
+    kind: bulk
+    dtype: f32
+    shape:
+    - 166
+  - id: gains1134
+    kind: bulk
+    dtype: f32
+    shape:
+    - 1134
+  - id: event1
+    kind: event
+    dtype: u32
+    shape:
+    - 1
+  - id: bus488
+    kind: message
+    dtype: struct
+    shape:
+    - 488
+  - id: bus1193
+    kind: message
+    dtype: struct
+    shape:
+    - 1193
+  - id: gains26
+    kind: bulk
+    dtype: f32
+    shape:
+    - 26
+  - id: gains70
+    kind: bulk
+    dtype: f32
+    shape:
+    - 70
+  - id: audio1_block
+    kind: audio
+    dtype: f32
+    shape:
+    - 1
+    - 32
+    axes:
+    - channel
+    - frame
+  - id: audio2_block
+    kind: audio
+    dtype: f32
+    shape:
+    - 2
+    - 32
+    axes:
+    - channel
+    - frame
+  - id: audio7_block
+    kind: audio
+    dtype: f32
+    shape:
+    - 7
+    - 32
+    axes:
+    - channel
+    - frame
+  - id: audio10_block
+    kind: audio
+    dtype: f32
+    shape:
+    - 10
+    - 32
+    axes:
+    - channel
+    - frame
+  - id: audio22_block
+    kind: audio
+    dtype: f32
+    shape:
+    - 22
+    - 32
+    axes:
+    - channel
+    - frame
   tasks:
   - id: A0
     runtime_ref: runtime_a

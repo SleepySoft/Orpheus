@@ -2,6 +2,15 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-10-12（第六十五次：双 Runtime Algorithm IR 与语义链路投影）
+
+- 建立 66 个递归算法定义、11 个 Task、17 个参数分区和双向 typed bus 的严格 Algorithm IR；生成完整目录研究工程，placeholder 继续由编译器硬阻断。
+- 删除把跨 Runtime 事务伪装成处理组件的 BUS_EXCHANGE 回环；顶层补齐 2ch 输入、2→30 系统装配和 22ch 输出边界。
+- 将 A→B 488 words 与 B→A 1193 words 按字段类型拆成 2 条 Runtime 间音频实线和 2 条控制/状态虚线；字段 shape、offset 与 atomicity 保留在只读投影 tooltip 和 `algorithm_projection` 中，不写入执行图。
+- 音频块类型从扁平 words 修正为 `[channels, frames]`：1/2/7/10/22 路均保留 32 帧维度，避免生成端口把 320/704 words 误判为通道数。
+- ProjectManager 对未修改工程按 `project.yaml` mtime 自动重载，解决外部确定性生成后 UI 继续显示旧缓存的问题；React Flow 在节点测量完成后刷新受控节点，保证异步加载的节点和边可见。
+- 完整分析、重生成方法和后续 lowering/golden 工作记录在 `examples/external_model_full/analysis/distillation-process.md` 与 `TODO.md`。
+
 ## 2026-10-08（第六十四次：统一组件包与目录工程）
 
 - 工程新增 `imports`：可按任意相对文件/目录或全局组件 ID 解析 source/binary/composite，图节点统一使用裸组件 ID，不再以 `sub:` 区分实现形式。

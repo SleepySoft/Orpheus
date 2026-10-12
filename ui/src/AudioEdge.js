@@ -13,7 +13,7 @@ export default function AudioEdge({
   selected,
   data,
 }) {
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const [defaultPath, defaultLabelX, defaultLabelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -21,28 +21,40 @@ export default function AudioEdge({
     targetY,
     targetPosition,
   });
-  const isMessage = !!data?.busId;
+  const isProjection = !!data?.projectionKind;
+  const direction = targetX >= sourceX ? 1 : -1;
+  const controlDistance = Math.max(70, Math.abs(targetX - sourceX) * 0.45);
+  const offset = data?.curveOffset || 0;
+  const projectionPath = [
+    `M ${sourceX},${sourceY}`,
+    `C ${sourceX + direction * controlDistance},${sourceY + offset}`,
+    `${targetX - direction * controlDistance},${targetY + offset}`,
+    `${targetX},${targetY}`,
+  ].join(' ');
+  const edgePath = isProjection ? projectionPath : defaultPath;
+  const labelX = isProjection ? (sourceX + targetX) / 2 : defaultLabelX;
+  const labelY = isProjection ? (sourceY + targetY) / 2 + offset * 0.75 : defaultLabelY;
+  const isProjectedAudio = data?.projectionKind === 'audio';
+  const projectionStyle = isProjectedAudio
+    ? { stroke: '#1971a8', strokeWidth: selected ? 3 : 2.4 }
+    : { stroke: '#d97706', strokeWidth: selected ? 2.8 : 2, strokeDasharray: '5 4' };
   return (
     <>
-      <g className={isMessage ? 'message-edge-path' : 'audio-edge-path'}>
+      <g className={isProjection ? `projection-edge-path projection-edge-${data.projectionKind}` : 'audio-edge-path'}>
         <BaseEdge
           id={id}
           path={edgePath}
-          style={isMessage ? {
-            stroke: '#147d72',
-            strokeWidth: selected ? 2.8 : 2,
-            strokeDasharray: '3 5',
-          } : { strokeWidth: selected ? 3 : 2.2 }}
+          style={isProjection ? projectionStyle : { strokeWidth: selected ? 3 : 2.2 }}
         />
       </g>
-      {isMessage && (
+      {isProjection && (
         <EdgeLabelRenderer>
           <div
-            className="message-edge-label"
+            className={`projection-edge-label projection-edge-label-${data.projectionKind}`}
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
-            title={`${data.busId}\n${data.atomicity || 'unverified'}\n${(data.fields || []).map((field) => field.id).join(', ')}`}
+            title={`${data.busId}\n${data.atomicity || 'unverified'}\n${(data.fields || []).map((field) => `${field.id} [${field.shape.join('×')}] = ${field.words} words @ ${field.offset_words}`).join('\n')}`}
           >
-            {data.busId} · {data.label}
+            {data.label}
           </div>
         </EdgeLabelRenderer>
       )}
