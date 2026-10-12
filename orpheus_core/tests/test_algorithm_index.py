@@ -197,6 +197,35 @@ def test_a_preamp_input_mixer_verified_lowering_matches_both_basis_matrices() ->
             assert {channel: gain for channel, gain in enumerate(row) if gain != 0.0} == expected.get(output, {})
 
 
+def test_b_mix_deci_organize_and_route_match_source_permutations() -> None:
+    definitions = {
+        item["id"]: item for item in load_algorithm_index(INDEX)["definitions"]
+    }
+    organize = definitions["B.MIX_DECI.ORGANIZE"]
+    assert [port["type_ref"] for port in organize["interface"]["outputs"]] == ["audio17", "audio21"]
+    organize_nodes = {node["id"]: node for node in organize["implementation"]["lowering"]["nodes"]}
+    assert organize_nodes["cs"]["params"]["indices"] == "0,2,4,6,8,15,17,18,1,3,5,7,9,16,19,20,14"
+    assert organize_nodes["lr"]["params"]["indices"] == "0,2,4,6,8,10,12,15,17,18,1,3,5,7,9,11,13,16,19,20,14"
+
+    ramp = definitions["B.MIX_DECI.RAMP"]
+    assert [port["type_ref"] for port in ramp["interface"]["inputs"]] == ["audio17", "audio21", "gains1134"]
+    assert [port["type_ref"] for port in ramp["interface"]["outputs"]] == ["audio2", "audio25", "audio25", "gains1134"]
+
+    route = definitions["B.MIX_DECI.ROUTE"]["implementation"]["lowering"]
+    mapping = {connection["from"]: connection["to"] for connection in route["connections"]}
+    assert len(mapping) == 52
+    for index in range(2):
+        assert mapping[f"center:out{index}"] == f"peripheral:in{index}"
+    for index in range(10):
+        assert mapping[f"left:out{index}"] == f"peripheral:in{index + 2}"
+        assert mapping[f"right:out{index}"] == f"peripheral:in{index + 12}"
+        assert mapping[f"left:out{index + 10}"] == f"overhead:in{index}"
+        assert mapping[f"right:out{index + 10}"] == f"overhead:in{index + 10}"
+    for index in range(5):
+        assert mapping[f"left:out{index + 20}"] == f"headrest:in{index * 2}"
+        assert mapping[f"right:out{index + 20}"] == f"headrest:in{index * 2 + 1}"
+
+
 def test_full_index_bus_offsets_cover_exact_typed_transactions() -> None:
     document = load_algorithm_index(INDEX)
     types = {item["id"]: item for item in document["types"]}
@@ -276,7 +305,7 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     assert report["definitions"] == 66
     assert report["leaves"] + report["composites"] == 66
     assert report["executable"] is False
-    assert report["blocker_gates"]["golden"] == report["leaves"] - 2
+    assert report["blocker_gates"]["golden"] == report["leaves"] - 4
 
 
 def test_projection_refuses_to_overwrite_unmarked_directory(tmp_path: Path) -> None:

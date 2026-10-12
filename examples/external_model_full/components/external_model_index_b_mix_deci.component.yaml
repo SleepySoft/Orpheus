@@ -89,10 +89,16 @@ graph:
   connections:
   - from: align:aligned
     to: organize:in
-  - from: organize:out
-    to: ramp:audio
-  - from: ramp:out
-    to: route:in
+  - from: organize:cs
+    to: ramp:cs
+  - from: organize:lr
+    to: ramp:lr
+  - from: ramp:center
+    to: route:center
+  - from: ramp:left
+    to: route:left
+  - from: ramp:right
+    to: route:right
 algorithm_index:
   definition_id: B.MIX_DECI
   tasks:

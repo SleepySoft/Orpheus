@@ -172,6 +172,14 @@ algorithm_projection:
     - 32
     sample_rate_hz: 48000
     block_size: 32
+  - id: audio25
+    kind: audio
+    dtype: f32
+    shape:
+    - 25
+    - 32
+    sample_rate_hz: 48000
+    block_size: 32
   - id: audio30
     kind: audio
     dtype: f32

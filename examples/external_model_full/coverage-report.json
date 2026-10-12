@@ -4,14 +4,14 @@
   "composites": 16,
   "leaves": 50,
   "implementation_status": {
-    "approximation": 12,
-    "exact_candidate": 3,
-    "unsupported": 33,
-    "verified": 2
+    "approximation": 11,
+    "exact_candidate": 1,
+    "unsupported": 34,
+    "verified": 4
   },
   "blocker_gates": {
     "algorithm": 44,
-    "golden": 48,
+    "golden": 46,
     "runtime": 1,
     "state": 1
   },

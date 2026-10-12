@@ -1,18 +1,35 @@
 id: external_model.index.b_mix_deci_route
-name: 52 路 HEQ 分发
+name: 三组矩阵输出 HEQ 分发
 category: 外部模型/算法索引
-description: 按生成索引分成 peripheral22、overhead20、headrest10
+description: 把 Center2、Left25、Right25 分成 peripheral22、overhead20、headrest10
 version: '2.0'
 abi_version: 1
-package_type: placeholder
+package_type: composite
 ports:
-- id: in
+- id: center
   direction: input
   type: audio
   sample_format: f32
-  channels: 52
+  channels: 2
   sample_rate: 48000
   block_size: 32
+  maps_to: center:in
+- id: left
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 25
+  sample_rate: 48000
+  block_size: 32
+  maps_to: left:in
+- id: right
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 25
+  sample_rate: 48000
+  block_size: 32
+  maps_to: right:in
 - id: peripheral
   direction: output
   type: audio
@@ -20,6 +37,7 @@ ports:
   channels: 22
   sample_rate: 48000
   block_size: 32
+  maps_to: peripheral:out
 - id: headrest
   direction: output
   type: audio
@@ -27,6 +45,7 @@ ports:
   channels: 10
   sample_rate: 48000
   block_size: 32
+  maps_to: headrest:out
 - id: overhead
   direction: output
   type: audio
@@ -34,12 +53,157 @@ ports:
   channels: 20
   sample_rate: 48000
   block_size: 32
+  maps_to: overhead:out
 parameters: []
-blockers:
-- id: golden_pending
-  gate: golden
-  reason: 52 路映射 golden 未完成
-  source_ref: b_main
+graph:
+  nodes:
+  - id: center
+    component: orpheus.builtin.deinterleave
+    params:
+      channels: 2
+    position:
+      x: 80
+      y: 80
+  - id: left
+    component: orpheus.builtin.deinterleave
+    params:
+      channels: 25
+    position:
+      x: 340
+      y: 80
+  - id: right
+    component: orpheus.builtin.deinterleave
+    params:
+      channels: 25
+    position:
+      x: 600
+      y: 80
+  - id: peripheral
+    component: orpheus.builtin.interleave
+    params:
+      channels: 22
+    position:
+      x: 860
+      y: 80
+  - id: headrest
+    component: orpheus.builtin.interleave
+    params:
+      channels: 10
+    position:
+      x: 1120
+      y: 80
+  - id: overhead
+    component: orpheus.builtin.interleave
+    params:
+      channels: 20
+    position:
+      x: 1380
+      y: 80
+  connections:
+  - from: center:out0
+    to: peripheral:in0
+  - from: center:out1
+    to: peripheral:in1
+  - from: left:out0
+    to: peripheral:in2
+  - from: left:out1
+    to: peripheral:in3
+  - from: left:out2
+    to: peripheral:in4
+  - from: left:out3
+    to: peripheral:in5
+  - from: left:out4
+    to: peripheral:in6
+  - from: left:out5
+    to: peripheral:in7
+  - from: left:out6
+    to: peripheral:in8
+  - from: left:out7
+    to: peripheral:in9
+  - from: left:out8
+    to: peripheral:in10
+  - from: left:out9
+    to: peripheral:in11
+  - from: right:out0
+    to: peripheral:in12
+  - from: right:out1
+    to: peripheral:in13
+  - from: right:out2
+    to: peripheral:in14
+  - from: right:out3
+    to: peripheral:in15
+  - from: right:out4
+    to: peripheral:in16
+  - from: right:out5
+    to: peripheral:in17
+  - from: right:out6
+    to: peripheral:in18
+  - from: right:out7
+    to: peripheral:in19
+  - from: right:out8
+    to: peripheral:in20
+  - from: right:out9
+    to: peripheral:in21
+  - from: left:out10
+    to: overhead:in0
+  - from: left:out11
+    to: overhead:in1
+  - from: left:out12
+    to: overhead:in2
+  - from: left:out13
+    to: overhead:in3
+  - from: left:out14
+    to: overhead:in4
+  - from: left:out15
+    to: overhead:in5
+  - from: left:out16
+    to: overhead:in6
+  - from: left:out17
+    to: overhead:in7
+  - from: left:out18
+    to: overhead:in8
+  - from: left:out19
+    to: overhead:in9
+  - from: right:out10
+    to: overhead:in10
+  - from: right:out11
+    to: overhead:in11
+  - from: right:out12
+    to: overhead:in12
+  - from: right:out13
+    to: overhead:in13
+  - from: right:out14
+    to: overhead:in14
+  - from: right:out15
+    to: overhead:in15
+  - from: right:out16
+    to: overhead:in16
+  - from: right:out17
+    to: overhead:in17
+  - from: right:out18
+    to: overhead:in18
+  - from: right:out19
+    to: overhead:in19
+  - from: left:out20
+    to: headrest:in0
+  - from: right:out20
+    to: headrest:in1
+  - from: left:out21
+    to: headrest:in2
+  - from: right:out21
+    to: headrest:in3
+  - from: left:out22
+    to: headrest:in4
+  - from: right:out22
+    to: headrest:in5
+  - from: left:out23
+    to: headrest:in6
+  - from: right:out23
+    to: headrest:in7
+  - from: left:out24
+    to: headrest:in8
+  - from: right:out24
+    to: headrest:in9
 algorithm_index:
   definition_id: B.MIX_DECI.ROUTE
   tasks:
@@ -50,10 +214,143 @@ algorithm_index:
   - headrest selector
   state: []
   implementation:
-    status: exact_candidate
-    component: orpheus.builtin.channel_router
-    blockers:
-    - id: golden_pending
-      gate: golden
-      reason: 52 路映射 golden 未完成
-      source_ref: b_main
+    status: verified
+    lowering:
+      nodes:
+      - id: center
+        component: orpheus.builtin.deinterleave
+        params:
+          channels: 2
+      - id: left
+        component: orpheus.builtin.deinterleave
+        params:
+          channels: 25
+      - id: right
+        component: orpheus.builtin.deinterleave
+        params:
+          channels: 25
+      - id: peripheral
+        component: orpheus.builtin.interleave
+        params:
+          channels: 22
+      - id: headrest
+        component: orpheus.builtin.interleave
+        params:
+          channels: 10
+      - id: overhead
+        component: orpheus.builtin.interleave
+        params:
+          channels: 20
+      connections:
+      - from: center:out0
+        to: peripheral:in0
+      - from: center:out1
+        to: peripheral:in1
+      - from: left:out0
+        to: peripheral:in2
+      - from: left:out1
+        to: peripheral:in3
+      - from: left:out2
+        to: peripheral:in4
+      - from: left:out3
+        to: peripheral:in5
+      - from: left:out4
+        to: peripheral:in6
+      - from: left:out5
+        to: peripheral:in7
+      - from: left:out6
+        to: peripheral:in8
+      - from: left:out7
+        to: peripheral:in9
+      - from: left:out8
+        to: peripheral:in10
+      - from: left:out9
+        to: peripheral:in11
+      - from: right:out0
+        to: peripheral:in12
+      - from: right:out1
+        to: peripheral:in13
+      - from: right:out2
+        to: peripheral:in14
+      - from: right:out3
+        to: peripheral:in15
+      - from: right:out4
+        to: peripheral:in16
+      - from: right:out5
+        to: peripheral:in17
+      - from: right:out6
+        to: peripheral:in18
+      - from: right:out7
+        to: peripheral:in19
+      - from: right:out8
+        to: peripheral:in20
+      - from: right:out9
+        to: peripheral:in21
+      - from: left:out10
+        to: overhead:in0
+      - from: left:out11
+        to: overhead:in1
+      - from: left:out12
+        to: overhead:in2
+      - from: left:out13
+        to: overhead:in3
+      - from: left:out14
+        to: overhead:in4
+      - from: left:out15
+        to: overhead:in5
+      - from: left:out16
+        to: overhead:in6
+      - from: left:out17
+        to: overhead:in7
+      - from: left:out18
+        to: overhead:in8
+      - from: left:out19
+        to: overhead:in9
+      - from: right:out10
+        to: overhead:in10
+      - from: right:out11
+        to: overhead:in11
+      - from: right:out12
+        to: overhead:in12
+      - from: right:out13
+        to: overhead:in13
+      - from: right:out14
+        to: overhead:in14
+      - from: right:out15
+        to: overhead:in15
+      - from: right:out16
+        to: overhead:in16
+      - from: right:out17
+        to: overhead:in17
+      - from: right:out18
+        to: overhead:in18
+      - from: right:out19
+        to: overhead:in19
+      - from: left:out20
+        to: headrest:in0
+      - from: right:out20
+        to: headrest:in1
+      - from: left:out21
+        to: headrest:in2
+      - from: right:out21
+        to: headrest:in3
+      - from: left:out22
+        to: headrest:in4
+      - from: right:out22
+        to: headrest:in5
+      - from: left:out23
+        to: headrest:in6
+      - from: right:out23
+        to: headrest:in7
+      - from: left:out24
+        to: headrest:in8
+      - from: right:out24
+        to: headrest:in9
+      port_maps:
+        center: center:in
+        left: left:in
+        right: right:in
+        peripheral: peripheral:out
+        headrest: headrest:out
+        overhead: overhead:out
+    blockers: []

@@ -1,12 +1,19 @@
 id: external_model.index.b_mix_deci_ramp
 name: 34/525/525 矩阵斜坡
 category: 外部模型/算法索引
-description: 序列锁存三个目标矩阵并逐样本生成 52 路
+description: 序列锁存三个目标矩阵并逐样本生成 Center2、Left25、Right25
 version: '2.0'
 abi_version: 1
 package_type: placeholder
 ports:
-- id: audio
+- id: cs
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 17
+  sample_rate: 48000
+  block_size: 32
+- id: lr
   direction: input
   type: audio
   sample_format: f32
@@ -18,11 +25,25 @@ ports:
   type: bulk
   sample_format: f32
   channels: 1134
-- id: out
+- id: center
   direction: output
   type: audio
   sample_format: f32
-  channels: 52
+  channels: 2
+  sample_rate: 48000
+  block_size: 32
+- id: left
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 25
+  sample_rate: 48000
+  block_size: 32
+- id: right
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 25
   sample_rate: 48000
   block_size: 32
 - id: active
@@ -56,8 +77,7 @@ algorithm_index:
     shape:
     - 1134
   implementation:
-    status: approximation
-    component: orpheus.builtin.slc_matrix_mul
+    status: unsupported
     blockers:
     - id: algorithm_pending
       gate: algorithm

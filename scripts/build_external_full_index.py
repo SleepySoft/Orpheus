@@ -142,6 +142,31 @@ def build_definitions() -> None:
         (1, 1): 1.0, (1, 2): 0.5, (1, 3): 1.58, (1, 5): 1.0,
         (1, 7): 1.0, (1, 10): 1.0, (1, 11): 1.0,
     })
+    mix_deci_route_connections = [
+        {"from": "center:out0", "to": "peripheral:in0"},
+        {"from": "center:out1", "to": "peripheral:in1"},
+    ]
+    mix_deci_route_connections.extend(
+        {"from": f"left:out{index}", "to": f"peripheral:in{index + 2}"}
+        for index in range(10)
+    )
+    mix_deci_route_connections.extend(
+        {"from": f"right:out{index}", "to": f"peripheral:in{index + 12}"}
+        for index in range(10)
+    )
+    mix_deci_route_connections.extend(
+        {"from": f"left:out{index + 10}", "to": f"overhead:in{index}"}
+        for index in range(10)
+    )
+    mix_deci_route_connections.extend(
+        {"from": f"right:out{index + 10}", "to": f"overhead:in{index + 10}"}
+        for index in range(10)
+    )
+    for index in range(5):
+        mix_deci_route_connections.extend([
+            {"from": f"left:out{index + 20}", "to": f"headrest:in{index * 2}"},
+            {"from": f"right:out{index + 20}", "to": f"headrest:in{index * 2 + 1}"},
+        ])
     # Runtime A hierarchy.
     add("A.RUNTIME", "Runtime A 全速率系统", "执行输入、Big6、空间处理、输出保护和自适应响度", "runtime_a", ["A0", "A1", "A2", "A3", "A4", "A5"], ["a_main"], ["按 A0..A5 调度并与 Runtime B 交换原子总线"],
         inputs=[port("audio_in", "audio30", "input_select:in"), port("mono", "audio1", "audiopilot:mono"), port("treble_lr", "audio2", "spatial_full:treble_lr"), port("treble_surround", "audio7", "spatial_full:treble_surround"), port("post_spatial", "audio22", "spatial_full:post_spatial")],
@@ -218,11 +243,30 @@ def build_definitions() -> None:
     add("B.MIX_CONTROL.TARGETS", "SLC/Downmix 目标计算", "对七组矩阵做 index 插值和 Fade 前后向 downmix 混合", "runtime_b", ["B1", "B3"], ["b_main", "b_control_top"], ["0/128/255 anchors", "linear/dB-linear interpolation", "target=(1-d)*slc+d*weights"], parent="B.MIX_CONTROL", inputs=[port("current", "gains166"), port("fade", "control2")], outputs=[port("full", "gains166"), port("deci", "gains1134"), port("vls_row1", "gains40"), port("vls_row2", "gains40")], states=[state("targets", "七组目标矩阵")], status="unsupported")
     add("B.MIX_CONTROL.SEQUENCE", "奇偶序列事务", "奇数冻结、偶数启动，带延迟启动与 FastSequence 返回", "runtime_b", ["B1", "B3"], ["b_main"], ["requested parity", "超过128减128", "freeze immediate", "delayed even launch"], parent="B.MIX_CONTROL", inputs=[port("trigger", "event1")], outputs=[port("out", "control1")], states=[state("sequence", "generator/previous/delay counters")], status="unsupported")
     add("B.MIX_CONTROL.FEEDBACK", "目标/当前增益快照", "在消费者执行后更新 26/70/70、34/525/525/80 的跨任务快照", "runtime_b", ["B1", "B3"], ["b_main", "bus"], ["B1/B3 unit delays", "1e-3 completion", "task-end update"], parent="B.MIX_CONTROL", inputs=[port("active", "gains1134")], outputs=[port("snapshot", "gains1134")], states=[state("snapshots", "任务边界数组快照")], status="unsupported")
-    add("B.MIX_DECI", "降速 21→52 混音", "延迟/滤波并组织 21 路，再用 34/525/525 三矩阵生成 52 路 HEQ 输入", "runtime_b", ["B3"], ["b_main", "b_mix_top"], ["alignment", "organizer", "sequence-gated ramp", "peripheral/overhead/headrest route"], parent="B.RUNTIME", inputs=[port("fdp", "audio8", "align:fdp"), port("bands", "audio4", "align:bands"), port("targets", "gains1134", "ramp:targets")], outputs=[port("peripheral", "audio22", "route:peripheral"), port("headrest", "audio10", "route:headrest"), port("overhead", "audio20", "route:overhead"), port("active", "gains1134", "ramp:active")], children=["B.MIX_DECI.ALIGN", "B.MIX_DECI.ORGANIZE", "B.MIX_DECI.RAMP", "B.MIX_DECI.ROUTE"], edges=[edge("align:aligned", "organize:in", "audio21"), edge("organize:out", "ramp:audio", "audio21"), edge("ramp:out", "route:in", "audio52")])
+    add("B.MIX_DECI", "降速 21→52 混音", "延迟/滤波并组织 21 路，再用 34/525/525 三矩阵生成 52 路 HEQ 输入", "runtime_b", ["B3"], ["b_main", "b_mix_top"], ["alignment", "organizer", "sequence-gated ramp", "peripheral/overhead/headrest route"], parent="B.RUNTIME", inputs=[port("fdp", "audio8", "align:fdp"), port("bands", "audio4", "align:bands"), port("targets", "gains1134", "ramp:targets")], outputs=[port("peripheral", "audio22", "route:peripheral"), port("headrest", "audio10", "route:headrest"), port("overhead", "audio20", "route:overhead"), port("active", "gains1134", "ramp:active")], children=["B.MIX_DECI.ALIGN", "B.MIX_DECI.ORGANIZE", "B.MIX_DECI.RAMP", "B.MIX_DECI.ROUTE"], edges=[edge("align:aligned", "organize:in", "audio21"), edge("organize:cs", "ramp:cs", "audio17"), edge("organize:lr", "ramp:lr", "audio21"), edge("ramp:center", "route:center", "audio2"), edge("ramp:left", "route:left", "audio25"), edge("ramp:right", "route:right", "audio25")])
     add("B.MIX_DECI.ALIGN", "降速延迟/Wiggle/MixEQ", "对 bass/FDP/surround 做多组延迟、四个 FirEven wiggle 和八路 MixEQ", "runtime_b", ["B3"], ["b_main", "b_mix_top"], ["bass384", "FDP/tail alignment", "4×442 FIR", "8 路 IIR", "surround384"], parent="B.MIX_DECI", inputs=[port("fdp", "audio8"), port("bands", "audio4")], outputs=[port("aligned", "audio21")], states=[state("delays", "多组 ring"), state("wiggle", "1904 FIR state"), state("mix_iir", "160 状态")], status="unsupported")
-    add("B.MIX_DECI.ORGANIZE", "21 路矩阵输入组织", "按明确索引生成 CS17 与 Left/Right21 输入", "runtime_b", ["B3"], ["b_main"], ["CS 排除 wiggle tails", "LR 共享 21 输入顺序"], parent="B.MIX_DECI", inputs=[port("in", "audio21")], outputs=[port("out", "audio21")], status="exact_candidate", component="orpheus.builtin.channel_router", blockers=[blocker("golden", "索引顺序 golden 未完成", "b_main")])
-    add("B.MIX_DECI.RAMP", "34/525/525 矩阵斜坡", "序列锁存三个目标矩阵并逐样本生成 52 路", "runtime_b", ["B3"], ["b_main", "b_control_top"], ["g=(1-c)target+c*g", "freeze 仍输出", "偶序列锁存", "零值微扰"], parent="B.MIX_DECI", inputs=[port("audio", "audio21"), port("targets", "gains1134")], outputs=[port("out", "audio52"), port("active", "gains1134")], states=[state("matrices", "active/target/coeff/sequence", [1134])], status="approximation", component="orpheus.builtin.slc_matrix_mul")
-    add("B.MIX_DECI.ROUTE", "52 路 HEQ 分发", "按生成索引分成 peripheral22、overhead20、headrest10", "runtime_b", ["B3"], ["b_main"], ["peripheral selector", "overhead selector", "headrest selector"], parent="B.MIX_DECI", inputs=[port("in", "audio52")], outputs=[port("peripheral", "audio22"), port("headrest", "audio10"), port("overhead", "audio20")], status="exact_candidate", component="orpheus.builtin.channel_router", blockers=[blocker("golden", "52 路映射 golden 未完成", "b_main")])
+    add("B.MIX_DECI.ORGANIZE", "21 路矩阵输入组织", "按明确索引生成 CS17 与 Left/Right21 输入", "runtime_b", ["B3"], ["b_main"], ["CS 排除 wiggle tails", "LR 共享 21 输入顺序"], parent="B.MIX_DECI", inputs=[port("in", "audio21")], outputs=[port("cs", "audio17"), port("lr", "audio21")], status="verified", component="orpheus.builtin.channel_router", lowering={
+        "nodes": [
+            {"id": "ingress", "component": "orpheus.builtin.gain", "params": {"channels": 21, "gain_db": 0.0}},
+            {"id": "cs", "component": "orpheus.builtin.channel_router", "params": {"channels_in": 21, "channels_out": 17, "indices": "0,2,4,6,8,15,17,18,1,3,5,7,9,16,19,20,14"}},
+            {"id": "lr", "component": "orpheus.builtin.channel_router", "params": {"channels_in": 21, "channels_out": 21, "indices": "0,2,4,6,8,10,12,15,17,18,1,3,5,7,9,11,13,16,19,20,14"}},
+        ],
+        "connections": [{"from": "ingress:out", "to": "cs:in"}, {"from": "ingress:out", "to": "lr:in"}],
+        "port_maps": {"in": "ingress:in", "cs": "cs:out", "lr": "lr:out"},
+    }, blockers=[])
+    add("B.MIX_DECI.RAMP", "34/525/525 矩阵斜坡", "序列锁存三个目标矩阵并逐样本生成 Center2、Left25、Right25", "runtime_b", ["B3"], ["b_main", "b_control_top"], ["g=(1-c)target+c*g", "freeze 仍输出", "偶序列锁存", "零值微扰"], parent="B.MIX_DECI", inputs=[port("cs", "audio17"), port("lr", "audio21"), port("targets", "gains1134")], outputs=[port("center", "audio2"), port("left", "audio25"), port("right", "audio25"), port("active", "gains1134")], states=[state("matrices", "active/target/coeff/sequence", [1134])], status="unsupported")
+    add("B.MIX_DECI.ROUTE", "三组矩阵输出 HEQ 分发", "把 Center2、Left25、Right25 分成 peripheral22、overhead20、headrest10", "runtime_b", ["B3"], ["b_main"], ["peripheral selector", "overhead selector", "headrest selector"], parent="B.MIX_DECI", inputs=[port("center", "audio2"), port("left", "audio25"), port("right", "audio25")], outputs=[port("peripheral", "audio22"), port("headrest", "audio10"), port("overhead", "audio20")], status="verified", lowering={
+        "nodes": [
+            {"id": "center", "component": "orpheus.builtin.deinterleave", "params": {"channels": 2}},
+            {"id": "left", "component": "orpheus.builtin.deinterleave", "params": {"channels": 25}},
+            {"id": "right", "component": "orpheus.builtin.deinterleave", "params": {"channels": 25}},
+            {"id": "peripheral", "component": "orpheus.builtin.interleave", "params": {"channels": 22}},
+            {"id": "headrest", "component": "orpheus.builtin.interleave", "params": {"channels": 10}},
+            {"id": "overhead", "component": "orpheus.builtin.interleave", "params": {"channels": 20}},
+        ],
+        "connections": mix_deci_route_connections,
+        "port_maps": {"center": "center:in", "left": "left:in", "right": "right:in", "peripheral": "peripheral:out", "headrest": "headrest:out", "overhead": "overhead:out"},
+    }, blockers=[])
     add("B.HEQ", "三分支 HEQ", "并行计算 peripheral/headrest/overhead 的 FIR、延迟输入 IIR、求和和输出环", "runtime_b", ["B3"], ["b_main", "b_peripheral_top", "b_headrest_top", "b_overhead_top"], ["三分支并行", "mapped FIR + delayed mapped PoolIIR", "contribution add", "OutputMapping sum", "output delay"], parent="B.RUNTIME", inputs=[port("peripheral", "audio22", "peripheral:in"), port("headrest", "audio10", "headrest:in"), port("overhead", "audio20", "overhead:in")], outputs=[port("peripheral_out", "audio10", "peripheral:out"), port("headrest_out", "audio40", "headrest:out"), port("overhead_out", "audio4", "overhead:out")], children=["B.HEQ.PERIPHERAL", "B.HEQ.HEADREST", "B.HEQ.OVERHEAD"], edges=[])
     add("B.HEQ.PERIPHERAL", "Peripheral 22→10 HEQ", "42 个 530-tap FIR/IIR contribution 按十组求和并延迟 34 样本", "runtime_b", ["B3"], ["b_main", "b_peripheral_top"], ["22→42 mapping", "FIR+530 延迟 IIR", "10 contiguous sums", "34-sample output ring"], parent="B.HEQ", inputs=[port("in", "audio22")], outputs=[port("out", "audio10")], states=[state("fir", "12342 state"), state("input_delay", "15004 state"), state("output_ring", "340 state")], status="unsupported")
     add("B.HEQ.HEADREST", "Headrest 10→40 HEQ", "同一十路面向四组目标做 40 条长 FIR 与并行 IIR", "runtime_b", ["B3"], ["b_main", "b_headrest_top"], ["10 路重复四次", "40×530 FIR", "530 延迟 PoolIIR", "逐 contribution 相加", "2-sample carry"], parent="B.HEQ", inputs=[port("in", "audio10")], outputs=[port("out", "audio40")], states=[state("fir", "5610 state"), state("iir_delay", "6820 state"), state("carry", "80 state")], status="approximation", component="external_model.heq.headrest")
@@ -249,7 +293,7 @@ def build_document() -> dict[str, Any]:
         if block:
             item["block_size"] = block
         types.append(item)
-    for channels in [1, 2, 4, 6, 7, 8, 10, 12, 13, 17, 20, 21, 22, 30, 32, 40, 52, 54]:
+    for channels in [1, 2, 4, 6, 7, 8, 10, 12, 13, 17, 20, 21, 22, 25, 30, 32, 40, 52, 54]:
         t(f"audio{channels}", "audio", "f32", [channels, 32], 48000, 32)
     for channels in [2, 6, 8]:
         t(f"audio{channels}_128", "audio", "f32", [channels, 128], 48000, 128)

@@ -17,6 +17,8 @@
 - [x] placeholder 编译阻断、确定性生成和浏览器可见性测试。
 - [x] `B.BANDS.MONO`：用通用 `matrix_mul` 精确实现，默认矩阵经 10 路 one-hot golden 验证。
 - [x] `A.PREAMP.INPUT_MIXER`：用 gain + 两个 `input_mixer_3d` + `n_way_mux` 组合实现，两种模式经 12 路 one-hot golden 验证。
+- [x] `B.MIX_DECI.ORGANIZE`：修正为 CS17/LR21 双输出，并用两个 `channel_router` 完成 21 路 one-hot 映射。
+- [x] `B.MIX_DECI.ROUTE`：修正 RAMP 边界为 Center2/Left25/Right25，用 deinterleave/interleave 完成 52 路无重叠分发。
 
 ## P0：先验证跨 Runtime 契约
 
