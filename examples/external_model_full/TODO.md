@@ -19,6 +19,8 @@
 - [x] `A.PREAMP.INPUT_MIXER`：用 gain + 两个 `input_mixer_3d` + `n_way_mux` 组合实现，两种模式经 12 路 one-hot golden 验证。
 - [x] `B.MIX_DECI.ORGANIZE`：修正为 CS17/LR21 双输出，并用两个 `channel_router` 完成 21 路 one-hot 映射。
 - [x] `B.MIX_DECI.ROUTE`：修正 RAMP 边界为 Center2/Left25/Right25，用 deinterleave/interleave 完成 52 路无重叠分发。
+- [x] 通用 `sleeping_beauty` 升级：64ch、共享四 ramper、逐样本 frameCount/freeze、dB/s 和 `-1→静音`，直接 ABI golden 通过。
+- [ ] `A.SPATIAL_FULL.POST_HOLOGRAM` / `B.POST.SLEEPING`：算法已可由通用 bank 组合，但产品启动时 RTC `gain_index` 未在源码中找到，保留 parameters blocker。
 
 ## P0：先验证跨 Runtime 契约
 

@@ -30,6 +30,7 @@ static int32_t read_int(const OrpheusConfig* config, const char* id, int32_t fal
         if (config->param_ids[i] && strcmp(config->param_ids[i], id) == 0) {
             if (config->param_values[i].type == ORPHEUS_VALUE_INT)   return config->param_values[i].value.i32;
             if (config->param_values[i].type == ORPHEUS_VALUE_FLOAT) return (int32_t)config->param_values[i].value.f32;
+            if (config->param_values[i].type == ORPHEUS_VALUE_BOOL)  return config->param_values[i].value.b ? 1 : 0;
         }
     }
     return fallback;
@@ -150,18 +151,29 @@ static void sb_calculate_gains(SleepingBeautyState* s, float targetGains[4]) {
 /* ---- ramper 斜坡（与 gain_ramper 相同逻辑） ---- */
 
 static void sb_ramper_set_target(SBRamper* r, float targetLinear,
-                                  float rampMs, float sampleRate, uint32_t blockSize) {
+                                  float rampMs, float rampDbPerSec,
+                                  float sampleRate, uint32_t blockSize) {
     r->targetGain = fmaxf(targetLinear, SB_SILENT_GAIN);
     float curDb = 20.0f * log10f(fmaxf(r->currentGain, SB_SILENT_GAIN));
     float tgtDb = 20.0f * log10f(r->targetGain);
     float diff  = fabsf(tgtDb - curDb);
     if (diff < 0.01f || rampMs <= 0.0f || sampleRate <= 0.0f || blockSize == 0) {
-        r->rampCoeff   = 0.0f;
+        r->rampCoeff   = 1.0f;
+        r->frameCount  = 0;
         r->currentGain = r->targetGain;
     } else {
-        float numBlocks = rampMs / 1000.0f * sampleRate / (float)blockSize;
-        if (numBlocks < 1.0f) numBlocks = 1.0f;
-        r->rampCoeff = logf(r->targetGain / fmaxf(r->currentGain, SB_SILENT_GAIN)) / numBlocks;
+        float effectiveRampMs = rampMs;
+        if (rampDbPerSec > 0.0f) {
+            float rate = fminf(50000.0f, fmaxf(5.0f, rampDbPerSec));
+            effectiveRampMs = diff / rate * 1000.0f;
+        }
+        effectiveRampMs = fminf(3000.0f, fmaxf(1.0f, effectiveRampMs));
+        float blockMs = 1000.0f * (float)blockSize / sampleRate;
+        uint32_t numBlocks = (uint32_t)ceilf(effectiveRampMs / blockMs);
+        if (numBlocks < 1) numBlocks = 1;
+        r->frameCount = numBlocks;
+        r->rampCoeff = expf(logf(r->targetGain / fmaxf(r->currentGain, SB_SILENT_GAIN)) /
+                            ((float)blockSize * (float)numBlocks));
     }
 }
 
@@ -170,7 +182,8 @@ static void sb_recalc_targets(SleepingBeautyState* s) {
     float tg[4];
     sb_calculate_gains(s, tg);
     for (uint32_t i = 0; i < SB_MAX_RAMPERS; ++i) {
-        sb_ramper_set_target(&s->rampers[i], tg[i], s->rampMs, s->sampleRate, s->blockSize);
+        sb_ramper_set_target(&s->rampers[i], tg[i], s->rampMs, s->rampDbPerSec,
+                     s->sampleRate, s->blockSize);
     }
 }
 
@@ -196,9 +209,18 @@ static const OrpheusParameter sb_params[] = {
       .min_f32 = 0.0f, .max_f32 = 5000.0f, .unit = "ms",
       .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true },
+        { .id = "ramp_db_per_s", .name = "Ramp Rate", .type = ORPHEUS_VALUE_FLOAT,
+            .default_value = { .type = ORPHEUS_VALUE_FLOAT, .value.f32 = 0.0f },
+            .min_f32 = 0.0f, .max_f32 = 50000.0f, .unit = "dB/s",
+            .update_policy = ORPHEUS_UPDATE_BLOCK_BOUNDARY,
+            .readback = true, .persistent = true },
+        { .id = "freeze", .name = "Freeze", .type = ORPHEUS_VALUE_BOOL,
+            .default_value = { .type = ORPHEUS_VALUE_BOOL, .value.b = false },
+            .update_policy = ORPHEUS_UPDATE_BLOCK_BOUNDARY,
+            .readback = true, .persistent = true },
     { .id = "channels", .name = "Channels", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 4 },
-      .min_i32 = 1, .max_i32 = 32,
+    .min_i32 = 1, .max_i32 = 64,
       .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true, .affects_signature = true },
     { .id = "chan_map", .name = "Channel Map", .type = ORPHEUS_VALUE_STRING,
@@ -225,8 +247,8 @@ static const OrpheusPort sb_ports[] = {
 };
 
 static const OrpheusComponentDescriptor sb_descriptor = {
-    .id = "orpheus.builtin.sleeping_beauty", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = sb_ports, .port_count = 2, .params = sb_params, .param_count = 8,
+    .id = "orpheus.builtin.sleeping_beauty", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = sb_ports, .port_count = 2, .params = sb_params, .param_count = 10,
     .state_size = sizeof(SleepingBeautyState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = true
 };
@@ -253,6 +275,8 @@ static int sb_prepare(void* state, const OrpheusConfig* config) {
     s->offset     = read_float(config, "offset", 128.0f);
     s->mutesBass  = read_float(config, "mutes_bass", 0.0f);
     s->rampMs     = read_float(config, "ramp_ms", 30.0f);
+    s->rampDbPerSec = read_float(config, "ramp_db_per_s", 0.0f);
+    s->freeze = read_int(config, "freeze", 0) != 0;
     s->sampleRate = config->sample_rate > 0 ? (float)config->sample_rate : 48000.0f;
     s->blockSize  = config->block_size > 0 ? config->block_size : 32;
 
@@ -274,13 +298,15 @@ static int sb_prepare(void* state, const OrpheusConfig* config) {
     for (uint32_t i = 0; i < SB_MAX_RAMPERS; ++i) {
         s->rampers[i].currentGain = 1.0f;
         s->rampers[i].targetGain  = 1.0f;
-        s->rampers[i].rampCoeff   = 0.0f;
+        s->rampers[i].rampCoeff   = 1.0f;
+        s->rampers[i].frameCount  = 0;
     }
     sb_recalc_targets(s);
     /* 首次直接吸附到目标（无斜坡启动） */
     for (uint32_t i = 0; i < SB_MAX_RAMPERS; ++i) {
         s->rampers[i].currentGain = s->rampers[i].targetGain;
-        s->rampers[i].rampCoeff   = 0.0f;
+        s->rampers[i].rampCoeff   = 1.0f;
+        s->rampers[i].frameCount  = 0;
     }
     return ORPHEUS_OK;
 }
@@ -291,7 +317,8 @@ static int sb_reset(void* state) {
     sb_recalc_targets(s);
     for (uint32_t i = 0; i < SB_MAX_RAMPERS; ++i) {
         s->rampers[i].currentGain = s->rampers[i].targetGain;
-        s->rampers[i].rampCoeff   = 0.0f;
+        s->rampers[i].rampCoeff   = 1.0f;
+        s->rampers[i].frameCount  = 0;
     }
     return ORPHEUS_OK;
 }
@@ -309,28 +336,28 @@ static int sb_process(void* state, const OrpheusProcessContext* ctx) {
     const float* in_data = (const float*)in->data;
     float* out_data = (float*)out->data;
 
-    /* 每块更新 ramper（per-frame，与源码一致） */
-    for (uint32_t r = 0; r < SB_MAX_RAMPERS; ++r) {
-        SBRamper* rp = &s->rampers[r];
-        if (rp->rampCoeff != 0.0f) {
-            rp->currentGain *= expf(rp->rampCoeff);
-            if (rp->rampCoeff > 0.0f && rp->currentGain >= rp->targetGain) {
-                rp->currentGain = rp->targetGain;
-                rp->rampCoeff = 0.0f;
-            } else if (rp->rampCoeff < 0.0f && rp->currentGain <= rp->targetGain) {
-                rp->currentGain = rp->targetGain;
-                rp->rampCoeff = 0.0f;
+    /* 每个样本推进四路共享 ramper，再应用到全部映射通道。 */
+    for (uint32_t n = 0; n < frames; ++n) {
+        if (!s->freeze) {
+            for (uint32_t r = 0; r < SB_MAX_RAMPERS; ++r) {
+                SBRamper* rp = &s->rampers[r];
+                if (rp->frameCount > 0) rp->currentGain *= rp->rampCoeff;
+                if (rp->currentGain < SB_SILENT_GAIN) rp->currentGain = SB_SILENT_GAIN;
             }
         }
-        if (rp->currentGain < SB_SILENT_GAIN) rp->currentGain = SB_SILENT_GAIN;
-    }
-
-    /* 应用增益 */
-    for (uint32_t n = 0; n < frames; ++n) {
         for (uint32_t c = 0; c < ch; ++c) {
             int32_t ri = s->chanMap[c];
-            float g = (ri >= 0 && ri < SB_MAX_RAMPERS) ? s->rampers[ri].currentGain : 1.0f;
+            float g = (ri >= 0 && ri < SB_MAX_RAMPERS) ? s->rampers[ri].currentGain : 0.0f;
             out_data[n * ch + c] = in_data[n * ch + c] * g;
+        }
+    }
+    if (!s->freeze) {
+        for (uint32_t r = 0; r < SB_MAX_RAMPERS; ++r) {
+            SBRamper* rp = &s->rampers[r];
+            if (rp->frameCount > 0 && --rp->frameCount == 0) {
+                rp->currentGain = rp->targetGain;
+                rp->rampCoeff = 1.0f;
+            }
         }
     }
     out->frame_count = frames;
@@ -348,6 +375,18 @@ static int sb_set_parameter(void* state, const char* param_id, const OrpheusValu
         sb_recalc_targets(s);
         return ORPHEUS_OK;
     }
+    if (strcmp(param_id, "ramp_db_per_s") == 0) {
+        if (value->type != ORPHEUS_VALUE_FLOAT && value->type != ORPHEUS_VALUE_INT)
+            return ORPHEUS_ERR_INVALID_ARG;
+        s->rampDbPerSec = (value->type == ORPHEUS_VALUE_FLOAT) ? value->value.f32 : (float)value->value.i32;
+        return ORPHEUS_OK;
+    }
+    if (strcmp(param_id, "freeze") == 0) {
+        if (value->type != ORPHEUS_VALUE_BOOL && value->type != ORPHEUS_VALUE_INT)
+            return ORPHEUS_ERR_INVALID_ARG;
+        s->freeze = (value->type == ORPHEUS_VALUE_BOOL) ? value->value.b : value->value.i32 != 0;
+        return ORPHEUS_OK;
+    }
     return ORPHEUS_ERR_NOT_FOUND;
 }
 
@@ -355,6 +394,12 @@ static int sb_get_parameter(void* state, const char* param_id, OrpheusValue* val
     SleepingBeautyState* s = (SleepingBeautyState*)state;
     if (strcmp(param_id, "gain_index") == 0) {
         value->type = ORPHEUS_VALUE_FLOAT; value->value.f32 = s->gainIndex; return ORPHEUS_OK;
+    }
+    if (strcmp(param_id, "ramp_db_per_s") == 0) {
+        value->type = ORPHEUS_VALUE_FLOAT; value->value.f32 = s->rampDbPerSec; return ORPHEUS_OK;
+    }
+    if (strcmp(param_id, "freeze") == 0) {
+        value->type = ORPHEUS_VALUE_BOOL; value->value.b = s->freeze != 0; return ORPHEUS_OK;
     }
     if (strcmp(param_id, "channels") == 0) {
         value->type = ORPHEUS_VALUE_INT; value->value.i32 = (int32_t)s->channels; return ORPHEUS_OK;
@@ -369,8 +414,7 @@ static int sb_register_slots(void* state, const OrpheusRegistry* reg) {
     ORPHEUS_REG_SLOT(reg, s, gainIndex, ORPHEUS_SLOT_SETTING, "gain_index", "增益位置",
                      ORPHEUS_VALUE_FLOAT, .min_f32=0.0f, .max_f32=255.0f,
                      .update_policy=ORPHEUS_UPDATE_SMOOTHED,
-                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
-                            ORPHEUS_SLOT_DIRECT_WRITE);
+                    .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, offset, ORPHEUS_SLOT_SETTING, "offset", "中心位置",
                      ORPHEUS_VALUE_FLOAT, .min_f32=0.0f, .max_f32=255.0f,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
@@ -384,10 +428,17 @@ static int sb_register_slots(void* state, const OrpheusRegistry* reg) {
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
-                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=64,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, rampDbPerSec, ORPHEUS_SLOT_SETTING, "ramp_db_per_s", "斜坡速率",
+                     ORPHEUS_VALUE_FLOAT, .min_f32=0.0f, .max_f32=50000.0f, .unit="dB/s",
+                     .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, freeze, ORPHEUS_SLOT_SETTING, "freeze", "冻结斜坡",
+                     ORPHEUS_VALUE_BOOL, .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     return ORPHEUS_OK;
 }
 

@@ -21,8 +21,10 @@ SleepingBeauty 响度补偿算法。根据音量位置（gain_index）应用非�
 | `offset` | float | 128.0 | - | restart | 中心位置 |
 | `mutes_bass` | float | 0.0 | [0, 1] | restart | 极端位置时是否静音低音 |
 | `ramp_ms` | float | 30.0 | [0, 5000] | restart | 斜坡时间（ms） |
-| `channels` | int | 4 | [1, 32] | restart | 通道数（影响签名） |
-| `chan_map` | string | "0,1,2,3" | - | restart | 通道->ramper 映射（0=left,1=right,2=center,3=mono,-1=bypass） |
+| `ramp_db_per_s` | float | 0.0 | [0, 50000] | block_boundary | 非零时优先按 dB/s 推导斜坡时长，内部钳到 5~50000 dB/s |
+| `freeze` | bool | false | - | block_boundary | 冻结 current gain 与剩余 frameCount |
+| `channels` | int | 4 | [1, 64] | restart | 通道数（影响签名） |
+| `chan_map` | string | "0,1,2,3" | - | restart | 通道->ramper 映射（0=left,1=right,2=center,3=mono,-1=静音） |
 | `table_idx` | string | "0,10,31,...,255" | - | restart | 锥度增益索引表（15 点默认） |
 | `table_db` | string | "-40,-30,...,-40" | - | restart | 锥度增益 dB 表（15 点默认） |
 
@@ -67,7 +69,13 @@ if (极端 && mutesBass) { mono=0; }                       // 可选静音低音
 
 ### 4x Ramper
 
-4 路独立指数斜坡器（left/right/center/mono），复用 gain_ramper 的 `rampCoeff = ln(target/current) / numBlocks` 逻辑。每块更新一次 currentGain。
+4 路共享指数斜坡器（left/right/center/mono）按源模型逐样本推进。设块长为 $B$、斜坡块数为 $N$：
+
+$$
+k=\exp\left(\frac{\ln(target/current)}{B N}\right),\qquad g[n]=g_0 k^{n+1}
+$$
+
+每处理一块 `frameCount` 减一，归零时吸附目标；`freeze=true` 时 gain 和 frameCount 均不推进。非零 `ramp_db_per_s` 优先于 `ramp_ms`。
 
 ## 使用示例
 
@@ -90,7 +98,7 @@ if (极端 && mutesBass) { mono=0; }                       // 可选静音低音
 |---|---|
 | `Model_1_1.c:13515` calculate_SB_gains | `sb_calculate_gains()` |
 | `Model_1_1.c:13680` calculate_ramp_parameters | `sb_ramper_set_target()` |
-| `Model_1_1.c:13725` control (ramper 更新) | `sb_process()` ramper 更新段 |
+| `Model_1_1.c:13725` control（逐样本 ramper + frameCount/freeze） | `sb_process()` |
 | `SleepingBeautyConfig.m` DefaultTaperGainTable | `table_idx`/`table_db` 默认值 |
 | `SleepingBeautyConfig.m` NumRampers=4 | `SB_MAX_RAMPERS=4` |
 | `SleepingBeautyConfig.m` ChanToRampMap | `chan_map` 参数 |

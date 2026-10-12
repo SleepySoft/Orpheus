@@ -2,7 +2,7 @@ id: orpheus.builtin.sleeping_beauty
 name: 响度补偿
 category: 音效/动态与塑形
 description: SleepingBeauty 响度补偿算法 - 锥度增益LUT + 非对称L/R平衡锥度 + 4路指数增益斜坡
-version: 1.0.0
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: SleepingBeautyState
@@ -46,15 +46,27 @@ parameters:
     range: [0.0, 5000.0]
     unit: ms
     update_policy: restart_required
+  - id: ramp_db_per_s
+    name: 斜坡速率
+    type: float
+    default: 0.0
+    range: [0.0, 50000.0]
+    unit: dB/s
+    update_policy: block_boundary
+  - id: freeze
+    name: 冻结斜坡
+    type: bool
+    default: false
+    update_policy: block_boundary
   - id: channels
     name: 通道数
     type: int
     default: 4
-    range: [1, 32]
+    range: [1, 64]
     update_policy: restart_required
     affects_signature: true
   - id: chan_map
-    name: 通道映射
+    name: 通道映射(-1=静音)
     type: string
     default: "0,1,2,3"
     widget: text
