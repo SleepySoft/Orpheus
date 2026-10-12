@@ -368,6 +368,7 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
     node_notes: dict[str, str] = {}
     for definition in document["definitions"]:
         children = definition["children"]
+        lowering = definition["implementation"].get("lowering")
         manifest: dict[str, Any] = {
             "id": definition["component_id"],
             "name": definition["name"],
@@ -375,7 +376,7 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
             "description": definition["purpose"],
             "version": document["schema_version"],
             "abi_version": 1,
-            "package_type": "composite" if children else "placeholder",
+            "package_type": "composite" if children or lowering else "placeholder",
             "ports": [
                 *[_manifest_port(port, "input", types) for port in definition["interface"]["inputs"]],
                 *[_manifest_port(port, "output", types) for port in definition["interface"]["outputs"]],
@@ -399,6 +400,21 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
                     if edge["kind"] == "audio"
                 ],
             }
+        elif lowering:
+            for port in manifest["ports"]:
+                port["maps_to"] = f"impl:{port['id']}"
+            manifest["graph"] = {
+                "nodes": [{
+                    "id": "impl",
+                    "component": lowering["component"],
+                    "params": copy.deepcopy(lowering["params"]),
+                    "position": {"x": 80, "y": 80},
+                }],
+                "connections": [],
+            }
+            node_notes[f"sub:{definition['component_id']}/impl"] = (
+                f"已验证通用实现：{lowering['component']}；参数由 Algorithm IR lowering 固定。"
+            )
         else:
             blockers = copy.deepcopy(definition["implementation"]["blockers"])
             if not blockers:

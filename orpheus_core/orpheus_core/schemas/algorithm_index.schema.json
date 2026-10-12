@@ -243,8 +243,17 @@
       "additionalProperties": false,
       "required": ["status", "blockers"],
       "properties": {
-        "status": {"enum": ["exact_candidate", "approximation", "unsupported"]},
+        "status": {"enum": ["verified", "exact_candidate", "approximation", "unsupported"]},
         "component": {"type": "string"},
+        "lowering": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["component", "params"],
+          "properties": {
+            "component": {"type": "string"},
+            "params": {"type": "object"}
+          }
+        },
         "blockers": {
           "type": "array",
           "items": {

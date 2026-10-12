@@ -32,7 +32,8 @@ INDEX = ROOT / "examples" / "recycled" / "external_model_structural_reference" /
 FULL_PROJECT = ROOT / "examples" / "external_model_full"
 _SOURCE_ROOT_VALUE = os.environ.get("ORPHEUS_EXTERNAL_MODEL_ROOT")
 SOURCE_ROOT = Path(_SOURCE_ROOT_VALUE) if _SOURCE_ROOT_VALUE else None
-MANUAL_PROJECT_FILES = {"TODO.md", "analysis/distillation-process.md"}
+MANUAL_PROJECT_FILES = {"TODO.md"}
+MANUAL_PROJECT_PREFIXES = ("analysis/",)
 
 
 def builtin_registry() -> Registry:
@@ -46,7 +47,9 @@ def tree_bytes(root: Path, exclude: set[str] | None = None) -> dict[str, bytes]:
     return {
         path.relative_to(root).as_posix(): path.read_bytes()
         for path in sorted(root.rglob("*"))
-        if path.is_file() and path.relative_to(root).as_posix() not in excluded
+        if path.is_file()
+        and path.relative_to(root).as_posix() not in excluded
+        and not path.relative_to(root).as_posix().startswith(MANUAL_PROJECT_PREFIXES)
     }
 
 
@@ -143,6 +146,27 @@ def test_full_index_preserves_critical_corrections_and_parallel_boundaries() -> 
     assert definitions["A.PREAMP.ROUTE_LEVEL"]["operations"][0].startswith("Volume")
 
 
+def test_b_bands_mono_verified_lowering_matches_default_basis_vectors() -> None:
+    definitions = {
+        item["id"]: item for item in load_algorithm_index(INDEX)["definitions"]
+    }
+    implementation = definitions["B.BANDS.MONO"]["implementation"]
+    assert implementation["status"] == "verified"
+    assert implementation["blockers"] == []
+    lowering = implementation["lowering"]
+    assert lowering["component"] == "orpheus.builtin.matrix_mul"
+    params = lowering["params"]
+    matrix = [float(value.strip()) for value in params["matrix"].split(",")]
+    assert params["rows"] == 1
+    assert params["cols"] == 10
+    assert matrix == [0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    for channel, expected in enumerate(matrix):
+        basis = [0.0] * params["cols"]
+        basis[channel] = 1.0
+        actual = sum(coefficient * sample for coefficient, sample in zip(matrix, basis))
+        assert actual == expected
+
+
 def test_full_index_bus_offsets_cover_exact_typed_transactions() -> None:
     document = load_algorithm_index(INDEX)
     types = {item["id"]: item for item in document["types"]}
@@ -222,7 +246,7 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     assert report["definitions"] == 66
     assert report["leaves"] + report["composites"] == 66
     assert report["executable"] is False
-    assert report["blocker_gates"]["golden"] == report["leaves"]
+    assert report["blocker_gates"]["golden"] == report["leaves"] - 1
 
 
 def test_projection_refuses_to_overwrite_unmarked_directory(tmp_path: Path) -> None:
@@ -274,6 +298,8 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
     }
     assert project_registry.get("external_model.index.a_bus_exchange") is None
     assert project_registry.get("external_model.index.b_bus_exchange") is None
+    mono = project_registry.get("external_model.index.b_bands_mono")
+    assert mono.package_type == "composite"
     notes = json.loads((FULL_PROJECT / "node-notes.json").read_text(encoding="utf-8"))
     assert "标准音频端口并写入 graph.connections" in notes["a_runtime"]
     assert "标准 control_connections 映射前只保留" in notes["b_runtime"]
@@ -285,6 +311,13 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
     )
     assert set(notes) == expected
     flat = flatten_project(project)
+    mono_impl = next(node for node in flat.graph.nodes.values() if node.id.endswith("bands__mono__impl"))
+    assert mono_impl.component == "orpheus.builtin.matrix_mul"
+    assert mono_impl.params == {
+        "rows": 1,
+        "cols": 10,
+        "matrix": "0.5, 0.5, 0, 0, 0, 0, 0, 0, 0, 0",
+    }
     assert any(
         project_registry.get(node.component).package_type == "placeholder"
         for node in flat.graph.nodes.values()

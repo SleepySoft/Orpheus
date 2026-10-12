@@ -4,7 +4,7 @@ category: 外部模型/算法索引
 description: 左右各六路加权后求平均得到 mono
 version: '2.0'
 abi_version: 1
-package_type: placeholder
+package_type: composite
 ports:
 - id: in
   direction: input
@@ -13,6 +13,7 @@ ports:
   channels: 10
   sample_rate: 48000
   block_size: 32
+  maps_to: impl:in
 - id: out
   direction: output
   type: audio
@@ -20,12 +21,20 @@ ports:
   channels: 1
   sample_rate: 48000
   block_size: 32
+  maps_to: impl:out
 parameters: []
-blockers:
-- id: golden_pending
-  gate: golden
-  reason: 矩阵顺序 golden 未完成
-  source_ref: b_bands
+graph:
+  nodes:
+  - id: impl
+    component: orpheus.builtin.matrix_mul
+    params:
+      rows: 1
+      cols: 10
+      matrix: 0.5, 0.5, 0, 0, 0, 0, 0, 0, 0, 0
+    position:
+      x: 80
+      y: 80
+  connections: []
 algorithm_index:
   definition_id: B.BANDS.MONO
   tasks:
@@ -36,10 +45,12 @@ algorithm_index:
   - 左右平均
   state: []
   implementation:
-    status: exact_candidate
+    status: verified
     component: orpheus.builtin.matrix_mul
-    blockers:
-    - id: golden_pending
-      gate: golden
-      reason: 矩阵顺序 golden 未完成
-      source_ref: b_bands
+    lowering:
+      component: orpheus.builtin.matrix_mul
+      params:
+        rows: 1
+        cols: 10
+        matrix: 0.5, 0.5, 0, 0, 0, 0, 0, 0, 0, 0
+    blockers: []

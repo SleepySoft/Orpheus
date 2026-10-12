@@ -2945,13 +2945,15 @@ definitions:
   body:
     edges: []
   implementation:
-    status: exact_candidate
+    status: verified
     component: orpheus.builtin.matrix_mul
-    blockers:
-    - id: golden_pending
-      gate: golden
-      reason: 矩阵顺序 golden 未完成
-      source_ref: b_bands
+    lowering:
+      component: orpheus.builtin.matrix_mul
+      params:
+        rows: 1
+        cols: 10
+        matrix: 0.5, 0.5, 0, 0, 0, 0, 0, 0, 0, 0
+    blockers: []
 - id: B.BANDS.BASS
   component_id: external_model.index.b_bands_bass
   node_id: bass

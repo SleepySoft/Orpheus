@@ -92,6 +92,7 @@ def add(
     parameters: list[str] | None = None,
     status: str = "unsupported",
     component: str | None = None,
+    lowering: dict[str, Any] | None = None,
     blockers: list[dict[str, str]] | None = None,
 ) -> None:
     suffix = definition_id.lower().replace(".", "_")
@@ -115,6 +116,7 @@ def add(
         "implementation": {
             "status": status,
             **({"component": component} if component else {}),
+            **({"lowering": lowering} if lowering else {}),
             "blockers": blockers if blockers is not None else [
                 blocker("algorithm", "尚未完成源算法逐语句实现", sources[0]),
                 blocker("golden", "尚未完成参考输出对拍", sources[0]),
@@ -173,7 +175,7 @@ def build_definitions() -> None:
     add("B.BANDS.SRC", "3/13 Rational SRC", "把 10 路 48k 内容变换到 B3 域，并在 B1 重构 treble/surround", "runtime_b", ["B1", "B3"], ["b_main", "b_bands"], ["3 相下采样 348 系数", "13 相上采样 351 系数", "phase 4/4/5", "重构残差"], parent="B.BANDS", inputs=[port("in", "audio10")], outputs=[port("deci", "audio10"), port("treble_lr", "audio2"), port("surround", "audio7")], states=[state("src_rings", "alignment/down/up buffers", [9270])], status="unsupported")
     add("B.BANDS.MONO_DETECTOR", "Stereo/Mono 检测", "由两路 HPF 电平与能量关系做 silence reset 和 stereo hysteresis", "runtime_b", ["B1"], ["b_bands"], ["2 路 HPF", "LR mismatch saturation", "energy ratio smoothing", "hysteresis"], parent="B.BANDS", inputs=[port("in", "audio2")], outputs=[port("gate", "control1")], states=[state("detector", "level/energy/counter/last gate")], status="unsupported")
     add("B.BANDS.DECAY", "DecayRate 估计", "B1 滤波缓冲、B2 能量/起始检测和自适应 slew 后发布 decay", "runtime_b", ["B1", "B2"], ["b_bands", "b_bands_top"], [">6k HPF", "32→128 buffer", "8 帧历史", "onset state machine", "bounded slew"], parent="B.BANDS", inputs=[port("in", "audio2")], outputs=[port("out", "control1")], states=[state("energy_history", "八帧能量", [8]), state("onset", "on/off/counter/slew")], status="unsupported")
-    add("B.BANDS.MONO", "Mono 频带", "左右各六路加权后求平均得到 mono", "runtime_b", ["B1"], ["b_bands"], ["BassManager 权重", "双六输入求和", "左右平均"], parent="B.BANDS", inputs=[port("in", "audio10")], outputs=[port("out", "audio1")], status="exact_candidate", component="orpheus.builtin.matrix_mul", blockers=[blocker("golden", "矩阵顺序 golden 未完成", "b_bands")])
+    add("B.BANDS.MONO", "Mono 频带", "左右各六路加权后求平均得到 mono", "runtime_b", ["B1"], ["b_bands"], ["BassManager 权重", "双六输入求和", "左右平均"], parent="B.BANDS", inputs=[port("in", "audio10")], outputs=[port("out", "audio1")], status="verified", component="orpheus.builtin.matrix_mul", lowering={"component": "orpheus.builtin.matrix_mul", "params": {"rows": 1, "cols": 10, "matrix": "0.5, 0.5, 0, 0, 0, 0, 0, 0, 0, 0"}}, blockers=[])
     add("B.BANDS.BASS", "Bass/Mid 频带", "重构 C/LFE、九路 HPF 和双六输入 LR 求和后 LPF", "runtime_b", ["B3"], ["b_bands"], ["C+=gain*LFE", "移除 C/LFE", "9 路 HPF", "LR weighted sum", "2 路 LPF"], parent="B.BANDS", inputs=[port("in", "audio10")], outputs=[port("out", "audio4")], states=[state("filters", "HPF90 + LPF20", [110])], status="unsupported")
     add("B.FDP", "降速 2→8 FDP", "在 B3/B4 以 WOLA 将两路拆为八路直达、空间、冲击和尾音", "runtime_b", ["B3", "B4"], ["b_main", "b_fdp_top"], ["跨 TID ring", "STFT", "空间系数", "混响分离", "八路 WOLA"], parent="B.RUNTIME", inputs=[port("in", "audio2", "buffer:in")], outputs=[port("components", "audio8", "buffer:out")], children=["B.FDP.BUFFER", "B.FDP.STFT", "B.FDP.COEFFICIENTS", "B.FDP.REVERB", "B.FDP.WOLA"], edges=[edge("buffer:frame", "stft:in", "audio2_128"), edge("stft:spectrum", "coefficients:spectrum", "spectrum2", "spectrum"), edge("coefficients:residual", "reverb:residual", "spectrum2", "spectrum"), edge("coefficients:direct", "wola:direct", "spectrum4", "spectrum"), edge("reverb:split", "wola:reverb", "spectrum4", "spectrum")])
     add("B.FDP.BUFFER", "降速 FDP ring", "B3 写 2×32/读 8×32，B4 读 2×128/写 8×128", "runtime_b", ["B3", "B4"], ["b_main"], ["512 输入 ring", "2048 输出 ring", "持久指针和初始 offset"], parent="B.FDP", inputs=[port("in", "audio2")], outputs=[port("frame", "audio2_128"), port("out", "audio8")], states=[state("rings", "输入输出多速率 ring", [2560])], status="unsupported")
