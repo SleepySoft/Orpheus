@@ -62,6 +62,25 @@ def matrix_text(rows: int, cols: int, entries: dict[tuple[int, int], float]) -> 
     return ", ".join(f"{value:g}" for value in values)
 
 
+def indexed_tone_lowering(filter_order: int, coefficients: list[float]) -> dict[str, Any]:
+    coefs = ", ".join(f"{value:.9g}" for value in coefficients)
+    return {
+        "component": "orpheus.builtin.indexed_tone",
+        "params": {
+            "channels": 10, "gain_index": 128.0, "offset": 128.0, "scale": 127.0,
+            "max_boost_db": 20.0, "max_cut_db": 20.0,
+            "ramp_ms": 30.0, "ramp_db_per_s": 0.0, "freeze": False,
+            "filter_order": filter_order, "boost_coefs": coefs, "cut_coefs": coefs,
+        },
+        "parameters": [
+            {"id": "gain_index", "name": "增益索引", "type": "float", "default": 128.0, "range": [0.0, 255.0], "update_policy": "smoothed", "direction": "input", "maps_to": "impl:gain_index", "bindable": True},
+            {"id": "ramp_db_per_s", "name": "斜坡速率", "type": "float", "default": 0.0, "range": [0.0, 50000.0], "update_policy": "block_boundary", "direction": "input", "maps_to": "impl:ramp_db_per_s", "bindable": True},
+            {"id": "ramp_ms", "name": "斜坡时间", "type": "float", "default": 30.0, "range": [1.0, 3000.0], "update_policy": "block_boundary", "direction": "input", "maps_to": "impl:ramp_ms", "bindable": True},
+            {"id": "freeze", "name": "冻结斜坡", "type": "bool", "default": False, "update_policy": "block_boundary", "direction": "input", "maps_to": "impl:freeze", "bindable": True},
+        ],
+    }
+
+
 def blocker(gate: str, reason: str, source_ref: str) -> dict[str, str]:
     return {"id": f"{gate}_pending", "gate": gate, "reason": reason, "source_ref": source_ref}
 
@@ -211,9 +230,9 @@ def build_definitions() -> None:
         "parameters": [{"id": "stereo_downmix", "name": "立体声下混", "type": "int", "default": 0, "range": [0, 1], "update_policy": "smoothed", "direction": "input", "maps_to": "mux:select_index", "bindable": True}],
     }, blockers=[])
     add("A.PREAMP.MUSIC_VOLUME", "节目延迟与音量", "对 10 路节目做电平检测对齐延迟和单 ramper 无跳变音量", "runtime_a", ["A0"], ["a_main"], ["1120 状态延迟", "8 点索引/dB 插值", "逐样本指数增益", "freeze/snap/current gain"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10"), port("gain_state", "control10")], states=[state("music_delay", "10 路延迟状态", [1120]), state("volume_ramper", "current/target/ramp/frame/freeze")], status="approximation", component="orpheus.builtin.gain_ramper")
-    add("A.PREAMP.BASS", "低频音调", "按索引在 boost/cut 一阶残差滤波之间切换并跨 unity 两阶段平滑", "runtime_a", ["A0"], ["a_main"], ["一阶滤波", "y=x+(g-1)f(x)", "boost/cut 两阶段 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("filter", "每通道一阶状态", [10]), state("ramper", "phase/frame/current/target/freeze")], status="approximation", component="orpheus.builtin.bass")
-    add("A.PREAMP.TREBLE", "高频音调", "按索引在 boost/cut 一阶残差滤波之间切换并平滑", "runtime_a", ["A0"], ["a_main"], ["一阶滤波", "残差增益", "两阶段 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("filter", "每通道一阶状态", [10])], status="approximation", component="orpheus.builtin.treble")
-    add("A.PREAMP.MID", "中频音调", "使用二阶残差滤波和两阶段增益斜坡调节中频", "runtime_a", ["A0"], ["a_main"], ["二阶滤波", "使用 numerator 1/3 项", "残差增益"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("filter", "每通道二阶状态", [20])], status="approximation", component="orpheus.builtin.midrange")
+    add("A.PREAMP.BASS", "低频音调", "按索引在 boost/cut 一阶残差滤波之间切换并跨 unity 两阶段平滑", "runtime_a", ["A0"], ["a_main", "a_preamp_top"], ["一阶滤波", "y=x+(g-1)f(x)", "boost/cut 两阶段 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("filter", "每通道一阶状态", [10]), state("ramper", "phase/frame/current/target/freeze")], status="verified", component="orpheus.builtin.indexed_tone", lowering=indexed_tone_lowering(1, [0.00779292, 0.00779292, 0.0, -0.98441416, 0.0]), blockers=[])
+    add("A.PREAMP.TREBLE", "高频音调", "按索引在 boost/cut 一阶残差滤波之间切换并平滑", "runtime_a", ["A0"], ["a_main", "a_preamp_top"], ["一阶滤波", "残差增益", "两阶段 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("filter", "每通道一阶状态", [10]), state("ramper", "phase/frame/current/target/freeze")], status="verified", component="orpheus.builtin.indexed_tone", lowering=indexed_tone_lowering(1, [0.788675129, -0.788675129, 0.0, -0.577350259, 0.0]), blockers=[])
+    add("A.PREAMP.MID", "中频音调", "使用二阶残差滤波和两阶段增益斜坡调节中频", "runtime_a", ["A0"], ["a_main", "a_preamp_top"], ["二阶滤波", "使用 numerator 1/3 项", "残差增益", "两阶段 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("filter", "每通道二阶状态", [20]), state("ramper", "phase/frame/current/target/freeze")], status="verified", component="orpheus.builtin.indexed_tone", lowering=indexed_tone_lowering(2, [0.0532660671, 0.0, -0.0532660671, -1.88373291, 0.893467903]), blockers=[])
     add("A.PREAMP.BALANCE", "四组 Balance", "按 L/R/Center/Mono 四组映射平滑调整 10 路声像", "runtime_a", ["A0"], ["a_main", "a_preamp_top"], ["30 点 dB 表", "mean(L/R) 中置与低音", "极端静音", "四 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("rampers", "四组 current/target/ramp/frame/freeze", [4])], status="verified", component="orpheus.builtin.sleeping_beauty", lowering={
         "component": "orpheus.builtin.sleeping_beauty",
         "params": {

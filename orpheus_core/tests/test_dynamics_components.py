@@ -165,6 +165,48 @@ def test_matrix_mul_scales_channels(client) -> None:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
+@pytest.mark.parametrize(
+    ("order", "coefs"),
+    [
+        (1, [0.00779292, 0.00779292, 0.0, -0.98441416, 0.0]),
+        (1, [0.788675129, -0.788675129, 0.0, -0.577350259, 0.0]),
+        (2, [0.0532660671, 0.0, -0.0532660671, -1.88373291, 0.893467903]),
+    ],
+)
+def test_indexed_tone_matches_raw_df2t_impulse(client, order, coefs) -> None:
+    text = ",".join(str(value) for value in coefs)
+    nodes = _io_nodes(
+        "indexed_tone",
+        {
+            "gain_index": 255.0,
+            "offset": 128.0,
+            "scale": 127.0,
+            "max_boost_db": 20.0,
+            "max_cut_db": 20.0,
+            "ramp_ms": 0.0,
+            "filter_order": order,
+            "boost_coefs": text,
+            "cut_coefs": text,
+        },
+        ch=1,
+    )
+    samples = [0.05] + [0.0] * 127
+    vals, _ = _run(client, nodes, _chain([node["id"] for node in nodes]), samples)
+    z1 = z2 = 0.0
+    expected = []
+    for sample in samples[:16]:
+        filtered = coefs[0] * sample + z1
+        z1 = coefs[1] * sample + z2 - coefs[3] * filtered
+        z2 = (coefs[2] * sample if order > 1 else 0.0) - coefs[4] * filtered
+        expected.append(sample + 9.0 * filtered)
+    assert vals[:16] == pytest.approx(expected, abs=3e-3)
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
 def test_limiter_compresses_and_soft_clipper_saturates(client) -> None:
     """限幅器：阈值 -6dB、输入 1.0 → 稳态输出 ≈0.5；软削波：drive=6dB 输出有界。"""
     nodes = _io_nodes("limiter", {"threshold_db": -6.0, "attack_ms": 5.0, "release_ms": 100.0}, ch=1)

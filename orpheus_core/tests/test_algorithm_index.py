@@ -271,6 +271,28 @@ def test_a_preamp_balance_uses_exact_shared_ramper_bank_policy() -> None:
     }
 
 
+def test_a_preamp_tone_leaves_use_exact_indexed_tone_coefficients() -> None:
+    definitions = {
+        item["id"]: item for item in load_algorithm_index(INDEX)["definitions"]
+    }
+    expected = {
+        "A.PREAMP.BASS": (1, [0.00779292, 0.00779292, 0.0, -0.98441416, 0.0]),
+        "A.PREAMP.TREBLE": (1, [0.788675129, -0.788675129, 0.0, -0.577350259, 0.0]),
+        "A.PREAMP.MID": (2, [0.0532660671, 0.0, -0.0532660671, -1.88373291, 0.893467903]),
+    }
+    for definition_id, (order, coefficients) in expected.items():
+        implementation = definitions[definition_id]["implementation"]
+        assert implementation["status"] == "verified"
+        assert implementation["blockers"] == []
+        lowering = implementation["lowering"]
+        assert lowering["component"] == "orpheus.builtin.indexed_tone"
+        params = lowering["params"]
+        assert params["filter_order"] == order
+        actual = [float(value.strip()) for value in params["boost_coefs"].split(",")]
+        assert actual == pytest.approx(coefficients)
+        assert params["cut_coefs"] == params["boost_coefs"]
+
+
 def test_full_index_bus_offsets_cover_exact_typed_transactions() -> None:
     document = load_algorithm_index(INDEX)
     types = {item["id"]: item for item in document["types"]}
@@ -350,7 +372,7 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     assert report["definitions"] == 66
     assert report["leaves"] + report["composites"] == 66
     assert report["executable"] is False
-    assert report["blocker_gates"]["golden"] == report["leaves"] - 6
+    assert report["blocker_gates"]["golden"] == report["leaves"] - 9
 
 
 def test_projection_refuses_to_overwrite_unmarked_directory(tmp_path: Path) -> None:

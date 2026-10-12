@@ -4,7 +4,7 @@ category: 外部模型/算法索引
 description: 按索引在 boost/cut 一阶残差滤波之间切换并平滑
 version: '2.0'
 abi_version: 1
-package_type: placeholder
+package_type: composite
 ports:
 - id: in
   direction: input
@@ -13,6 +13,7 @@ ports:
   channels: 10
   sample_rate: 48000
   block_size: 32
+  maps_to: impl:in
 - id: out
   direction: output
   type: audio
@@ -20,16 +21,70 @@ ports:
   channels: 10
   sample_rate: 48000
   block_size: 32
-parameters: []
-blockers:
-- id: algorithm_pending
-  gate: algorithm
-  reason: 尚未完成源算法逐语句实现
-  source_ref: a_main
-- id: golden_pending
-  gate: golden
-  reason: 尚未完成参考输出对拍
-  source_ref: a_main
+  maps_to: impl:out
+parameters:
+- id: gain_index
+  name: 增益索引
+  type: float
+  default: 128.0
+  range:
+  - 0.0
+  - 255.0
+  update_policy: smoothed
+  direction: input
+  maps_to: impl:gain_index
+  bindable: true
+- id: ramp_db_per_s
+  name: 斜坡速率
+  type: float
+  default: 0.0
+  range:
+  - 0.0
+  - 50000.0
+  update_policy: block_boundary
+  direction: input
+  maps_to: impl:ramp_db_per_s
+  bindable: true
+- id: ramp_ms
+  name: 斜坡时间
+  type: float
+  default: 30.0
+  range:
+  - 1.0
+  - 3000.0
+  update_policy: block_boundary
+  direction: input
+  maps_to: impl:ramp_ms
+  bindable: true
+- id: freeze
+  name: 冻结斜坡
+  type: bool
+  default: false
+  update_policy: block_boundary
+  direction: input
+  maps_to: impl:freeze
+  bindable: true
+graph:
+  nodes:
+  - id: impl
+    component: orpheus.builtin.indexed_tone
+    params:
+      channels: 10
+      gain_index: 128.0
+      offset: 128.0
+      scale: 127.0
+      max_boost_db: 20.0
+      max_cut_db: 20.0
+      ramp_ms: 30.0
+      ramp_db_per_s: 0.0
+      freeze: false
+      filter_order: 1
+      boost_coefs: 0.788675129, -0.788675129, 0, -0.577350259, 0
+      cut_coefs: 0.788675129, -0.788675129, 0, -0.577350259, 0
+    position:
+      x: 80
+      y: 80
+  connections: []
 algorithm_index:
   definition_id: A.PREAMP.TREBLE
   tasks:
@@ -44,15 +99,67 @@ algorithm_index:
     initialization: generated initialization
     shape:
     - 10
+  - id: ramper
+    role: phase/frame/current/target/freeze
+    initialization: generated initialization
   implementation:
-    status: approximation
-    component: orpheus.builtin.treble
-    blockers:
-    - id: algorithm_pending
-      gate: algorithm
-      reason: 尚未完成源算法逐语句实现
-      source_ref: a_main
-    - id: golden_pending
-      gate: golden
-      reason: 尚未完成参考输出对拍
-      source_ref: a_main
+    status: verified
+    component: orpheus.builtin.indexed_tone
+    lowering:
+      component: orpheus.builtin.indexed_tone
+      params:
+        channels: 10
+        gain_index: 128.0
+        offset: 128.0
+        scale: 127.0
+        max_boost_db: 20.0
+        max_cut_db: 20.0
+        ramp_ms: 30.0
+        ramp_db_per_s: 0.0
+        freeze: false
+        filter_order: 1
+        boost_coefs: 0.788675129, -0.788675129, 0, -0.577350259, 0
+        cut_coefs: 0.788675129, -0.788675129, 0, -0.577350259, 0
+      parameters:
+      - id: gain_index
+        name: 增益索引
+        type: float
+        default: 128.0
+        range:
+        - 0.0
+        - 255.0
+        update_policy: smoothed
+        direction: input
+        maps_to: impl:gain_index
+        bindable: true
+      - id: ramp_db_per_s
+        name: 斜坡速率
+        type: float
+        default: 0.0
+        range:
+        - 0.0
+        - 50000.0
+        update_policy: block_boundary
+        direction: input
+        maps_to: impl:ramp_db_per_s
+        bindable: true
+      - id: ramp_ms
+        name: 斜坡时间
+        type: float
+        default: 30.0
+        range:
+        - 1.0
+        - 3000.0
+        update_policy: block_boundary
+        direction: input
+        maps_to: impl:ramp_ms
+        bindable: true
+      - id: freeze
+        name: 冻结斜坡
+        type: bool
+        default: false
+        update_policy: block_boundary
+        direction: input
+        maps_to: impl:freeze
+        bindable: true
+    blockers: []

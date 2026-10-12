@@ -163,9 +163,9 @@ modules:
     evidence_artifacts: [evidence/big6-defaults.json]
     dependencies: [A.BIG6_VOLUME]
     orpheus_target: bass + midrange + treble；需从原公式证明滤波器类型和参数映射
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: extracted, golden: pending}
-    artifact: notes
-    system_graph_eligible: false
+    progress: {boundary: verified, schedule: verified, algorithm: verified, state: verified, parameters: verified, golden: verified}
+    artifact: component
+    system_graph_eligible: true
 
   - id: A.BIG6_BALANCE
     runtime: runtime_a
