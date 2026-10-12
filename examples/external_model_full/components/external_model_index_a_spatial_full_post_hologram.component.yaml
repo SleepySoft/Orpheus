@@ -4,7 +4,7 @@ category: 外部模型/算法索引
 description: 四组 SleepingBeauty 增益后施加 22 路相位对齐延迟
 version: '2.0'
 abi_version: 1
-package_type: placeholder
+package_type: composite
 ports:
 - id: in
   direction: input
@@ -13,6 +13,7 @@ ports:
   channels: 22
   sample_rate: 48000
   block_size: 32
+  maps_to: gain:in
 - id: out
   direction: output
   type: audio
@@ -20,45 +21,176 @@ ports:
   channels: 22
   sample_rate: 48000
   block_size: 32
-parameters: []
-blockers:
-- id: algorithm_pending
-  gate: algorithm
-  reason: 尚未完成源算法逐语句实现
-  source_ref: a_main
-- id: golden_pending
-  gate: golden
-  reason: 尚未完成参考输出对拍
-  source_ref: a_main
+  maps_to: phase_delay:out
+parameters:
+- id: gain_index
+  name: SleepingBeauty 索引
+  type: float
+  default: 0.0
+  range:
+  - 0.0
+  - 255.0
+  update_policy: block_boundary
+  direction: input
+  maps_to: gain:gain_index
+  bindable: true
+- id: ramp_db_per_s
+  name: 斜坡速率
+  type: float
+  default: 0.0
+  range:
+  - 0.0
+  - 50000.0
+  update_policy: block_boundary
+  direction: input
+  maps_to: gain:ramp_db_per_s
+  bindable: true
+- id: ramp_ms
+  name: 斜坡时间
+  type: float
+  default: 30.0
+  range:
+  - 1.0
+  - 3000.0
+  update_policy: block_boundary
+  direction: input
+  maps_to: gain:ramp_ms
+  bindable: true
+- id: freeze
+  name: 冻结斜坡
+  type: bool
+  default: false
+  update_policy: block_boundary
+  direction: input
+  maps_to: gain:freeze
+  bindable: true
+graph:
+  nodes:
+  - id: gain
+    component: orpheus.builtin.sleeping_beauty
+    params:
+      channels: 22
+      gain_index: 0.0
+      offset: 128.0
+      mutes_bass: 0.0
+      ramp_ms: 30.0
+      ramp_db_per_s: 0.0
+      freeze: false
+      center_mono_mode: attenuated
+      apply_index_on_prepare: false
+      preserve_state_on_reset: true
+      chan_map: 2,2,0,0,0,0,1,1,1,1,0,0,1,1,0,0,1,1,0,0,1,1
+      table_idx: 0,10,31,52,74,95,116,128,138,159,180,202,223,244,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255
+      table_db: -40,-30,-20,-10,0,0,0,0,0,0,0,-10,-20,-30,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40
+    position:
+      x: 80
+      y: 80
+  - id: phase_delay
+    component: orpheus.builtin.delay_line
+    params:
+      channels: 22
+      max_delay_samples: 48
+      delays_samples: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+    position:
+      x: 340
+      y: 80
+  connections:
+  - from: gain:out
+    to: phase_delay:in
 algorithm_index:
   definition_id: A.SPATIAL_FULL.POST_HOLOGRAM
   tasks:
   - A0
   operations:
   - 四组表插值
+  - unity cold-start
+  - block-atomic RTC
   - 指数 ramper
-  - -1 通道置零
-  - phase delay
+  - 22 路 phase delay
   state:
   - id: rampers
     role: 四组 current/target/frame/freeze
-    initialization: generated initialization
+    initialization: 四组 frame=0/current=target=coeff=1, freeze=0
     shape:
     - 4
   - id: delay
-    role: 22×80 延迟
-    initialization: generated initialization
+    role: 22×80 源环，TOP delay 全零
+    initialization: delayIndex=0
     shape:
     - 1760
   implementation:
-    status: approximation
+    status: verified
     component: orpheus.builtin.sleeping_beauty
-    blockers:
-    - id: algorithm_pending
-      gate: algorithm
-      reason: 尚未完成源算法逐语句实现
-      source_ref: a_main
-    - id: golden_pending
-      gate: golden
-      reason: 尚未完成参考输出对拍
-      source_ref: a_main
+    lowering:
+      nodes:
+      - id: gain
+        component: orpheus.builtin.sleeping_beauty
+        params:
+          channels: 22
+          gain_index: 0.0
+          offset: 128.0
+          mutes_bass: 0.0
+          ramp_ms: 30.0
+          ramp_db_per_s: 0.0
+          freeze: false
+          center_mono_mode: attenuated
+          apply_index_on_prepare: false
+          preserve_state_on_reset: true
+          chan_map: 2,2,0,0,0,0,1,1,1,1,0,0,1,1,0,0,1,1,0,0,1,1
+          table_idx: 0,10,31,52,74,95,116,128,138,159,180,202,223,244,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255
+          table_db: -40,-30,-20,-10,0,0,0,0,0,0,0,-10,-20,-30,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40
+      - id: phase_delay
+        component: orpheus.builtin.delay_line
+        params:
+          channels: 22
+          max_delay_samples: 48
+          delays_samples: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+      connections:
+      - from: gain:out
+        to: phase_delay:in
+      port_maps:
+        in: gain:in
+        out: phase_delay:out
+      parameters:
+      - id: gain_index
+        name: SleepingBeauty 索引
+        type: float
+        default: 0.0
+        range:
+        - 0.0
+        - 255.0
+        update_policy: block_boundary
+        direction: input
+        maps_to: gain:gain_index
+        bindable: true
+      - id: ramp_db_per_s
+        name: 斜坡速率
+        type: float
+        default: 0.0
+        range:
+        - 0.0
+        - 50000.0
+        update_policy: block_boundary
+        direction: input
+        maps_to: gain:ramp_db_per_s
+        bindable: true
+      - id: ramp_ms
+        name: 斜坡时间
+        type: float
+        default: 30.0
+        range:
+        - 1.0
+        - 3000.0
+        update_policy: block_boundary
+        direction: input
+        maps_to: gain:ramp_ms
+        bindable: true
+      - id: freeze
+        name: 冻结斜坡
+        type: bool
+        default: false
+        update_policy: block_boundary
+        direction: input
+        maps_to: gain:freeze
+        bindable: true
+    blockers: []

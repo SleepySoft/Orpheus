@@ -349,6 +349,27 @@ def test_b_post_sleeping_beauty_preserves_source_boundary_and_cold_start() -> No
     assert types["b3_audio54"]["sample_rate_hz"] == pytest.approx(11076.923076923076)
 
 
+def test_a_post_hologram_preserves_unity_start_reset_and_zero_phase_delay() -> None:
+    definitions = {
+        item["id"]: item for item in load_algorithm_index(INDEX)["definitions"]
+    }
+    implementation = definitions["A.SPATIAL_FULL.POST_HOLOGRAM"]["implementation"]
+    assert implementation["status"] == "verified"
+    assert implementation["blockers"] == []
+    nodes = {node["id"]: node for node in implementation["lowering"]["nodes"]}
+    gain = nodes["gain"]["params"]
+    assert gain["channels"] == 22
+    assert gain["apply_index_on_prepare"] is False
+    assert gain["preserve_state_on_reset"] is True
+    assert gain["chan_map"] == "2,2,0,0,0,0,1,1,1,1,0,0,1,1,0,0,1,1,0,0,1,1"
+    delay = nodes["phase_delay"]["params"]
+    assert delay == {
+        "channels": 22,
+        "max_delay_samples": 48,
+        "delays_samples": ",".join("0" for _ in range(22)),
+    }
+
+
 def test_full_index_bus_offsets_cover_exact_typed_transactions() -> None:
     document = load_algorithm_index(INDEX)
     types = {item["id"]: item for item in document["types"]}
@@ -428,7 +449,7 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     assert report["definitions"] == 67
     assert report["leaves"] + report["composites"] == 67
     assert report["executable"] is False
-    assert report["blocker_gates"]["golden"] == report["leaves"] - 12
+    assert report["blocker_gates"]["golden"] == report["leaves"] - 13
 
 
 def test_projection_refuses_to_overwrite_unmarked_directory(tmp_path: Path) -> None:

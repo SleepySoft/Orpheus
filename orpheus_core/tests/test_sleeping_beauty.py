@@ -242,6 +242,33 @@ def test_sleeping_beauty_applies_same_block_controls_atomically() -> None:
 
 
 @pytest.mark.skipif(not DLL.exists(), reason="sleeping_beauty not built")
+def test_sleeping_beauty_can_preserve_inflight_ramp_on_reset() -> None:
+    params = {
+        "channels": 1,
+        "gain_index": 128.0,
+        "chan_map": "1",
+        "ramp_ms": 30.0,
+        "apply_index_on_prepare": False,
+        "preserve_state_on_reset": True,
+    }
+    _, reset_interface, reset_state, reset_keepalive = _load_instance(params, 1)
+    _, reference_interface, reference_state, reference_keepalive = _load_instance(params, 1)
+    _set(reset_interface, reset_state, "gain_index", 10.0)
+    _set(reference_interface, reference_state, "gain_index", 10.0)
+    first = _process(reset_interface, reset_state, [1.0] * BLOCK, 1)
+    assert first == pytest.approx(
+        _process(reference_interface, reference_state, [1.0] * BLOCK, 1)
+    )
+    assert reset_interface.reset(reset_state) == 0
+    after_reset = _process(reset_interface, reset_state, [1.0] * BLOCK, 1)
+    uninterrupted = _process(reference_interface, reference_state, [1.0] * BLOCK, 1)
+    assert after_reset == pytest.approx(uninterrupted, rel=2e-6, abs=2e-7)
+    reset_interface.destroy(reset_state)
+    reference_interface.destroy(reference_state)
+    assert reset_keepalive and reference_keepalive
+
+
+@pytest.mark.skipif(not DLL.exists(), reason="sleeping_beauty not built")
 def test_sleeping_beauty_supports_54_channels_and_minus_one_mutes() -> None:
     channel_map = ",".join(["-1", *("0" for _ in range(53))])
     _, interface, state, keepalive = _load_instance(

@@ -25,9 +25,9 @@
 - [x] `B.MIX_DECI.ROUTE`：修正 RAMP 边界为 Center2/Left25/Right25，用 deinterleave/interleave 完成 52 路无重叠分发。
 - [x] 通用 `sleeping_beauty` 升级：64ch、共享四 ramper、逐样本 frameCount/freeze、dB/s 和 `-1→静音`，直接 ABI golden 通过。
 - [x] `B.POST.SLEEPING`：按 Peripheral10+Overhead4+Headrest40 精确拼接 54ch，保留四路 unity 冷启动、RTC 同块原子更新、30 点表和真实 B3 速率；Headrest 40→20+20 独立标准路由已验证。
-- [ ] `A.SPATIAL_FULL.POST_HOLOGRAM`：算法已可由通用 bank 组合，但产品启动时 RTC `gain_index` 未在源码中找到，保留 parameters blocker。
+- [x] `A.SPATIAL_FULL.POST_HOLOGRAM`：22ch SleepingBeauty + phase delay 精确组合；保留 unity 冷启动、reset 不打断 ramp，TOP 22 路 delay 全零。
 
-当前覆盖：67 definitions / 51 leaves / 12 verified leaves；仍有 39 个 golden blocker 待清零。
+当前覆盖：67 definitions / 51 leaves / 13 verified leaves；仍有 38 个 golden blocker 待清零。
 
 ## P0：先验证跨 Runtime 契约
 

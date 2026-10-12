@@ -33,6 +33,7 @@ typedef struct {
     int32_t  freeze;       /* 非零时冻结 current/frameCount */
     int32_t  centerMonoMean; /* 非零时 center/mono=(left+right)/2 */
     int32_t  applyIndexOnPrepare;
+    int32_t  preserveStateOnReset;
     int32_t  controlsDirty;
     uint32_t channels;
     float    sampleRate;

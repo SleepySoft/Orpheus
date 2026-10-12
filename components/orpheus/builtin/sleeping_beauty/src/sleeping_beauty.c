@@ -230,6 +230,10 @@ static const OrpheusParameter sb_params[] = {
             .default_value = { .type = ORPHEUS_VALUE_BOOL, .value.b = true },
             .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
             .readback = true, .persistent = true },
+        { .id = "preserve_state_on_reset", .name = "Preserve State On Reset", .type = ORPHEUS_VALUE_BOOL,
+            .default_value = { .type = ORPHEUS_VALUE_BOOL, .value.b = false },
+            .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+            .readback = true, .persistent = true },
     { .id = "channels", .name = "Channels", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 4 },
     .min_i32 = 1, .max_i32 = 64,
@@ -260,7 +264,7 @@ static const OrpheusPort sb_ports[] = {
 
 static const OrpheusComponentDescriptor sb_descriptor = {
     .id = "orpheus.builtin.sleeping_beauty", .version = "1.2.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = sb_ports, .port_count = 2, .params = sb_params, .param_count = 12,
+    .ports = sb_ports, .port_count = 2, .params = sb_params, .param_count = 13,
     .state_size = sizeof(SleepingBeautyState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = true
 };
@@ -291,6 +295,7 @@ static int sb_prepare(void* state, const OrpheusConfig* config) {
     s->freeze = read_int(config, "freeze", 0) != 0;
     s->centerMonoMean = strcmp(read_string(config, "center_mono_mode", "attenuated"), "mean_lr") == 0;
     s->applyIndexOnPrepare = read_int(config, "apply_index_on_prepare", 1) != 0;
+    s->preserveStateOnReset = read_int(config, "preserve_state_on_reset", 0) != 0;
     s->controlsDirty = 0;
     s->sampleRate = config->sample_rate > 0 ? (float)config->sample_rate : 48000.0f;
     s->blockSize  = config->block_size > 0 ? config->block_size : 32;
@@ -329,6 +334,7 @@ static int sb_prepare(void* state, const OrpheusConfig* config) {
 
 static int sb_reset(void* state) {
     SleepingBeautyState* s = (SleepingBeautyState*)state;
+    if (s->preserveStateOnReset) return ORPHEUS_OK;
     for (uint32_t i = 0; i < SB_MAX_RAMPERS; ++i) {
         s->rampers[i].currentGain = 1.0f;
         s->rampers[i].targetGain = 1.0f;
@@ -449,6 +455,9 @@ static int sb_get_parameter(void* state, const char* param_id, OrpheusValue* val
     }
     if (strcmp(param_id, "apply_index_on_prepare") == 0) {
         value->type = ORPHEUS_VALUE_BOOL; value->value.b = s->applyIndexOnPrepare != 0; return ORPHEUS_OK;
+    }
+    if (strcmp(param_id, "preserve_state_on_reset") == 0) {
+        value->type = ORPHEUS_VALUE_BOOL; value->value.b = s->preserveStateOnReset != 0; return ORPHEUS_OK;
     }
     if (strcmp(param_id, "channels") == 0) {
         value->type = ORPHEUS_VALUE_INT; value->value.i32 = (int32_t)s->channels; return ORPHEUS_OK;

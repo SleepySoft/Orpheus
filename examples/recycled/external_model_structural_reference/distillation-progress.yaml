@@ -242,13 +242,25 @@ modules:
     artifact: notes
     system_graph_eligible: false
 
+  - id: A.POST_HOLOGRAM
+    runtime: runtime_a
+    purpose: 对 Peripheral EQ 后的 22 路执行四组 SleepingBeauty，并施加逐通道 phase delay
+    tids: [A0]
+    io: {inputs: [equalized_audio_22], outputs: [post_hologram_audio_22]}
+    evidence: [runtime_a_main, runtime_a_top]
+    dependencies: [A.PERIPHERAL_EQ]
+    orpheus_target: sleeping_beauty + delay_line
+    progress: {boundary: verified, schedule: verified, algorithm: verified, state: verified, parameters: verified, golden: verified}
+    artifact: slice_graph
+    system_graph_eligible: true
+
   - id: A.FADE_SUM
     runtime: runtime_a
     purpose: 合并全速率与降速空间结果，执行位置相关衰减、静音和扬声器延迟，并反馈到下一帧输入链
     tids: [A0]
     io: {inputs: [equalized_audio_22, post_spatial_audio_22, fade_target], outputs: [feedback_audio_22, fade_state]}
     evidence: [runtime_a_main, runtime_a_top, cross_runtime]
-    dependencies: [A.PERIPHERAL_EQ, SYS.BUS_B_TO_A]
+    dependencies: [A.POST_HOLOGRAM, SYS.BUS_B_TO_A]
     orpheus_target: sleeping_beauty + mixer + delay_line + fade + mute
     progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: analyzed, parameters: indexed, golden: pending}
     artifact: notes

@@ -322,7 +322,31 @@ def build_definitions() -> None:
     add("A.SPATIAL_FULL.MIX.ORGANIZE", "空间混音输入组织", "延迟并组合 FDP/环绕，形成 CS13 与 Left/Right7 的有序输入", "runtime_a", ["A0"], ["a_main"], ["7 路延迟", "Ltf+Ltb/Rtf+Rtb", "13 路 per-channel IIR", "三组明确顺序"], parent="A.SPATIAL_FULL.MIX", inputs=[port("fdp", "audio6"), port("surround", "audio7")], outputs=[port("organized", "audio13")], states=[state("surround_delay", "7 路 1664 样本延迟", [30436]), state("mix_eq", "13 路 IIR", [260])], status="unsupported")
     add("A.SPATIAL_FULL.MIX.RAMP_CONTROL", "26/70/70 矩阵斜坡", "按 FastSequence 冻结/启动目标，逐样本平滑三矩阵并回传当前增益", "runtime_a", ["A0"], ["a_main", "bus"], ["偶序列接受目标", "奇序列冻结", "零值微扰", "CS13→2/Left7→10/Right7→10"], parent="A.SPATIAL_FULL.MIX", inputs=[port("audio", "audio13"), port("targets", "gains166")], outputs=[port("out", "audio22"), port("current", "gains166")], states=[state("matrices", "current/target/coeff/sequence", [166])], status="approximation", component="orpheus.builtin.slc_matrix_mul")
     add("A.SPATIAL_FULL.PERIPHERAL_EQ", "22 路外围 EQ", "重排扬声器顺序、每通道 IIR，并施加固定 254 样本延迟", "runtime_a", ["A0"], ["a_main", "a_peripheral_top"], ["22 路重排", "accelerator IIR", "254 样本固定延迟", "disable=zero"], parent="A.SPATIAL_FULL", inputs=[port("in", "audio22")], outputs=[port("out", "audio22")], states=[state("iir", "22 路滤波状态"), state("delay", "22×254 延迟")], status="unsupported")
-    add("A.SPATIAL_FULL.POST_HOLOGRAM", "全速率全息后处理", "四组 SleepingBeauty 增益后施加 22 路相位对齐延迟", "runtime_a", ["A0"], ["a_main", "a_holigram_top"], ["四组表插值", "指数 ramper", "-1 通道置零", "phase delay"], parent="A.SPATIAL_FULL", inputs=[port("in", "audio22")], outputs=[port("out", "audio22")], states=[state("rampers", "四组 current/target/frame/freeze", [4]), state("delay", "22×80 延迟", [1760])], status="approximation", component="orpheus.builtin.sleeping_beauty")
+    add("A.SPATIAL_FULL.POST_HOLOGRAM", "全速率全息后处理", "四组 SleepingBeauty 增益后施加 22 路相位对齐延迟", "runtime_a", ["A0"], ["a_main", "a_holigram_top"], ["四组表插值", "unity cold-start", "block-atomic RTC", "指数 ramper", "22 路 phase delay"], parent="A.SPATIAL_FULL", inputs=[port("in", "audio22")], outputs=[port("out", "audio22")], states=[state("rampers", "四组 current/target/frame/freeze", [4], "四组 frame=0/current=target=coeff=1, freeze=0"), state("delay", "22×80 源环，TOP delay 全零", [1760], "delayIndex=0")], status="verified", component="orpheus.builtin.sleeping_beauty", lowering={
+        "nodes": [
+            {"id": "gain", "component": "orpheus.builtin.sleeping_beauty", "params": {
+                "channels": 22, "gain_index": 0.0, "offset": 128.0, "mutes_bass": 0.0,
+                "ramp_ms": 30.0, "ramp_db_per_s": 0.0, "freeze": False,
+                "center_mono_mode": "attenuated", "apply_index_on_prepare": False,
+                "preserve_state_on_reset": True,
+                "chan_map": "2,2,0,0,0,0,1,1,1,1,0,0,1,1,0,0,1,1,0,0,1,1",
+                "table_idx": "0,10,31,52,74,95,116,128,138,159,180,202,223,244,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255",
+                "table_db": "-40,-30,-20,-10,0,0,0,0,0,0,0,-10,-20,-30,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40",
+            }},
+            {"id": "phase_delay", "component": "orpheus.builtin.delay_line", "params": {
+                "channels": 22, "max_delay_samples": 48,
+                "delays_samples": ",".join("0" for _ in range(22)),
+            }},
+        ],
+        "connections": [{"from": "gain:out", "to": "phase_delay:in"}],
+        "port_maps": {"in": "gain:in", "out": "phase_delay:out"},
+        "parameters": [
+            {"id": "gain_index", "name": "SleepingBeauty 索引", "type": "float", "default": 0.0, "range": [0.0, 255.0], "update_policy": "block_boundary", "direction": "input", "maps_to": "gain:gain_index", "bindable": True},
+            {"id": "ramp_db_per_s", "name": "斜坡速率", "type": "float", "default": 0.0, "range": [0.0, 50000.0], "update_policy": "block_boundary", "direction": "input", "maps_to": "gain:ramp_db_per_s", "bindable": True},
+            {"id": "ramp_ms", "name": "斜坡时间", "type": "float", "default": 30.0, "range": [1.0, 3000.0], "update_policy": "block_boundary", "direction": "input", "maps_to": "gain:ramp_ms", "bindable": True},
+            {"id": "freeze", "name": "冻结斜坡", "type": "bool", "default": False, "update_policy": "block_boundary", "direction": "input", "maps_to": "gain:freeze", "bindable": True},
+        ],
+    }, blockers=[])
     add("A.SPATIAL_FULL.FADE_SUM", "22 路求和/Fade/Mute", "合并全速率与降速结果，执行扬声器延迟、路由、频分 Fade 和 Mute", "runtime_a", ["A0"], ["a_main", "a_fade_top", "bus"], ["22 路相加", "SpeakerDelay", "OutputRouter", "LP/HP Fade 四 ramper", "global mute", "导出两个非低频 target"], parent="A.SPATIAL_FULL", inputs=[port("full", "audio22"), port("deci", "audio22")], outputs=[port("out", "audio22"), port("fade_targets", "control2")], states=[state("speaker_delay", "22 路延迟", [32384]), state("fade", "四组 ramper 与 LPF", [4, 22]), state("mute", "全局 ramper")], status="approximation", component="orpheus.builtin.fade")
     add("A.AUDIOPILOT", "多速率自适应响度", "估计 HF/LF 噪声和信号比，计算多频段补偿并施加到 10 路节目", "runtime_a", ["A0", "A1", "A3", "A4", "A5"], ["a_main", "a_audiopilot_top"], ["HF 预处理", "HF 相干/ratio", "LF Welch/冲击", "BoostMap/增益应用"], parent="A.RUNTIME", inputs=[port("program", "audio10", "gain_application:program"), port("microphone", "audio1", "hf_preprocess:microphone"), port("mono", "audio1", "lf:reference"), port("fdp_taps", "audio4", "hf_preprocess:fdp")], outputs=[port("out", "audio10", "gain_application:out"), port("metrics", "control4", "gain_application:metrics")], children=["A.AUDIOPILOT.HF_PREPROCESS", "A.AUDIOPILOT.HF_ESTIMATOR", "A.AUDIOPILOT.LF", "A.AUDIOPILOT.GAIN_APPLICATION"], edges=[edge("hf_preprocess:frames", "hf_estimator:frames", "audio10_2"), edge("hf_estimator:metrics", "gain_application:hf_metrics", "control4", "control"), edge("lf:metrics", "gain_application:lf_metrics", "control4", "control")])
     add("A.AUDIOPILOT.HF_PREPROCESS", "HF 噪声预处理", "组合 mic/FDP/surround 参考，滤波、抽取并写入十通道 HF ring", "runtime_a", ["A0"], ["a_main", "a_audiopilot_top"], ["BP/LP IIR", "11 项周期调制", "AA IIR", "÷16", "参考对齐"], parent="A.AUDIOPILOT", inputs=[port("microphone", "audio1"), port("fdp", "audio4")], outputs=[port("frames", "audio10_2")], states=[state("hf_ring", "10×512 ring", [5120]), state("reference_delay", "参考对齐", [5418])], status="unsupported")
