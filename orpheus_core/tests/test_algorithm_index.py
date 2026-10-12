@@ -263,6 +263,11 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
         (str(connection.from_ref), str(connection.to_ref))
         for connection in project.graph.connections
     } == {
+        ("a_runtime:adaptive_audio", "b_runtime:adaptive_audio"),
+        ("b_runtime:mono", "a_runtime:mono"),
+        ("b_runtime:treble_lr", "a_runtime:treble_lr"),
+        ("b_runtime:treble_surround", "a_runtime:treble_surround"),
+        ("b_runtime:post_spatial", "a_runtime:post_spatial"),
         ("program_input:out", "program_to_system:in"),
         ("program_to_system:out", "a_runtime:audio_in"),
         ("a_runtime:main_out", "main_output:in"),
@@ -270,8 +275,8 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
     assert project_registry.get("external_model.index.a_bus_exchange") is None
     assert project_registry.get("external_model.index.b_bus_exchange") is None
     notes = json.loads((FULL_PROJECT / "node-notes.json").read_text(encoding="utf-8"))
-    assert "Runtime 间音频与控制/状态链路" in notes["a_runtime"]
-    assert "Runtime 间音频与控制/状态链路" in notes["b_runtime"]
+    assert "标准音频端口并写入 graph.connections" in notes["a_runtime"]
+    assert "标准 control_connections 映射前只保留" in notes["b_runtime"]
     expected = set(project.graph.nodes)
     expected.update(
         f"sub:{sub.id}/{node.id}"

@@ -597,10 +597,6 @@ const { screenToFlowPosition } = useReactFlow();
 
   const onConnect = useCallback(
     (params) => {
-      if ([params.sourceHandle, params.targetHandle].some((handle) => handle?.startsWith('projection:'))) {
-        setStatus('Runtime 间音频与控制/状态链路是只读算法投影，不能手工连线');
-        return;
-      }
       // 控制引脚只能连控制引脚，音频引脚只能连音频引脚（交叉拒绝）
       const srcCtl = isControlHandle(params.sourceHandle);
       const dstCtl = isControlHandle(params.targetHandle);
@@ -1660,8 +1656,6 @@ const { screenToFlowPosition } = useReactFlow();
   // ---------------------------------------------------------- render
 
   const selectedNode = view.nodes.find((nd) => nd.id === selectedId) || null;
-  const hasProjectedAudio = view.edges.some((edge) => edge.data?.projectionKind === 'audio');
-  const hasProjectedControl = view.edges.some((edge) => edge.data?.projectionKind === 'control');
 
   // 传给 ReactFlow 的边：开关关闭时过滤控制边（界面与纯音频图逐像素一致）；
   // 开启时为控制边注入两端求值形状与失配标记（随参数变化自动刷新，失配标红不剪线）。
@@ -2066,8 +2060,6 @@ const { screenToFlowPosition } = useReactFlow();
         <div className={`canvas ${showControlLinks ? 'control-links-visible' : ''}`} onDrop={onDrop} onDragOver={onDragOver}>
           <div className="signal-legend" aria-label="链路图例">
             <span className="legend-audio"><i />音频</span>
-            {hasProjectedAudio && <span className="legend-projection-audio"><i />Runtime 间音频</span>}
-            {hasProjectedControl && <span className="legend-projection-control"><i />Runtime 间控制/状态</span>}
             {showControlLinks && <span className="legend-control"><i />控制</span>}
           </div>
           <NodeActionsContext.Provider value={{ showReadme: handleShowReadme, showControlLinks, revealSubExport }}>

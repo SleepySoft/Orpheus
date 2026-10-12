@@ -156,75 +156,6 @@ export function alterGroupScreenBounds(nodes, memberIds, viewport, padding = 18)
 
 /** graph {nodes, connections} + 顶层 control_connections -> { nodes, edges } for React Flow. */
 export function graphToFlow(graph, catalogById, controlConnections = [], bridges = [], algorithmProjection = {}) {
-  const projectionPorts = {};
-  const runtimeNodes = algorithmProjection?.runtime_nodes || {};
-  const typesById = Object.fromEntries((algorithmProjection?.types || []).map((type) => [type.id, type]));
-  const wordCount = (field) => {
-    const shape = typesById[field.type_ref]?.shape || [];
-    return shape.reduce((total, dimension) => total * dimension, 1);
-  };
-  const runtimeLabel = (runtime) => runtime.replace(/^runtime_/, '').toUpperCase();
-  const projectionEdges = (algorithmProjection?.buses || []).flatMap((bus, busIndex) => {
-    const source = runtimeNodes[bus.producer_runtime];
-    const target = runtimeNodes[bus.consumer_runtime];
-    if (!source || !target) return [];
-    const directionLabel = `${runtimeLabel(bus.producer_runtime)}→${runtimeLabel(bus.consumer_runtime)}`;
-    const groups = [
-      {
-        kind: 'audio',
-        label: '音频',
-        fields: (bus.fields || []).filter((field) => typesById[field.type_ref]?.kind === 'audio'),
-      },
-      {
-        kind: 'control',
-        label: '控制/状态',
-        fields: (bus.fields || []).filter((field) => typesById[field.type_ref]?.kind !== 'audio'),
-      },
-    ];
-    return groups.flatMap((group) => {
-      if (!group.fields.length) return [];
-      const sourceHandle = `projection:${bus.id}:${group.kind}:out`;
-      const targetHandle = `projection:${bus.id}:${group.kind}:in`;
-      const words = group.fields.reduce((total, field) => total + wordCount(field), 0);
-      const fallbackSummary = group.fields
-        .map((field) => `${field.id} [${(typesById[field.type_ref]?.shape || []).join('×')}]`)
-        .join(' / ');
-      const semanticSummary = bus.semantic_summary?.[group.kind] || fallbackSummary;
-      const label = `${directionLabel} ${group.label} · ${semanticSummary}`;
-      const port = (direction) => ({
-        id: direction === 'output' ? sourceHandle : targetHandle,
-        direction,
-        kind: group.kind,
-        label,
-      });
-      projectionPorts[source] = [...(projectionPorts[source] || []), port('output')];
-      projectionPorts[target] = [...(projectionPorts[target] || []), port('input')];
-      return [{
-        id: `ep-${bus.id}-${group.kind}`,
-        source,
-        target,
-        sourceHandle,
-        targetHandle,
-        type: 'projection',
-        selectable: false,
-        deletable: false,
-        focusable: false,
-        data: {
-          label,
-          busId: bus.id,
-          projectionKind: group.kind,
-          words,
-          fields: group.fields.map((field) => ({
-            ...field,
-            shape: typesById[field.type_ref]?.shape || [],
-            words: wordCount(field),
-          })),
-          atomicity: bus.atomicity || 'unverified',
-          curveOffset: (busIndex % 2 === 0 ? -1 : 1) * (group.kind === 'audio' ? 90 : 35),
-        },
-      }];
-    });
-  });
   const nodes = (graph?.nodes || []).map((n) => {
     const comp = catalogById[n.component];
     return {
@@ -242,7 +173,6 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
         parameters: comp?.parameters || [],
         packageType: comp?.package_type || 'source',
         blockers: comp?.blockers || [],
-        projectionPorts: projectionPorts[n.id] || [],
         // 替代组声明（同图内节点 id 列表）与组件平台标签，往返保留
         alters: Array.isArray(n.alters) ? n.alters : [],
         platforms: comp?.platforms || [],
@@ -296,7 +226,7 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
       type: 'control',
     };
   });
-  return { nodes, edges: [...edges, ...controlEdges, ...projectionEdges] };
+  return { nodes, edges: [...edges, ...controlEdges] };
 }
 
 /** React Flow nodes/edges -> graph {nodes, connections}（控制边不进 connections，由 viewsToDoc 单独写回顶层段）。 */
@@ -313,11 +243,7 @@ export function flowToGraph(nodes, edges) {
       ...(Array.isArray(n.data.alters) && n.data.alters.length ? { alters: n.data.alters } : {}),
     })),
     connections: edges
-      .filter((edge) => edge.sourceHandle
-        && edge.targetHandle
-        && !['control', 'projection'].includes(edge.type)
-        && !edge.sourceHandle.startsWith('projection:')
-        && !edge.targetHandle.startsWith('projection:'))
+      .filter((edge) => edge.sourceHandle && edge.targetHandle && edge.type !== 'control')
       .map((e) => ({
         from: `${e.source}:${e.sourceHandle}`,
         to: `${e.target}:${e.targetHandle}`,

@@ -44,6 +44,16 @@ graph:
       x: 1060
       y: 100
   connections:
+  - from: a_runtime:adaptive_audio
+    to: b_runtime:adaptive_audio
+  - from: b_runtime:mono
+    to: a_runtime:mono
+  - from: b_runtime:treble_lr
+    to: a_runtime:treble_lr
+  - from: b_runtime:treble_surround
+    to: a_runtime:treble_surround
+  - from: b_runtime:post_spatial
+    to: a_runtime:post_spatial
   - from: program_input:out
     to: program_to_system:in
   - from: program_to_system:out
@@ -323,51 +333,6 @@ algorithm_projection:
     dtype: f32
     shape:
     - 70
-  - id: audio1_block
-    kind: audio
-    dtype: f32
-    shape:
-    - 1
-    - 32
-    axes:
-    - channel
-    - frame
-  - id: audio2_block
-    kind: audio
-    dtype: f32
-    shape:
-    - 2
-    - 32
-    axes:
-    - channel
-    - frame
-  - id: audio7_block
-    kind: audio
-    dtype: f32
-    shape:
-    - 7
-    - 32
-    axes:
-    - channel
-    - frame
-  - id: audio10_block
-    kind: audio
-    dtype: f32
-    shape:
-    - 10
-    - 32
-    axes:
-    - channel
-    - frame
-  - id: audio22_block
-    kind: audio
-    dtype: f32
-    shape:
-    - 22
-    - 32
-    axes:
-    - channel
-    - frame
   tasks:
   - id: A0
     runtime_ref: runtime_a
@@ -734,7 +699,7 @@ algorithm_projection:
     fields:
     - id: adaptive_audio
       offset_words: 0
-      type_ref: audio10_block
+      type_ref: audio10
       producer_definition: A.AUDIOPILOT
       consumer_definition: B.BANDS
     - id: center_current
@@ -779,17 +744,17 @@ algorithm_projection:
       consumer_definition: A.SPATIAL_FULL.FDP.REVERB
     - id: mono
       offset_words: 2
-      type_ref: audio1_block
+      type_ref: audio1
       producer_definition: B.BANDS.MONO
       consumer_definition: A.AUDIOPILOT.LF
     - id: treble_lr
       offset_words: 34
-      type_ref: audio2_block
+      type_ref: audio2
       producer_definition: B.BANDS.SRC
       consumer_definition: A.SPATIAL_FULL.FDP
     - id: treble_surround
       offset_words: 98
-      type_ref: audio7_block
+      type_ref: audio7
       producer_definition: B.BANDS.SRC
       consumer_definition: A.SPATIAL_FULL.MIX
     - id: center_targets
@@ -809,7 +774,7 @@ algorithm_projection:
       consumer_definition: A.SPATIAL_FULL.MIX.RAMP_CONTROL
     - id: post_spatial
       offset_words: 488
-      type_ref: audio22_block
+      type_ref: audio22
       producer_definition: B.POST.RETURN
       consumer_definition: A.SPATIAL_FULL.FADE_SUM
     - id: fast_sequence

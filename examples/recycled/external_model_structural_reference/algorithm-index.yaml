@@ -355,51 +355,6 @@ types:
   dtype: f32
   shape:
   - 70
-- id: audio1_block
-  kind: audio
-  dtype: f32
-  shape:
-  - 1
-  - 32
-  axes:
-  - channel
-  - frame
-- id: audio2_block
-  kind: audio
-  dtype: f32
-  shape:
-  - 2
-  - 32
-  axes:
-  - channel
-  - frame
-- id: audio7_block
-  kind: audio
-  dtype: f32
-  shape:
-  - 7
-  - 32
-  axes:
-  - channel
-  - frame
-- id: audio10_block
-  kind: audio
-  dtype: f32
-  shape:
-  - 10
-  - 32
-  axes:
-  - channel
-  - frame
-- id: audio22_block
-  kind: audio
-  dtype: f32
-  shape:
-  - 22
-  - 32
-  axes:
-  - channel
-  - frame
 runtimes:
 - id: runtime_a
   clock_hz:
@@ -535,7 +490,7 @@ buses:
   fields:
   - id: adaptive_audio
     offset_words: 0
-    type_ref: audio10_block
+    type_ref: audio10
     producer_definition: A.AUDIOPILOT
     consumer_definition: B.BANDS
   - id: center_current
@@ -580,17 +535,17 @@ buses:
     consumer_definition: A.SPATIAL_FULL.FDP.REVERB
   - id: mono
     offset_words: 2
-    type_ref: audio1_block
+    type_ref: audio1
     producer_definition: B.BANDS.MONO
     consumer_definition: A.AUDIOPILOT.LF
   - id: treble_lr
     offset_words: 34
-    type_ref: audio2_block
+    type_ref: audio2
     producer_definition: B.BANDS.SRC
     consumer_definition: A.SPATIAL_FULL.FDP
   - id: treble_surround
     offset_words: 98
-    type_ref: audio7_block
+    type_ref: audio7
     producer_definition: B.BANDS.SRC
     consumer_definition: A.SPATIAL_FULL.MIX
   - id: center_targets
@@ -610,7 +565,7 @@ buses:
     consumer_definition: A.SPATIAL_FULL.MIX.RAMP_CONTROL
   - id: post_spatial
     offset_words: 488
-    type_ref: audio22_block
+    type_ref: audio22
     producer_definition: B.POST.RETURN
     consumer_definition: A.SPATIAL_FULL.FADE_SUM
   - id: fast_sequence
@@ -858,10 +813,25 @@ definitions:
     - id: audio_in
       type_ref: audio30
       maps_to: input_select:in
+    - id: mono
+      type_ref: audio1
+      maps_to: audiopilot:mono
+    - id: treble_lr
+      type_ref: audio2
+      maps_to: spatial_full:treble_lr
+    - id: treble_surround
+      type_ref: audio7
+      maps_to: spatial_full:treble_surround
+    - id: post_spatial
+      type_ref: audio22
+      maps_to: spatial_full:post_spatial
     outputs:
     - id: main_out
       type_ref: audio22
       maps_to: postprocess:main_out
+    - id: adaptive_audio
+      type_ref: audio10
+      maps_to: audiopilot:out
   operations:
   - 按 A0..A5 调度并与 Runtime B 交换原子总线
   branches: []
@@ -2612,12 +2582,27 @@ definitions:
   source_refs:
   - b_main
   interface:
-    inputs: []
-    outputs: []
+    inputs:
+    - id: adaptive_audio
+      type_ref: audio10
+      maps_to: bands:adaptive
+    outputs:
+    - id: mono
+      type_ref: audio1
+      maps_to: bands:mono
+    - id: treble_lr
+      type_ref: audio2
+      maps_to: bands:treble_lr
+    - id: treble_surround
+      type_ref: audio7
+      maps_to: bands:treble_surround
+    - id: post_spatial
+      type_ref: audio22
+      maps_to: post:out
   operations:
   - 4500Hz 基准调度
   - B1/B2/B3/B4 多速率处理
-  - 跨 Runtime typed bus 保留为系统关系，不投影为音频组件
+  - 跨 Runtime 音频字段导出为标准音频端口，控制字段保留事务合同
   branches: []
   state: []
   parameter_refs: []

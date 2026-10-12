@@ -126,7 +126,8 @@ def add(
 def build_definitions() -> None:
     # Runtime A hierarchy.
     add("A.RUNTIME", "Runtime A 全速率系统", "执行输入、Big6、空间处理、输出保护和自适应响度", "runtime_a", ["A0", "A1", "A2", "A3", "A4", "A5"], ["a_main"], ["按 A0..A5 调度并与 Runtime B 交换原子总线"],
-        inputs=[port("audio_in", "audio30", "input_select:in")], outputs=[port("main_out", "audio22", "postprocess:main_out")],
+        inputs=[port("audio_in", "audio30", "input_select:in"), port("mono", "audio1", "audiopilot:mono"), port("treble_lr", "audio2", "spatial_full:treble_lr"), port("treble_surround", "audio7", "spatial_full:treble_surround"), port("post_spatial", "audio22", "spatial_full:post_spatial")],
+        outputs=[port("main_out", "audio22", "postprocess:main_out"), port("adaptive_audio", "audio10", "audiopilot:out")],
         children=["A.INPUT_SELECT", "A.PREAMP", "A.POSTPROCESS", "A.SPATIAL_FULL", "A.AUDIOPILOT"],
         edges=[edge("input_select:entertainment", "preamp:entertainment", "audio12"), edge("input_select:microphone", "preamp:microphone", "audio1"), edge("preamp:post_buffer", "postprocess:preq_buffer", "audio32"), edge("preamp:adaptive", "audiopilot:program", "audio10"), edge("preamp:microphone_out", "audiopilot:microphone", "audio1"), edge("spatial_full:protected", "postprocess:protected", "audio22"), edge("spatial_full:analysis", "audiopilot:fdp_taps", "audio4")])
     add("A.INPUT_SELECT", "输入选择", "30 路系统输入统一重排后提取节目、麦克风和提示音", "runtime_a", ["A0"], ["a_main"], ["TOP 路由表", "非零 RTC 逐项覆盖", "越界通道置零", "提取 12/1/17 路"], parent="A.RUNTIME", inputs=[port("in", "audio30")], outputs=[port("entertainment", "audio12"), port("microphone", "audio1"), port("announcement", "audio17")], states=[state("rtc_route", "30 项运行期覆盖表", [30])], status="exact_candidate", component="orpheus.builtin.channel_router", blockers=[blocker("runtime", "需要共同 30 路中间总线和 RTC 覆盖语义", "a_main"), blocker("golden", "路由和越界 golden 未完成", "a_main")])
@@ -164,7 +165,10 @@ def build_definitions() -> None:
     add("A.AUDIOPILOT.GAIN_APPLICATION", "BoostMap 与增益应用", "由噪声/信号/用户级计算 Bass/Mid/Treble/DynEQ 增益并作用于 10 路", "runtime_a", ["A0"], ["a_main", "a_audiopilot_top"], ["BoostMap 插值", "alpha/beta/ratio", "downward expansion", "enable ramp", "三 anti-zipper", "direct/LPF/BPF 并行求和"], parent="A.AUDIOPILOT", inputs=[port("program", "audio10"), port("hf_metrics", "control4"), port("lf_metrics", "control4")], outputs=[port("out", "audio10"), port("metrics", "control4")], states=[state("filters", "BPF/LPF/zipper/align"), state("boost", "平滑 boost 状态")], status="unsupported")
 
     # Runtime B hierarchy.
-    add("B.RUNTIME", "Runtime B 降速空间系统", "计算频带、降速 FDP、目标矩阵、HEQ 和 VLS 后空间结果", "runtime_b", ["B0", "B1", "B2", "B3", "B4"], ["b_main"], ["4500Hz 基准调度", "B1/B2/B3/B4 多速率处理", "跨 Runtime typed bus 保留为系统关系，不投影为音频组件"], inputs=[], outputs=[], children=["B.BANDS", "B.FDP", "B.MIX_CONTROL", "B.MIX_DECI", "B.HEQ", "B.POST"], edges=[edge("bands:treble_lr", "fdp:in", "audio2"), edge("fdp:components", "mix_deci:fdp", "audio8"), edge("bands:bass_mid", "mix_deci:bands", "audio4"), edge("mix_control:deci_targets", "mix_deci:targets", "gains1134", "control"), edge("mix_control:vls_row1", "post:row1_targets", "gains40", "control"), edge("mix_control:vls_row2", "post:row2_targets", "gains40", "control"), edge("mix_deci:peripheral", "heq:peripheral", "audio22"), edge("mix_deci:headrest", "heq:headrest", "audio10"), edge("mix_deci:overhead", "heq:overhead", "audio20"), edge("heq:peripheral_out", "post:peripheral", "audio10"), edge("heq:headrest_out", "post:headrest", "audio40"), edge("heq:overhead_out", "post:overhead", "audio4")])
+    add("B.RUNTIME", "Runtime B 降速空间系统", "计算频带、降速 FDP、目标矩阵、HEQ 和 VLS 后空间结果", "runtime_b", ["B0", "B1", "B2", "B3", "B4"], ["b_main"], ["4500Hz 基准调度", "B1/B2/B3/B4 多速率处理", "跨 Runtime 音频字段导出为标准音频端口，控制字段保留事务合同"],
+        inputs=[port("adaptive_audio", "audio10", "bands:adaptive")],
+        outputs=[port("mono", "audio1", "bands:mono"), port("treble_lr", "audio2", "bands:treble_lr"), port("treble_surround", "audio7", "bands:treble_surround"), port("post_spatial", "audio22", "post:out")],
+        children=["B.BANDS", "B.FDP", "B.MIX_CONTROL", "B.MIX_DECI", "B.HEQ", "B.POST"], edges=[edge("bands:treble_lr", "fdp:in", "audio2"), edge("fdp:components", "mix_deci:fdp", "audio8"), edge("bands:bass_mid", "mix_deci:bands", "audio4"), edge("mix_control:deci_targets", "mix_deci:targets", "gains1134", "control"), edge("mix_control:vls_row1", "post:row1_targets", "gains40", "control"), edge("mix_control:vls_row2", "post:row2_targets", "gains40", "control"), edge("mix_deci:peripheral", "heq:peripheral", "audio22"), edge("mix_deci:headrest", "heq:headrest", "audio10"), edge("mix_deci:overhead", "heq:overhead", "audio20"), edge("heq:peripheral_out", "post:peripheral", "audio10"), edge("heq:headrest_out", "post:headrest", "audio40"), edge("heq:overhead_out", "post:overhead", "audio4")])
     add("B.BANDS", "频带与 SRC", "从 A 的十路自适应音频生成 mono、treble、surround、bass/mid 与 decay", "runtime_b", ["B1", "B2", "B3"], ["b_main", "b_bands", "b_bands_top"], ["3/13 rational SRC", "stereo detector", "decay estimator", "mono weighted sum", "bass/mid filters"], parent="B.RUNTIME", inputs=[port("adaptive", "audio10", "src:in")], outputs=[port("mono", "audio1", "mono:out"), port("treble_lr", "audio2", "src:treble_lr"), port("treble_surround", "audio7", "src:surround"), port("bass_mid", "audio4", "bass:out"), port("decay", "control1", "decay:out")], children=["B.BANDS.SRC", "B.BANDS.MONO_DETECTOR", "B.BANDS.DECAY", "B.BANDS.MONO", "B.BANDS.BASS"], edges=[edge("src:treble_lr", "mono_detector:in", "audio2"), edge("src:treble_lr", "decay:in", "audio2"), edge("src:deci", "mono:in", "audio10"), edge("src:deci", "bass:in", "audio10")])
     add("B.BANDS.SRC", "3/13 Rational SRC", "把 10 路 48k 内容变换到 B3 域，并在 B1 重构 treble/surround", "runtime_b", ["B1", "B3"], ["b_main", "b_bands"], ["3 相下采样 348 系数", "13 相上采样 351 系数", "phase 4/4/5", "重构残差"], parent="B.BANDS", inputs=[port("in", "audio10")], outputs=[port("deci", "audio10"), port("treble_lr", "audio2"), port("surround", "audio7")], states=[state("src_rings", "alignment/down/up buffers", [9270])], status="unsupported")
     add("B.BANDS.MONO_DETECTOR", "Stereo/Mono 检测", "由两路 HPF 电平与能量关系做 silence reset 和 stereo hysteresis", "runtime_b", ["B1"], ["b_bands"], ["2 路 HPF", "LR mismatch saturation", "energy ratio smoothing", "hysteresis"], parent="B.BANDS", inputs=[port("in", "audio2")], outputs=[port("gate", "control1")], states=[state("detector", "level/energy/counter/last gate")], status="unsupported")
@@ -268,16 +272,11 @@ def build_document() -> dict[str, Any]:
     extra_types = [
         {"id": "gains26", "kind": "bulk", "dtype": "f32", "shape": [26]},
         {"id": "gains70", "kind": "bulk", "dtype": "f32", "shape": [70]},
-        {"id": "audio1_block", "kind": "audio", "dtype": "f32", "shape": [1, 32], "axes": ["channel", "frame"]},
-        {"id": "audio2_block", "kind": "audio", "dtype": "f32", "shape": [2, 32], "axes": ["channel", "frame"]},
-        {"id": "audio7_block", "kind": "audio", "dtype": "f32", "shape": [7, 32], "axes": ["channel", "frame"]},
-        {"id": "audio10_block", "kind": "audio", "dtype": "f32", "shape": [10, 32], "axes": ["channel", "frame"]},
-        {"id": "audio22_block", "kind": "audio", "dtype": "f32", "shape": [22, 32], "axes": ["channel", "frame"]},
     ]
     types.extend(extra_types)
     buses = [
         {"id": "bus_a_to_b", "producer_runtime": "runtime_a", "consumer_runtime": "runtime_b", "total_words": 488, "atomicity": "unverified", "semantic_summary": {"audio": "自适应音频 10ch × 32帧", "control": "当前增益 26/70/70 + Fade 2"}, "fields": [
-            {"id": "adaptive_audio", "offset_words": 0, "type_ref": "audio10_block", "producer_definition": "A.AUDIOPILOT", "consumer_definition": "B.BANDS"},
+            {"id": "adaptive_audio", "offset_words": 0, "type_ref": "audio10", "producer_definition": "A.AUDIOPILOT", "consumer_definition": "B.BANDS"},
             {"id": "center_current", "offset_words": 320, "type_ref": "gains26", "producer_definition": "A.SPATIAL_FULL.MIX.RAMP_CONTROL", "consumer_definition": "B.MIX_CONTROL"},
             {"id": "left_current", "offset_words": 346, "type_ref": "gains70", "producer_definition": "A.SPATIAL_FULL.MIX.RAMP_CONTROL", "consumer_definition": "B.MIX_CONTROL"},
             {"id": "right_current", "offset_words": 416, "type_ref": "gains70", "producer_definition": "A.SPATIAL_FULL.MIX.RAMP_CONTROL", "consumer_definition": "B.MIX_CONTROL"},
@@ -286,13 +285,13 @@ def build_document() -> dict[str, Any]:
         {"id": "bus_b_to_a", "producer_runtime": "runtime_b", "consumer_runtime": "runtime_a", "total_words": 1193, "atomicity": "unverified", "sequence_field": "fast_sequence", "semantic_summary": {"audio": "Mono 1ch + Treble 2/7ch + 空间输出 22ch；每块 32帧", "control": "使能/衰减 + 目标增益 26/70/70 + Sequence"}, "fields": [
             {"id": "enhancement_enable", "offset_words": 0, "type_ref": "event1", "producer_definition": "B.BANDS", "consumer_definition": "A.RUNTIME"},
             {"id": "decay", "offset_words": 1, "type_ref": "control1", "producer_definition": "B.BANDS.DECAY", "consumer_definition": "A.SPATIAL_FULL.FDP.REVERB"},
-            {"id": "mono", "offset_words": 2, "type_ref": "audio1_block", "producer_definition": "B.BANDS.MONO", "consumer_definition": "A.AUDIOPILOT.LF"},
-            {"id": "treble_lr", "offset_words": 34, "type_ref": "audio2_block", "producer_definition": "B.BANDS.SRC", "consumer_definition": "A.SPATIAL_FULL.FDP"},
-            {"id": "treble_surround", "offset_words": 98, "type_ref": "audio7_block", "producer_definition": "B.BANDS.SRC", "consumer_definition": "A.SPATIAL_FULL.MIX"},
+            {"id": "mono", "offset_words": 2, "type_ref": "audio1", "producer_definition": "B.BANDS.MONO", "consumer_definition": "A.AUDIOPILOT.LF"},
+            {"id": "treble_lr", "offset_words": 34, "type_ref": "audio2", "producer_definition": "B.BANDS.SRC", "consumer_definition": "A.SPATIAL_FULL.FDP"},
+            {"id": "treble_surround", "offset_words": 98, "type_ref": "audio7", "producer_definition": "B.BANDS.SRC", "consumer_definition": "A.SPATIAL_FULL.MIX"},
             {"id": "center_targets", "offset_words": 322, "type_ref": "gains26", "producer_definition": "B.MIX_CONTROL.TARGETS", "consumer_definition": "A.SPATIAL_FULL.MIX.RAMP_CONTROL"},
             {"id": "left_targets", "offset_words": 348, "type_ref": "gains70", "producer_definition": "B.MIX_CONTROL.TARGETS", "consumer_definition": "A.SPATIAL_FULL.MIX.RAMP_CONTROL"},
             {"id": "right_targets", "offset_words": 418, "type_ref": "gains70", "producer_definition": "B.MIX_CONTROL.TARGETS", "consumer_definition": "A.SPATIAL_FULL.MIX.RAMP_CONTROL"},
-            {"id": "post_spatial", "offset_words": 488, "type_ref": "audio22_block", "producer_definition": "B.POST.RETURN", "consumer_definition": "A.SPATIAL_FULL.FADE_SUM"},
+            {"id": "post_spatial", "offset_words": 488, "type_ref": "audio22", "producer_definition": "B.POST.RETURN", "consumer_definition": "A.SPATIAL_FULL.FADE_SUM"},
             {"id": "fast_sequence", "offset_words": 1192, "type_ref": "event1", "producer_definition": "B.MIX_CONTROL.SEQUENCE", "consumer_definition": "A.SPATIAL_FULL.MIX.RAMP_CONTROL"},
         ]},
     ]

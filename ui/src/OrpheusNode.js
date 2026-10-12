@@ -9,7 +9,6 @@ import { NodeActionsContext } from './NodeActionsContext';
 export default function OrpheusNode({ id, data, selected }) {
   const [enlarged, setEnlarged] = React.useState(false);
   const ports = data.ports || [];
-  const projectionPorts = data.projectionPorts || [];
   const inputs = ports.filter((p) => p.direction === 'input');
   const outputs = ports.filter((p) => p.direction === 'output');
   const isSub = (data.component || '').startsWith('sub:');
@@ -86,7 +85,6 @@ const BodyWidget = NODE_WIDGETS[data.component];
   const updateNodeInternals = useUpdateNodeInternals();
   const handleSignature = [
     ...ports.map((port) => `audio:${port.direction}:${port.id}:${data.exportedAudioPorts?.[port.id]?.id || ''}`),
-    ...projectionPorts.map((port) => `projection:${port.kind}:${port.direction}:${port.id}`),
     ...(data.parameters || [])
       .filter((parameter) => parameter.control_source || parameter.bindable)
       .map((parameter) => `control:${parameter.control_source ? 'source' : ''}:${parameter.bindable ? 'target' : ''}:${parameter.id}:${data.exportedControlParameters?.[parameter.id]?.id || ''}`),
@@ -172,21 +170,6 @@ const BodyWidget = NODE_WIDGETS[data.component];
         />
       )}
       <div className={`orpheus-node audio-node ${showControlLinks ? 'control-mode' : ''} ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${isBridge ? 'bridge-config-node' : ''} ${data.missing ? 'missing' : ''} ${platformTone ? `platform-${platformTone}` : ''} ${noiseStatusClass(data)}`}>
-      {projectionPorts.map((projectionPort, index) => {
-        const output = projectionPort.direction === 'output';
-        return (
-          <Handle
-            key={projectionPort.id}
-            type={output ? 'source' : 'target'}
-            position={output ? Position.Right : Position.Left}
-            id={projectionPort.id}
-            className={`projection-handle projection-handle-${projectionPort.kind}`}
-            title={projectionPort.label}
-            isConnectable={false}
-            style={{ top: 24 + index * 16, [output ? 'right' : 'left']: -8 }}
-          />
-        );
-      })}
       <div className="node-header">
         <div className="node-title">
           {data.label}

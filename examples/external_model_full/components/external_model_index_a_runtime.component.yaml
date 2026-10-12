@@ -14,6 +14,38 @@ ports:
   sample_rate: 48000
   block_size: 32
   maps_to: input_select:in
+- id: mono
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  sample_rate: 48000
+  block_size: 32
+  maps_to: audiopilot:mono
+- id: treble_lr
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 2
+  sample_rate: 48000
+  block_size: 32
+  maps_to: spatial_full:treble_lr
+- id: treble_surround
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 7
+  sample_rate: 48000
+  block_size: 32
+  maps_to: spatial_full:treble_surround
+- id: post_spatial
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+  maps_to: spatial_full:post_spatial
 - id: main_out
   direction: output
   type: audio
@@ -22,6 +54,14 @@ ports:
   sample_rate: 48000
   block_size: 32
   maps_to: postprocess:main_out
+- id: adaptive_audio
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+  maps_to: audiopilot:out
 parameters: []
 imports:
 - external_model_index_a_input_select.component.yaml

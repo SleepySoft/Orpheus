@@ -6,7 +6,7 @@
 
 - 建立 66 个递归算法定义、11 个 Task、17 个参数分区和双向 typed bus 的严格 Algorithm IR；生成完整目录研究工程，placeholder 继续由编译器硬阻断。
 - 删除把跨 Runtime 事务伪装成处理组件的 BUS_EXCHANGE 回环；顶层补齐 2ch 输入、2→30 系统装配和 22ch 输出边界。
-- 将 A→B 488 words 与 B→A 1193 words 按字段类型拆成 2 条 Runtime 间音频实线和 2 条控制/状态虚线；字段 shape、offset 与 atomicity 保留在只读投影 tooltip 和 `algorithm_projection` 中，不写入执行图。
+- 从 A→B 488 words 与 B→A 1193 words 中识别 5 组真实音频字段，导出为 10ch A→B 与 1/2/7/22ch B→A 标准端口，并写入 5 条 `graph.connections`；控制/状态字段只保留在 Algorithm IR，等待标准 `control_connections` 映射。
 - 音频块类型从扁平 words 修正为 `[channels, frames]`：1/2/7/10/22 路均保留 32 帧维度，避免生成端口把 320/704 words 误判为通道数。
 - ProjectManager 对未修改工程按 `project.yaml` mtime 自动重载，解决外部确定性生成后 UI 继续显示旧缓存的问题；React Flow 在节点测量完成后刷新受控节点，保证异步加载的节点和边可见。
 - 完整分析、重生成方法和后续 lowering/golden 工作记录在 `examples/external_model_full/analysis/distillation-process.md` 与 `TODO.md`。

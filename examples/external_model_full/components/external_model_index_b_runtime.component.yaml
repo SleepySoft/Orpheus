@@ -5,7 +5,47 @@ description: 计算频带、降速 FDP、目标矩阵、HEQ 和 VLS 后空间结
 version: '2.0'
 abi_version: 1
 package_type: composite
-ports: []
+ports:
+- id: adaptive_audio
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+  maps_to: bands:adaptive
+- id: mono
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  sample_rate: 48000
+  block_size: 32
+  maps_to: bands:mono
+- id: treble_lr
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 2
+  sample_rate: 48000
+  block_size: 32
+  maps_to: bands:treble_lr
+- id: treble_surround
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 7
+  sample_rate: 48000
+  block_size: 32
+  maps_to: bands:treble_surround
+- id: post_spatial
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+  maps_to: post:out
 parameters: []
 imports:
 - external_model_index_b_bands.component.yaml
@@ -76,7 +116,7 @@ algorithm_index:
   operations:
   - 4500Hz 基准调度
   - B1/B2/B3/B4 多速率处理
-  - 跨 Runtime typed bus 保留为系统关系，不投影为音频组件
+  - 跨 Runtime 音频字段导出为标准音频端口，控制字段保留事务合同
   state: []
   implementation:
     status: unsupported

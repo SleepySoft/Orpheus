@@ -232,6 +232,27 @@ def validate_algorithm_index(document: dict[str, Any]) -> None:
         raise AlgorithmIndexError("system contains unknown roots")
     if any(definitions[root].get("parent") is not None for root in roots):
         raise AlgorithmIndexError("system roots must not have parents")
+    roots_by_runtime = {definitions[root]["runtime_ref"]: definitions[root] for root in roots}
+    for bus in document["buses"]:
+        producer_root = roots_by_runtime.get(bus["producer_runtime"])
+        consumer_root = roots_by_runtime.get(bus["consumer_runtime"])
+        if producer_root is None or consumer_root is None:
+            raise AlgorithmIndexError(f"{bus['id']}: runtime has no system root")
+        for field in bus["fields"]:
+            if types[field["type_ref"]]["kind"] != "audio":
+                continue
+            producer_port = next(
+                (port for port in producer_root["interface"]["outputs"] if port["id"] == field["id"]),
+                None,
+            )
+            consumer_port = next(
+                (port for port in consumer_root["interface"]["inputs"] if port["id"] == field["id"]),
+                None,
+            )
+            if producer_port is None or consumer_port is None:
+                raise AlgorithmIndexError(f"{bus['id']}:{field['id']}: missing root audio port")
+            if producer_port["type_ref"] != field["type_ref"] or consumer_port["type_ref"] != field["type_ref"]:
+                raise AlgorithmIndexError(f"{bus['id']}:{field['id']}: root audio port type mismatch")
 
     io_ids: set[str] = set()
     for projection in document["system"]["io_projection"]:
@@ -411,8 +432,8 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
         node_notes[root_definition["node_id"]] = (
             f"用途：{root_definition['purpose']}。双击进入按源码边界组织的算法子系统。"
             f"跨 Runtime typed bus（{', '.join(related_buses)}）是调度/部署事务合同，"
-            "按字段类型分别投影为只读的 Runtime 间音频与控制/状态链路，不写入可执行 connections；"
-            "字段生产者、消费者和 offset 见 algorithm_projection.buses。"
+            "音频字段已导出为标准音频端口并写入 graph.connections；"
+            "控制/状态字段在具备标准 control_connections 映射前只保留于 algorithm_projection.buses。"
         )
     root_set = set(roots)
     graph_nodes = [
@@ -424,6 +445,16 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
         for index, root in enumerate(roots)
     ]
     root_connections: list[dict[str, str]] = []
+    roots_by_runtime = {definitions[root]["runtime_ref"]: definitions[root] for root in roots}
+    for bus in document["buses"]:
+        producer_node = roots_by_runtime[bus["producer_runtime"]]["node_id"]
+        consumer_node = roots_by_runtime[bus["consumer_runtime"]]["node_id"]
+        for field in bus["fields"]:
+            if types[field["type_ref"]]["kind"] == "audio":
+                root_connections.append({
+                    "from": f"{producer_node}:{field['id']}",
+                    "to": f"{consumer_node}:{field['id']}",
+                })
     for index, projection in enumerate(document["system"]["io_projection"]):
         endpoint_definition, endpoint_port = _endpoint(projection["endpoint"])
         root_node_id = definitions[endpoint_definition]["node_id"]
@@ -574,8 +605,9 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
         "control/message/spectrum/state 边不伪装成普通音频线，"
         "完整记录保存在 `project.yaml` 的 `algorithm_projection` 与原始 IR 中。\n\n"
         "顶层主链是 `2ch 节目输入 -> 30ch 系统输入装配 -> Runtime A -> 22ch 主输出`。"
-        "A/B 的 typed bus 按字段类型拆成 Runtime 间音频与控制/状态只读投影，"
-        "用于解释算法因果，但不会写入 graph.connections。\n\n"
+        "A/B typed bus 中的 10ch A->B 和 1/2/7/22ch B->A 音频字段使用标准 "
+        "graph.connections；控制/状态字段尚未具备标准公开参数映射，因此不画线，"
+        "继续保存在 algorithm_projection.buses。\n\n"
         "交接材料见 [`analysis/distillation-process.md`](analysis/distillation-process.md) 与 "
         "[`TODO.md`](TODO.md)；重新生成工程时这两个手工维护文件会保留。\n\n"
         "叶节点为 placeholder 时表示算法尚未完成 golden 或运行时能力仍缺失，编译器会主动拒绝；"

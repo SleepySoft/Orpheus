@@ -11,10 +11,9 @@
 - [x] 精确记录 A→B 488 words、B→A 1193 words 的字段与 offset；
 - [x] 删除无算法行为的 BUS_EXCHANGE 节点和伪回环；
 - [x] 补齐 2ch 输入、2→30 系统装配和 22ch 输出边界；
-- [x] 将 Runtime 间事务按音频与控制/状态拆成四条只读语义链路；
+- [x] 将 5 组 Runtime 间音频字段导出为标准音频端口和 `graph.connections`；
 - [x] 将块音频 shape 修正为 `[channels, frames]`；
-- [x] 图上音频标签使用 channel × frame，控制标签使用字段语义；words/offset 仅作为事务详情；
-- [x] 确保研究投影不会写入可执行 `graph.connections`；
+- [x] 删除自定义 projection edge/handle/label，画布只保留标准音频和控制链路；
 - [x] placeholder 编译阻断、确定性生成和浏览器可见性测试。
 
 ## P0：先验证跨 Runtime 契约
@@ -35,7 +34,7 @@
 - [ ] 扩展运行时数组控制能力，支持 `[26]`、`[70]` 等 bulk 控制，不用标量 control link 冒充；
 - [ ] 明确 1500 Hz Runtime A 与 Runtime B 多速率 Task 之间的 rate bridge、缓冲深度和欠载/溢出策略；
 - [ ] 为动态 Runtime 和生成代码实现同一 lowering，并加入逐字节一致性测试；
-- [ ] lowering 完成前保持当前语义边只读，不加入 `graph.connections`。
+- [ ] 在控制数组建立标准公开参数映射前，不创建任何画布控制边；完成后只写入 `control_connections`。
 
 完成标准：动态/生成双路径在相同事务捕获下输出一致，sequence、epoch、音频块和控制数组同步。
 
@@ -78,7 +77,7 @@
 - [ ] 支持按 audio/control/state/event 过滤和高亮字段生产者/消费者；
 - [ ] 从顶层语义边跳转到对应递归定义和 Task；
 - [ ] 在 UI 显示 `atomicity: unverified` 警告，而不是只放在 tooltip；
-- [ ] 为项目增加教学检查：四条语义边、2→30 输入、22ch 输出、无 BUS_EXCHANGE 节点。
+- [ ] 为项目增加教学检查：5 条 A/B 标准音频边、2→30 输入、22ch 输出、无 BUS_EXCHANGE/投影边。
 
 ## 交接检查清单
 
@@ -87,5 +86,5 @@
 3. 修改生成源，不直接改生成文件；
 4. 重生成索引与工程；
 5. 跑 Algorithm IR 测试、前端测试、生产构建和全部示例校验；
-6. 浏览器确认主链、四条 Runtime 间语义边、字段 tooltip 和图例；
+6. 浏览器确认主链、5 条 A/B 标准音频边，且不存在投影 edge/handle/label；
 7. 同步更新本文、分析记录、架构原则和实现日志。

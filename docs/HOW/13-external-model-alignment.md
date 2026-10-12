@@ -18,7 +18,7 @@ tags: [orpheus/how]
 - 双 Runtime 模型必须先更新模块索引；六项门禁未完成时只能发布独立切片，不能直接组装完整图。
 - 物理传输包不直接等同于算法连线。混装音频、控制数组、状态和事件的 typed bus 必须按字段语义拆分展示，同时保留原始 offset、总长度和事务边界。
 - 音频块 shape 必须写成 `[channels, frames]`，禁止把 `channels × frames` 展平成伪通道数。
-- 研究图中的 Runtime 间语义链路是只读投影，不进入 `graph.connections`；只有调度、延迟、原子性和数据面实现完成验证后，才可 lowering 为可执行音频桥或控制桥。
+- Runtime 间音频字段必须导出为组件标准音频端口并写入 `graph.connections`；控制/状态字段只能使用标准 `control_connections`。尚不满足标准契约的字段只保留在 Algorithm IR，不在画布发明第三种边。
 
 详细记录见 [[reference/external-models/model-alignment|模型对齐]]。
 

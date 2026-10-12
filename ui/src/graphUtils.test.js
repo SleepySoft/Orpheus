@@ -290,7 +290,7 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
     expect(views.main.nodes[0].data.blockers).toEqual(placeholder.blockers);
   });
 
-  test('typed bus 按音频和控制字段拆分投影且保存时不进入执行连接', () => {
+  test('typed bus 元数据不生成第三种边，标准音频连接正常往返', () => {
     const projection = {
       runtime_nodes: { runtime_a: 'a', runtime_b: 'b' },
       types: [
@@ -321,35 +321,18 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
           { id: 'a', component: 'orpheus.builtin.gain' },
           { id: 'b', component: 'orpheus.builtin.gain' },
         ],
-        connections: [],
+        connections: [{ from: 'a:out', to: 'b:in' }],
       },
+      control_connections: [],
       algorithm_projection: projection,
     };
     const { views, subsMeta } = docToViews(busDoc, catalog);
-    const projectionEdges = views.main.edges.filter((edge) => edge.type === 'projection');
-    expect(projectionEdges).toHaveLength(4);
-    expect(projectionEdges.filter((edge) => edge.data.projectionKind === 'audio')).toHaveLength(2);
-    expect(projectionEdges.filter((edge) => edge.data.projectionKind === 'control')).toHaveLength(2);
-    expect(projectionEdges.map((edge) => edge.data.label)).toEqual(expect.arrayContaining([
-      'A→B 音频 · 自适应音频 10ch × 32帧',
-      'A→B 控制/状态 · 当前增益 26/70/70 + Fade 2',
-      'B→A 音频 · 多组音频 1/2/7/22ch × 32帧',
-      'B→A 控制/状态 · 目标增益 26/70/70 + Sequence',
-    ]));
-    expect(projectionEdges).toEqual(expect.arrayContaining([
-      expect.objectContaining({ selectable: false, deletable: false, focusable: false }),
-    ]));
-    expect(views.main.nodes.find((node) => node.id === 'a').data.projectionPorts).toHaveLength(4);
-    expect(views.main.nodes.find((node) => node.id === 'b').data.projectionPorts).toHaveLength(4);
-    views.main.edges.push({
-      id: 'invalid-user-edge',
-      source: 'a',
-      target: 'b',
-      sourceHandle: 'projection:a_to_b:audio:out',
-      targetHandle: 'in',
+    expect(views.main.edges).toHaveLength(1);
+    expect(views.main.edges[0]).toMatchObject({
+      source: 'a', target: 'b', sourceHandle: 'out', targetHandle: 'in',
     });
     const out = viewsToDoc(views, subsMeta, busDoc);
-    expect(out.graph.connections).toEqual([]);
+    expect(out.graph.connections).toEqual([{ from: 'a:out', to: 'b:in' }]);
     expect(out.algorithm_projection).toEqual(projection);
   });
 

@@ -47,7 +47,7 @@
 
 ### 3.2 删除伪处理组件
 
-早期图用 `BUS_EXCHANGE` 节点和回环表示 A/B 通讯，但这些节点不执行算法，容易被误解为音频处理。它们已删除。跨 Runtime 关系保留为 typed bus 合同，由 UI 只读投影。
+早期图用 `BUS_EXCHANGE` 节点和回环表示 A/B 通讯，但这些节点不执行算法，容易被误解为音频处理。它们已删除。跨 Runtime 关系保留为 typed bus 合同，其中音频字段通过 Runtime 根组件的标准端口连接。
 
 ### 3.3 补齐系统 I/O
 
@@ -70,11 +70,9 @@
 当前采用两层表示：
 
 - **事务层**：`algorithm_projection.buses` 保留总 words、offset、字段生产者/消费者和 atomicity；
-- **语义层**：UI 按字段类型将每个方向拆成“Runtime 间音频”和“Runtime 间控制/状态”两条只读链路。
+- **执行图层**：音频字段导出为 Runtime 根组件的标准 audio ports，并写入 `graph.connections`；控制/状态字段只有在建立标准公开参数映射后才可写入 `control_connections`。
 
-图上主标签使用音频通道/块帧格式和控制字段语义，不显示总 words；总 words、offset 与 atomicity 只作为事务详情。这样物理打包尺寸不会被误读为音频通道格式。
-
-语义投影不写入 `graph.connections`，handle 禁止手工连线。物理事务的原子性与延迟尚未验证，因此当前不能 lowering 为可执行桥。
+当前控制/状态字段不画线，避免产生 audio/control 之外的第三种连接。物理事务的原子性与延迟尚未验证，因此标准音频边只表达已确认的音频生产者、消费者和端口格式，不代表跨 Runtime 数据面已经实现。
 
 ### 3.5 音频 shape 不展平
 
@@ -88,14 +86,14 @@
 
 旧的 `[32] / [64] / [224] / [320] / [704]` 只表达 word 数，会让 manifest 把帧数误判为通道数。word 数仍由 shape 各维乘积得到。
 
-## 4. 当前四条 Runtime 间语义链路
+## 4. 当前 Runtime 间字段与标准连接
 
-| 方向 | 类别 | 字段 | Words |
-|---|---|---|---:|
-| A→B | 音频 | `adaptive_audio [10×32]` | 320 |
-| A→B | 控制/状态 | `center_current [26]`、`left_current [70]`、`right_current [70]`、`fade_targets [2]` | 168 |
-| B→A | 音频 | `mono [1×32]`、`treble_lr [2×32]`、`treble_surround [7×32]`、`post_spatial [22×32]` | 1024 |
-| B→A | 控制/状态 | enable、decay、三组 target gains、fast sequence | 169 |
+| 方向 | 类别 | 字段 | 画布表示 |
+|---|---|---|---|
+| A→B | 音频 | `adaptive_audio [10×32]` | 标准 10ch audio connection |
+| A→B | 控制/状态 | `center_current [26]`、`left_current [70]`、`right_current [70]`、`fade_targets [2]` | 暂不画线，保留 IR |
+| B→A | 音频 | `mono [1×32]`、`treble_lr [2×32]`、`treble_surround [7×32]`、`post_spatial [22×32]` | 四条标准 audio connections |
+| B→A | 控制/状态 | enable、decay、三组 target gains、fast sequence | 暂不画线，保留 IR |
 
 因此：
 
@@ -143,14 +141,14 @@ python -m orpheus_core.cli index-generate examples/recycled/external_model_struc
 - 索引构建器与提交版 `algorithm-index.yaml` 字节级一致；
 - 完整工程与临时生成目录字节级一致；
 - placeholder 编译阻断测试；
-- UI 纯函数测试确认 2 条音频投影、2 条控制/状态投影且保存不污染执行连接；
-- 浏览器确认 5 个节点、3 条主音频边和 4 条 Runtime 间语义边实际可见；
+- UI 纯函数测试确认 typed bus 元数据不生成第三种边，标准 audio/control 连接正常往返；
+- 浏览器确认 A/B 之间仅显示 5 条标准音频边，无投影 edge/handle/label；
 - 31/31 示例结构校验通过，完整研究图按预期报告 placeholder warning。
 
 ## 7. 交接约束
 
 - 不要重新引入无算法行为的 bus 处理节点或 A/B 音频回环；
 - 不要把 bus 总 words 当通道数；
-- 不要把 bulk 数组降格为标量控制链；
+- 不要把 bulk 数组降格为标量控制链，也不要在标准控制映射完成前画线；
 - 不要因 UI 能显示完整图就宣称可执行或数值等价；
 - 修改字段、shape、Task 或模块所有权时，同一提交更新索引、构建脚本、测试、本文和 `TODO.md`。
