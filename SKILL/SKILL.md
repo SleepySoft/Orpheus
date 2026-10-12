@@ -1,6 +1,6 @@
 ---
 name: orpheus
-description: Orpheus 音频图引擎的开发指南：编写/修改 C 组件（C ABI、manifest、可变引脚、UI 控件元数据）、使用框架（编译/运行/实时会话/代码生成）、排查构建与运行问题。当任务涉及 Orpheus 仓库的组件开发、图编译、Runtime、后端 API、UI 联动、实时音频宿主，或需要在 Orpheus 中新增/调试音频处理组件时使用。
+description: Orpheus 音频图引擎的开发指南：编写/修改 C 组件（C ABI、manifest、可变引脚、UI 控件元数据）、外部 C/C++ 模型蒸馏与 Algorithm IR、图编译、Runtime、后端 API、UI 联动、实时音频宿主和代码生成。当任务涉及 Orpheus 组件开发、完整算法蒸馏、目录工程、执行/生成双路径或音频与控制链路建模时使用。
 ---
 
 # Orpheus 开发指南
@@ -54,17 +54,43 @@ cd ui; npm run test:e2e            # Playwright：真实后端 + 浏览器核心
 - 现有内置组件均遵循公开状态/arena 契约；资源槽按组件需要注册，旧回调仅作为兼容兜底。
 - 写新组件：见 `references/abi-v2-registration.md` 的检查清单。
 
-## 模型蒸馏：分析 C 代码 → 还原滤波器树 → 一键导入
+## 模型蒸馏：证据索引 → 逐模块实现 → 完整系统图
 
-当任务涉及「分析公司/目标模型的 C/C++ 代码，反向还原其滤波器构造与参数，输出树形说明并在 Orpheus 一键导入」时，先读 `references/distill-model.md`：
+当任务涉及外部/公司 C/C++ 模型、生成代码、TOP/RTC 参数、多个 Runtime/TID 或完整算法蒸馏时，**必须先读** `references/distill-model.md`。以下规则不可省略：
 
-- 产物 1：可读树形说明（顶层 `model_tree`，标注滤波器类型与每个参数）+ Markdown 分析说明。
-- 产物 2：可直接导入的工程 YAML（`graph` + 嵌套 `subcomponents`，三层嵌套示例见 `examples/dsp_model_reference.yaml`）。
-- 多速率：模型有多 TID/分频时，`model_tree.task_flows` 必须结构化输出（主链 `chains` + 分析侧链
-  `chains`/`blocks`，`call_interval`=分频比），导入器会按 TID 生成 `downrate` 抽头（规范见
-  `references/distill-model.md` §4.1）；示例见 `examples/example-b-step0.yaml（内含 `model_tree`）`。
-- 一键导入：UI 工具栏「⤵ 导入模型」，或 `POST /api/projects/{name}/distill`（body `{"yaml": "..."}`）。
-- 验证：`python scripts/parameter_layout.py <project.yaml>` 打印数据 layout 并回写校验；`cli compile` 通过；可跑的图再跑一次 e2e。
+### 完成度分层
+
+- **结构复刻不等于算法实现**：完整层级、端口和连线可以先进入研究图，但未实现叶节点必须是 `package_type: placeholder`，并由编译器硬阻断。
+- `composite` 只表达组合与边界；`placeholder` 是空实现/待蒸馏边界；只有 source/binary 或完全由可执行通用组件组成的 composite 才能称为实现。
+- UI 可见、schema 通过、能生成 plan 都不能替代公式、状态、参数和 golden 验证；禁止把 approximation 或空节点称为“蒸馏完成”。
+
+### 证据优先流程
+
+1. 先固定源文件 SHA-256，并建立严格 Algorithm IR：模块层级、类型、真实 `[channels, frames]`、Task/TID、状态、参数分区、关系、bus 字段/offset 和 unresolved。
+2. 每个模块分别维护 `boundary / schedule / algorithm / state / parameters / golden` 六门禁；任一未验证，只能是研究图或独立切片。
+3. 先分析调用者与被调用者、生产者与消费者，再决定端口；禁止只看函数名或单个函数签名直接画图。
+4. 逐模块形成分析记录、实现、参数提取、golden 和独立可运行切片；门禁通过后才替换完整图中的 placeholder。
+5. 用户要求“完整/全量蒸馏”时，全部 placeholder 就是必须清零的工作队列；除非缺失外部证据形成真实 blocker，否则不得在索引、计划或局部实现阶段停止。每完成一项立即更新进度与 TODO。
+
+### 实现选择顺序
+
+1. **已有通用组件直接复用**：先搜索 builtin、相邻示例和组件 README，确认语义、状态和数值边界都匹配。
+2. **通用组件组合**：能由 FIR/IIR/matrix/mixer/delay/rate/bridge 等组合表达时，做 composite，不写专用 C。
+3. **新增通用组件**：现有组件不够但算法可跨项目复用时，设计通用参数/端口/状态 API，放入 `components/orpheus/builtin/`，补 README、数值测试和动态/生成一致性测试。
+4. **项目独有组件**：只有算法确实无法合理泛化，且源码证据、状态机、参数布局和 golden 均完整时才允许；必须记录“为什么不能通用化”。生成目录会被覆盖，手写源码必须放入非生成组件包路径，并由生成器写入 imports，不得直接塞进生成器拥有的 `components/`。
+
+### 图语义红线
+
+- 画布只允许框架已有的**标准音频链路**和**标准控制链路**，不得发明第三种 edge/handle/label 冒充算法关系。
+- 跨 Runtime 事务中，音频字段必须导出为标准 audio ports 并写入 `graph.connections`；控制/状态字段只有具备 `control_source/bindable/shape/maps_to` 后才能写入 `control_connections`，否则留在 Algorithm IR。
+- 物理打包长度（words/bytes）不是音频通道数；音频块必须保持 `[channels, frames]`。混合事务的原子性、sequence 和延迟单独记录，不能用伪处理组件或无行为回环表示。
+- 未连接端口、跨 Task/跨速率音频、数组控制和事务桥必须遵守 Compiler/Runtime 现有契约；研究图不能绕过系统校验。
+
+### 交付与同步
+
+- 完整目录工程同时维护：权威索引、确定性生成器、`analysis/` 蒸馏过程、`TODO.md`、节点笔记和覆盖报告。
+- 生成文件与手工文件边界必须写清；修改算法事实时，同一提交同步代码、索引、测试、原则文档、分析记录和 TODO。
+- 小型单速率模型仍可使用 `model_tree` / 一键导入兼容路径；复杂多 Runtime 模型禁止从生成 C 代码直接转图。
 
 ## 任务索引（按需加载 references/）
 
@@ -75,7 +101,7 @@ cd ui; npm run test:e2e            # Playwright：真实后端 + 浏览器核心
 | 理解架构：两种执行模式、ABI、plan、宿主分工、API 面 | `references/architecture.md` |
 | 运行/调试：实时会话协议、日志约定、故障排查目录 | `references/run-debug.md` |
 | 工程 YAML 格式、子组件（sub:）、workspace 布局 | `references/project-format.md` |
-| 模型蒸馏：分析 C 代码 → 还原滤波器树与参数 → 生成可导入工程 | `references/distill-model.md` |
+| 模型蒸馏：证据索引、六门禁、组件决策树、目录研究图、逐模块实现与交接 | `references/distill-model.md` |
 
 > 当前状态与待办以 `docs/HOW/roadmap.md` 为准；实现历史见 `docs/HOW/implementation-log.md`。
 
