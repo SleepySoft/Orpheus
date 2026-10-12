@@ -33,8 +33,12 @@ static const OrpheusParameter is_params[] = {
       .readback = true, .persistent = true, .affects_signature = true },
     { .id = "select", .name = "Select", .type = ORPHEUS_VALUE_STRING,
       .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "1,2" },
-      .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
-      .readback = true, .persistent = true, .affects_signature = false }
+            .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+            .readback = true, .persistent = true, .affects_signature = false },
+        { .id = "override_select", .name = "Override Select", .type = ORPHEUS_VALUE_STRING,
+            .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "" },
+            .update_policy = ORPHEUS_UPDATE_BLOCK_BOUNDARY,
+            .readback = true, .persistent = true, .affects_signature = false }
 };
 
 static const OrpheusPort is_ports[] = {
@@ -48,7 +52,7 @@ static const OrpheusPort is_ports[] = {
 
 static const OrpheusComponentDescriptor is_descriptor = {
     .id = "orpheus.builtin.input_select", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = is_ports, .port_count = 2, .params = is_params, .param_count = 3,
+    .ports = is_ports, .port_count = 2, .params = is_params, .param_count = 4,
     .state_size = sizeof(InputSelectState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
 };
@@ -64,6 +68,29 @@ static int is_create(void** state, const OrpheusConfig* config) {
     return *state ? ORPHEUS_OK : ORPHEUS_ERR_OUT_OF_MEMORY;
 }
 static int is_destroy(void* state) { (void)state; return ORPHEUS_OK; } /* v2：内存由 Runtime 统一管理 */
+
+static void apply_override(InputSelectState* s, const char* text) {
+    memcpy(s->map, s->base_map, sizeof(s->map));
+    if (text == NULL || *text == '\0') return;
+    char buf[256];
+    size_t len = strlen(text);
+    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+    memcpy(buf, text, len);
+    buf[len] = '\0';
+    uint32_t output = 0;
+    char* cursor = buf;
+    while (*cursor != '\0' && output < s->channels_out) {
+        char* end = NULL;
+        long value = strtol(cursor, &end, 10);
+        if (end == cursor) { ++cursor; continue; }
+        if (value != 0) {
+            s->map[output] = (value > 0 && (uint32_t)value <= s->channels_in)
+                ? (int32_t)(value - 1) : -1;
+        }
+        ++output;
+        cursor = end;
+    }
+}
 
 static int is_prepare(void* state, const OrpheusConfig* config) {
     InputSelectState* s = (InputSelectState*)state;
@@ -98,6 +125,11 @@ static int is_prepare(void* state, const OrpheusConfig* config) {
     const char* sel = str != NULL ? str : "1,2";
     strncpy(s->select, sel, sizeof(s->select) - 1);
     s->select[sizeof(s->select) - 1] = '\0';
+    memcpy(s->base_map, s->map, sizeof(s->map));
+    const char* override = read_str(config, "override_select", "");
+    strncpy(s->override_select, override, sizeof(s->override_select) - 1);
+    s->override_select[sizeof(s->override_select) - 1] = '\0';
+    apply_override(s, s->override_select);
     return ORPHEUS_OK;
 }
 static int is_reset(void* state) { (void)state; return ORPHEUS_OK; }
@@ -126,8 +158,15 @@ static int is_process(void* state, const OrpheusProcessContext* ctx) {
     return ORPHEUS_OK;
 }
 static int is_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {
-    (void)state; (void)param_id; (void)value;
-    return ORPHEUS_ERR_UNSUPPORTED;  /* routing params require restart */
+    InputSelectState* s = (InputSelectState*)state;
+    if (strcmp(param_id, "override_select") == 0 && value->type == ORPHEUS_VALUE_STRING) {
+        const char* text = value->value.str ? value->value.str : "";
+        strncpy(s->override_select, text, sizeof(s->override_select) - 1);
+        s->override_select[sizeof(s->override_select) - 1] = '\0';
+        apply_override(s, s->override_select);
+        return ORPHEUS_OK;
+    }
+    return ORPHEUS_ERR_UNSUPPORTED;
 }
 static int is_get_parameter(void* state, const char* param_id, OrpheusValue* value) {
     InputSelectState* s = (InputSelectState*)state;
@@ -136,6 +175,9 @@ static int is_get_parameter(void* state, const char* param_id, OrpheusValue* val
     }
     if (strcmp(param_id, "channels_out") == 0) {
         value->type = ORPHEUS_VALUE_INT; value->value.i32 = (int32_t)s->channels_out; return ORPHEUS_OK;
+    }
+    if (strcmp(param_id, "override_select") == 0) {
+        value->type = ORPHEUS_VALUE_STRING; value->value.str = s->override_select; return ORPHEUS_OK;
     }
     return ORPHEUS_ERR_NOT_FOUND;
 }

@@ -226,6 +226,30 @@ def test_b_mix_deci_organize_and_route_match_source_permutations() -> None:
         assert mapping[f"right:out{index + 20}"] == f"headrest:in{index * 2 + 1}"
 
 
+def test_a_input_select_shared_route_then_three_selectors() -> None:
+    definitions = {
+        item["id"]: item for item in load_algorithm_index(INDEX)["definitions"]
+    }
+    definition = definitions["A.INPUT_SELECT"]
+    assert definition["implementation"]["status"] == "verified"
+    lowering = definition["implementation"]["lowering"]
+    nodes = {node["id"]: node for node in lowering["nodes"]}
+    assert nodes["route"]["params"]["select"] == ",".join(str(index) for index in range(1, 31))
+    assert nodes["entertainment"]["params"]["select"] == ",".join(str(index) for index in range(1, 13))
+    assert nodes["microphone"]["params"]["select"] == "30"
+    assert nodes["announcement"]["params"]["select"] == ",".join(str(index) for index in range(13, 30))
+    connections = {(item["from"], item["to"]) for item in lowering["connections"]}
+    assert connections == {
+        ("ingress:out", "route:in"),
+        ("route:out", "entertainment:in"),
+        ("route:out", "microphone:in"),
+        ("route:out", "announcement:in"),
+    }
+    public = lowering["parameters"][0]
+    assert public["maps_to"] == "route:override_select"
+    assert public["default"] == ",".join("0" for _ in range(30))
+
+
 def test_full_index_bus_offsets_cover_exact_typed_transactions() -> None:
     document = load_algorithm_index(INDEX)
     types = {item["id"]: item for item in document["types"]}
@@ -305,7 +329,7 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     assert report["definitions"] == 66
     assert report["leaves"] + report["composites"] == 66
     assert report["executable"] is False
-    assert report["blocker_gates"]["golden"] == report["leaves"] - 4
+    assert report["blocker_gates"]["golden"] == report["leaves"] - 5
 
 
 def test_projection_refuses_to_overwrite_unmarked_directory(tmp_path: Path) -> None:

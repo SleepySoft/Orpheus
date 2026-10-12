@@ -4,7 +4,7 @@ category: 外部模型/算法索引
 description: 30 路系统输入统一重排后提取节目、麦克风和提示音
 version: '2.0'
 abi_version: 1
-package_type: placeholder
+package_type: composite
 ports:
 - id: in
   direction: input
@@ -13,6 +13,7 @@ ports:
   channels: 30
   sample_rate: 48000
   block_size: 32
+  maps_to: ingress:in
 - id: entertainment
   direction: output
   type: audio
@@ -20,6 +21,7 @@ ports:
   channels: 12
   sample_rate: 48000
   block_size: 32
+  maps_to: entertainment:out
 - id: microphone
   direction: output
   type: audio
@@ -27,6 +29,7 @@ ports:
   channels: 1
   sample_rate: 48000
   block_size: 32
+  maps_to: microphone:out
 - id: announcement
   direction: output
   type: audio
@@ -34,16 +37,72 @@ ports:
   channels: 17
   sample_rate: 48000
   block_size: 32
-parameters: []
-blockers:
-- id: runtime_pending
-  gate: runtime
-  reason: 需要共同 30 路中间总线和 RTC 覆盖语义
-  source_ref: a_main
-- id: golden_pending
-  gate: golden
-  reason: 路由和越界 golden 未完成
-  source_ref: a_main
+  maps_to: announcement:out
+parameters:
+- id: router_override
+  name: 30路运行期路由覆盖
+  type: string
+  default: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+  update_policy: block_boundary
+  direction: input
+  maps_to: route:override_select
+  bindable: true
+graph:
+  nodes:
+  - id: ingress
+    component: orpheus.builtin.gain
+    params:
+      channels: 30
+      gain_db: 0.0
+    position:
+      x: 80
+      y: 80
+  - id: route
+    component: orpheus.builtin.input_select
+    params:
+      channels_in: 30
+      channels_out: 30
+      select: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30
+      override_select: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+    position:
+      x: 340
+      y: 80
+  - id: entertainment
+    component: orpheus.builtin.input_select
+    params:
+      channels_in: 30
+      channels_out: 12
+      select: 1,2,3,4,5,6,7,8,9,10,11,12
+    position:
+      x: 600
+      y: 80
+  - id: microphone
+    component: orpheus.builtin.input_select
+    params:
+      channels_in: 30
+      channels_out: 1
+      select: '30'
+    position:
+      x: 860
+      y: 80
+  - id: announcement
+    component: orpheus.builtin.input_select
+    params:
+      channels_in: 30
+      channels_out: 17
+      select: 13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29
+    position:
+      x: 1120
+      y: 80
+  connections:
+  - from: ingress:out
+    to: route:in
+  - from: route:out
+    to: entertainment:in
+  - from: route:out
+    to: microphone:in
+  - from: route:out
+    to: announcement:in
 algorithm_index:
   definition_id: A.INPUT_SELECT
   tasks:
@@ -60,14 +119,60 @@ algorithm_index:
     shape:
     - 30
   implementation:
-    status: exact_candidate
-    component: orpheus.builtin.channel_router
-    blockers:
-    - id: runtime_pending
-      gate: runtime
-      reason: 需要共同 30 路中间总线和 RTC 覆盖语义
-      source_ref: a_main
-    - id: golden_pending
-      gate: golden
-      reason: 路由和越界 golden 未完成
-      source_ref: a_main
+    status: verified
+    lowering:
+      nodes:
+      - id: ingress
+        component: orpheus.builtin.gain
+        params:
+          channels: 30
+          gain_db: 0.0
+      - id: route
+        component: orpheus.builtin.input_select
+        params:
+          channels_in: 30
+          channels_out: 30
+          select: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30
+          override_select: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+      - id: entertainment
+        component: orpheus.builtin.input_select
+        params:
+          channels_in: 30
+          channels_out: 12
+          select: 1,2,3,4,5,6,7,8,9,10,11,12
+      - id: microphone
+        component: orpheus.builtin.input_select
+        params:
+          channels_in: 30
+          channels_out: 1
+          select: '30'
+      - id: announcement
+        component: orpheus.builtin.input_select
+        params:
+          channels_in: 30
+          channels_out: 17
+          select: 13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29
+      connections:
+      - from: ingress:out
+        to: route:in
+      - from: route:out
+        to: entertainment:in
+      - from: route:out
+        to: microphone:in
+      - from: route:out
+        to: announcement:in
+      port_maps:
+        in: ingress:in
+        entertainment: entertainment:out
+        microphone: microphone:out
+        announcement: announcement:out
+      parameters:
+      - id: router_override
+        name: 30路运行期路由覆盖
+        type: string
+        default: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+        update_policy: block_boundary
+        direction: input
+        maps_to: route:override_select
+        bindable: true
+    blockers: []

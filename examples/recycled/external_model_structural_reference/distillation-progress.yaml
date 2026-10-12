@@ -124,9 +124,9 @@ modules:
     evidence_artifacts: [evidence/input-routing-defaults.json]
     dependencies: []
     orpheus_target: channel_router + 双 bank 路由表更新
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: extracted, golden: pending}
-    artifact: notes
-    system_graph_eligible: false
+    progress: {boundary: verified, schedule: verified, algorithm: verified, state: verified, parameters: verified, golden: verified}
+    artifact: component
+    system_graph_eligible: true
 
   - id: A.INPUT_MIXER
     runtime: runtime_a

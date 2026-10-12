@@ -173,7 +173,23 @@ def build_definitions() -> None:
         outputs=[port("main_out", "audio22", "postprocess:main_out"), port("adaptive_audio", "audio10", "audiopilot:out")],
         children=["A.INPUT_SELECT", "A.PREAMP", "A.POSTPROCESS", "A.SPATIAL_FULL", "A.AUDIOPILOT"],
         edges=[edge("input_select:entertainment", "preamp:entertainment", "audio12"), edge("input_select:microphone", "preamp:microphone", "audio1"), edge("preamp:post_buffer", "postprocess:preq_buffer", "audio32"), edge("preamp:adaptive", "audiopilot:program", "audio10"), edge("preamp:microphone_out", "audiopilot:microphone", "audio1"), edge("spatial_full:protected", "postprocess:protected", "audio22"), edge("spatial_full:analysis", "audiopilot:fdp_taps", "audio4")])
-    add("A.INPUT_SELECT", "输入选择", "30 路系统输入统一重排后提取节目、麦克风和提示音", "runtime_a", ["A0"], ["a_main"], ["TOP 路由表", "非零 RTC 逐项覆盖", "越界通道置零", "提取 12/1/17 路"], parent="A.RUNTIME", inputs=[port("in", "audio30")], outputs=[port("entertainment", "audio12"), port("microphone", "audio1"), port("announcement", "audio17")], states=[state("rtc_route", "30 项运行期覆盖表", [30])], status="exact_candidate", component="orpheus.builtin.channel_router", blockers=[blocker("runtime", "需要共同 30 路中间总线和 RTC 覆盖语义", "a_main"), blocker("golden", "路由和越界 golden 未完成", "a_main")])
+    add("A.INPUT_SELECT", "输入选择", "30 路系统输入统一重排后提取节目、麦克风和提示音", "runtime_a", ["A0"], ["a_main", "a_input_select_top"], ["TOP 路由表", "非零 RTC 逐项覆盖", "越界通道置零", "提取 12/1/17 路"], parent="A.RUNTIME", inputs=[port("in", "audio30")], outputs=[port("entertainment", "audio12"), port("microphone", "audio1"), port("announcement", "audio17")], states=[state("rtc_route", "30 项运行期覆盖表", [30])], status="verified", lowering={
+        "nodes": [
+            {"id": "ingress", "component": "orpheus.builtin.gain", "params": {"channels": 30, "gain_db": 0.0}},
+            {"id": "route", "component": "orpheus.builtin.input_select", "params": {"channels_in": 30, "channels_out": 30, "select": ",".join(str(index) for index in range(1, 31)), "override_select": ",".join("0" for _ in range(30))}},
+            {"id": "entertainment", "component": "orpheus.builtin.input_select", "params": {"channels_in": 30, "channels_out": 12, "select": ",".join(str(index) for index in range(1, 13))}},
+            {"id": "microphone", "component": "orpheus.builtin.input_select", "params": {"channels_in": 30, "channels_out": 1, "select": "30"}},
+            {"id": "announcement", "component": "orpheus.builtin.input_select", "params": {"channels_in": 30, "channels_out": 17, "select": ",".join(str(index) for index in range(13, 30))}},
+        ],
+        "connections": [
+            {"from": "ingress:out", "to": "route:in"},
+            {"from": "route:out", "to": "entertainment:in"},
+            {"from": "route:out", "to": "microphone:in"},
+            {"from": "route:out", "to": "announcement:in"},
+        ],
+        "port_maps": {"in": "ingress:in", "entertainment": "entertainment:out", "microphone": "microphone:out", "announcement": "announcement:out"},
+        "parameters": [{"id": "router_override", "name": "30路运行期路由覆盖", "type": "string", "default": ",".join("0" for _ in range(30)), "update_policy": "block_boundary", "direction": "input", "maps_to": "route:override_select", "bindable": True}],
+    }, blockers=[])
     add("A.PREAMP", "PreAmp 与 Big6", "形成 10 路节目并分出主后处理、自适应和电平检测支路", "runtime_a", ["A0"], ["a_main"], ["12→10 布局", "Volume 后主支路", "Tone/Balance 后自适应支路"], parent="A.RUNTIME",
         inputs=[port("entertainment", "audio12", "input_mixer:in"), port("microphone", "audio1", "route_level:microphone")], outputs=[port("post_buffer", "audio32", "route_level:post_buffer"), port("adaptive", "audio10", "route_level:adaptive"), port("microphone_out", "audio1", "route_level:microphone_out")],
         children=["A.PREAMP.INPUT_MIXER", "A.PREAMP.MUSIC_VOLUME", "A.PREAMP.BASS", "A.PREAMP.TREBLE", "A.PREAMP.MID", "A.PREAMP.BALANCE", "A.PREAMP.ROUTE_LEVEL"],
