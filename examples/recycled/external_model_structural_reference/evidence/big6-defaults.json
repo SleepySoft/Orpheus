@@ -1,0 +1,334 @@
+{
+  "schema_version": 1,
+  "module_ids": [
+    "A.BIG6_VOLUME",
+    "A.BIG6_TONE",
+    "A.BIG6_BALANCE"
+  ],
+  "sources": [
+    {
+      "file": "Model_1_1_PreAmp_p0_b0_TOP.c",
+      "sha256": "f7fe36b16a469f3a333fd8bee974853e19e1b959ce734bed325d9206765c3390"
+    },
+    {
+      "file": "Model_1_1_data.c",
+      "sha256": "358b8004e0e61e1c3d3722ce3731f7fe9ce34bd1b1153a8090cadedba2651d11"
+    }
+  ],
+  "facts": {
+    "processing_order": [
+      "volume",
+      "bass",
+      "treble",
+      "mid",
+      "balance"
+    ],
+    "volume": {
+      "channels": 10,
+      "ramper_count": 1,
+      "table_db": {
+        "source_field": "VolumeTable_dB",
+        "count": 8,
+        "sha256": "a68f3975bc1cabebf347eed563b2f9e228cee3ebf037f7857d9aee18868d110f",
+        "values": [
+          -128.0,
+          -72.0,
+          -39.5,
+          -27.5,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "table_index": {
+        "source_field": "VolumeTable_Idx",
+        "count": 8,
+        "sha256": "039d2f9fa8911a0faa4c6db4ec3ef856c6dd14604989f47865207794de7c35ee",
+        "values": [
+          0,
+          111,
+          176,
+          200,
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      "ramp_ms": {
+        "source_field": "VolumeRampTime",
+        "value": 100.0
+      },
+      "maximum_gain_db": {
+        "source_field": "Volumemaxgain",
+        "value": 0.0
+      },
+      "channel_map": {
+        "source_anchor": "<S517>/Audio Stats Func",
+        "count": 11,
+        "sha256": "53e58649672963dc0ff6d239910cfd1ed32205cc7e57df0a216bd4c2e69a6677",
+        "values": [
+          10,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "encoding": "first value is channel count; remaining values are 1-based channels"
+      }
+    },
+    "balance": {
+      "channels": 10,
+      "ramper_count": 4,
+      "channel_to_ramper": {
+        "source_field": "BalanceChanRampMap",
+        "count": 10,
+        "sha256": "7a09474b12ade5016ee9d5c9b8a32131b899a828143c906d311f9dd1781a288d",
+        "values": [
+          1,
+          2,
+          3,
+          4,
+          1,
+          2,
+          1,
+          1,
+          2,
+          2
+        ]
+      },
+      "table_db": {
+        "source_field": "BalanceTableDb",
+        "count": 30,
+        "sha256": "7f90a2171f4372126a866bf3a1ec7057139e769feb0283879434a4357a253196",
+        "values": [
+          -30.0,
+          -27.0,
+          -14.0,
+          -7.0,
+          -5.0,
+          -3.0,
+          -1.0,
+          0.0,
+          -1.0,
+          -3.0,
+          -5.0,
+          -7.0,
+          -14.0,
+          -27.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0,
+          -30.0
+        ]
+      },
+      "table_index": {
+        "source_field": "BalanceTableIdx",
+        "count": 30,
+        "sha256": "1a07c43948b2f2b05e70bc46696ef6941d24fb837f66c7b8f0b0aa34374783a5",
+        "values": [
+          0,
+          10,
+          31,
+          52,
+          74,
+          95,
+          116,
+          128,
+          138,
+          159,
+          180,
+          202,
+          223,
+          244,
+          255,
+          255,
+          255,
+          255,
+          255,
+          255,
+          255,
+          255,
+          255,
+          255,
+          255,
+          255,
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      "boost_disabled": {
+        "source_field": "BalanceBoostDisable",
+        "value": 1
+      },
+      "silent_extreme": {
+        "source_field": "BalanceEnableSilentExtreme",
+        "value": 1
+      },
+      "offset": {
+        "source_field": "BalanceOffset",
+        "value": 128.0
+      },
+      "ramp_ms": {
+        "source_field": "BalanceRampTime",
+        "value": 30.0
+      },
+      "extreme_mutes_bass": {
+        "source_field": "BalanceSleepingBeautyMutesBass",
+        "value": 1
+      }
+    },
+    "bass": {
+      "boost_coefficients": {
+        "source_field": "BassBoostCoeffs",
+        "count": 3,
+        "sha256": "2d767137393339551261ad82d9b30532505589167cc532931621df1ccc3232f8",
+        "values": [
+          0.00779292,
+          0.00779292,
+          0.98441416
+        ]
+      },
+      "cut_coefficients": {
+        "source_field": "BassCutCoeffs",
+        "count": 3,
+        "sha256": "2d767137393339551261ad82d9b30532505589167cc532931621df1ccc3232f8",
+        "values": [
+          0.00779292,
+          0.00779292,
+          0.98441416
+        ]
+      },
+      "maximum_boost_db": {
+        "source_field": "BassBoostMaximum_dB",
+        "value": 20.0
+      },
+      "maximum_cut_db": {
+        "source_field": "BassCutMaximum_dB",
+        "value": 20.0
+      },
+      "offset": {
+        "source_field": "BassOffset",
+        "value": 128.0
+      },
+      "scale": {
+        "source_field": "BassScale",
+        "value": 127.0
+      },
+      "ramp_ms": {
+        "source_field": "Bassramptime",
+        "value": 30.0
+      }
+    },
+    "mid": {
+      "boost_coefficients": {
+        "source_field": "MidrangeBoostCoeffs",
+        "count": 5,
+        "sha256": "17791108d99dad3ef0a09eaabebc919aa2c2975a1b7867c84771f9bfb0c4c011",
+        "values": [
+          -1.88373291,
+          0.893467903,
+          0.0532660671,
+          0.0,
+          -0.0532660671
+        ]
+      },
+      "cut_coefficients": {
+        "source_field": "MidrangeCutCoeffs",
+        "count": 5,
+        "sha256": "17791108d99dad3ef0a09eaabebc919aa2c2975a1b7867c84771f9bfb0c4c011",
+        "values": [
+          -1.88373291,
+          0.893467903,
+          0.0532660671,
+          0.0,
+          -0.0532660671
+        ]
+      },
+      "maximum_boost_db": {
+        "source_field": "MidrangeBoostMaximum_dB",
+        "value": 20.0
+      },
+      "maximum_cut_db": {
+        "source_field": "MidrangeCutMaximum_dB",
+        "value": 20.0
+      },
+      "offset": {
+        "source_field": "MidrangeOffset",
+        "value": 128.0
+      },
+      "scale": {
+        "source_field": "MidrangeScale",
+        "value": 127.0
+      },
+      "ramp_ms": {
+        "source_field": "MidrangeRampTime",
+        "value": 30.0
+      }
+    },
+    "treble": {
+      "boost_coefficients": {
+        "source_field": "TrebleBoostCoeffs",
+        "count": 3,
+        "sha256": "4aa40053bac35ed824d4886918409e6047a9f21001f83dad86256c3b204abb0a",
+        "values": [
+          0.788675129,
+          -0.788675129,
+          0.577350259
+        ]
+      },
+      "cut_coefficients": {
+        "source_field": "TrebleCutCoeffs",
+        "count": 3,
+        "sha256": "4aa40053bac35ed824d4886918409e6047a9f21001f83dad86256c3b204abb0a",
+        "values": [
+          0.788675129,
+          -0.788675129,
+          0.577350259
+        ]
+      },
+      "maximum_boost_db": {
+        "source_field": "TrebleBoostMaximum_dB",
+        "value": 20.0
+      },
+      "maximum_cut_db": {
+        "source_field": "TrebleCutMaximum_dB",
+        "value": 20.0
+      },
+      "offset": {
+        "source_field": "TrebleOffset",
+        "value": 128.0
+      },
+      "scale": {
+        "source_field": "TrebleScale",
+        "value": 127.0
+      },
+      "ramp_ms": {
+        "source_field": "Trebleramptime",
+        "value": 30.0
+      }
+    }
+  },
+  "scope": "defaults and layouts only; process equations and golden validation remain separate gates"
+}

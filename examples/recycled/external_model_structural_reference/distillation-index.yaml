@@ -15,12 +15,21 @@ sources:
   runtime_a_post:
     file: Model_1_1_ert_shrlib_rtw/PostProcess.c
     sha256: fc6fcd638edd10e0be1d9edc6cda7a617967b885cb227d9cdea7cb5abb581098
+  runtime_a_post_top:
+    file: Model_1_1_ert_shrlib_rtw/Model_1_1_PostProcess_p0_b0_TOP.c
+    sha256: c256d3dd0cf54d11c70a66180cef6aff41c170eceef0dde5bdada4a5fa923f2b
   runtime_a_top:
     file: Model_1_1_ert_shrlib_rtw/Model_1_1_*_TOP.c
     sha256: per_file_pending
+  runtime_a_input_select_top:
+    file: Model_1_1_ert_shrlib_rtw/Model_1_1_InputSelect_p0_b0_TOP.c
+    sha256: 01790c1e0ab2fc89df5cc8e156477e5b26213d924c1caefccb96f131782dc866
   runtime_a_preamp_top:
     file: Model_1_1_ert_shrlib_rtw/Model_1_1_PreAmp_p0_b0_TOP.c
     sha256: f7fe36b16a469f3a333fd8bee974853e19e1b959ce734bed325d9206765c3390
+  runtime_a_constants:
+    file: Model_1_1_ert_shrlib_rtw/Model_1_1_data.c
+    sha256: 358b8004e0e61e1c3d3722ce3731f7fe9ce34bd1b1153a8090cadedba2651d11
   runtime_b_main:
     file: Model_1_2_ert_shrlib_rtw/Model_1_2.c
     sha256: e9560f08055eded66e21e1e2646de64de162665f5a4346e2590ec885fcd5354b
@@ -111,10 +120,11 @@ modules:
     purpose: 从 30 路系统输入中稳定提取 12 路节目、1 路麦克风和 17 路提示音，并允许运行期更新路由表
     tids: [A0]
     io: {inputs: [audio_30], outputs: [entertainment_12, microphone_1, announcement_17]}
-    evidence: [runtime_a_main, runtime_a_top]
+    evidence: [runtime_a_main, runtime_a_input_select_top]
+    evidence_artifacts: [evidence/input-routing-defaults.json]
     dependencies: []
     orpheus_target: channel_router + 双 bank 路由表更新
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: indexed, golden: pending}
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: extracted, golden: pending}
     artifact: notes
     system_graph_eligible: false
 
@@ -124,9 +134,10 @@ modules:
     tids: [A0]
     io: {inputs: [entertainment_12], outputs: [program_10]}
     evidence: [runtime_a_main, runtime_a_preamp_top]
+    evidence_artifacts: [evidence/input-routing-defaults.json]
     dependencies: [A.INPUT_SELECT]
     orpheus_target: input_mixer_3d + switch
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: indexed, golden: pending}
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: extracted, golden: pending}
     artifact: notes
     system_graph_eligible: false
 
@@ -135,10 +146,11 @@ modules:
     purpose: 以无跳变斜坡调整 10 路节目总电平，并把当前增益状态提供给后续控制逻辑
     tids: [A0]
     io: {inputs: [program_10, volume_target], outputs: [volume_audio_10, volume_state]}
-    evidence: [runtime_a_main, runtime_a_preamp_top]
+    evidence: [runtime_a_main, runtime_a_preamp_top, runtime_a_constants]
+    evidence_artifacts: [evidence/big6-defaults.json]
     dependencies: [A.INPUT_MIXER]
     orpheus_target: gain_ramper；需核对原始 dB/线性域和斜坡律
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: analyzed, parameters: indexed, golden: pending}
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: analyzed, parameters: extracted, golden: pending}
     artifact: notes
     system_graph_eligible: false
 
@@ -148,9 +160,10 @@ modules:
     tids: [A0]
     io: {inputs: [volume_audio_10, bass, mid, treble], outputs: [tone_audio_10]}
     evidence: [runtime_a_main, runtime_a_preamp_top]
+    evidence_artifacts: [evidence/big6-defaults.json]
     dependencies: [A.BIG6_VOLUME]
     orpheus_target: bass + midrange + treble；需从原公式证明滤波器类型和参数映射
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: indexed, golden: pending}
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: extracted, golden: pending}
     artifact: notes
     system_graph_eligible: false
 
@@ -160,21 +173,23 @@ modules:
     tids: [A0]
     io: {inputs: [tone_audio_10, balance_target], outputs: [balanced_audio_10, balance_state]}
     evidence: [runtime_a_main, runtime_a_preamp_top]
+    evidence_artifacts: [evidence/big6-defaults.json]
     dependencies: [A.BIG6_TONE]
     orpheus_target: balance 或 gain_ramper 组合；必须先提取四 ramper 的真实通道映射
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: analyzed, parameters: indexed, golden: pending}
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: analyzed, parameters: extracted, golden: pending}
     artifact: notes
     system_graph_eligible: false
 
   - id: A.PREAMP_ROUTE_LEVEL
     runtime: runtime_a
-    purpose: 把 Big6 后的 10 路节目送往 32 路后处理总线、自适应响度支路和电平检测支路
+    purpose: 在 Volume 后分出 32 路主后处理总线，并把 Tone/Balance 后的 10 路送往自适应闭环；同时从 InputMixer 前馈支路计算电平
     tids: [A0]
-    io: {inputs: [balanced_audio_10, microphone_1], outputs: [post_buffer_32, adaptive_buffer_10, mic_buffer_1, level_metrics]}
+    io: {inputs: [program_10, volume_audio_10, volume_state, balanced_audio_10, microphone_1], outputs: [post_buffer_32, adaptive_buffer_10, mic_buffer_1, level_metrics]}
     evidence: [runtime_a_main, runtime_a_top]
-    dependencies: [A.BIG6_BALANCE, A.INPUT_SELECT]
+    evidence_artifacts: [evidence/preamp-routing-defaults.json]
+    dependencies: [A.INPUT_MIXER, A.BIG6_VOLUME, A.BIG6_BALANCE, A.INPUT_SELECT]
     orpheus_target: channel_router + iir_bank + level_detect
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: indexed, golden: pending}
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: extracted, golden: pending}
     artifact: notes
     system_graph_eligible: false
 
@@ -183,10 +198,11 @@ modules:
     purpose: 在 22 路最终输出前完成增益斜坡、保护、频响补偿、软削波、校准和扬声器延迟
     tids: [A0]
     io: {inputs: [post_buffer_32], outputs: [main_audio_22]}
-    evidence: [runtime_a_post, runtime_a_main, runtime_a_top]
+    evidence: [runtime_a_post, runtime_a_post_top, runtime_a_main]
+    evidence_artifacts: [evidence/postprocess-defaults.json]
     dependencies: [A.PREAMP_ROUTE_LEVEL]
     orpheus_target: channel_router + gain_ramper + limiter + iir_bank + piecewise_soft_clipper + delay_line
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: indexed, golden: pending}
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: extracted, golden: pending}
     artifact: notes
     system_graph_eligible: false
 

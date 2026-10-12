@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "module_ids": [
+    "A.PREAMP_ROUTE_LEVEL"
+  ],
+  "sources": [
+    {
+      "file": "Model_1_1_PreAmp_p0_b0_TOP.c",
+      "sha256": "f7fe36b16a469f3a333fd8bee974853e19e1b959ce734bed325d9206765c3390"
+    }
+  ],
+  "facts": {
+    "branch_provenance": {
+      "post_buffer_32": {
+        "source": "volume_audio_10",
+        "purpose": "feed Runtime A final PostProcess",
+        "important": "bypasses Bass/Treble/Mid/Balance in the current frame"
+      },
+      "adaptive_buffer_10": {
+        "source": "balanced_audio_10",
+        "purpose": "feed adaptive loudness and Runtime B"
+      },
+      "microphone_buffer_1": {
+        "source": "input_select.microphone_1",
+        "purpose": "feed adaptive noise estimation"
+      },
+      "level_detection_audio_10": {
+        "source": "input_mixer.program_10",
+        "purpose": "measure pre-Big6 program after delay and pre-emphasis",
+        "volume_compensation": "uses Volume current gain converted to dB"
+      }
+    },
+    "post_buffer_route": {
+      "input_channels": 10,
+      "output_channels": 32,
+      "default_map": {
+        "source_field": "PreqRouterOut1OutMap",
+        "count": 32,
+        "sha256": "e5bb714fecc039f0d4a224cbbf917e4e332392b74241d44164c5c877e158300f",
+        "values": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          1,
+          2
+        ]
+      },
+      "rtc_override": "each nonzero RTC entry replaces the same TOP route entry",
+      "valid_source_channels": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "invalid_route_rule": "route <= 0 or route > 6 produces an all-zero output channel"
+    },
+    "level_detection": {
+      "channels": 10,
+      "delay_samples": {
+        "source_field": "LevelDetectMusicDelaySamples",
+        "value": 72
+      },
+      "pre_emphasis_coefficients": {
+        "source_field": "LevelDetectEntLevPreEmpFilterpooliirCoeffs",
+        "count": 50,
+        "sha256": "1be170aa38c4b1115b595f47577509f4c5e396758b4e7ba9f282693549cf02ae",
+        "values": [
+          0.997866333,
+          0.979443491,
+          -1.97923,
+          0.983636498,
+          -1.98350155,
+          0.997866333,
+          0.979443491,
+          -1.97923,
+          0.983636498,
+          -1.98350155,
+          0.997866333,
+          0.979443491,
+          -1.97923,
+          0.983636498,
+          -1.98350155,
+          0.997866333,
+          0.979443491,
+          -1.97923,
+          0.983636498,
+          -1.98350155,
+          0.997866333,
+          0.979443491,
+          -1.97923,
+          0.983636498,
+          -1.98350155,
+          0.997866333,
+          0.979443491,
+          -1.97923,
+          0.983636498,
+          -1.98350155,
+          0.997866333,
+          0.979443491,
+          -1.97923,
+          0.983636498,
+          -1.98350155,
+          0.997866333,
+          0.979443491,
+          -1.97923,
+          0.983636498,
+          -1.98350155,
+          0.997866333,
+          0.979443491,
+          -1.97923,
+          0.983636498,
+          -1.98350155,
+          0.997866333,
+          0.979443491,
+          -1.97923,
+          0.983636498,
+          -1.98350155
+        ]
+      },
+      "pre_emphasis_stages": {
+        "source_field": "LevelDetectEntLevPreEmpFilterPooliirNumStages",
+        "count": 10,
+        "sha256": "09e5083e02d2314619a3b13e29dc79424b14e0781d9d354d7038d4fc12661cf7",
+        "values": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "system_max_dbspl": {
+        "source_field": "LevelDetectSysMaxDbspl",
+        "value": 123.0
+      },
+      "frame_metrics": [
+        "maximum channel RMS in dB",
+        "maximum absolute sample in dB"
+      ],
+      "modes": {
+        "audiopilot": {
+          "fast_decay_db_per_sample": {
+            "source_field": "AudiopilotLevelDetectFastDecayDbPerSample",
+            "value": -0.00333333341
+          },
+          "hold_margin_db": {
+            "source_field": "AudiopilotLevelDetectHoldMarginDb",
+            "value": 6.0
+          },
+          "hold_time_samples": {
+            "source_field": "AudiopilotLevelDetectHoldTimeSamples",
+            "value": 4500.0
+          },
+          "maximum_volume_db": {
+            "source_field": "AudiopilotLevelDetectMaxVolumeDb",
+            "value": 0.0
+          },
+          "minimum_volume_db": {
+            "source_field": "AudiopilotLevelDetectMinVolumeDb",
+            "value": -80.0
+          },
+          "slow_decay_db_per_sample": {
+            "source_field": "AudiopilotLevelDetectSlowDecayDbPerSample",
+            "value": -6.66666674e-05
+          }
+        },
+        "dynamic_eq": {
+          "fast_decay_db_per_sample": {
+            "source_field": "DyneqLevelDetectFastDecayDbPerSample",
+            "value": -0.00333333341
+          },
+          "hold_margin_db": {
+            "source_field": "DyneqLevelDetectHoldMarginDb",
+            "value": 6.0
+          },
+          "hold_time_samples": {
+            "source_field": "DyneqLevelDetectHoldTimeSamples",
+            "value": 4500.0
+          },
+          "maximum_volume_db": {
+            "source_field": "DyneqLevelDetectMaxVolumeDb",
+            "value": 0.0
+          },
+          "minimum_volume_db": {
+            "source_field": "DyneqLevelDetectMinVolumeDb",
+            "value": -80.0
+          },
+          "slow_decay_db_per_sample": {
+            "source_field": "DyneqLevelDetectSlowDecayDbPerSample",
+            "value": -6.66666674e-05
+          }
+        }
+      }
+    }
+  },
+  "scope": "default routes, branch provenance and detector parameters; InnerLink state machine golden remains pending"
+}

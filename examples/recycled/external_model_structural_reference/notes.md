@@ -1,6 +1,6 @@
 # 外部模型结构参考说明
 
-对应工程：`examples/recycled/external_model_structural_reference.yaml`
+对应工程：`examples/recycled/external_model_structural_reference/`
 
 > 重要：本工程不是完整算法蒸馏，也不具备与外部生成代码逐样本或听感等价的资格。它是结构参考，用于保存拓扑、通道尺寸、任务周期、TOP 分区和 BVP 边界。
 
@@ -131,7 +131,7 @@ Orpheus 现有标量控制链不能表达这些数组和状态机。YAML 只在 
 ## 7. 验证
 
 ```powershell
-python -m orpheus_core.cli validate examples/recycled/external_model_structural_reference.yaml
+python -m orpheus_core.cli validate examples/recycled/external_model_structural_reference
 python -m pytest orpheus_core/tests/test_external_model_alignment.py `
   orpheus_core/tests/test_distill_import.py `
   orpheus_core/tests/test_external_model_structure.py -q

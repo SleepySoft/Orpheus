@@ -78,13 +78,13 @@ $$
 - `p2=0.714285731`
 - high/low 两档相同
 
-Orpheus 组件：`orpheus.builtin.piecewise_soft_clipper`。`examples/recycled/external_model_structural_reference.yaml` 使用生成代码的二次分段实现，不再使用 tanh 近似。
+Orpheus 组件：`orpheus.builtin.piecewise_soft_clipper`。`examples/recycled/external_model_structural_reference/` 使用生成代码的二次分段实现，不再使用 tanh 近似。
 
 ## 外部模型结构参考
 
-完整双 Runtime 模型不再从结构参考直接转图。后续工作以 `model-b-distillation-index.yaml` 为唯一进度索引，按 `model-b-distillation-workflow.md` 逐模块完成边界、调度、算法、状态、参数和 golden 六项门禁后再组装。Big6 的当前所有权和缺口见 `model-b-big6-analysis.md`。
+完整双 Runtime 模型不再从结构参考直接转图。后续工作以工程目录内的 `distillation-index.yaml` 为唯一进度索引，按 `distillation-workflow.md` 逐模块完成边界、调度、算法、状态、参数和 golden 六项门禁后再组装。Big6 的当前所有权和缺口见 `analysis/big6.md`。
 
-`examples/recycled/external_model_structural_reference.yaml` 以外部生成输出为调查边界，合并了此前分散的主链、PostProcess 和组件验证模型；它已归档为蒸馏底稿，不再作为 UI 示例：
+`examples/recycled/external_model_structural_reference/` 以外部生成输出为调查边界，合并了此前分散的主链、PostProcess 和组件验证模型；它已归档为目录工程蒸馏底稿，不再作为 UI 示例：
 
 - Runtime A / `Model_1_1`：6 个 TID、全速率 SAS、PostProcess 与 Audiopilot；
 - Runtime B / `Model_1_2`：5 个 TID、Deci FDP/Mixing、Peripheral/Headrest/Overhead EQ 与 Deci PostHoligram；

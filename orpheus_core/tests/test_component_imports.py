@@ -531,6 +531,7 @@ def test_discovery_keeps_flat_projects_beside_directory_projects(tmp_path: Path)
         root / "directory" / "project.yaml",
         project_document([], "orpheus.builtin.gain"),
     )
+    write_yaml(root / "directory" / "distillation-index.yaml", {"version": 1})
     write_yaml(
         root / "recycled" / "old.yaml",
         project_document([], "orpheus.builtin.gain"),

@@ -478,17 +478,24 @@ def discover_project_files(paths: list[Path]) -> list[Path]:
                 continue
             entries = {entry.resolve() for entry in path.rglob("project.yaml")}
             files.update(entries)
+            project_roots = {entry.parent for entry in entries}
+
+            def inside_directory_project(candidate: Path) -> bool:
+                return any(root == candidate.parent or root in candidate.parents for root in project_roots)
+
             files.update(
                 candidate.resolve()
                 for candidate in path.rglob("*.yaml")
                 if not candidate.name.endswith(".component.yaml")
                 and candidate.name != "component.yaml"
                 and candidate.name != "project.yaml"
+                and not inside_directory_project(candidate.resolve())
             )
             files.update(
                 candidate.resolve()
                 for candidate in path.rglob("*.yml")
                 if not candidate.name.endswith(".component.yml")
                 and candidate.name != "component.yml"
+                and not inside_directory_project(candidate.resolve())
             )
     return sorted(files)

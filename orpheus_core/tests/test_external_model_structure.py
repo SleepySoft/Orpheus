@@ -37,7 +37,10 @@ def _cleanup(client):
 
 
 def _load_example(name: str) -> dict:
-    with open(ROOT / "examples" / name, encoding="utf-8") as f:
+    path = ROOT / "examples" / name
+    if path.is_dir():
+        path = path / "project.yaml"
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -62,7 +65,7 @@ def _compile(name: str) -> dict:
 )
 def test_external_model_structural_reference_compile() -> None:
     """Runtime A/B 结构子组件能编译。"""
-    plan = _compile("recycled/external_model_structural_reference.yaml")
+    plan = _compile("recycled/external_model_structural_reference")
     comps = {cfg["component"] for cfg in plan.node_configs.values()}
     # 子组件展开后不应再出现 sub: 前缀
     assert not any(c.startswith("sub:") for c in comps)
@@ -85,7 +88,7 @@ def test_external_model_structural_reference_run_end_to_end(client) -> None:
     name = f"external_{uuid.uuid4().hex[:8]}"
     _CREATED.append(name)
     assert client.post("/api/projects", json={"name": name}).status_code == 201
-    src = _load_example("recycled/external_model_structural_reference.yaml")
+    src = _load_example("recycled/external_model_structural_reference")
     doc = client.get(f"/api/projects/{name}").json()
     doc["sample_rate"] = src["sample_rate"]
     doc["block_size"] = src["block_size"]

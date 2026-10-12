@@ -10,7 +10,7 @@ from orpheus_core.registry import Registry
 from orpheus_core.subgraph import flatten_project
 
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE = ROOT / "examples" / "recycled" / "external_model_structural_reference.yaml"
+EXAMPLE = ROOT / "examples" / "recycled" / "external_model_structural_reference" / "project.yaml"
 
 
 def test_external_components_compile() -> None:

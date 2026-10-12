@@ -2,7 +2,7 @@
 
 本模型禁止从生成 C 代码直接画完整 Orpheus 图。直接转换会保留函数名和若干音频数组，却容易丢掉跨 TID 缓冲、并行支路、反馈、运行期参数事务、跨 Runtime 数组状态和更新顺序。
 
-当前唯一进度入口是 [model-b-distillation-index.yaml](model-b-distillation-index.yaml)。结构参考和局部图只能作为证据附件，不能反向代表模块已经蒸馏完成。
+当前唯一进度入口是 [distillation-index.yaml](distillation-index.yaml)。结构参考和局部图只能作为证据附件，不能反向代表模块已经蒸馏完成。
 
 ## 进度字段
 

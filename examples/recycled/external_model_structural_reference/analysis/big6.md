@@ -1,6 +1,6 @@
 # A.BIG6 初始分析记录
 
-状态：边界与第一轮 process/state 已分析，参数值和 golden 尚未完成，禁止并入完整系统图。
+状态：边界、第一轮 process/state 和默认参数已提取，golden 尚未完成，禁止并入完整系统图。
 
 本轮证据固定为：
 
@@ -21,16 +21,17 @@ Big6 在该模型中不是一个连续的 2 路效果器：
 12 路节目
   -> 输入布局转换（10 路内部声场）
   -> Volume（10 路平滑增益）
-  -> Bass -> Treble -> Mid（10 路音调）
-  -> Balance（10 路、四个 ramper 状态）
-  -> 32 路后处理路由 + 10 路自适应响度抽头
+       |-> 32 路主 PostProcess Buffer（只使用前六路映射）
+       `-> Bass -> Treble -> Mid（10 路音调）
+           -> Balance（10 路、四个 ramper 状态）
+           -> 10 路自适应响度/跨 Runtime 抽头
 
 22 路全速率结果 + 22 路降速空间结果
   -> 求和 -> 扬声器延迟 -> 路由
   -> Fade（22 路前后组） -> Mute -> 反馈/输出
 ```
 
-这解释了为什么之前把 Bass/Mid/Treble/Balance/Volume 放在一条 2 路支路并接到 sink 是错误的：它既没有作用于主输出，也把真实 10 路控制降成了演示级立体声效果。
+这解释了为什么之前把 Bass/Mid/Treble/Balance/Volume 放在一条 2 路支路并接到 sink 是错误的：它把真实 10 路控制降成了演示级立体声效果，也遗漏了 Volume 后的主输出分支。Tone/Balance 并非在当前帧直接串入主 PostProcess，而是通过自适应响度、Runtime B 和 22 路反馈闭环影响系统；详见 `preamp-routing.md`。
 
 ## 第一轮 process/state 结论
 
@@ -46,14 +47,14 @@ Volume -> Bass -> Treble -> Mid -> Balance
 - 状态至少包含 `currentGain`、`targetGain`、`rampCoeff`、`frameCount` 和 `Freeze`。
 - `frameCount == 0` 时直接吸附到 `targetGain`；freeze 时保持当前增益，不推进帧计数。
 - 输出还包含逐通道 `gainOut`，后续电平检测会读取它，因此实现不能只处理音频而丢掉当前增益状态。
-- 当前生成实例是 10 路音频；ramper-to-channel map 仍需从常量区提取并加入 golden。
+- 当前生成实例是一个 ramper 覆盖 10 路音频；编码为 `[10,1,2,3,4,5,6,7,8,9,10]`，仍需加入 golden。
 
 ### Bass / Treble / Mid
 
 - 三段调用顺序由 `Model_1_1.c:8710..8726` 直接确定。
 - Bass 和 Treble 分别读取 3 项 boost/cut 系数；Mid 读取 5 项 boost/cut 系数，不能先验假设三者都是同一种一阶 shelf。
 - 控制索引先按 `(index - offset) / scale` 归一化到 `[-1, 1]`，再结合最大 boost/cut 和各自 ramper 参数更新滤波器状态。
-- TOP 字段包含每段 boost/cut 系数、最大 dB、offset、scale 和 ramp time；具体值与滤波器状态递推仍待下一轮提取。
+- TOP 字段中的 boost/cut 系数、最大 dB、offset、scale 和 ramp time 已落盘到 `../evidence/big6-defaults.json`；滤波器状态递推仍待下一轮提取。
 
 ### Balance
 
@@ -76,7 +77,6 @@ Volume -> Bass -> Treble -> Mid -> Balance
 
 ## 下一轮证据提取
 
-1. 提取 Volume map、Balance 10→4 映射、30 点曲线和三段 tone 的默认系数/范围，产物带 shape/hash。
-2. 继续还原三段 tone 的差分方程、状态布局和 boost/cut 插值更新。
-3. 生成非零 Volume/Tone/Balance/Fade 输入向量，获取参考输出与 current gain 状态。
-4. 分别验证静态响应、跨块斜坡、freeze 和 reset，再决定复用通用组件还是实现模型专用子模块。
+1. 继续还原三段 tone 的差分方程、状态布局和 boost/cut 插值更新。
+2. 生成非零 Volume/Tone/Balance/Fade 输入向量，获取参考输出与 current gain 状态。
+3. 分别验证静态响应、跨块斜坡、freeze 和 reset，再决定复用通用组件还是实现模型专用子模块。

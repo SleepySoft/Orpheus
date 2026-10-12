@@ -21,6 +21,6 @@ tags: [orpheus/how]
 
 双 Runtime 模型专项：
 
-- [[reference/external-models/model-b-distillation-index.yaml|机器可读模块索引]]
-- [[reference/external-models/model-b-distillation-workflow|逐模块蒸馏流程]]
-- [[reference/external-models/model-b-big6-analysis|Big6 分析记录]]
+- [机器可读模块索引](../../examples/recycled/external_model_structural_reference/distillation-index.yaml)
+- [逐模块蒸馏流程](../../examples/recycled/external_model_structural_reference/distillation-workflow.md)
+- [Big6 分析记录](../../examples/recycled/external_model_structural_reference/analysis/big6.md)

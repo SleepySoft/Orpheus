@@ -99,7 +99,7 @@ def test_distill_external_sas_topology_expansion() -> None:
 
     name = _new_name()
     data = yaml.safe_load(
-        (ROOT / "examples" / "recycled" / "external_model_structural_reference.yaml").read_text(encoding="utf-8")
+        (ROOT / "examples" / "recycled" / "external_model_structural_reference" / "project.yaml").read_text(encoding="utf-8")
     )
     # 蒸馏端点只在骨架图上展开 model_tree
     data["graph"] = {
