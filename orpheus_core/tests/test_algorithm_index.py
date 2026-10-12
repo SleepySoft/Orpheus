@@ -250,6 +250,27 @@ def test_a_input_select_shared_route_then_three_selectors() -> None:
     assert public["default"] == ",".join("0" for _ in range(30))
 
 
+def test_a_preamp_balance_uses_exact_shared_ramper_bank_policy() -> None:
+    definitions = {
+        item["id"]: item for item in load_algorithm_index(INDEX)["definitions"]
+    }
+    definition = definitions["A.PREAMP.BALANCE"]
+    implementation = definition["implementation"]
+    assert implementation["status"] == "verified"
+    assert implementation["blockers"] == []
+    lowering = implementation["lowering"]
+    assert lowering["component"] == "orpheus.builtin.sleeping_beauty"
+    params = lowering["params"]
+    assert params["channels"] == 10
+    assert params["center_mono_mode"] == "mean_lr"
+    assert params["chan_map"] == "0,1,2,3,0,1,0,0,1,1"
+    assert len(params["table_idx"].split(",")) == 30
+    assert len(params["table_db"].split(",")) == 30
+    assert {parameter["id"] for parameter in lowering["parameters"]} == {
+        "gain_index", "ramp_db_per_s", "ramp_ms", "freeze",
+    }
+
+
 def test_full_index_bus_offsets_cover_exact_typed_transactions() -> None:
     document = load_algorithm_index(INDEX)
     types = {item["id"]: item for item in document["types"]}
@@ -329,7 +350,7 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     assert report["definitions"] == 66
     assert report["leaves"] + report["composites"] == 66
     assert report["executable"] is False
-    assert report["blocker_gates"]["golden"] == report["leaves"] - 5
+    assert report["blocker_gates"]["golden"] == report["leaves"] - 6
 
 
 def test_projection_refuses_to_overwrite_unmarked_directory(tmp_path: Path) -> None:

@@ -401,6 +401,7 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
                 ],
             }
         elif lowering:
+            manifest["parameters"] = copy.deepcopy(lowering.get("parameters", []))
             if lowering.get("component"):
                 lowering_nodes = [{
                     "id": "impl",
@@ -413,7 +414,6 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
                 lowering_nodes = copy.deepcopy(lowering["nodes"])
                 lowering_connections = copy.deepcopy(lowering["connections"])
                 port_maps = lowering["port_maps"]
-                manifest["parameters"] = copy.deepcopy(lowering.get("parameters", []))
             for port in manifest["ports"]:
                 port["maps_to"] = port_maps[port["id"]]
             manifest["graph"] = {

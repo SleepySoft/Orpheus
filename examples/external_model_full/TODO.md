@@ -18,6 +18,7 @@
 - [x] `B.BANDS.MONO`：用通用 `matrix_mul` 精确实现，默认矩阵经 10 路 one-hot golden 验证。
 - [x] `A.PREAMP.INPUT_MIXER`：用 gain + 两个 `input_mixer_3d` + `n_way_mux` 组合实现，两种模式经 12 路 one-hot golden 验证。
 - [x] `A.INPUT_SELECT`：共享 30 路 route 后分出 12/1/17 路，运行期 override 的 0 fallback 与越界静音已验证。
+- [x] `A.PREAMP.BALANCE`：通用 SleepingBeauty bank 的 mean_lr 策略精确覆盖 10ch 四组 Balance，含中间点、极值、ramp/freeze golden。
 - [x] `B.MIX_DECI.ORGANIZE`：修正为 CS17/LR21 双输出，并用两个 `channel_router` 完成 21 路 one-hot 映射。
 - [x] `B.MIX_DECI.ROUTE`：修正 RAMP 边界为 Center2/Left25/Right25，用 deinterleave/interleave 完成 52 路无重叠分发。
 - [x] 通用 `sleeping_beauty` 升级：64ch、共享四 ramper、逐样本 frameCount/freeze、dB/s 和 `-1→静音`，直接 ABI golden 通过。

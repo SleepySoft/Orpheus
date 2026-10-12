@@ -175,10 +175,10 @@ modules:
     evidence: [runtime_a_main, runtime_a_preamp_top]
     evidence_artifacts: [evidence/big6-defaults.json]
     dependencies: [A.BIG6_TONE]
-    orpheus_target: balance 或 gain_ramper 组合；必须先提取四 ramper 的真实通道映射
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: analyzed, parameters: extracted, golden: pending}
-    artifact: notes
-    system_graph_eligible: false
+    orpheus_target: sleeping_beauty bank（mean_lr policy）
+    progress: {boundary: verified, schedule: verified, algorithm: verified, state: verified, parameters: verified, golden: verified}
+    artifact: component
+    system_graph_eligible: true
 
   - id: A.PREAMP_ROUTE_LEVEL
     runtime: runtime_a

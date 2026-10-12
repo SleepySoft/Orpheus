@@ -214,7 +214,28 @@ def build_definitions() -> None:
     add("A.PREAMP.BASS", "低频音调", "按索引在 boost/cut 一阶残差滤波之间切换并跨 unity 两阶段平滑", "runtime_a", ["A0"], ["a_main"], ["一阶滤波", "y=x+(g-1)f(x)", "boost/cut 两阶段 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("filter", "每通道一阶状态", [10]), state("ramper", "phase/frame/current/target/freeze")], status="approximation", component="orpheus.builtin.bass")
     add("A.PREAMP.TREBLE", "高频音调", "按索引在 boost/cut 一阶残差滤波之间切换并平滑", "runtime_a", ["A0"], ["a_main"], ["一阶滤波", "残差增益", "两阶段 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("filter", "每通道一阶状态", [10])], status="approximation", component="orpheus.builtin.treble")
     add("A.PREAMP.MID", "中频音调", "使用二阶残差滤波和两阶段增益斜坡调节中频", "runtime_a", ["A0"], ["a_main"], ["二阶滤波", "使用 numerator 1/3 项", "残差增益"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("filter", "每通道二阶状态", [20])], status="approximation", component="orpheus.builtin.midrange")
-    add("A.PREAMP.BALANCE", "四组 Balance", "按 L/R/Center/Mono 四组映射平滑调整 10 路声像", "runtime_a", ["A0"], ["a_main"], ["30 点 dB 表", "可选能量补偿", "极端静音", "四 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("rampers", "四组 current/target/ramp/frame/freeze", [4])], status="approximation", component="orpheus.builtin.balance")
+    add("A.PREAMP.BALANCE", "四组 Balance", "按 L/R/Center/Mono 四组映射平滑调整 10 路声像", "runtime_a", ["A0"], ["a_main", "a_preamp_top"], ["30 点 dB 表", "mean(L/R) 中置与低音", "极端静音", "四 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("rampers", "四组 current/target/ramp/frame/freeze", [4])], status="verified", component="orpheus.builtin.sleeping_beauty", lowering={
+        "component": "orpheus.builtin.sleeping_beauty",
+        "params": {
+            "channels": 10,
+            "gain_index": 128.0,
+            "offset": 128.0,
+            "mutes_bass": 1.0,
+            "ramp_ms": 30.0,
+            "ramp_db_per_s": 0.0,
+            "freeze": False,
+            "center_mono_mode": "mean_lr",
+            "chan_map": "0,1,2,3,0,1,0,0,1,1",
+            "table_idx": "0,10,31,52,74,95,116,128,138,159,180,202,223,244,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255",
+            "table_db": "-30,-27,-14,-7,-5,-3,-1,0,-1,-3,-5,-7,-14,-27,-30,-30,-30,-30,-30,-30,-30,-30,-30,-30,-30,-30,-30,-30,-30,-30",
+        },
+        "parameters": [
+            {"id": "gain_index", "name": "Balance 索引", "type": "float", "default": 128.0, "range": [0.0, 255.0], "update_policy": "smoothed", "direction": "input", "maps_to": "impl:gain_index", "bindable": True},
+            {"id": "ramp_db_per_s", "name": "斜坡速率", "type": "float", "default": 0.0, "range": [0.0, 50000.0], "update_policy": "block_boundary", "direction": "input", "maps_to": "impl:ramp_db_per_s", "bindable": True},
+            {"id": "ramp_ms", "name": "斜坡时间", "type": "float", "default": 30.0, "range": [1.0, 3000.0], "update_policy": "block_boundary", "direction": "input", "maps_to": "impl:ramp_ms", "bindable": True},
+            {"id": "freeze", "name": "冻结斜坡", "type": "bool", "default": False, "update_policy": "block_boundary", "direction": "input", "maps_to": "impl:freeze", "bindable": True},
+        ],
+    }, blockers=[])
     add("A.PREAMP.ROUTE_LEVEL", "PreAmp 分支与电平检测", "从 Volume、Balance、Mic 和 InputMixer 分出主输出、自适应和电平状态", "runtime_a", ["A0"], ["a_main"], ["Volume→32 路仅源 1..6", "Balance→10 路 adaptive", "Mic→Buffer2", "预加重/RMS/Peak/InnerLink"], parent="A.PREAMP", inputs=[port("program", "audio10"), port("volume", "audio10"), port("balanced", "audio10"), port("microphone", "audio1")], outputs=[port("post_buffer", "audio32"), port("adaptive", "audio10"), port("microphone_out", "audio1"), port("levels", "control2")], states=[state("preemphasis", "10 路 IIR", [20]), state("inner_links", "AP/DynEQ hold/decay 状态", [2])], status="unsupported")
     add("A.POSTPROCESS", "22 路输出后处理", "将保护链和 32 路候选路由为最终 22 路输出", "runtime_a", ["A0"], ["a_main", "a_post"], ["内部保护", "主辅路由", "校准/FreqComp/延迟"], parent="A.RUNTIME", inputs=[port("protected", "audio22", "protected:in"), port("preq_buffer", "audio32", "router_output:preq"), port("announcement", "audio17", "router_output:announcement")], outputs=[port("main_out", "audio22", "router_output:out")], children=["A.POSTPROCESS.PROTECTED", "A.POSTPROCESS.ROUTER_OUTPUT"], edges=[edge("protected:out", "router_output:protected", "audio22")])
     add("A.POSTPROCESS.PROTECTED", "Limiter/PostEQ/内部软削波", "对 Part6 保护输入执行增益、限制、EQ、软削波和 RMDL mute", "runtime_a", ["A0"], ["a_post"], ["22 ramper", "BDSP limiter", "PostEQ", "piecewise soft clip", "RMDL mute"], parent="A.POSTPROCESS", inputs=[port("in", "audio22")], outputs=[port("out", "audio22")], states=[state("limiter_gain", "每通道递归限制增益", [22]), state("posteq", "22 路 IIR")], status="approximation", component="orpheus.builtin.limiter")

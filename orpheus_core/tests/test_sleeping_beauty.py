@@ -207,3 +207,33 @@ def test_sleeping_beauty_supports_54_channels_and_minus_one_mutes() -> None:
     assert output[1:] == pytest.approx([1.0] * 53)
     interface.destroy(state)
     assert keepalive
+
+
+@pytest.mark.skipif(not DLL.exists(), reason="sleeping_beauty not built")
+def test_sleeping_beauty_mean_lr_policy_matches_balance_goldens() -> None:
+    common = {
+        "channels": 10,
+        "offset": 128.0,
+        "mutes_bass": 1.0,
+        "ramp_ms": 0.0,
+        "center_mono_mode": "mean_lr",
+        "chan_map": "0,1,2,3,0,1,0,0,1,1",
+        "table_idx": "0,10,31,52,74,95,116,128,138,159,180,202,223,244,255",
+        "table_db": "-30,-27,-14,-7,-5,-3,-1,0,-1,-3,-5,-7,-14,-27,-30",
+    }
+    cut = 10 ** (-5.0 / 20.0)
+    mean = (1.0 + cut) * 0.5
+    silent = 5.0118723e-7
+    cases = [
+        (74.0, [1.0, cut, mean, mean, 1.0, cut, 1.0, 1.0, cut, cut]),
+        (0.0, [1.0, silent, silent, silent, 1.0, silent, 1.0, 1.0, silent, silent]),
+        (255.0, [silent, 1.0, silent, silent, silent, 1.0, silent, silent, 1.0, 1.0]),
+    ]
+    for gain_index, expected in cases:
+        _, interface, state, keepalive = _load_instance(
+            {**common, "gain_index": gain_index}, 10
+        )
+        output = _process(interface, state, [1.0] * 10, 10)
+        assert output == pytest.approx(expected, rel=2e-6, abs=2e-7)
+        interface.destroy(state)
+        assert keepalive

@@ -23,6 +23,7 @@ SleepingBeauty 响度补偿算法。根据音量位置（gain_index）应用非�
 | `ramp_ms` | float | 30.0 | [0, 5000] | restart | 斜坡时间（ms） |
 | `ramp_db_per_s` | float | 0.0 | [0, 50000] | block_boundary | 非零时优先按 dB/s 推导斜坡时长，内部钳到 5~50000 dB/s |
 | `freeze` | bool | false | - | block_boundary | 冻结 current gain 与剩余 frameCount |
+| `center_mono_mode` | string | attenuated | attenuated/mean_lr | restart | 中置/低音跟随衰减侧，或取左右目标均值（Balance） |
 | `channels` | int | 4 | [1, 64] | restart | 通道数（影响签名） |
 | `chan_map` | string | "0,1,2,3" | - | restart | 通道->ramper 映射（0=left,1=right,2=center,3=mono,-1=静音） |
 | `table_idx` | string | "0,10,31,...,255" | - | restart | 锥度增益索引表（15 点默认） |
