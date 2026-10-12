@@ -177,6 +177,9 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
       sourceHandle,
       targetHandle,
       type: 'message',
+      selectable: false,
+      deletable: false,
+      focusable: false,
       data: {
         label: `${bus.total_words} words`,
         busId: bus.id,

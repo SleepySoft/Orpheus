@@ -8,6 +8,7 @@ import ReactFlow, {
   applyEdgeChanges,
   ReactFlowProvider,
   useReactFlow,
+  useNodesInitialized,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -31,7 +32,6 @@ import {
 import OrpheusNode from './OrpheusNode';
 import AudioEdge from './AudioEdge';
 import ControlEdge from './ControlEdge';
-import MessageEdge from './MessageEdge';
 import ParamPanel from './ParamPanel';
 import ParamBrowser from './ParamBrowser';
 import Palette from './Palette';
@@ -46,7 +46,7 @@ import NotesPanel from './NotesPanel';
 import AlterGroupOverlay from './AlterGroupOverlay';
 
 const nodeTypes = { orpheus: OrpheusNode };
-const edgeTypes = { audio: AudioEdge, control: ControlEdge, message: MessageEdge };
+const edgeTypes = { audio: AudioEdge, control: ControlEdge };
 const AUTOSAVE_DELAY_MS = 1500;
 const EMPTY_VIEW = { nodes: [], edges: [] };
 
@@ -210,6 +210,8 @@ const { screenToFlowPosition } = useReactFlow();
     [fullCatalog]
   );
   const view = views[activeView] || EMPTY_VIEW;
+  const nodesInitialized = useNodesInitialized();
+  const initializedViewRef = useRef('');
   const activeSubId = activeView === 'main' ? null : subIdOf(activeView);
   const activeSub = activeSubId ? subsMeta.find((s) => s.id === activeSubId) : null;
 
@@ -222,6 +224,16 @@ const { screenToFlowPosition } = useReactFlow();
   const updateView = useCallback((key, updater) => {
     setViews((prev) => ({ ...prev, [key]: updater(prev[key] || EMPTY_VIEW) }));
   }, []);
+
+  useEffect(() => {
+    const viewKey = `${current || 'empty'}:${activeView}`;
+    if (!nodesInitialized || !view.nodes.length || initializedViewRef.current === viewKey) return;
+    initializedViewRef.current = viewKey;
+    updateView(activeView, (currentView) => ({
+      ...currentView,
+      nodes: currentView.nodes.map((node) => ({ ...node })),
+    }));
+  }, [activeView, current, nodesInitialized, updateView, view.nodes.length]);
 
   // ---------------------------------------------------------- data loading
 
@@ -2052,6 +2064,7 @@ const { screenToFlowPosition } = useReactFlow();
           </div>
           <NodeActionsContext.Provider value={{ showReadme: handleShowReadme, showControlLinks, revealSubExport }}>
             <ReactFlow
+            key={`${current || 'empty'}:${activeView}`}
             nodes={displayNodes}
             edges={displayEdges}
             onNodesChange={onNodesChange}

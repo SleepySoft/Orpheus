@@ -55,6 +55,7 @@ class ProjectRecord:
     path: Path  # absolute path to project.yaml
     dirty: bool = False
     last_saved: float = field(default_factory=time.time)
+    loaded_mtime_ns: int = 0
 
     @property
     def directory(self) -> Path:
@@ -151,7 +152,12 @@ class ProjectManager:
                 project.graph = Graph()
 
             self._loader.save(project, yaml_path)
-            rec = ProjectRecord(name=name, project=project, path=yaml_path)
+            rec = ProjectRecord(
+                name=name,
+                project=project,
+                path=yaml_path,
+                loaded_mtime_ns=yaml_path.stat().st_mtime_ns,
+            )
             self._records[name] = rec
             return rec
 
@@ -201,12 +207,26 @@ class ProjectManager:
         with self._lock:
             rec = self._records.get(name)
             if rec is not None:
+                current_mtime_ns = rec.path.stat().st_mtime_ns if rec.path.is_file() else 0
+                if not rec.dirty and current_mtime_ns != rec.loaded_mtime_ns:
+                    rec = ProjectRecord(
+                        name=name,
+                        project=self._loader.load(rec.path),
+                        path=rec.path,
+                        loaded_mtime_ns=current_mtime_ns,
+                    )
+                    self._records[name] = rec
                 return rec
             yaml_path = self._project_yaml(name)
             if not yaml_path.exists():
                 raise ProjectNotFoundError(f"project not found: {name}")
             project = self._loader.load(yaml_path)
-            rec = ProjectRecord(name=name, project=project, path=yaml_path)
+            rec = ProjectRecord(
+                name=name,
+                project=project,
+                path=yaml_path,
+                loaded_mtime_ns=yaml_path.stat().st_mtime_ns,
+            )
             self._records[name] = rec
             return rec
 
@@ -321,7 +341,12 @@ class ProjectManager:
                 project = self._loader.load(yaml_path)
             except Exception as exc:
                 raise ProjectValidationError(f"invalid project document: {exc}") from exc
-            rec = ProjectRecord(name=name, project=project, path=yaml_path)
+            rec = ProjectRecord(
+                name=name,
+                project=project,
+                path=yaml_path,
+                loaded_mtime_ns=yaml_path.stat().st_mtime_ns,
+            )
             self._records[name] = rec
             return rec
 

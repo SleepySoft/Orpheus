@@ -253,10 +253,15 @@ def validate_algorithm_index(document: dict[str, Any]) -> None:
         if boundary_type not in types:
             raise AlgorithmIndexError(f"{projection['id']}: unknown type_ref")
         adapter = projection.get("adapter")
-        endpoint_type = adapter["output_type_ref"] if adapter else boundary_type
         if adapter and adapter["output_type_ref"] not in types:
             raise AlgorithmIndexError(f"{projection['id']}: unknown adapter output type")
-        if endpoint_port["type_ref"] != endpoint_type:
+        if adapter and projection["direction"] == "input":
+            types_match = endpoint_port["type_ref"] == adapter["output_type_ref"]
+        elif adapter:
+            types_match = boundary_type == adapter["output_type_ref"]
+        else:
+            types_match = endpoint_port["type_ref"] == boundary_type
+        if not types_match:
             raise AlgorithmIndexError(f"{projection['id']}: I/O projection type mismatch")
 
     for relation in document["relations"]:
@@ -406,7 +411,8 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
         node_notes[root_definition["node_id"]] = (
             f"用途：{root_definition['purpose']}。双击进入按源码边界组织的算法子系统。"
             f"跨 Runtime typed bus（{', '.join(related_buses)}）是调度/部署事务合同，"
-            "不作为音频组件或画布连线；字段生产者、消费者和 offset 见 algorithm_projection.buses。"
+            "仅投影为只读消息链路，不写入可执行音频 connections；"
+            "字段生产者、消费者和 offset 见 algorithm_projection.buses。"
         )
     root_set = set(roots)
     graph_nodes = [
@@ -450,16 +456,34 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
                     "to": f"{root_node_id}:{endpoint_port}",
                 })
         else:
-            root_connections.append({
-                "from": f"{root_node_id}:{endpoint_port}",
-                "to": f"{projection['id']}:in",
-            })
+            if adapter:
+                graph_nodes.append({
+                    "id": adapter["id"],
+                    "component": adapter["component"],
+                    "params": copy.deepcopy(adapter["params"]),
+                    "position": {"x": 820, "y": 100 + index * 180},
+                })
+                root_connections.extend([
+                    {"from": f"{root_node_id}:{endpoint_port}", "to": f"{adapter['id']}:in"},
+                    {"from": f"{adapter['id']}:out", "to": f"{projection['id']}:in"},
+                ])
+            else:
+                root_connections.append({
+                    "from": f"{root_node_id}:{endpoint_port}",
+                    "to": f"{projection['id']}:in",
+                })
         node_notes[projection["id"]] = (
             "系统边界投影：用于展示和测试完整模型的外部音频入口/出口，不属于目标算法内部模块。"
         )
         if adapter:
+            if projection["direction"] == "input":
+                direction_label = "输入"
+                adapter_purpose = "把 2 路节目放入 30 路系统输入的前两路，其余通道静音"
+            else:
+                direction_label = "输出"
+                adapter_purpose = "把目标算法根输出转换为外部系统输出格式"
             node_notes[adapter["id"]] = (
-                "系统输入装配：把 2 路节目放入 30 路系统输入的前两路，其余通道静音；"
+                f"系统{direction_label}装配：{adapter_purpose}；"
                 "这是测试/部署适配，不是目标算法处理。"
             )
     for relation in document["relations"]:

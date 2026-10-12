@@ -173,6 +173,33 @@ def test_full_index_source_fingerprints_when_external_source_is_available() -> N
     verify_source_fingerprints(load_algorithm_index(INDEX), SOURCE_ROOT)
 
 
+def test_output_io_adapter_is_validated_and_projected_in_signal_order(tmp_path: Path) -> None:
+    document = load_algorithm_index(INDEX)
+    output = next(item for item in document["system"]["io_projection"] if item["direction"] == "output")
+    output["type_ref"] = "audio2"
+    output["params"] = {"channels": 2}
+    output["adapter"] = {
+        "id": "system_to_program",
+        "component": "orpheus.builtin.output_router",
+        "params": {"input_channels": 22, "output_channels": 2},
+        "output_type_ref": "audio2",
+    }
+    validate_algorithm_index(document)
+
+    projection = tmp_path / "projection"
+    emit_structural_project(document, projection)
+    project = yaml.safe_load((projection / "project.yaml").read_text(encoding="utf-8"))
+    assert {node["id"] for node in project["graph"]["nodes"]} >= {"system_to_program", "main_output"}
+    assert project["graph"]["connections"][-2:] == [
+        {"from": "a_runtime:main_out", "to": "system_to_program:in"},
+        {"from": "system_to_program:out", "to": "main_output:in"},
+    ]
+
+    output["adapter"]["output_type_ref"] = "audio1"
+    with pytest.raises(AlgorithmIndexError, match="I/O projection type mismatch"):
+        validate_algorithm_index(document)
+
+
 def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Path) -> None:
     document = load_algorithm_index(INDEX)
     first = tmp_path / "first"
@@ -227,8 +254,8 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
     assert project_registry.get("external_model.index.a_bus_exchange") is None
     assert project_registry.get("external_model.index.b_bus_exchange") is None
     notes = json.loads((FULL_PROJECT / "node-notes.json").read_text(encoding="utf-8"))
-    assert "不作为音频组件或画布连线" in notes["a_runtime"]
-    assert "不作为音频组件或画布连线" in notes["b_runtime"]
+    assert "仅投影为只读消息链路" in notes["a_runtime"]
+    assert "仅投影为只读消息链路" in notes["b_runtime"]
     expected = set(project.graph.nodes)
     expected.update(
         f"sub:{sub.id}/{node.id}"

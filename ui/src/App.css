@@ -2231,6 +2231,7 @@ pre {
 }
 
 .message-edge-label {
+  position: absolute;
   pointer-events: all;
   padding: 2px 6px;
   border: 1px solid #147d72;

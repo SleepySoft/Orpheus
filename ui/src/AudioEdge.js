@@ -1,5 +1,5 @@
 import React from 'react';
-import { BaseEdge, getBezierPath } from 'reactflow';
+import { BaseEdge, EdgeLabelRenderer, getBezierPath } from 'reactflow';
 
 /** Audio signal edge: solid cool-colored path, visually distinct from control links. */
 export default function AudioEdge({
@@ -11,8 +11,9 @@ export default function AudioEdge({
   sourcePosition,
   targetPosition,
   selected,
+  data,
 }) {
-  const [edgePath] = getBezierPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -20,13 +21,31 @@ export default function AudioEdge({
     targetY,
     targetPosition,
   });
+  const isMessage = !!data?.busId;
   return (
-    <g className="audio-edge-path">
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        style={{ strokeWidth: selected ? 3 : 2.2 }}
-      />
-    </g>
+    <>
+      <g className={isMessage ? 'message-edge-path' : 'audio-edge-path'}>
+        <BaseEdge
+          id={id}
+          path={edgePath}
+          style={isMessage ? {
+            stroke: '#147d72',
+            strokeWidth: selected ? 2.8 : 2,
+            strokeDasharray: '3 5',
+          } : { strokeWidth: selected ? 3 : 2.2 }}
+        />
+      </g>
+      {isMessage && (
+        <EdgeLabelRenderer>
+          <div
+            className="message-edge-label"
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+            title={`${data.busId}\n${data.atomicity || 'unverified'}\n${(data.fields || []).map((field) => field.id).join(', ')}`}
+          >
+            {data.busId} · {data.label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
   );
 }

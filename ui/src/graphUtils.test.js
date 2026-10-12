@@ -310,7 +310,11 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
       algorithm_projection: projection,
     };
     const { views, subsMeta } = docToViews(busDoc, catalog);
-    expect(views.main.edges.filter((edge) => edge.type === 'message')).toHaveLength(2);
+    const messageEdges = views.main.edges.filter((edge) => edge.type === 'message');
+    expect(messageEdges).toHaveLength(2);
+    expect(messageEdges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ selectable: false, deletable: false, focusable: false }),
+    ]));
     expect(views.main.nodes.find((node) => node.id === 'a').data.messagePorts).toHaveLength(2);
     expect(views.main.nodes.find((node) => node.id === 'b').data.messagePorts).toHaveLength(2);
     const out = viewsToDoc(views, subsMeta, busDoc);

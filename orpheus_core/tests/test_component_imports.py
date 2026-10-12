@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import hashlib
+import os
 import struct
 import subprocess
 
@@ -522,6 +523,20 @@ def test_standalone_validation_accepts_directory_project_with_imports(tmp_path: 
     assert discover_project_files([project_dir]) == [(project_dir / "project.yaml").resolve()]
     report = validate_project(project_dir / "project.yaml", builtin_registry())
     assert report.valid, [issue.message for issue in report.issues]
+
+
+def test_project_manager_reloads_clean_project_after_external_generation(tmp_path: Path) -> None:
+    manager = ProjectManager(tmp_path, builtin_registry())
+    record = manager.create("generated")
+    assert manager.get_document("generated")["metadata"]["description"] == ""
+    document = yaml.safe_load(record.path.read_text(encoding="utf-8"))
+    document["metadata"]["description"] = "externally regenerated"
+    previous_mtime = record.loaded_mtime_ns
+    write_yaml(record.path, document)
+    current_mtime = record.path.stat().st_mtime_ns
+    if current_mtime == previous_mtime:
+        os.utime(record.path, ns=(current_mtime + 1, current_mtime + 1))
+    assert manager.get_document("generated")["metadata"]["description"] == "externally regenerated"
 
 
 def test_placeholder_component_is_visible_but_never_compilable(tmp_path: Path) -> None:
