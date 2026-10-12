@@ -5,12 +5,12 @@
   "leaves": 51,
   "implementation_status": {
     "approximation": 5,
-    "unsupported": 33,
-    "verified": 13
+    "unsupported": 32,
+    "verified": 14
   },
   "blocker_gates": {
-    "algorithm": 37,
-    "golden": 38,
+    "algorithm": 36,
+    "golden": 37,
     "state": 1
   },
   "unresolved": [

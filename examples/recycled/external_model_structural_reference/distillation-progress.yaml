@@ -290,13 +290,25 @@ modules:
     artifact: notes
     system_graph_eligible: false
 
+  - id: B.BANDS_BASS
+    runtime: runtime_b
+    purpose: 从 B3 十路 SRC 输入生成 FDP 的 HPF LR2、Mix 的 HPF other7 与 LPF bass2
+    tids: [B3]
+    io: {inputs: [deci_audio_10], outputs: [hpf_lr_2, hpf_other_7, bass_lpf_2]}
+    evidence: [runtime_b_main, runtime_b_top]
+    dependencies: [B.BANDS]
+    orpheus_target: matrix_mul + per-channel iir_bank + channel_router
+    progress: {boundary: verified, schedule: verified, algorithm: verified, state: verified, parameters: verified, golden: verified}
+    artifact: slice_graph
+    system_graph_eligible: true
+
   - id: B.FDP_DECI
     runtime: runtime_b
     purpose: 在降速域再次分解高频素材，为降速空间混音和后续 HEQ 生成输入
     tids: [B3, B4]
     io: {inputs: [treble_lr_2], outputs: [deci_components_6]}
     evidence: [runtime_b_main, runtime_b_top]
-    dependencies: [B.BANDS]
+    dependencies: [B.BANDS_BASS]
     orpheus_target: 新降速 STFT/FDP 复合组件
     progress: {boundary: verified, schedule: analyzed, algorithm: indexed, state: indexed, parameters: indexed, golden: pending}
     artifact: notes

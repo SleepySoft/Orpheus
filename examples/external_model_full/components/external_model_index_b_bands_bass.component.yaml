@@ -1,59 +1,175 @@
 id: external_model.index.b_bands_bass
 name: Bass/Mid 频带
 category: 外部模型/算法索引
-description: 重构 C/LFE、九路 HPF 和双六输入 LR 求和后 LPF
+description: 重构 C/LFE、九路 HPF 和双六输入 LR 求和后 LPF，并保持三条源码输出流
 version: '2.0'
 abi_version: 1
-package_type: placeholder
+package_type: composite
 ports:
 - id: in
   direction: input
   type: audio
   sample_format: f32
   channels: 10
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
-- id: out
+  maps_to: prepare:in
+- id: hpf_lr
   direction: output
   type: audio
   sample_format: f32
-  channels: 4
-  sample_rate: 48000
+  channels: 2
+  sample_rate: 11077
   block_size: 32
+  maps_to: hpf_lr:out
+- id: hpf_other
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 7
+  sample_rate: 11077
+  block_size: 32
+  maps_to: hpf_other:out
+- id: bass_lpf
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 2
+  sample_rate: 11077
+  block_size: 32
+  maps_to: bass_lpf:out
 parameters: []
-blockers:
-- id: algorithm_pending
-  gate: algorithm
-  reason: 尚未完成源算法逐语句实现
-  source_ref: b_bands
-- id: golden_pending
-  gate: golden
-  reason: 尚未完成参考输出对拍
-  source_ref: b_bands
+graph:
+  nodes:
+  - id: prepare
+    component: orpheus.builtin.matrix_mul
+    params:
+      rows: 11
+      cols: 10
+      matrix: 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0
+    position:
+      x: 80
+      y: 80
+  - id: filters
+    component: orpheus.builtin.iir_bank
+    params:
+      channels: 11
+      num_stages: 3
+      coefs_mode: per_channel
+      coefs: 0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,9.987561e-09,9.987561e-09,0,-0.95020926,0,1,2,1,-1.9182049,0.920707285,1,2,1,-1.96638691,0.968952119,9.987561e-09,9.987561e-09,0,-0.95020926,0,1,2,1,-1.9182049,0.920707285,1,2,1,-1.96638691,0.968952119
+    position:
+      x: 340
+      y: 80
+  - id: hpf_lr
+    component: orpheus.builtin.channel_router
+    params:
+      channels_in: 11
+      channels_out: 2
+      indices: 1,2
+    position:
+      x: 600
+      y: 80
+  - id: hpf_other
+    component: orpheus.builtin.channel_router
+    params:
+      channels_in: 11
+      channels_out: 7
+      indices: 0,3,4,5,6,7,8
+    position:
+      x: 860
+      y: 80
+  - id: bass_lpf
+    component: orpheus.builtin.channel_router
+    params:
+      channels_in: 11
+      channels_out: 2
+      indices: 9,10
+    position:
+      x: 1120
+      y: 80
+  connections:
+  - from: prepare:out
+    to: filters:in
+  - from: filters:out
+    to: hpf_lr:in
+  - from: filters:out
+    to: hpf_other:in
+  - from: filters:out
+    to: bass_lpf:in
 algorithm_index:
   definition_id: B.BANDS.BASS
   tasks:
   - B3
   operations:
-  - C+=gain*LFE
-  - 移除 C/LFE
+  - C=input2+input3
   - 9 路 HPF
-  - LR weighted sum
+  - TOP weighted LR sum
   - 2 路 LPF
+  - HPF LR2/other7/LPF2 split
   state:
   - id: filters
-    role: HPF90 + LPF20
-    initialization: generated initialization
+    role: 11 路×3级 DF2T 零状态
+    initialization: 全零
     shape:
-    - 110
+    - 11
+    - 3
+    - 2
   implementation:
-    status: unsupported
-    blockers:
-    - id: algorithm_pending
-      gate: algorithm
-      reason: 尚未完成源算法逐语句实现
-      source_ref: b_bands
-    - id: golden_pending
-      gate: golden
-      reason: 尚未完成参考输出对拍
-      source_ref: b_bands
+    status: verified
+    component: orpheus.builtin.iir_bank
+    lowering:
+      nodes:
+      - id: prepare
+        component: orpheus.builtin.matrix_mul
+        params:
+          rows: 11
+          cols: 10
+          matrix: 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0
+      - id: filters
+        component: orpheus.builtin.iir_bank
+        params:
+          channels: 11
+          num_stages: 3
+          coefs_mode: per_channel
+          coefs: 0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,9.987561e-09,9.987561e-09,0,-0.95020926,0,1,2,1,-1.9182049,0.920707285,1,2,1,-1.96638691,0.968952119,9.987561e-09,9.987561e-09,0,-0.95020926,0,1,2,1,-1.9182049,0.920707285,1,2,1,-1.96638691,0.968952119
+      - id: hpf_lr
+        component: orpheus.builtin.channel_router
+        params:
+          channels_in: 11
+          channels_out: 2
+          indices: 1,2
+      - id: hpf_other
+        component: orpheus.builtin.channel_router
+        params:
+          channels_in: 11
+          channels_out: 7
+          indices: 0,3,4,5,6,7,8
+      - id: bass_lpf
+        component: orpheus.builtin.channel_router
+        params:
+          channels_in: 11
+          channels_out: 2
+          indices: 9,10
+      connections:
+      - from: prepare:out
+        to: filters:in
+      - from: filters:out
+        to: hpf_lr:in
+      - from: filters:out
+        to: hpf_other:in
+      - from: filters:out
+        to: bass_lpf:in
+      port_maps:
+        in: prepare:in
+        hpf_lr: hpf_lr:out
+        hpf_other: hpf_other:out
+        bass_lpf: bass_lpf:out
+    blockers: []

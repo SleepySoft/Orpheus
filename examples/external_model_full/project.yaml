@@ -220,6 +220,14 @@ algorithm_projection:
     - 32
     sample_rate_hz: 48000
     block_size: 32
+  - id: b3_audio2
+    kind: audio
+    dtype: f32
+    shape:
+    - 2
+    - 32
+    sample_rate_hz: 11076.923076923076
+    block_size: 32
   - id: b3_audio4
     kind: audio
     dtype: f32
@@ -228,11 +236,27 @@ algorithm_projection:
     - 32
     sample_rate_hz: 11076.923076923076
     block_size: 32
+  - id: b3_audio7
+    kind: audio
+    dtype: f32
+    shape:
+    - 7
+    - 32
+    sample_rate_hz: 11076.923076923076
+    block_size: 32
   - id: b3_audio10
     kind: audio
     dtype: f32
     shape:
     - 10
+    - 32
+    sample_rate_hz: 11076.923076923076
+    block_size: 32
+  - id: b3_audio11
+    kind: audio
+    dtype: f32
+    shape:
+    - 11
     - 32
     sample_rate_hz: 11076.923076923076
     block_size: 32

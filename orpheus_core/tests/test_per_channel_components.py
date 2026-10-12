@@ -181,3 +181,55 @@ def test_iir_bank_df2t_impulse_response(client) -> None:
     vals = _run(client, nodes, _chain([n["id"] for n in nodes]), samples, ch=1)
     expected = [0.5 * (0.5 ** index) for index in range(8)]
     assert vals[:8] == pytest.approx(expected, abs=2e-3)
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_iir_bank_matches_bands_hpf_lpf_pooliir_conversion(client) -> None:
+    hpf = [
+        0.920707226, -0.920707226, 0.0, -0.95020926, 0.0,
+        1.0, -2.0, 1.0, -1.9182049, 0.920707285,
+        1.0, -2.0, 1.0, -1.96638691, 0.968952119,
+    ]
+    lpf = [
+        9.987561e-9, 9.987561e-9, 0.0, -0.95020926, 0.0,
+        1.0, 2.0, 1.0, -1.9182049, 0.920707285,
+        1.0, 2.0, 1.0, -1.96638691, 0.968952119,
+    ]
+    nodes = _io_nodes(
+        "iir_bank",
+        {
+            "num_stages": 3,
+            "coefs_mode": "per_channel",
+            "coefs": ",".join(str(value) for value in [*hpf, *lpf]),
+        },
+        ch=2,
+    )
+    vals = _run(
+        client,
+        nodes,
+        _chain([node["id"] for node in nodes]),
+        [0.5, 0.5] + [0.0, 0.0] * 127,
+        ch=2,
+    )
+
+    def cascade(coefficients: list[float]) -> list[float]:
+        states = [[0.0, 0.0] for _ in range(3)]
+        output = []
+        for frame in range(128):
+            sample = 0.5 if frame == 0 else 0.0
+            for stage in range(3):
+                b0, b1, b2, a1, a2 = coefficients[stage * 5:stage * 5 + 5]
+                z1, z2 = states[stage]
+                filtered = b0 * sample + z1
+                states[stage][0] = b1 * sample + z2 - a1 * filtered
+                states[stage][1] = b2 * sample - a2 * filtered
+                sample = filtered
+            output.append(sample)
+        return output
+
+    assert vals[0::2][:128] == pytest.approx(cascade(hpf), abs=2e-3)
+    assert vals[1::2][:128] == pytest.approx(cascade(lpf), abs=2e-3)

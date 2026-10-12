@@ -26,8 +26,9 @@
 - [x] 通用 `sleeping_beauty` 升级：64ch、共享四 ramper、逐样本 frameCount/freeze、dB/s 和 `-1→静音`，直接 ABI golden 通过。
 - [x] `B.POST.SLEEPING`：按 Peripheral10+Overhead4+Headrest40 精确拼接 54ch，保留四路 unity 冷启动、RTC 同块原子更新、30 点表和真实 B3 速率；Headrest 40→20+20 独立标准路由已验证。
 - [x] `A.SPATIAL_FULL.POST_HOLOGRAM`：22ch SleepingBeauty + phase delay 精确组合；保留 unity 冷启动、reset 不打断 ramp，TOP 22 路 delay 全零。
+- [x] `B.BANDS.BASS`：删除错误 `audio4` 边界，按源码恢复 HPF LR2 / HPF other7 / LPF bass2 三流；11×10 构造矩阵与11路三级 PoolIIR 转换通过 Runtime impulse。
 
-当前覆盖：67 definitions / 51 leaves / 13 verified leaves；仍有 38 个 golden blocker 待清零。
+当前覆盖：67 definitions / 51 leaves / 14 verified leaves；仍有 37 个 golden blocker 待清零。
 
 ## P0：先验证跨 Runtime 契约
 

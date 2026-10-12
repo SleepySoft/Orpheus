@@ -1,7 +1,7 @@
 id: external_model.index.b_bands
 name: 频带与 SRC
 category: 外部模型/算法索引
-description: 从 A 的十路自适应音频生成 mono、treble、surround、bass/mid 与 decay
+description: 从 A 的十路自适应音频生成 mono、treble、surround、B3 HPF/LPF 三流与 decay
 version: '2.0'
 abi_version: 1
 package_type: composite
@@ -38,14 +38,30 @@ ports:
   sample_rate: 48000
   block_size: 32
   maps_to: src:surround
-- id: bass_mid
+- id: fdp_lr
   direction: output
   type: audio
   sample_format: f32
-  channels: 4
-  sample_rate: 48000
+  channels: 2
+  sample_rate: 11077
   block_size: 32
-  maps_to: bass:out
+  maps_to: bass:hpf_lr
+- id: hpf_other
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 7
+  sample_rate: 11077
+  block_size: 32
+  maps_to: bass:hpf_other
+- id: bass_lpf
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 2
+  sample_rate: 11077
+  block_size: 32
+  maps_to: bass:bass_lpf
 - id: decay
   direction: output
   type: control
@@ -106,7 +122,7 @@ algorithm_index:
   - stereo detector
   - decay estimator
   - mono weighted sum
-  - bass/mid filters
+  - 9ch HPF + 2ch LPF
   state: []
   implementation:
     status: unsupported

@@ -87,12 +87,14 @@ graph:
       x: 340
       y: 260
   connections:
-  - from: bands:treble_lr
+  - from: bands:fdp_lr
     to: fdp:in
   - from: fdp:components
     to: mix_deci:fdp
-  - from: bands:bass_mid
-    to: mix_deci:bands
+  - from: bands:bass_lpf
+    to: mix_deci:bass
+  - from: bands:hpf_other
+    to: mix_deci:mid
   - from: mix_deci:peripheral
     to: heq:peripheral
   - from: mix_deci:headrest

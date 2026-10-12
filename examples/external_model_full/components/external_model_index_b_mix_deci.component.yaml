@@ -14,14 +14,22 @@ ports:
   sample_rate: 48000
   block_size: 32
   maps_to: align:fdp
-- id: bands
+- id: bass
   direction: input
   type: audio
   sample_format: f32
-  channels: 4
-  sample_rate: 48000
+  channels: 2
+  sample_rate: 11077
   block_size: 32
-  maps_to: align:bands
+  maps_to: align:bass
+- id: mid
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 7
+  sample_rate: 11077
+  block_size: 32
+  maps_to: align:mid
 - id: targets
   direction: input
   type: bulk

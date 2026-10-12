@@ -370,6 +370,41 @@ def test_a_post_hologram_preserves_unity_start_reset_and_zero_phase_delay() -> N
     }
 
 
+def test_b_bands_bass_uses_three_source_streams_and_per_channel_iir() -> None:
+    definitions = {
+        item["id"]: item for item in load_algorithm_index(INDEX)["definitions"]
+    }
+    definition = definitions["B.BANDS.BASS"]
+    assert definition["implementation"]["status"] == "verified"
+    assert [item["id"] for item in definition["interface"]["outputs"]] == [
+        "hpf_lr", "hpf_other", "bass_lpf",
+    ]
+    nodes = {
+        node["id"]: node
+        for node in definition["implementation"]["lowering"]["nodes"]
+    }
+    matrix = [float(value) for value in nodes["prepare"]["params"]["matrix"].split(",")]
+    assert len(matrix) == 110
+    nonzero = {
+        (row, col): matrix[row * 10 + col]
+        for row in range(11)
+        for col in range(10)
+        if matrix[row * 10 + col] != 0.0
+    }
+    assert nonzero == {
+        (0, 2): 1.0, (0, 3): 1.0,
+        (1, 0): 1.0, (2, 1): 1.0,
+        (3, 4): 1.0, (4, 5): 1.0, (5, 6): 1.0,
+        (6, 7): 1.0, (7, 8): 1.0, (8, 9): 1.0,
+        (9, 0): 1.0, (10, 1): 1.0,
+    }
+    filters = nodes["filters"]["params"]
+    assert filters["channels"] == 11
+    assert filters["num_stages"] == 3
+    assert filters["coefs_mode"] == "per_channel"
+    assert len(filters["coefs"].split(",")) == 165
+
+
 def test_full_index_bus_offsets_cover_exact_typed_transactions() -> None:
     document = load_algorithm_index(INDEX)
     types = {item["id"]: item for item in document["types"]}
@@ -449,7 +484,7 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     assert report["definitions"] == 67
     assert report["leaves"] + report["composites"] == 67
     assert report["executable"] is False
-    assert report["blocker_gates"]["golden"] == report["leaves"] - 13
+    assert report["blocker_gates"]["golden"] == report["leaves"] - 14
 
 
 def test_projection_refuses_to_overwrite_unmarked_directory(tmp_path: Path) -> None:

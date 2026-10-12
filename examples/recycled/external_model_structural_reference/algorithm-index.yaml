@@ -242,6 +242,14 @@ types:
   - 32
   sample_rate_hz: 48000
   block_size: 32
+- id: b3_audio2
+  kind: audio
+  dtype: f32
+  shape:
+  - 2
+  - 32
+  sample_rate_hz: 11076.923076923076
+  block_size: 32
 - id: b3_audio4
   kind: audio
   dtype: f32
@@ -250,11 +258,27 @@ types:
   - 32
   sample_rate_hz: 11076.923076923076
   block_size: 32
+- id: b3_audio7
+  kind: audio
+  dtype: f32
+  shape:
+  - 7
+  - 32
+  sample_rate_hz: 11076.923076923076
+  block_size: 32
 - id: b3_audio10
   kind: audio
   dtype: f32
   shape:
   - 10
+  - 32
+  sample_rate_hz: 11076.923076923076
+  block_size: 32
+- id: b3_audio11
+  kind: audio
+  dtype: f32
+  shape:
+  - 11
   - 32
   sample_rate_hz: 11076.923076923076
   block_size: 32
@@ -3116,20 +3140,25 @@ definitions:
   - B.POST
   body:
     edges:
-    - from: bands:treble_lr
+    - from: bands:fdp_lr
       to: fdp:in
       kind: audio
-      type_ref: audio2
+      type_ref: b3_audio2
       timing: same_call
     - from: fdp:components
       to: mix_deci:fdp
       kind: audio
       type_ref: audio8
       timing: same_call
-    - from: bands:bass_mid
-      to: mix_deci:bands
+    - from: bands:bass_lpf
+      to: mix_deci:bass
       kind: audio
-      type_ref: audio4
+      type_ref: b3_audio2
+      timing: same_call
+    - from: bands:hpf_other
+      to: mix_deci:mid
+      kind: audio
+      type_ref: b3_audio7
       timing: same_call
     - from: mix_control:deci_targets
       to: mix_deci:targets
@@ -3192,7 +3221,7 @@ definitions:
   node_id: bands
   parent: B.RUNTIME
   name: 频带与 SRC
-  purpose: 从 A 的十路自适应音频生成 mono、treble、surround、bass/mid 与 decay
+  purpose: 从 A 的十路自适应音频生成 mono、treble、surround、B3 HPF/LPF 三流与 decay
   runtime_ref: runtime_b
   task_refs:
   - B1
@@ -3217,9 +3246,15 @@ definitions:
     - id: treble_surround
       type_ref: audio7
       maps_to: src:surround
-    - id: bass_mid
-      type_ref: audio4
-      maps_to: bass:out
+    - id: fdp_lr
+      type_ref: b3_audio2
+      maps_to: bass:hpf_lr
+    - id: hpf_other
+      type_ref: b3_audio7
+      maps_to: bass:hpf_other
+    - id: bass_lpf
+      type_ref: b3_audio2
+      maps_to: bass:bass_lpf
     - id: decay
       type_ref: control1
       maps_to: decay:out
@@ -3228,7 +3263,7 @@ definitions:
   - stereo detector
   - decay estimator
   - mono weighted sum
-  - bass/mid filters
+  - 9ch HPF + 2ch LPF
   branches: []
   state: []
   parameter_refs:
@@ -3254,12 +3289,12 @@ definitions:
     - from: src:deci
       to: mono:in
       kind: audio
-      type_ref: audio10
+      type_ref: b3_audio10
       timing: same_call
     - from: src:deci
       to: bass:in
       kind: audio
-      type_ref: audio10
+      type_ref: b3_audio10
       timing: same_call
   implementation:
     status: unsupported
@@ -3291,7 +3326,7 @@ definitions:
       type_ref: audio10
     outputs:
     - id: deci
-      type_ref: audio10
+      type_ref: b3_audio10
     - id: treble_lr
       type_ref: audio2
     - id: surround
@@ -3431,7 +3466,7 @@ definitions:
   interface:
     inputs:
     - id: in
-      type_ref: audio10
+      type_ref: b3_audio10
     outputs:
     - id: out
       type_ref: audio1
@@ -3460,47 +3495,97 @@ definitions:
   node_id: bass
   parent: B.BANDS
   name: Bass/Mid 频带
-  purpose: 重构 C/LFE、九路 HPF 和双六输入 LR 求和后 LPF
+  purpose: 重构 C/LFE、九路 HPF 和双六输入 LR 求和后 LPF，并保持三条源码输出流
   runtime_ref: runtime_b
   task_refs:
   - B3
   source_refs:
   - b_bands
+  - b_bands_top
   interface:
     inputs:
     - id: in
-      type_ref: audio10
+      type_ref: b3_audio10
     outputs:
-    - id: out
-      type_ref: audio4
+    - id: hpf_lr
+      type_ref: b3_audio2
+    - id: hpf_other
+      type_ref: b3_audio7
+    - id: bass_lpf
+      type_ref: b3_audio2
   operations:
-  - C+=gain*LFE
-  - 移除 C/LFE
+  - C=input2+input3
   - 9 路 HPF
-  - LR weighted sum
+  - TOP weighted LR sum
   - 2 路 LPF
+  - HPF LR2/other7/LPF2 split
   branches: []
   state:
   - id: filters
-    role: HPF90 + LPF20
-    initialization: generated initialization
+    role: 11 路×3级 DF2T 零状态
+    initialization: 全零
     shape:
-    - 110
+    - 11
+    - 3
+    - 2
   parameter_refs: []
   children: []
   body:
     edges: []
   implementation:
-    status: unsupported
-    blockers:
-    - id: algorithm_pending
-      gate: algorithm
-      reason: 尚未完成源算法逐语句实现
-      source_ref: b_bands
-    - id: golden_pending
-      gate: golden
-      reason: 尚未完成参考输出对拍
-      source_ref: b_bands
+    status: verified
+    component: orpheus.builtin.iir_bank
+    lowering:
+      nodes:
+      - id: prepare
+        component: orpheus.builtin.matrix_mul
+        params:
+          rows: 11
+          cols: 10
+          matrix: 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+            0
+      - id: filters
+        component: orpheus.builtin.iir_bank
+        params:
+          channels: 11
+          num_stages: 3
+          coefs_mode: per_channel
+          coefs: 0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,0.920707226,-0.920707226,0,-0.95020926,0,1,-2,1,-1.9182049,0.920707285,1,-2,1,-1.96638691,0.968952119,9.987561e-09,9.987561e-09,0,-0.95020926,0,1,2,1,-1.9182049,0.920707285,1,2,1,-1.96638691,0.968952119,9.987561e-09,9.987561e-09,0,-0.95020926,0,1,2,1,-1.9182049,0.920707285,1,2,1,-1.96638691,0.968952119
+      - id: hpf_lr
+        component: orpheus.builtin.channel_router
+        params:
+          channels_in: 11
+          channels_out: 2
+          indices: 1,2
+      - id: hpf_other
+        component: orpheus.builtin.channel_router
+        params:
+          channels_in: 11
+          channels_out: 7
+          indices: 0,3,4,5,6,7,8
+      - id: bass_lpf
+        component: orpheus.builtin.channel_router
+        params:
+          channels_in: 11
+          channels_out: 2
+          indices: 9,10
+      connections:
+      - from: prepare:out
+        to: filters:in
+      - from: filters:out
+        to: hpf_lr:in
+      - from: filters:out
+        to: hpf_other:in
+      - from: filters:out
+        to: bass_lpf:in
+      port_maps:
+        in: prepare:in
+        hpf_lr: hpf_lr:out
+        hpf_other: hpf_other:out
+        bass_lpf: bass_lpf:out
+    blockers: []
 - id: B.FDP
   component_id: external_model.index.b_fdp
   node_id: fdp
@@ -3517,7 +3602,7 @@ definitions:
   interface:
     inputs:
     - id: in
-      type_ref: audio2
+      type_ref: b3_audio2
       maps_to: buffer:in
     outputs:
     - id: components
@@ -3592,7 +3677,7 @@ definitions:
   interface:
     inputs:
     - id: in
-      type_ref: audio2
+      type_ref: b3_audio2
     outputs:
     - id: frame
       type_ref: audio2_128
@@ -4036,9 +4121,12 @@ definitions:
     - id: fdp
       type_ref: audio8
       maps_to: align:fdp
-    - id: bands
-      type_ref: audio4
-      maps_to: align:bands
+    - id: bass
+      type_ref: b3_audio2
+      maps_to: align:bass
+    - id: mid
+      type_ref: b3_audio7
+      maps_to: align:mid
     - id: targets
       type_ref: gains1134
       maps_to: ramp:targets
@@ -4128,8 +4216,10 @@ definitions:
     inputs:
     - id: fdp
       type_ref: audio8
-    - id: bands
-      type_ref: audio4
+    - id: bass
+      type_ref: b3_audio2
+    - id: mid
+      type_ref: b3_audio7
     outputs:
     - id: aligned
       type_ref: audio21
