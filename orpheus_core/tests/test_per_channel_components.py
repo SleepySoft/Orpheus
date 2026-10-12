@@ -159,3 +159,25 @@ def test_iir_bank_shared_backward_compatible(client) -> None:
     ch1 = vals[1::2]
     assert abs(ch0[-1] - 0.15) < 2e-3
     assert abs(ch1[-1] - 0.15) < 2e-3
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_iir_bank_df2t_impulse_response(client) -> None:
+    """非平凡一阶递归：y[n]=x[n]+0.5*y[n-1]，验证 DF2T 状态更新。"""
+    nodes = _io_nodes(
+        "iir_bank",
+        {
+            "num_stages": 1,
+            "coefs_mode": "shared",
+            "coefs": "1,0,0,-0.5,0",
+        },
+        ch=1,
+    )
+    samples = [0.5] + [0.0] * 127
+    vals = _run(client, nodes, _chain([n["id"] for n in nodes]), samples, ch=1)
+    expected = [0.5 * (0.5 ** index) for index in range(8)]
+    assert vals[:8] == pytest.approx(expected, abs=2e-3)

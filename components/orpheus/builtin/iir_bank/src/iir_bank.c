@@ -183,9 +183,9 @@ static int ib_process(void* state, const OrpheusProcessContext* ctx) {
                     IirChannelState* st = &s->channelStates[cc];
                     float z1 = st->z1[i];
                     float z2 = st->z2[i];
-                    float y = b0 * x + b1 * z1 + b2 * z2 - a1 * z1 - a2 * z2;
-                    st->z2[i] = z1;
-                    st->z1[i] = y;
+                    float y = b0 * x + z1;
+                    st->z1[i] = b1 * x + z2 - a1 * y;
+                    st->z2[i] = b2 * x - a2 * y;
                     x = y;
                 }
                 out_data[n * ch + cc] = x;
@@ -203,9 +203,9 @@ static int ib_process(void* state, const OrpheusProcessContext* ctx) {
                     float a1 = c[5*i + 3], a2 = c[5*i + 4];
                     float z1 = st->z1[i];
                     float z2 = st->z2[i];
-                    float y = b0 * x + b1 * z1 + b2 * z2 - a1 * z1 - a2 * z2;
-                    st->z2[i] = z1;
-                    st->z1[i] = y;
+                    float y = b0 * x + z1;
+                    st->z1[i] = b1 * x + z2 - a1 * y;
+                    st->z2[i] = b2 * x - a2 * y;
                     x = y;
                 }
                 out_data[n * ch + cc] = x;

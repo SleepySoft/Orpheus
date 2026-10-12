@@ -1,6 +1,6 @@
 # iir_bank - N级IIR滤波器组
 
-> Orpheus 专用扩展组件（L1），对应外部模型的 pooliir / GLXP IIR 加速器（软件近似）。
+> Orpheus 通用 IIR 组件（L1），可承接 pooliir / GLXP IIR 系数转换后的软件实现。
 
 ## 功能
 
@@ -19,6 +19,7 @@
 |------|------|------|------|----------|------|
 | `channels` | int | 2 | [1, 32] | restart | 通道数（影响签名） |
 | `num_stages` | int | 4 | [1, 16] | restart | 级联级数 |
+| `coefs_mode` | string | shared | shared/per_channel | restart | 全通道共享或逐通道独立系数 |
 | `coefs` | string | "1,0,0,0,0" | - | restart | 系数（逗号分隔，5×num_stages 个） |
 
 ## BULK 槽
@@ -31,12 +32,12 @@
 
 ## 算法
 
-每级为 Direct Form 双二阶：
+每级为 Direct Form II Transposed，系数顺序 `[b0,b1,b2,a1,a2]`：
 
 ```
-y = b0*x + b1*z1 + b2*z2 - a1*z1 - a2*z2
-z2 = z1
-z1 = y
+y  = b0*x + z1
+z1 = b1*x + z2 - a1*y
+z2 = b2*x - a2*y
 ```
 
 级联：`x -> stage[0] -> stage[1] -> ... -> stage[N-1] -> out`
@@ -58,7 +59,7 @@ z1 = y
 
 | 外部模型源码 | 本组件 |
 |---|---|
-| pooliir GLXP IIR 加速器（workMem 1104, 22ch, 13stages） | iir_bank 22ch, 13 stages（软件级联） |
+| pooliir GLXP IIR 加速器（首级 gain,a2,a1,b2,b1；后续 a2,a1,b2,b1） | 转换为每级 `[b0,b1,b2,a1,a2]` 后使用 iir_bank |
 | `pooliirAccelerator.h` `pooliirAccel` CRL 替换 | `ib_process()` 级联循环 |
 | SAS_PeripheralEq / PostEQ / HoligramIir | 均可用 iir_bank 配置不同级数和系数 |
 | 系数来源：MixEqpooliirCoeffs[484]、OutputEQpooliirCoeffs 等 | BULK `coefs` 槽直写 |
