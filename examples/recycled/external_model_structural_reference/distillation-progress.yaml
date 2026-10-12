@@ -149,10 +149,10 @@ modules:
     evidence: [runtime_a_main, runtime_a_preamp_top, runtime_a_constants]
     evidence_artifacts: [evidence/big6-defaults.json]
     dependencies: [A.INPUT_MIXER]
-    orpheus_target: gain_ramper；需核对原始 dB/线性域和斜坡律
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: analyzed, parameters: extracted, golden: pending}
-    artifact: notes
-    system_graph_eligible: false
+    orpheus_target: delay_line + indexed_gain
+    progress: {boundary: verified, schedule: verified, algorithm: verified, state: verified, parameters: verified, golden: verified}
+    artifact: component
+    system_graph_eligible: true
 
   - id: A.BIG6_TONE
     runtime: runtime_a

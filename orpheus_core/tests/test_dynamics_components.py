@@ -207,6 +207,39 @@ def test_indexed_tone_matches_raw_df2t_impulse(client, order, coefs) -> None:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
+@pytest.mark.parametrize(
+    ("gain_index", "gain_offset_db", "expected_gain"),
+    [
+        (111.0, 0.0, 10 ** (-72.0 / 20.0)),
+        (176.0, 0.0, 10 ** (-39.5 / 20.0)),
+        (200.0, -10.0, 10 ** (-37.5 / 20.0)),
+        (255.0, 0.0, 1.0),
+    ],
+)
+def test_indexed_gain_matches_external_volume_table(
+    client, gain_index, gain_offset_db, expected_gain
+) -> None:
+    nodes = _io_nodes(
+        "indexed_gain",
+        {
+            "gain_index": gain_index,
+            "gain_offset_db": gain_offset_db,
+            "max_gain_db": 0.0,
+            "ramp_ms": 0.0,
+            "table_idx": "0,111,176,200,255,255,255,255",
+            "table_db": "-128,-72,-39.5,-27.5,0,0,0,0",
+        },
+        ch=1,
+    )
+    vals, _ = _run(client, nodes, _chain([node["id"] for node in nodes]), [0.5] * 128)
+    assert vals[0] == pytest.approx(0.5 * expected_gain, abs=2e-3)
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
 def test_limiter_compresses_and_soft_clipper_saturates(client) -> None:
     """限幅器：阈值 -6dB、输入 1.0 → 稳态输出 ≈0.5；软削波：drive=6dB 输出有界。"""
     nodes = _io_nodes("limiter", {"threshold_db": -6.0, "attack_ms": 5.0, "release_ms": 100.0}, ch=1)

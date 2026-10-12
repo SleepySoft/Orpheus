@@ -1,0 +1,27 @@
+id: orpheus.builtin.indexed_gain
+name: 索引式增益
+category: 基础/增益与动态
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: IndexedGainState
+sources: [src/indexed_gain.c]
+headers: [include/orpheus_indexed_gain.h]
+ports:
+  - {id: in, direction: input, type: audio, sample_format: f32, channels: param:channels}
+  - {id: out, direction: output, type: audio, sample_format: f32, channels: param:channels}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: gain_index, name: 增益索引, type: float, default: 255.0, range: [0.0, 255.0], update_policy: smoothed}
+  - {id: gain_offset_db, name: dB偏移, type: float, default: 0.0, update_policy: block_boundary}
+  - {id: max_gain_db, name: 最大增益, type: float, default: 0.0, update_policy: restart_required}
+  - {id: initial_gain, name: 冷启动线性增益, type: float, default: 1.0, update_policy: restart_required}
+  - {id: apply_index_on_prepare, name: 初始化时应用索引, type: bool, default: true, update_policy: restart_required}
+  - {id: ramp_ms, name: 斜坡时间, type: float, default: 100.0, range: [0.0, 3000.0], unit: ms, update_policy: block_boundary}
+  - {id: ramp_db_per_s, name: 斜坡速率, type: float, default: 0.0, range: [0.0, 50000.0], unit: dB/s, update_policy: block_boundary}
+  - {id: freeze, name: 冻结斜坡, type: bool, default: false, update_policy: block_boundary}
+  - {id: current_gain, name: 当前线性增益, type: float, default: 1.0, readonly: true, readback: true, control_source: true, kind: state}
+  - {id: table_idx, name: 索引表, type: string, default: "0,255", kind: bulk, widget: text, update_policy: restart_required}
+  - {id: table_db, name: dB表, type: string, default: "-96,0", kind: bulk, widget: text, update_policy: restart_required}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: true, realtime_safe: true}

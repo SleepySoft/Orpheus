@@ -293,7 +293,11 @@
                   "update_policy": {"enum": ["immediate", "block_boundary", "smoothed", "restart_required"]},
                   "direction": {"enum": ["input", "output"]},
                   "maps_to": {"type": "string"},
-                  "bindable": {"type": "boolean"}
+                  "bindable": {"type": "boolean"},
+                  "control_source": {"type": "boolean"},
+                  "readback": {"type": "boolean"},
+                  "readonly": {"type": "boolean"},
+                  "kind": {"enum": ["setting", "command", "bulk", "probe", "state"]}
                 }
               }
             }

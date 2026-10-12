@@ -293,6 +293,25 @@ def test_a_preamp_tone_leaves_use_exact_indexed_tone_coefficients() -> None:
         assert params["cut_coefs"] == params["boost_coefs"]
 
 
+def test_a_preamp_music_volume_preserves_delay_table_and_cold_start() -> None:
+    definitions = {
+        item["id"]: item for item in load_algorithm_index(INDEX)["definitions"]
+    }
+    implementation = definitions["A.PREAMP.MUSIC_VOLUME"]["implementation"]
+    assert implementation["status"] == "verified"
+    nodes = {node["id"]: node for node in implementation["lowering"]["nodes"]}
+    assert nodes["delay"]["params"] == {
+        "channels": 10,
+        "max_delay_samples": 72,
+        "delays_samples": ",".join("72" for _ in range(10)),
+    }
+    gain = nodes["gain"]["params"]
+    assert gain["initial_gain"] == 0.04
+    assert gain["apply_index_on_prepare"] is False
+    assert gain["table_idx"] == "0,111,176,200,255,255,255,255"
+    assert gain["table_db"] == "-128,-72,-39.5,-27.5,0,0,0,0"
+
+
 def test_full_index_bus_offsets_cover_exact_typed_transactions() -> None:
     document = load_algorithm_index(INDEX)
     types = {item["id"]: item for item in document["types"]}
@@ -372,7 +391,7 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     assert report["definitions"] == 66
     assert report["leaves"] + report["composites"] == 66
     assert report["executable"] is False
-    assert report["blocker_gates"]["golden"] == report["leaves"] - 9
+    assert report["blocker_gates"]["golden"] == report["leaves"] - 10
 
 
 def test_projection_refuses_to_overwrite_unmarked_directory(tmp_path: Path) -> None:
