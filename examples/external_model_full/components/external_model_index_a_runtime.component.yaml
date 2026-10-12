@@ -14,12 +14,6 @@ ports:
   sample_rate: 48000
   block_size: 32
   maps_to: input_select:in
-- id: bus_from_b
-  direction: input
-  type: bulk
-  sample_format: i32
-  channels: 1193
-  maps_to: bus_exchange:from_b
 - id: main_out
   direction: output
   type: audio
@@ -28,15 +22,8 @@ ports:
   sample_rate: 48000
   block_size: 32
   maps_to: postprocess:main_out
-- id: bus_to_b
-  direction: output
-  type: bulk
-  sample_format: i32
-  channels: 488
-  maps_to: bus_exchange:to_b
 parameters: []
 imports:
-- external_model_index_a_bus_exchange.component.yaml
 - external_model_index_a_input_select.component.yaml
 - external_model_index_a_preamp.component.yaml
 - external_model_index_a_postprocess.component.yaml
@@ -44,35 +31,30 @@ imports:
 - external_model_index_a_audiopilot.component.yaml
 graph:
   nodes:
-  - id: bus_exchange
-    component: external_model.index.a_bus_exchange
-    position:
-      x: 80
-      y: 80
   - id: input_select
     component: external_model.index.a_input_select
     position:
-      x: 340
+      x: 80
       y: 80
   - id: preamp
     component: external_model.index.a_preamp
     position:
-      x: 600
+      x: 340
       y: 80
   - id: postprocess
     component: external_model.index.a_postprocess
     position:
-      x: 860
+      x: 600
       y: 80
   - id: spatial_full
     component: external_model.index.a_spatial_full
     position:
-      x: 80
-      y: 260
+      x: 860
+      y: 80
   - id: audiopilot
     component: external_model.index.a_audiopilot
     position:
-      x: 340
+      x: 80
       y: 260
   connections:
   - from: input_select:entertainment

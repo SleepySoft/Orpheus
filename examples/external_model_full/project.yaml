@@ -18,15 +18,11 @@ graph:
     position:
       x: 540
       y: 160
-  connections:
-  - from: a_runtime:bus_to_b
-    to: b_runtime:bus_from_a
-  - from: b_runtime:bus_to_a
-    to: a_runtime:bus_from_b
+  connections: []
 algorithm_projection:
   schema_version: '2.0'
   index_file: algorithm-index.yaml
-  definition_count: 68
+  definition_count: 66
   tasks:
   - id: A0
     runtime_ref: runtime_a
@@ -355,19 +351,7 @@ algorithm_projection:
     - two delay arrays
     - four 10368 FIR banks
     extraction_status: indexed
-  relations:
-  - id: a_to_b
-    from: A.RUNTIME:bus_to_b
-    to: B.RUNTIME:bus_from_a
-    kind: message
-    type_ref: bus488
-    timing: cross_runtime_swap_unverified
-  - id: b_to_a
-    from: B.RUNTIME:bus_to_a
-    to: A.RUNTIME:bus_from_b
-    kind: message
-    type_ref: bus1193
-    timing: cross_runtime_swap_unverified
+  relations: []
   buses:
   - id: bus_a_to_b
     producer_runtime: runtime_a

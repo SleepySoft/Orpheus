@@ -832,23 +832,16 @@ definitions:
     - id: audio_in
       type_ref: audio30
       maps_to: input_select:in
-    - id: bus_from_b
-      type_ref: bus1193
-      maps_to: bus_exchange:from_b
     outputs:
     - id: main_out
       type_ref: audio22
       maps_to: postprocess:main_out
-    - id: bus_to_b
-      type_ref: bus488
-      maps_to: bus_exchange:to_b
   operations:
   - 按 A0..A5 调度并与 Runtime B 交换原子总线
   branches: []
   state: []
   parameter_refs: []
   children:
-  - A.BUS_EXCHANGE
   - A.INPUT_SELECT
   - A.PREAMP
   - A.POSTPROCESS
@@ -902,49 +895,6 @@ definitions:
       gate: golden
       reason: 尚未完成参考输出对拍
       source_ref: a_main
-- id: A.BUS_EXCHANGE
-  component_id: external_model.index.a_bus_exchange
-  node_id: bus_exchange
-  parent: A.RUNTIME
-  name: Runtime A 跨核事务
-  purpose: 原子消费 B→A 1193 words，并发布 A→B 488 words
-  runtime_ref: runtime_a
-  task_refs:
-  - A0
-  source_refs:
-  - bus
-  - a_main
-  interface:
-    inputs:
-    - id: from_b
-      type_ref: bus1193
-    outputs:
-    - id: to_b
-      type_ref: bus488
-  operations:
-  - typed field unpack
-  - task-local sample-and-hold
-  - atomic swap timing pending
-  branches: []
-  state:
-  - id: snapshot
-    role: 跨核 ping-pong 快照
-    initialization: generated initialization
-  parameter_refs: []
-  children: []
-  body:
-    edges: []
-  implementation:
-    status: unsupported
-    blockers:
-    - id: algorithm_pending
-      gate: algorithm
-      reason: 尚未完成源算法逐语句实现
-      source_ref: bus
-    - id: golden_pending
-      gate: golden
-      reason: 尚未完成参考输出对拍
-      source_ref: bus
 - id: A.INPUT_SELECT
   component_id: external_model.index.a_input_select
   node_id: input_select
@@ -2636,23 +2586,16 @@ definitions:
   source_refs:
   - b_main
   interface:
-    inputs:
-    - id: bus_from_a
-      type_ref: bus488
-      maps_to: bus_exchange:from_a
-    outputs:
-    - id: bus_to_a
-      type_ref: bus1193
-      maps_to: bus_exchange:to_a
+    inputs: []
+    outputs: []
   operations:
   - 4500Hz 基准调度
   - B1/B2/B3/B4 多速率处理
-  - 与 Runtime A 原子交换
+  - 跨 Runtime typed bus 保留为系统关系，不投影为音频组件
   branches: []
   state: []
   parameter_refs: []
   children:
-  - B.BUS_EXCHANGE
   - B.BANDS
   - B.FDP
   - B.MIX_CONTROL
@@ -2732,51 +2675,6 @@ definitions:
       gate: golden
       reason: 尚未完成参考输出对拍
       source_ref: b_main
-- id: B.BUS_EXCHANGE
-  component_id: external_model.index.b_bus_exchange
-  node_id: bus_exchange
-  parent: B.RUNTIME
-  name: Runtime B 跨核事务
-  purpose: 原子消费 A→B 488 words，并发布 B→A 1193 words
-  runtime_ref: runtime_b
-  task_refs:
-  - B1
-  - B3
-  source_refs:
-  - bus
-  - b_main
-  interface:
-    inputs:
-    - id: from_a
-      type_ref: bus488
-    outputs:
-    - id: to_a
-      type_ref: bus1193
-  operations:
-  - typed field unpack
-  - 跨 TID snapshot
-  - sequence association
-  - atomic swap timing pending
-  branches: []
-  state:
-  - id: snapshot
-    role: 跨核 ping-pong 快照
-    initialization: generated initialization
-  parameter_refs: []
-  children: []
-  body:
-    edges: []
-  implementation:
-    status: unsupported
-    blockers:
-    - id: algorithm_pending
-      gate: algorithm
-      reason: 尚未完成源算法逐语句实现
-      source_ref: bus
-    - id: golden_pending
-      gate: golden
-      reason: 尚未完成参考输出对拍
-      source_ref: bus
 - id: B.BANDS
   component_id: external_model.index.b_bands
   node_id: bands
@@ -4577,19 +4475,7 @@ definitions:
       gate: golden
       reason: 尚未完成参考输出对拍
       source_ref: b_main
-relations:
-- id: a_to_b
-  from: A.RUNTIME:bus_to_b
-  to: B.RUNTIME:bus_from_a
-  kind: message
-  type_ref: bus488
-  timing: cross_runtime_swap_unverified
-- id: b_to_a
-  from: B.RUNTIME:bus_to_a
-  to: A.RUNTIME:bus_from_b
-  kind: message
-  type_ref: bus1193
-  timing: cross_runtime_swap_unverified
+relations: []
 system:
   roots:
   - A.RUNTIME
@@ -4599,7 +4485,6 @@ system:
 coverage:
   definition_ids:
   - A.RUNTIME
-  - A.BUS_EXCHANGE
   - A.INPUT_SELECT
   - A.PREAMP
   - A.PREAMP.INPUT_MIXER
@@ -4631,7 +4516,6 @@ coverage:
   - A.AUDIOPILOT.LF
   - A.AUDIOPILOT.GAIN_APPLICATION
   - B.RUNTIME
-  - B.BUS_EXCHANGE
   - B.BANDS
   - B.BANDS.SRC
   - B.BANDS.MONO_DETECTOR

@@ -51,7 +51,7 @@ def tree_bytes(root: Path) -> dict[str, bytes]:
 def test_full_algorithm_index_has_closed_hierarchy_and_source_schedule() -> None:
     document = load_algorithm_index(INDEX)
     definitions = {item["id"]: item for item in document["definitions"]}
-    assert len(definitions) == 68
+    assert len(definitions) == 66
     assert len(document["tasks"]) == 11
     assert document["system"]["roots"] == ["A.RUNTIME", "B.RUNTIME"]
     assert len(document["sources"]) == 29
@@ -176,16 +176,16 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     emit_structural_project(document, second)
     assert tree_bytes(first) == tree_bytes(second)
     assert (first / "algorithm-index.yaml").read_bytes() == INDEX.read_bytes()
-    assert len(list((first / "components").glob("*.component.yaml"))) == 68
+    assert len(list((first / "components").glob("*.component.yaml"))) == 66
     project = yaml.safe_load((first / "project.yaml").read_text(encoding="utf-8"))
     projection = project["algorithm_projection"]
-    assert projection["definition_count"] == 68
+    assert projection["definition_count"] == 66
     assert len(projection["tasks"]) == 11
     assert len(projection["parameter_partitions"]) == 17
     assert projection["unlowered_edges"]
     report = json.loads((first / "coverage-report.json").read_text(encoding="utf-8"))
-    assert report["definitions"] == 68
-    assert report["leaves"] + report["composites"] == 68
+    assert report["definitions"] == 66
+    assert report["leaves"] + report["composites"] == 66
     assert report["executable"] is False
     assert report["blocker_gates"]["golden"] == report["leaves"]
 
@@ -203,19 +203,17 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
     base_registry = builtin_registry()
     project = ProjectLoader(base_registry).load(FULL_PROJECT)
     project_registry = project.registry or base_registry
-    assert len(project_registry.list_components()) >= 68
+    assert len(project_registry.list_components()) >= 66
     assert {node.component for node in project.graph.nodes.values()} == {
         "external_model.index.a_runtime",
         "external_model.index.b_runtime",
     }
-    assert {
-        (str(connection.from_ref), str(connection.to_ref))
-        for connection in project.graph.connections
-    } == {
-        ("a_runtime:bus_to_b", "b_runtime:bus_from_a"),
-        ("b_runtime:bus_to_a", "a_runtime:bus_from_b"),
-    }
+    assert project.graph.connections == []
+    assert project_registry.get("external_model.index.a_bus_exchange") is None
+    assert project_registry.get("external_model.index.b_bus_exchange") is None
     notes = json.loads((FULL_PROJECT / "node-notes.json").read_text(encoding="utf-8"))
+    assert "不作为音频组件或画布连线" in notes["a_runtime"]
+    assert "不作为音频组件或画布连线" in notes["b_runtime"]
     expected = set(project.graph.nodes)
     expected.update(
         f"sub:{sub.id}/{node.id}"

@@ -31,7 +31,7 @@
 
 - `external_model_asm.yaml`：ASM/EHC/RNC 多 Task 参考。
 - `external_model_heq/`：仅覆盖 Headrest/Overhead 默认 FIR 支路的研究切片，不代表双 Runtime、2→22、Big6 或完整空间算法；全量结构以 `recycled/external_model_structural_reference/algorithm-index.yaml` 为准。
-- `external_model_full/`：由全量 Algorithm IR 生成的双 Runtime 递归研究图；完整展示 68 个算法定义，待蒸馏叶节点不可执行。
+- `external_model_full/`：由全量 Algorithm IR 生成的双 Runtime 递归研究图；完整展示 66 个算法定义，跨 Runtime bus 保存在工程关系区，待蒸馏叶节点不可执行。
 
 外部模型全局结构调查底稿已归档到 `recycled/external_model_structural_reference.*`，后续由可执行目录切片逐步替代。
 

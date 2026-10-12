@@ -371,12 +371,22 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
     roots = document["system"]["roots"]
     for root in roots:
         root_definition = definitions[root]
+        runtime_id = root_definition["runtime_ref"]
+        related_buses = [
+            bus["id"]
+            for bus in document["buses"]
+            if runtime_id in {bus["producer_runtime"], bus["consumer_runtime"]}
+        ]
         node_notes[root_definition["node_id"]] = (
             f"用途：{root_definition['purpose']}。双击进入按源码边界组织的算法子系统。"
+            f"跨 Runtime typed bus（{', '.join(related_buses)}）是调度/部署事务合同，"
+            "不作为音频组件或画布连线；字段生产者、消费者和 offset 见 algorithm_projection.buses。"
         )
     root_set = set(roots)
     root_connections = []
     for relation in document["relations"]:
+        if relation["kind"] != "audio":
+            continue
         source_definition, source_port = _endpoint(relation["from"])
         target_definition, target_port = _endpoint(relation["to"])
         if source_definition not in root_set or target_definition not in root_set:

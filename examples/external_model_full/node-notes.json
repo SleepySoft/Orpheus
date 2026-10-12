@@ -1,5 +1,4 @@
 {
-  "sub:external_model.index.a_runtime/bus_exchange": "用途：原子消费 B→A 1193 words，并发布 A→B 488 words 原因：按源代码算法边界独立索引；实现状态：unsupported。",
   "sub:external_model.index.a_runtime/input_select": "用途：30 路系统输入统一重排后提取节目、麦克风和提示音 原因：按源代码算法边界独立索引；实现状态：exact_candidate。",
   "sub:external_model.index.a_runtime/preamp": "用途：形成 10 路节目并分出主后处理、自适应和电平检测支路 原因：按源代码算法边界独立索引；实现状态：unsupported。",
   "sub:external_model.index.a_runtime/postprocess": "用途：将保护链和 32 路候选路由为最终 22 路输出 原因：按源代码算法边界独立索引；实现状态：unsupported。",
@@ -30,7 +29,6 @@
   "sub:external_model.index.a_audiopilot/hf_estimator": "用途：对十通道 FFT 协方差做消元相干估计、min-stat 噪声和 LF/HF ratio 原因：按源代码算法边界独立索引；实现状态：unsupported。",
   "sub:external_model.index.a_audiopilot/lf": "用途：跨 A0/A1/A4/A5 估计低频参考、噪声、音乐和速度约束 原因：按源代码算法边界独立索引；实现状态：unsupported。",
   "sub:external_model.index.a_audiopilot/gain_application": "用途：由噪声/信号/用户级计算 Bass/Mid/Treble/DynEQ 增益并作用于 10 路 原因：按源代码算法边界独立索引；实现状态：unsupported。",
-  "sub:external_model.index.b_runtime/bus_exchange": "用途：原子消费 A→B 488 words，并发布 B→A 1193 words 原因：按源代码算法边界独立索引；实现状态：unsupported。",
   "sub:external_model.index.b_runtime/bands": "用途：从 A 的十路自适应音频生成 mono、treble、surround、bass/mid 与 decay 原因：按源代码算法边界独立索引；实现状态：unsupported。",
   "sub:external_model.index.b_runtime/fdp": "用途：在 B3/B4 以 WOLA 将两路拆为八路直达、空间、冲击和尾音 原因：按源代码算法边界独立索引；实现状态：unsupported。",
   "sub:external_model.index.b_runtime/mix_control": "用途：由 A 当前增益/Fade 生成全速率、降速和 VLS 目标并原子发布 sequence 原因：按源代码算法边界独立索引；实现状态：unsupported。",
@@ -65,6 +63,6 @@
   "sub:external_model.index.b_post_row1/xtalk": "用途：四路重复成 16 path，经独立 IIR/delay 后按目标求和 原因：按源代码算法边界独立索引；实现状态：unsupported。",
   "sub:external_model.index.b_post_row2/generation": "用途：20 路 sequence-gated gain 后构造 72 个 288-tap FIR contribution 并求四路 原因：按源代码算法边界独立索引；实现状态：unsupported。",
   "sub:external_model.index.b_post_row2/xtalk": "用途：四路重复成 16 path，经独立 IIR/delay 后按目标求和 原因：按源代码算法边界独立索引；实现状态：unsupported。",
-  "a_runtime": "用途：执行输入、Big6、空间处理、输出保护和自适应响度。双击进入按源码边界组织的算法子系统。",
-  "b_runtime": "用途：计算频带、降速 FDP、目标矩阵、HEQ 和 VLS 后空间结果。双击进入按源码边界组织的算法子系统。"
+  "a_runtime": "用途：执行输入、Big6、空间处理、输出保护和自适应响度。双击进入按源码边界组织的算法子系统。跨 Runtime typed bus（bus_a_to_b, bus_b_to_a）是调度/部署事务合同，不作为音频组件或画布连线；字段生产者、消费者和 offset 见 algorithm_projection.buses。",
+  "b_runtime": "用途：计算频带、降速 FDP、目标矩阵、HEQ 和 VLS 后空间结果。双击进入按源码边界组织的算法子系统。跨 Runtime typed bus（bus_a_to_b, bus_b_to_a）是调度/部署事务合同，不作为音频组件或画布连线；字段生产者、消费者和 offset 见 algorithm_projection.buses。"
 }

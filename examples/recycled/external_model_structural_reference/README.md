@@ -4,7 +4,7 @@
 
 ## 从哪里开始
 
-1. `algorithm-index.yaml`：全量 Algorithm IR；68 个递归定义、11 个任务、2 个 typed bus、端口/状态/操作/阻塞项和系统关系。
+1. `algorithm-index.yaml`：全量 Algorithm IR；66 个递归算法定义、11 个任务、2 个 typed bus、端口/状态/操作/阻塞项和系统关系。typed bus 不属于算法组件。
 2. `distillation-progress.yaml`：25 个一级模块的六项验证进度，不承担结构描述。
 3. `distillation-workflow.md`：单模块从源码证据到 golden、再到 Orpheus 子图的固定步骤。
 4. `analysis/`：按模块记录用途、为何这样处理、公式/状态与未决问题。

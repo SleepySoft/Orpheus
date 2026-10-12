@@ -82,7 +82,7 @@ Orpheus 组件：`orpheus.builtin.piecewise_soft_clipper`。`examples/recycled/e
 
 ## 外部模型结构参考
 
-完整双 Runtime 模型不再从结构参考直接转图。工程目录内的 `algorithm-index.yaml` 是 68 个递归算法定义、11 个任务和双向 typed bus 的结构权威；`distillation-progress.yaml` 只记录六项验证门禁。`examples/external_model_full/` 由 Algorithm IR 确定性生成，placeholder 节点会被编译器主动拒绝。Big6 的当前所有权和缺口见 `analysis/big6.md`。
+完整双 Runtime 模型不再从结构参考直接转图。工程目录内的 `algorithm-index.yaml` 是 66 个递归算法定义、11 个任务和双向 typed bus 的结构权威；跨 Runtime bus 是系统事务关系，不投影为音频组件或画布回环。`distillation-progress.yaml` 只记录六项验证门禁。`examples/external_model_full/` 由 Algorithm IR 确定性生成，placeholder 节点会被编译器主动拒绝。Big6 的当前所有权和缺口见 `analysis/big6.md`。
 
 `examples/recycled/external_model_structural_reference/` 以外部生成输出为调查边界，合并了此前分散的主链、PostProcess 和组件验证模型；它已归档为目录工程蒸馏底稿，不再作为 UI 示例：
 

@@ -5,22 +5,9 @@ description: 计算频带、降速 FDP、目标矩阵、HEQ 和 VLS 后空间结
 version: '2.0'
 abi_version: 1
 package_type: composite
-ports:
-- id: bus_from_a
-  direction: input
-  type: bulk
-  sample_format: i32
-  channels: 488
-  maps_to: bus_exchange:from_a
-- id: bus_to_a
-  direction: output
-  type: bulk
-  sample_format: i32
-  channels: 1193
-  maps_to: bus_exchange:to_a
+ports: []
 parameters: []
 imports:
-- external_model_index_b_bus_exchange.component.yaml
 - external_model_index_b_bands.component.yaml
 - external_model_index_b_fdp.component.yaml
 - external_model_index_b_mix_control.component.yaml
@@ -29,40 +16,35 @@ imports:
 - external_model_index_b_post.component.yaml
 graph:
   nodes:
-  - id: bus_exchange
-    component: external_model.index.b_bus_exchange
-    position:
-      x: 80
-      y: 80
   - id: bands
     component: external_model.index.b_bands
     position:
-      x: 340
+      x: 80
       y: 80
   - id: fdp
     component: external_model.index.b_fdp
     position:
-      x: 600
+      x: 340
       y: 80
   - id: mix_control
     component: external_model.index.b_mix_control
     position:
-      x: 860
+      x: 600
       y: 80
   - id: mix_deci
     component: external_model.index.b_mix_deci
     position:
-      x: 80
-      y: 260
+      x: 860
+      y: 80
   - id: heq
     component: external_model.index.b_heq
     position:
-      x: 340
+      x: 80
       y: 260
   - id: post
     component: external_model.index.b_post
     position:
-      x: 600
+      x: 340
       y: 260
   connections:
   - from: bands:treble_lr
@@ -94,7 +76,7 @@ algorithm_index:
   operations:
   - 4500Hz 基准调度
   - B1/B2/B3/B4 多速率处理
-  - 与 Runtime A 原子交换
+  - 跨 Runtime typed bus 保留为系统关系，不投影为音频组件
   state: []
   implementation:
     status: unsupported
