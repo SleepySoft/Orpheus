@@ -1,6 +1,6 @@
 # A.INPUT_SELECT / A.INPUT_MIXER 分析记录
 
-状态：边界、默认路由和混音权重已提取；RTC 事务与 golden 尚未完成，禁止并入完整系统图。
+状态：`A.INPUT_MIXER` 两种模式已完成源码矩阵与 one-hot golden，并以通用组件组合进入完整图；`A.INPUT_SELECT` 的 RTC 事务与 golden 仍未完成。
 
 ## 为什么先做输入路由
 
@@ -26,4 +26,4 @@
 
 ## 已落盘证据
 
-`evidence/input-routing-defaults.json` 包含两份源指纹、所有默认路由、12/17/1 选择表、5.1.4 三个权重、立体声八个权重、makeup gain 和模式开关。它只证明默认参数与代码分支，不代表 RTC 更新或数值输出已经通过 golden。
+`evidence/input-routing-defaults.json` 包含两份源指纹、所有默认路由、12/17/1 选择表、5.1.4 三个权重、立体声八个权重、makeup gain 和模式开关。InputMixer 已据此生成两张 12×10 矩阵并完成两种模式的 basis-vector golden；InputSelect 的运行期路由表更新仍需单独验证。

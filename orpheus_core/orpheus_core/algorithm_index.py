@@ -401,20 +401,32 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
                 ],
             }
         elif lowering:
-            for port in manifest["ports"]:
-                port["maps_to"] = f"impl:{port['id']}"
-            manifest["graph"] = {
-                "nodes": [{
+            if lowering.get("component"):
+                lowering_nodes = [{
                     "id": "impl",
                     "component": lowering["component"],
                     "params": copy.deepcopy(lowering["params"]),
-                    "position": {"x": 80, "y": 80},
-                }],
-                "connections": [],
+                }]
+                lowering_connections: list[dict[str, str]] = []
+                port_maps = {port["id"]: f"impl:{port['id']}" for port in manifest["ports"]}
+            else:
+                lowering_nodes = copy.deepcopy(lowering["nodes"])
+                lowering_connections = copy.deepcopy(lowering["connections"])
+                port_maps = lowering["port_maps"]
+                manifest["parameters"] = copy.deepcopy(lowering.get("parameters", []))
+            for port in manifest["ports"]:
+                port["maps_to"] = port_maps[port["id"]]
+            manifest["graph"] = {
+                "nodes": [
+                    {**node, "position": {"x": 80 + index * 260, "y": 80}}
+                    for index, node in enumerate(lowering_nodes)
+                ],
+                "connections": lowering_connections,
             }
-            node_notes[f"sub:{definition['component_id']}/impl"] = (
-                f"已验证通用实现：{lowering['component']}；参数由 Algorithm IR lowering 固定。"
-            )
+            for node in lowering_nodes:
+                node_notes[f"sub:{definition['component_id']}/{node['id']}"] = (
+                    f"已验证通用实现：{node['component']}；参数由 Algorithm IR lowering 固定。"
+                )
         else:
             blockers = copy.deepcopy(definition["implementation"]["blockers"])
             if not blockers:

@@ -4,7 +4,7 @@ category: 外部模型/算法索引
 description: 12 路 7.1.4 输入并行计算 stereo 与 5.1.4 后选择 10 路输出
 version: '2.0'
 abi_version: 1
-package_type: placeholder
+package_type: composite
 ports:
 - id: in
   direction: input
@@ -13,6 +13,7 @@ ports:
   channels: 12
   sample_rate: 48000
   block_size: 32
+  maps_to: ingress:in
 - id: out
   direction: output
   type: audio
@@ -20,12 +21,77 @@ ports:
   channels: 10
   sample_rate: 48000
   block_size: 32
-parameters: []
-blockers:
-- id: golden_pending
-  gate: golden
-  reason: 两种模式 golden 未完成
-  source_ref: a_main
+  maps_to: mux:out
+parameters:
+- id: stereo_downmix
+  name: 立体声下混
+  type: int
+  default: 0
+  range:
+  - 0
+  - 1
+  update_policy: smoothed
+  direction: input
+  maps_to: mux:select_index
+  bindable: true
+graph:
+  nodes:
+  - id: ingress
+    component: orpheus.builtin.gain
+    params:
+      channels: 12
+      gain_db: 0.0
+    position:
+      x: 80
+      y: 80
+  - id: mix_514
+    component: orpheus.builtin.input_mixer_3d
+    params:
+      input_channels: 12
+      output_channels: 10
+      gain_db: 0.0
+      weights: 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3.16, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    position:
+      x: 340
+      y: 80
+  - id: mix_stereo
+    component: orpheus.builtin.input_mixer_3d
+    params:
+      input_channels: 12
+      output_channels: 10
+      gain_db: 0.0
+      weights: 1, 0, 0.5, 1.58, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0.5, 1.58, 0, 1, 0,
+        1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0
+    position:
+      x: 600
+      y: 80
+  - id: mux
+    component: orpheus.builtin.n_way_mux
+    params:
+      inputs: 2
+      channels: 10
+      select_index: 0
+      ramp_ms: 0.0
+    position:
+      x: 860
+      y: 80
+  connections:
+  - from: ingress:out
+    to: mix_514:in
+  - from: ingress:out
+    to: mix_stereo:in
+  - from: mix_514:out
+    to: mux:in0
+  - from: mix_stereo:out
+    to: mux:in1
 algorithm_index:
   definition_id: A.PREAMP.INPUT_MIXER
   tasks:
@@ -38,10 +104,68 @@ algorithm_index:
   - 模式选择
   state: []
   implementation:
-    status: exact_candidate
+    status: verified
     component: orpheus.builtin.input_mixer_3d
-    blockers:
-    - id: golden_pending
-      gate: golden
-      reason: 两种模式 golden 未完成
-      source_ref: a_main
+    lowering:
+      nodes:
+      - id: ingress
+        component: orpheus.builtin.gain
+        params:
+          channels: 12
+          gain_db: 0.0
+      - id: mix_514
+        component: orpheus.builtin.input_mixer_3d
+        params:
+          input_channels: 12
+          output_channels: 10
+          gain_db: 0.0
+          weights: 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3.16, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 1
+      - id: mix_stereo
+        component: orpheus.builtin.input_mixer_3d
+        params:
+          input_channels: 12
+          output_channels: 10
+          gain_db: 0.0
+          weights: 1, 0, 0.5, 1.58, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0.5, 1.58, 0, 1,
+            0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0
+      - id: mux
+        component: orpheus.builtin.n_way_mux
+        params:
+          inputs: 2
+          channels: 10
+          select_index: 0
+          ramp_ms: 0.0
+      connections:
+      - from: ingress:out
+        to: mix_514:in
+      - from: ingress:out
+        to: mix_stereo:in
+      - from: mix_514:out
+        to: mux:in0
+      - from: mix_stereo:out
+        to: mux:in1
+      port_maps:
+        in: ingress:in
+        out: mux:out
+      parameters:
+      - id: stereo_downmix
+        name: 立体声下混
+        type: int
+        default: 0
+        range:
+        - 0
+        - 1
+        update_policy: smoothed
+        direction: input
+        maps_to: mux:select_index
+        bindable: true
+    blockers: []

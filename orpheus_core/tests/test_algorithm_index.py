@@ -167,6 +167,36 @@ def test_b_bands_mono_verified_lowering_matches_default_basis_vectors() -> None:
         assert actual == expected
 
 
+def test_a_preamp_input_mixer_verified_lowering_matches_both_basis_matrices() -> None:
+    definitions = {
+        item["id"]: item for item in load_algorithm_index(INDEX)["definitions"]
+    }
+    implementation = definitions["A.PREAMP.INPUT_MIXER"]["implementation"]
+    assert implementation["status"] == "verified"
+    assert implementation["blockers"] == []
+    lowering = implementation["lowering"]
+    nodes = {node["id"]: node for node in lowering["nodes"]}
+    assert nodes["mux"]["params"]["select_index"] == 0
+    assert lowering["parameters"][0]["maps_to"] == "mux:select_index"
+
+    matrix_514 = [float(value.strip()) for value in nodes["mix_514"]["params"]["weights"].split(",")]
+    matrix_stereo = [float(value.strip()) for value in nodes["mix_stereo"]["params"]["weights"].split(",")]
+    assert len(matrix_514) == len(matrix_stereo) == 120
+    expected_514 = {
+        0: {0: 1.0}, 1: {1: 1.0}, 2: {2: 1.0}, 3: {3: 3.16},
+        4: {4: 1.0, 6: 1.0}, 5: {5: 1.0, 7: 1.0},
+        6: {8: 1.0}, 7: {9: 1.0}, 8: {10: 1.0}, 9: {11: 1.0},
+    }
+    expected_stereo = {
+        0: {0: 1.0, 2: 0.5, 3: 1.58, 4: 1.0, 6: 1.0, 8: 1.0, 9: 1.0},
+        1: {1: 1.0, 2: 0.5, 3: 1.58, 5: 1.0, 7: 1.0, 10: 1.0, 11: 1.0},
+    }
+    for matrix, expected in ((matrix_514, expected_514), (matrix_stereo, expected_stereo)):
+        for output in range(10):
+            row = matrix[output * 12:(output + 1) * 12]
+            assert {channel: gain for channel, gain in enumerate(row) if gain != 0.0} == expected.get(output, {})
+
+
 def test_full_index_bus_offsets_cover_exact_typed_transactions() -> None:
     document = load_algorithm_index(INDEX)
     types = {item["id"]: item for item in document["types"]}
@@ -246,7 +276,7 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     assert report["definitions"] == 66
     assert report["leaves"] + report["composites"] == 66
     assert report["executable"] is False
-    assert report["blocker_gates"]["golden"] == report["leaves"] - 1
+    assert report["blocker_gates"]["golden"] == report["leaves"] - 2
 
 
 def test_projection_refuses_to_overwrite_unmarked_directory(tmp_path: Path) -> None:
@@ -300,6 +330,8 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
     assert project_registry.get("external_model.index.b_bus_exchange") is None
     mono = project_registry.get("external_model.index.b_bands_mono")
     assert mono.package_type == "composite"
+    input_mixer = project_registry.get("external_model.index.a_preamp_input_mixer")
+    assert input_mixer.package_type == "composite"
     notes = json.loads((FULL_PROJECT / "node-notes.json").read_text(encoding="utf-8"))
     assert "标准音频端口并写入 graph.connections" in notes["a_runtime"]
     assert "标准 control_connections 映射前只保留" in notes["b_runtime"]
@@ -318,6 +350,17 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
         "cols": 10,
         "matrix": "0.5, 0.5, 0, 0, 0, 0, 0, 0, 0, 0",
     }
+    input_mixer_nodes = {
+        node.id.rsplit("__", 1)[-1]: node
+        for node in flat.graph.nodes.values()
+        if "input_mixer__" in node.id
+    }
+    assert {node.component for node in input_mixer_nodes.values()} == {
+        "orpheus.builtin.gain",
+        "orpheus.builtin.input_mixer_3d",
+        "orpheus.builtin.n_way_mux",
+    }
+    assert input_mixer_nodes["mux"].params["select_index"] == 0
     assert any(
         project_registry.get(node.component).package_type == "placeholder"
         for node in flat.graph.nodes.values()

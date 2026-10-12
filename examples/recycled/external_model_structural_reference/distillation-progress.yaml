@@ -137,9 +137,9 @@ modules:
     evidence_artifacts: [evidence/input-routing-defaults.json]
     dependencies: [A.INPUT_SELECT]
     orpheus_target: input_mixer_3d + switch
-    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: extracted, golden: pending}
-    artifact: notes
-    system_graph_eligible: false
+    progress: {boundary: verified, schedule: verified, algorithm: verified, state: verified, parameters: verified, golden: verified}
+    artifact: component
+    system_graph_eligible: true
 
   - id: A.BIG6_VOLUME
     runtime: runtime_a

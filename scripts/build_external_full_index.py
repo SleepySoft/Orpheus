@@ -57,6 +57,11 @@ def edge(source: str, target: str, type_ref: str, kind: str = "audio", timing: s
     return {"from": source, "to": target, "kind": kind, "type_ref": type_ref, "timing": timing}
 
 
+def matrix_text(rows: int, cols: int, entries: dict[tuple[int, int], float]) -> str:
+    values = [entries.get((row, col), 0.0) for row in range(rows) for col in range(cols)]
+    return ", ".join(f"{value:g}" for value in values)
+
+
 def blocker(gate: str, reason: str, source_ref: str) -> dict[str, str]:
     return {"id": f"{gate}_pending", "gate": gate, "reason": reason, "source_ref": source_ref}
 
@@ -126,6 +131,17 @@ def add(
 
 
 def build_definitions() -> None:
+    input_mixer_514 = matrix_text(10, 12, {
+        (0, 0): 1.0, (1, 1): 1.0, (2, 2): 1.0, (3, 3): 3.16,
+        (4, 4): 1.0, (4, 6): 1.0, (5, 5): 1.0, (5, 7): 1.0,
+        (6, 8): 1.0, (7, 9): 1.0, (8, 10): 1.0, (9, 11): 1.0,
+    })
+    input_mixer_stereo = matrix_text(10, 12, {
+        (0, 0): 1.0, (0, 2): 0.5, (0, 3): 1.58, (0, 4): 1.0,
+        (0, 6): 1.0, (0, 8): 1.0, (0, 9): 1.0,
+        (1, 1): 1.0, (1, 2): 0.5, (1, 3): 1.58, (1, 5): 1.0,
+        (1, 7): 1.0, (1, 10): 1.0, (1, 11): 1.0,
+    })
     # Runtime A hierarchy.
     add("A.RUNTIME", "Runtime A 全速率系统", "执行输入、Big6、空间处理、输出保护和自适应响度", "runtime_a", ["A0", "A1", "A2", "A3", "A4", "A5"], ["a_main"], ["按 A0..A5 调度并与 Runtime B 交换原子总线"],
         inputs=[port("audio_in", "audio30", "input_select:in"), port("mono", "audio1", "audiopilot:mono"), port("treble_lr", "audio2", "spatial_full:treble_lr"), port("treble_surround", "audio7", "spatial_full:treble_surround"), port("post_spatial", "audio22", "spatial_full:post_spatial")],
@@ -137,7 +153,22 @@ def build_definitions() -> None:
         inputs=[port("entertainment", "audio12", "input_mixer:in"), port("microphone", "audio1", "route_level:microphone")], outputs=[port("post_buffer", "audio32", "route_level:post_buffer"), port("adaptive", "audio10", "route_level:adaptive"), port("microphone_out", "audio1", "route_level:microphone_out")],
         children=["A.PREAMP.INPUT_MIXER", "A.PREAMP.MUSIC_VOLUME", "A.PREAMP.BASS", "A.PREAMP.TREBLE", "A.PREAMP.MID", "A.PREAMP.BALANCE", "A.PREAMP.ROUTE_LEVEL"],
         edges=[edge("input_mixer:out", "music_volume:in", "audio10"), edge("input_mixer:out", "route_level:program", "audio10"), edge("music_volume:out", "bass:in", "audio10"), edge("music_volume:out", "route_level:volume", "audio10"), edge("bass:out", "treble:in", "audio10"), edge("treble:out", "mid:in", "audio10"), edge("mid:out", "balance:in", "audio10"), edge("balance:out", "route_level:balanced", "audio10")])
-    add("A.PREAMP.INPUT_MIXER", "节目布局转换", "12 路 7.1.4 输入并行计算 stereo 与 5.1.4 后选择 10 路输出", "runtime_a", ["A0"], ["a_main"], ["makeup gain", "LFE/环绕加权", "立体声下混", "5.1.4 重排", "模式选择"], parent="A.PREAMP", inputs=[port("in", "audio12")], outputs=[port("out", "audio10")], branches=["stereo 路径通道 3..10 置零", "默认 5.1.4 路径"], status="exact_candidate", component="orpheus.builtin.input_mixer_3d", blockers=[blocker("golden", "两种模式 golden 未完成", "a_main")])
+    add("A.PREAMP.INPUT_MIXER", "节目布局转换", "12 路 7.1.4 输入并行计算 stereo 与 5.1.4 后选择 10 路输出", "runtime_a", ["A0"], ["a_main", "a_preamp_top"], ["makeup gain", "LFE/环绕加权", "立体声下混", "5.1.4 重排", "模式选择"], parent="A.PREAMP", inputs=[port("in", "audio12")], outputs=[port("out", "audio10")], branches=["stereo 路径通道 3..10 置零", "默认 5.1.4 路径"], status="verified", component="orpheus.builtin.input_mixer_3d", lowering={
+        "nodes": [
+            {"id": "ingress", "component": "orpheus.builtin.gain", "params": {"channels": 12, "gain_db": 0.0}},
+            {"id": "mix_514", "component": "orpheus.builtin.input_mixer_3d", "params": {"input_channels": 12, "output_channels": 10, "gain_db": 0.0, "weights": input_mixer_514}},
+            {"id": "mix_stereo", "component": "orpheus.builtin.input_mixer_3d", "params": {"input_channels": 12, "output_channels": 10, "gain_db": 0.0, "weights": input_mixer_stereo}},
+            {"id": "mux", "component": "orpheus.builtin.n_way_mux", "params": {"inputs": 2, "channels": 10, "select_index": 0, "ramp_ms": 0.0}},
+        ],
+        "connections": [
+            {"from": "ingress:out", "to": "mix_514:in"},
+            {"from": "ingress:out", "to": "mix_stereo:in"},
+            {"from": "mix_514:out", "to": "mux:in0"},
+            {"from": "mix_stereo:out", "to": "mux:in1"},
+        ],
+        "port_maps": {"in": "ingress:in", "out": "mux:out"},
+        "parameters": [{"id": "stereo_downmix", "name": "立体声下混", "type": "int", "default": 0, "range": [0, 1], "update_policy": "smoothed", "direction": "input", "maps_to": "mux:select_index", "bindable": True}],
+    }, blockers=[])
     add("A.PREAMP.MUSIC_VOLUME", "节目延迟与音量", "对 10 路节目做电平检测对齐延迟和单 ramper 无跳变音量", "runtime_a", ["A0"], ["a_main"], ["1120 状态延迟", "8 点索引/dB 插值", "逐样本指数增益", "freeze/snap/current gain"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10"), port("gain_state", "control10")], states=[state("music_delay", "10 路延迟状态", [1120]), state("volume_ramper", "current/target/ramp/frame/freeze")], status="approximation", component="orpheus.builtin.gain_ramper")
     add("A.PREAMP.BASS", "低频音调", "按索引在 boost/cut 一阶残差滤波之间切换并跨 unity 两阶段平滑", "runtime_a", ["A0"], ["a_main"], ["一阶滤波", "y=x+(g-1)f(x)", "boost/cut 两阶段 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("filter", "每通道一阶状态", [10]), state("ramper", "phase/frame/current/target/freeze")], status="approximation", component="orpheus.builtin.bass")
     add("A.PREAMP.TREBLE", "高频音调", "按索引在 boost/cut 一阶残差滤波之间切换并平滑", "runtime_a", ["A0"], ["a_main"], ["一阶滤波", "残差增益", "两阶段 ramper"], parent="A.PREAMP", inputs=[port("in", "audio10")], outputs=[port("out", "audio10")], states=[state("filter", "每通道一阶状态", [10])], status="approximation", component="orpheus.builtin.treble")

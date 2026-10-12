@@ -5,13 +5,13 @@
   "leaves": 50,
   "implementation_status": {
     "approximation": 12,
-    "exact_candidate": 4,
+    "exact_candidate": 3,
     "unsupported": 33,
-    "verified": 1
+    "verified": 2
   },
   "blocker_gates": {
     "algorithm": 44,
-    "golden": 49,
+    "golden": 48,
     "runtime": 1,
     "state": 1
   },

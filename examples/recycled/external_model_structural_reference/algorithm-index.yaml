@@ -1050,6 +1050,7 @@ definitions:
   - A0
   source_refs:
   - a_main
+  - a_preamp_top
   interface:
     inputs:
     - id: in
@@ -1073,13 +1074,67 @@ definitions:
   body:
     edges: []
   implementation:
-    status: exact_candidate
+    status: verified
     component: orpheus.builtin.input_mixer_3d
-    blockers:
-    - id: golden_pending
-      gate: golden
-      reason: 两种模式 golden 未完成
-      source_ref: a_main
+    lowering:
+      nodes:
+      - id: ingress
+        component: orpheus.builtin.gain
+        params:
+          channels: 12
+          gain_db: 0.0
+      - id: mix_514
+        component: orpheus.builtin.input_mixer_3d
+        params:
+          input_channels: 12
+          output_channels: 10
+          gain_db: 0.0
+          weights: 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 3.16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+      - id: mix_stereo
+        component: orpheus.builtin.input_mixer_3d
+        params:
+          input_channels: 12
+          output_channels: 10
+          gain_db: 0.0
+          weights: 1, 0, 0.5, 1.58, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0.5, 1.58, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+      - id: mux
+        component: orpheus.builtin.n_way_mux
+        params:
+          inputs: 2
+          channels: 10
+          select_index: 0
+          ramp_ms: 0.0
+      connections:
+      - from: ingress:out
+        to: mix_514:in
+      - from: ingress:out
+        to: mix_stereo:in
+      - from: mix_514:out
+        to: mux:in0
+      - from: mix_stereo:out
+        to: mux:in1
+      port_maps:
+        in: ingress:in
+        out: mux:out
+      parameters:
+      - id: stereo_downmix
+        name: 立体声下混
+        type: int
+        default: 0
+        range:
+        - 0
+        - 1
+        update_policy: smoothed
+        direction: input
+        maps_to: mux:select_index
+        bindable: true
+    blockers: []
 - id: A.PREAMP.MUSIC_VOLUME
   component_id: external_model.index.a_preamp_music_volume
   node_id: music_volume

@@ -16,6 +16,7 @@
 - [x] 删除自定义 projection edge/handle/label，画布只保留标准音频和控制链路；
 - [x] placeholder 编译阻断、确定性生成和浏览器可见性测试。
 - [x] `B.BANDS.MONO`：用通用 `matrix_mul` 精确实现，默认矩阵经 10 路 one-hot golden 验证。
+- [x] `A.PREAMP.INPUT_MIXER`：用 gain + 两个 `input_mixer_3d` + `n_way_mux` 组合实现，两种模式经 12 路 one-hot golden 验证。
 
 ## P0：先验证跨 Runtime 契约
 

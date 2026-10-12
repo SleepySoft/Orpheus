@@ -43,7 +43,7 @@ def _read_wav(path):
     return [[frames[i * chans + ch] / 32768.0 for i in range(n)] for ch in range(chans)]
 
 
-def _mux_run(client, name, src_files, select, inputs, ramp_ms=20.0, out_name="out.wav"):
+def _mux_run(client, name, src_files, select, inputs, ramp_ms=20.0, out_name="out.wav", select_index=None):
     nodes = [{"id": "wav_out", "component": "orpheus.builtin.wav_out",
               "params": {"file_path": "outputs/" + out_name, "channels": 2,
                          "sample_rate": SR}, "position": {"x": 800, "y": 0}}]
@@ -53,9 +53,11 @@ def _mux_run(client, name, src_files, select, inputs, ramp_ms=20.0, out_name="ou
                       "params": {"file_path": path, "channels": 2},
                       "position": {"x": 0, "y": idx * 120}})
         conns.append({"from": f"src{idx}:out", "to": f"mux:in{idx}"})
+    mux_params = {"inputs": inputs, "channels": 2, "select": select, "ramp_ms": ramp_ms}
+    if select_index is not None:
+        mux_params["select_index"] = select_index
     nodes.append({"id": "mux", "component": "orpheus.builtin.n_way_mux",
-                  "params": {"inputs": inputs, "channels": 2, "select": select,
-                             "ramp_ms": ramp_ms},
+                  "params": mux_params,
                   "position": {"x": 300, "y": 0}})
     conns.append({"from": "mux:out", "to": "wav_out:in"})
 
@@ -93,6 +95,32 @@ def test_mux_selects_input():
                                   ramp_ms=0.0, out_name=f"o{sel}.wav")
                 err = max(abs(a - b) for a, b in zip(out[0], expect))
                 assert err < tol, (sel, err)
+        finally:
+            client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.skipif(_SKIP, reason="n_way_mux not built")
+def test_mux_zero_based_select_index_overrides_legacy_select():
+    name = f"mux_{uuid.uuid4().hex[:8]}"
+    with TestClient(create_app(ROOT)) as client:
+        try:
+            assert client.post("/api/projects", json={"name": name}).status_code == 201
+            pdir = ROOT / "workspace" / name
+            pdir.mkdir(parents=True, exist_ok=True)
+            (pdir / "outputs").mkdir(parents=True, exist_ok=True)
+            n = 1000
+            s0 = [0.2] * n
+            s1 = [-0.3] * n
+            _write_wav(pdir / "in0.wav", [s0, s0])
+            _write_wav(pdir / "in1.wav", [s1, s1])
+            srcs = {0: "in0.wav", 1: "in1.wav"}
+            tol = 3 * (1 / 32768.0) + 1e-8
+            for index, expected in ((0, s0), (1, s1)):
+                out, _ = _mux_run(
+                    client, name, srcs, select=1, select_index=index,
+                    inputs=2, ramp_ms=0.0, out_name=f"index{index}.wav",
+                )
+                assert max(abs(actual - wanted) for actual, wanted in zip(out[0], expected)) < tol
         finally:
             client.delete(f"/api/projects/{name}")
 

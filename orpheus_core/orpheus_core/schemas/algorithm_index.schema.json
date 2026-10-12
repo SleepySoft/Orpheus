@@ -248,11 +248,60 @@
         "lowering": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["component", "params"],
           "properties": {
             "component": {"type": "string"},
-            "params": {"type": "object"}
-          }
+            "params": {"type": "object"},
+            "nodes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "component", "params"],
+                "properties": {
+                  "id": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+                  "component": {"type": "string"},
+                  "params": {"type": "object"}
+                }
+              }
+            },
+            "connections": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["from", "to"],
+                "properties": {"from": {"type": "string"}, "to": {"type": "string"}}
+              }
+            },
+            "port_maps": {
+              "type": "object",
+              "additionalProperties": {"type": "string"}
+            },
+            "parameters": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "name", "type", "default", "update_policy", "direction", "maps_to"],
+                "properties": {
+                  "id": {"type": "string"},
+                  "name": {"type": "string"},
+                  "type": {"enum": ["float", "int", "bool", "string"]},
+                  "default": {},
+                  "range": {"type": "array", "minItems": 2, "maxItems": 2},
+                  "update_policy": {"enum": ["immediate", "block_boundary", "smoothed", "restart_required"]},
+                  "direction": {"enum": ["input", "output"]},
+                  "maps_to": {"type": "string"},
+                  "bindable": {"type": "boolean"}
+                }
+              }
+            }
+          },
+          "oneOf": [
+            {"required": ["component", "params"]},
+            {"required": ["nodes", "connections", "port_maps"]}
+          ]
         },
         "blockers": {
           "type": "array",

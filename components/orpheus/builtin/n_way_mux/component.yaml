@@ -43,6 +43,12 @@ parameters:
     default: 1
     range: [1, 32]
     update_policy: smoothed
+  - id: select_index
+    name: 选择输入索引(0=in0, 1=in1...，-1=使用select)
+    type: int
+    default: -1
+    range: [-1, 31]
+    update_policy: smoothed
   - id: ramp_ms
     name: 切换淡化时长
     type: float
