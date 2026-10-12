@@ -1,0 +1,116 @@
+id: external_model.index.b_mix_deci
+name: 降速 21→52 混音
+category: 外部模型/算法索引
+description: 延迟/滤波并组织 21 路，再用 34/525/525 三矩阵生成 52 路 HEQ 输入
+version: '2.0'
+abi_version: 1
+package_type: composite
+ports:
+- id: fdp
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 8
+  sample_rate: 48000
+  block_size: 32
+  maps_to: align:fdp
+- id: bands
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+  maps_to: align:bands
+- id: targets
+  direction: input
+  type: bulk
+  sample_format: f32
+  channels: 1134
+  maps_to: ramp:targets
+- id: peripheral
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+  maps_to: route:peripheral
+- id: headrest
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+  maps_to: route:headrest
+- id: overhead
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 20
+  sample_rate: 48000
+  block_size: 32
+  maps_to: route:overhead
+- id: active
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 1134
+  maps_to: ramp:active
+parameters: []
+imports:
+- external_model_index_b_mix_deci_align.component.yaml
+- external_model_index_b_mix_deci_organize.component.yaml
+- external_model_index_b_mix_deci_ramp.component.yaml
+- external_model_index_b_mix_deci_route.component.yaml
+graph:
+  nodes:
+  - id: align
+    component: external_model.index.b_mix_deci_align
+    position:
+      x: 80
+      y: 80
+  - id: organize
+    component: external_model.index.b_mix_deci_organize
+    position:
+      x: 340
+      y: 80
+  - id: ramp
+    component: external_model.index.b_mix_deci_ramp
+    position:
+      x: 600
+      y: 80
+  - id: route
+    component: external_model.index.b_mix_deci_route
+    position:
+      x: 860
+      y: 80
+  connections:
+  - from: align:aligned
+    to: organize:in
+  - from: organize:out
+    to: ramp:audio
+  - from: ramp:out
+    to: route:in
+algorithm_index:
+  definition_id: B.MIX_DECI
+  tasks:
+  - B3
+  operations:
+  - alignment
+  - organizer
+  - sequence-gated ramp
+  - peripheral/overhead/headrest route
+  state: []
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

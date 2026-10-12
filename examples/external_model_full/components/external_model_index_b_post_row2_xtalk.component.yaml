@@ -1,0 +1,59 @@
+id: external_model.index.b_post_row2_xtalk
+name: Row2 串扰消除
+category: 外部模型/算法索引
+description: 四路重复成 16 path，经独立 IIR/delay 后按目标求和
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_vls
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_vls
+algorithm_index:
+  definition_id: B.POST.ROW2.XTALK
+  tasks:
+  - B3
+  operations:
+  - 4→16 repeat
+  - 16 PoolIIR
+  - 16 delay
+  - 4×4 path sum
+  state:
+  - id: iir
+    role: 480 state
+    initialization: generated initialization
+  - id: delay
+    role: 600 state
+    initialization: generated initialization
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_vls
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_vls

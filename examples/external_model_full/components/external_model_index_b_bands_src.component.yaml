@@ -1,0 +1,73 @@
+id: external_model.index.b_bands_src
+name: 3/13 Rational SRC
+category: 外部模型/算法索引
+description: 把 10 路 48k 内容变换到 B3 域，并在 B1 重构 treble/surround
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: deci
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: treble_lr
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 2
+  sample_rate: 48000
+  block_size: 32
+- id: surround
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 7
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_main
+algorithm_index:
+  definition_id: B.BANDS.SRC
+  tasks:
+  - B1
+  - B3
+  operations:
+  - 3 相下采样 348 系数
+  - 13 相上采样 351 系数
+  - phase 4/4/5
+  - 重构残差
+  state:
+  - id: src_rings
+    role: alignment/down/up buffers
+    initialization: generated initialization
+    shape:
+    - 9270
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

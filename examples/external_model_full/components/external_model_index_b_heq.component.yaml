@@ -1,0 +1,101 @@
+id: external_model.index.b_heq
+name: 三分支 HEQ
+category: 外部模型/算法索引
+description: 并行计算 peripheral/headrest/overhead 的 FIR、延迟输入 IIR、求和和输出环
+version: '2.0'
+abi_version: 1
+package_type: composite
+ports:
+- id: peripheral
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+  maps_to: peripheral:in
+- id: headrest
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+  maps_to: headrest:in
+- id: overhead
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 20
+  sample_rate: 48000
+  block_size: 32
+  maps_to: overhead:in
+- id: peripheral_out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+  maps_to: peripheral:out
+- id: headrest_out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 40
+  sample_rate: 48000
+  block_size: 32
+  maps_to: headrest:out
+- id: overhead_out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+  maps_to: overhead:out
+parameters: []
+imports:
+- external_model_index_b_heq_peripheral.component.yaml
+- external_model_index_b_heq_headrest.component.yaml
+- external_model_index_b_heq_overhead.component.yaml
+graph:
+  nodes:
+  - id: peripheral
+    component: external_model.index.b_heq_peripheral
+    position:
+      x: 80
+      y: 80
+  - id: headrest
+    component: external_model.index.b_heq_headrest
+    position:
+      x: 340
+      y: 80
+  - id: overhead
+    component: external_model.index.b_heq_overhead
+    position:
+      x: 600
+      y: 80
+  connections: []
+algorithm_index:
+  definition_id: B.HEQ
+  tasks:
+  - B3
+  operations:
+  - 三分支并行
+  - mapped FIR + delayed mapped PoolIIR
+  - contribution add
+  - OutputMapping sum
+  - output delay
+  state: []
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

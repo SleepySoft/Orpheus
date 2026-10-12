@@ -112,7 +112,7 @@ def test_heq_directory_project_resolves_resources_and_compiles() -> None:
     ) == 530
     assert plan.node_configs["headrest__join"]["params"]["channels"] == 40
     assert plan.node_configs["headrest__carry"]["params"]["delays_samples"].split(",") == ["2"] * 40
-    assert plan.node_configs["overhead__carry"]["params"]["delays_samples"] == "2,2,2,2"
+    assert plan.node_configs["overhead__carry"]["params"]["delays_samples"] == "34,34,34,34"
     assert plan.control_links == []
 
 

@@ -435,6 +435,16 @@ def validate_project(
         _finalize_summary(report)
         return report
 
+    projection = data.get("algorithm_projection") or {}
+    if isinstance(projection, dict) and projection.get("executable") is False:
+        report.add_warning(
+            "compile",
+            "Algorithm IR 研究图含未实现 placeholder；结构校验通过，但按工程声明禁止编译",
+        )
+        report._set_stage("compile", "blocked")
+        _finalize_summary(report)
+        return report
+
     try:
         flat = flatten_project(project)
         plan = GraphCompiler(project_registry).compile(flat, target=target)

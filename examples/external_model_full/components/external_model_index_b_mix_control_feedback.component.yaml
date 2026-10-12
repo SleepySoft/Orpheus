@@ -1,0 +1,52 @@
+id: external_model.index.b_mix_control_feedback
+name: 目标/当前增益快照
+category: 外部模型/算法索引
+description: 在消费者执行后更新 26/70/70、34/525/525/80 的跨任务快照
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: active
+  direction: input
+  type: bulk
+  sample_format: f32
+  channels: 1134
+- id: snapshot
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 1134
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_main
+algorithm_index:
+  definition_id: B.MIX_CONTROL.FEEDBACK
+  tasks:
+  - B1
+  - B3
+  operations:
+  - B1/B3 unit delays
+  - 1e-3 completion
+  - task-end update
+  state:
+  - id: snapshots
+    role: 任务边界数组快照
+    initialization: generated initialization
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

@@ -13,6 +13,6 @@
 | `test_gain_chain.yaml` | 编译器 fixture | 自动化编译测试 |
 | `test_slc_matrix_mul.yaml` | SLC 组件 fixture | 自动化数值测试 |
 | `wav_gain_chain.yaml` | 被更完整文件效果链覆盖 | `../wav_gain_biquad.yaml` |
-| `external_model_structural_reference/` | 双 Runtime 结构底稿与逐模块证据索引，不是算法等价示例 | 先读目录内 `distillation-index.yaml`，再看已通过门禁的独立切片 |
+| `external_model_structural_reference/` | 双 Runtime 全量 Algorithm IR、进度台账与证据，不是算法等价示例 | 先读目录内 `algorithm-index.yaml` 与 README |
 
 回收工程继续通过 `orpheus_core.cli validate examples/recycled` 校验，但不会被 `GET /api/examples` 列出。

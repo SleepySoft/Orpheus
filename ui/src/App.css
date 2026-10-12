@@ -2210,6 +2210,19 @@ pre {
   cursor: default;
 }
 
+.placeholder-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border: 1px solid #c06b16;
+  border-radius: 3px;
+  color: #7a3e00;
+  background: #fff0d8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 .node-notes-textarea {
   width: 100%;
   box-sizing: border-box;

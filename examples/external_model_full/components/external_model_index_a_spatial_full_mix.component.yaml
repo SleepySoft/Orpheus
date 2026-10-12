@@ -1,0 +1,84 @@
+id: external_model.index.a_spatial_full_mix
+name: 13→22 全速率混音
+category: 外部模型/算法索引
+description: 组织 FDP6 与 surround7，并以 26/70/70 三矩阵平滑生成 22 路
+version: '2.0'
+abi_version: 1
+package_type: composite
+ports:
+- id: fdp
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 6
+  sample_rate: 48000
+  block_size: 32
+  maps_to: organize:fdp
+- id: surround
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 7
+  sample_rate: 48000
+  block_size: 32
+  maps_to: organize:surround
+- id: targets
+  direction: input
+  type: bulk
+  sample_format: f32
+  channels: 166
+  maps_to: ramp_control:targets
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+  maps_to: ramp_control:out
+- id: current_gains
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 166
+  maps_to: ramp_control:current
+parameters: []
+imports:
+- external_model_index_a_spatial_full_mix_organize.component.yaml
+- external_model_index_a_spatial_full_mix_ramp_control.component.yaml
+graph:
+  nodes:
+  - id: organize
+    component: external_model.index.a_spatial_full_mix_organize
+    position:
+      x: 80
+      y: 80
+  - id: ramp_control
+    component: external_model.index.a_spatial_full_mix_ramp_control
+    position:
+      x: 340
+      y: 80
+  connections:
+  - from: organize:organized
+    to: ramp_control:audio
+algorithm_index:
+  definition_id: A.SPATIAL_FULL.MIX
+  tasks:
+  - A0
+  operations:
+  - surround delay/派生
+  - 13 路 MixEQ
+  - CS/Left/Right 输入组织
+  - sequence 矩阵 ramp
+  state: []
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

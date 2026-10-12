@@ -16,7 +16,7 @@ INDEX = (
     / "examples"
     / "recycled"
     / "external_model_structural_reference"
-    / "distillation-index.yaml"
+    / "distillation-progress.yaml"
 )
 PROJECT_DIR = INDEX.parent
 BIG6_EVIDENCE = PROJECT_DIR / "evidence" / "big6-defaults.json"

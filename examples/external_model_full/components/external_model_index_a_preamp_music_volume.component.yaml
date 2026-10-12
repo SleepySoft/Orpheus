@@ -1,0 +1,67 @@
+id: external_model.index.a_preamp_music_volume
+name: 节目延迟与音量
+category: 外部模型/算法索引
+description: 对 10 路节目做电平检测对齐延迟和单 ramper 无跳变音量
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: gain_state
+  direction: output
+  type: control
+  sample_format: f32
+  channels: 10
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.PREAMP.MUSIC_VOLUME
+  tasks:
+  - A0
+  operations:
+  - 1120 状态延迟
+  - 8 点索引/dB 插值
+  - 逐样本指数增益
+  - freeze/snap/current gain
+  state:
+  - id: music_delay
+    role: 10 路延迟状态
+    initialization: generated initialization
+    shape:
+    - 1120
+  - id: volume_ramper
+    role: current/target/ramp/frame/freeze
+    initialization: generated initialization
+  implementation:
+    status: approximation
+    component: orpheus.builtin.gain_ramper
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

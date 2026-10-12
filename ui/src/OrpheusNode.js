@@ -13,6 +13,10 @@ export default function OrpheusNode({ id, data, selected }) {
   const outputs = ports.filter((p) => p.direction === 'output');
   const isSub = (data.component || '').startsWith('sub:');
   const isBridge = !!data.bridgeConfig;
+  const isPlaceholder = data.packageType === 'placeholder';
+  const blockerText = (data.blockers || [])
+    .map((item) => `${item.gate || item.id}: ${item.reason}`)
+    .join('\n');
   const platformTone = (() => {
     const platforms = data.platforms || [];
     if (platforms.length !== 1) return platforms.length > 1 ? 'multi' : '';
@@ -172,6 +176,11 @@ const BodyWidget = NODE_WIDGETS[data.component];
           {data.missing && (
             <span className="missing-badge" title="该组件已被删除：请删除此节点或重新创建组件">
               组件缺失
+            </span>
+          )}
+          {isPlaceholder && (
+            <span className="placeholder-badge" title={blockerText || '该算法尚未完成蒸馏'}>
+              待蒸馏
             </span>
           )}
           {rateBadge}

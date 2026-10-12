@@ -171,6 +171,7 @@ def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
         "version": info.version,
         "abi_version": info.abi_version,
         "package_type": info.package_type,
+        "blockers": m.get("blockers", []),
         "name": m.get("name", info.id),
         "category": m.get("category", "未分类"),
         "order": m.get("order", 0),

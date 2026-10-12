@@ -1,0 +1,78 @@
+id: external_model.index.b_post_return
+name: 22 路 13/3 返回 SRC
+category: 外部模型/算法索引
+description: 组合 SB peripheral10/overhead4 与 Row1/2 各四路，再变换回 A 的 1500Hz 块率
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: peripheral
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: overhead
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+- id: row1
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+- id: row2
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_main
+algorithm_index:
+  definition_id: B.POST.RETURN
+  tasks:
+  - B1
+  - B3
+  operations:
+  - 22 路顺序拼接
+  - B3 polyphase write
+  - B1 13/3 SRC read
+  - 发布 22×32
+  state:
+  - id: src_buffer
+    role: 2112 polyphase state
+    initialization: generated initialization
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

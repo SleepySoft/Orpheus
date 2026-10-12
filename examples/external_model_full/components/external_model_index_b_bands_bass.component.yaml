@@ -1,0 +1,59 @@
+id: external_model.index.b_bands_bass
+name: Bass/Mid 频带
+category: 外部模型/算法索引
+description: 重构 C/LFE、九路 HPF 和双六输入 LR 求和后 LPF
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_bands
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_bands
+algorithm_index:
+  definition_id: B.BANDS.BASS
+  tasks:
+  - B3
+  operations:
+  - C+=gain*LFE
+  - 移除 C/LFE
+  - 9 路 HPF
+  - LR weighted sum
+  - 2 路 LPF
+  state:
+  - id: filters
+    role: HPF90 + LPF20
+    initialization: generated initialization
+    shape:
+    - 110
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_bands
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_bands

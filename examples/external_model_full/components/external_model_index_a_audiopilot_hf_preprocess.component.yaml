@@ -1,0 +1,71 @@
+id: external_model.index.a_audiopilot_hf_preprocess
+name: HF 噪声预处理
+category: 外部模型/算法索引
+description: 组合 mic/FDP/surround 参考，滤波、抽取并写入十通道 HF ring
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: microphone
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  sample_rate: 48000
+  block_size: 32
+- id: fdp
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+- id: frames
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 3000
+  block_size: 2
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.AUDIOPILOT.HF_PREPROCESS
+  tasks:
+  - A0
+  operations:
+  - BP/LP IIR
+  - 11 项周期调制
+  - AA IIR
+  - ÷16
+  - 参考对齐
+  state:
+  - id: hf_ring
+    role: 10×512 ring
+    initialization: generated initialization
+    shape:
+    - 5120
+  - id: reference_delay
+    role: 参考对齐
+    initialization: generated initialization
+    shape:
+    - 5418
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

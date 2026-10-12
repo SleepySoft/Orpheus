@@ -1,0 +1,47 @@
+id: external_model.index.a_preamp_input_mixer
+name: 节目布局转换
+category: 外部模型/算法索引
+description: 12 路 7.1.4 输入并行计算 stereo 与 5.1.4 后选择 10 路输出
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 12
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: golden_pending
+  gate: golden
+  reason: 两种模式 golden 未完成
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.PREAMP.INPUT_MIXER
+  tasks:
+  - A0
+  operations:
+  - makeup gain
+  - LFE/环绕加权
+  - 立体声下混
+  - 5.1.4 重排
+  - 模式选择
+  state: []
+  implementation:
+    status: exact_candidate
+    component: orpheus.builtin.input_mixer_3d
+    blockers:
+    - id: golden_pending
+      gate: golden
+      reason: 两种模式 golden 未完成
+      source_ref: a_main

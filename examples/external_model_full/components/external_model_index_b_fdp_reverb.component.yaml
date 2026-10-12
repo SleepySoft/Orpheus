@@ -1,0 +1,61 @@
+id: external_model.index.b_fdp_reverb
+name: 降速冲击/尾音分离
+category: 外部模型/算法索引
+description: 用快慢 PSD、冲击计数、延迟谱和 DecayRate 分离 impulse/tail
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: residual
+  direction: input
+  type: bulk
+  sample_format: f32
+  channels: 2
+- id: split
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 4
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_main
+algorithm_index:
+  definition_id: B.FDP.REVERB
+  tasks:
+  - B4
+  operations:
+  - fast/slow PSD
+  - scalar impulse detector
+  - 16×129 spectral delay
+  - ratio smoothing
+  state:
+  - id: spectral_delay
+    role: 16×129 history
+    initialization: generated initialization
+    shape:
+    - 16
+    - 129
+  - id: alignment
+    role: 4×774 rings
+    initialization: generated initialization
+    shape:
+    - 4
+    - 774
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

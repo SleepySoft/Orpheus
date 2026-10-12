@@ -67,8 +67,8 @@ graph:
     component: orpheus.builtin.delay_line
     params:
       channels: 4
-      max_delay_samples: 2
-      delays_samples: 2,2,2,2
+      max_delay_samples: 34
+      delays_samples: 34,34,34,34
     position:
       x: 860
       y: 260
@@ -124,5 +124,5 @@ graph:
   - from: join:out
     to: carry:in
 execution:
-  latency_samples: 531
+  latency_samples: 563
   realtime_safe: true

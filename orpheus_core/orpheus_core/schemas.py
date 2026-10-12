@@ -26,5 +26,9 @@ def load_project_schema() -> dict[str, Any]:
     return _load_schema("project.schema.json")
 
 
+def load_algorithm_index_schema() -> dict[str, Any]:
+    return _load_schema("algorithm_index.schema.json")
+
+
 def validate(data: Any, schema: dict[str, Any]) -> None:
     jsonschema.validate(instance=data, schema=schema)

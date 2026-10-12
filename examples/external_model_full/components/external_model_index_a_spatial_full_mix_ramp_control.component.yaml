@@ -1,0 +1,69 @@
+id: external_model.index.a_spatial_full_mix_ramp_control
+name: 26/70/70 矩阵斜坡
+category: 外部模型/算法索引
+description: 按 FastSequence 冻结/启动目标，逐样本平滑三矩阵并回传当前增益
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: audio
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 13
+  sample_rate: 48000
+  block_size: 32
+- id: targets
+  direction: input
+  type: bulk
+  sample_format: f32
+  channels: 166
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+- id: current
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 166
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.SPATIAL_FULL.MIX.RAMP_CONTROL
+  tasks:
+  - A0
+  operations:
+  - 偶序列接受目标
+  - 奇序列冻结
+  - 零值微扰
+  - CS13→2/Left7→10/Right7→10
+  state:
+  - id: matrices
+    role: current/target/coeff/sequence
+    initialization: generated initialization
+    shape:
+    - 166
+  implementation:
+    status: approximation
+    component: orpheus.builtin.slc_matrix_mul
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

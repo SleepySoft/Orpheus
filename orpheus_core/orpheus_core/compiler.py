@@ -431,6 +431,19 @@ class GraphCompiler:
         return prepared, ignored
 
     def compile(self, project: Project, target: str | None = None) -> ExecutionPlan:
+        for node in project.graph.nodes.values():
+            comp = self.registry.get(node.component)
+            if comp is None or comp.package_type != "placeholder":
+                continue
+            blockers = comp.manifest.get("blockers", []) or []
+            details = "; ".join(
+                f"{item.get('gate', 'unknown')}:{item.get('reason', item.get('id', 'unknown'))}"
+                for item in blockers
+            ) or "未声明 blocker"
+            raise CompileError(
+                f"节点 {node.id} 使用未实现算法组件 {node.component}：{details}"
+            )
+
         # 目标平台与 alter 组解析：先把工程解析为选定平台下的等价副本
         # （替换 alter 成员、剔除未激活成员、重映射边），再走现有编译管线。
         from orpheus_core.resolve import resolve_project

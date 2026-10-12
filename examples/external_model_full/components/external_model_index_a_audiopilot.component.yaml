@@ -1,0 +1,110 @@
+id: external_model.index.a_audiopilot
+name: 多速率自适应响度
+category: 外部模型/算法索引
+description: 估计 HF/LF 噪声和信号比，计算多频段补偿并施加到 10 路节目
+version: '2.0'
+abi_version: 1
+package_type: composite
+ports:
+- id: program
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+  maps_to: gain_application:program
+- id: microphone
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  sample_rate: 48000
+  block_size: 32
+  maps_to: hf_preprocess:microphone
+- id: mono
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  sample_rate: 48000
+  block_size: 32
+  maps_to: lf:reference
+- id: fdp_taps
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+  maps_to: hf_preprocess:fdp
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+  maps_to: gain_application:out
+- id: metrics
+  direction: output
+  type: control
+  sample_format: f32
+  channels: 4
+  maps_to: gain_application:metrics
+parameters: []
+imports:
+- external_model_index_a_audiopilot_hf_preprocess.component.yaml
+- external_model_index_a_audiopilot_hf_estimator.component.yaml
+- external_model_index_a_audiopilot_lf.component.yaml
+- external_model_index_a_audiopilot_gain_application.component.yaml
+graph:
+  nodes:
+  - id: hf_preprocess
+    component: external_model.index.a_audiopilot_hf_preprocess
+    position:
+      x: 80
+      y: 80
+  - id: hf_estimator
+    component: external_model.index.a_audiopilot_hf_estimator
+    position:
+      x: 340
+      y: 80
+  - id: lf
+    component: external_model.index.a_audiopilot_lf
+    position:
+      x: 600
+      y: 80
+  - id: gain_application
+    component: external_model.index.a_audiopilot_gain_application
+    position:
+      x: 860
+      y: 80
+  connections:
+  - from: hf_preprocess:frames
+    to: hf_estimator:frames
+algorithm_index:
+  definition_id: A.AUDIOPILOT
+  tasks:
+  - A0
+  - A1
+  - A3
+  - A4
+  - A5
+  operations:
+  - HF 预处理
+  - HF 相干/ratio
+  - LF Welch/冲击
+  - BoostMap/增益应用
+  state: []
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

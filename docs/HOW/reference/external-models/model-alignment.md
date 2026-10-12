@@ -82,7 +82,7 @@ Orpheus 组件：`orpheus.builtin.piecewise_soft_clipper`。`examples/recycled/e
 
 ## 外部模型结构参考
 
-完整双 Runtime 模型不再从结构参考直接转图。后续工作以工程目录内的 `distillation-index.yaml` 为唯一进度索引，按 `distillation-workflow.md` 逐模块完成边界、调度、算法、状态、参数和 golden 六项门禁后再组装。Big6 的当前所有权和缺口见 `analysis/big6.md`。
+完整双 Runtime 模型不再从结构参考直接转图。工程目录内的 `algorithm-index.yaml` 是 68 个递归算法定义、11 个任务和双向 typed bus 的结构权威；`distillation-progress.yaml` 只记录六项验证门禁。`examples/external_model_full/` 由 Algorithm IR 确定性生成，placeholder 节点会被编译器主动拒绝。Big6 的当前所有权和缺口见 `analysis/big6.md`。
 
 `examples/recycled/external_model_structural_reference/` 以外部生成输出为调查边界，合并了此前分散的主链、PostProcess 和组件验证模型；它已归档为目录工程蒸馏底稿，不再作为 UI 示例：
 
@@ -99,7 +99,7 @@ Orpheus 组件：`orpheus.builtin.piecewise_soft_clipper`。`examples/recycled/e
 
 - 头枕链让同一组 10 路源信号面向四组目标输出分别调音。这样不同目标可以使用独立补偿曲线，不必共享一条公共 EQ。对应证据是 input mapping `0..9` 重复四次、output mapping 为 `0..39`。
 - 顶置链在每路目标输出合成前分别修正五条输入支路。这样各输入到目标的传递差异可以独立校正；若先求和再 EQ，这些差异将无法分离。对应证据是 input mapping `[0,2,4,6,8,1,3,5,7,9,10,12,14,16,18,11,13,15,17,19]` 与 OutputMapping `[0,5,10,15]`。
-- 两条链保留两样本跨块 carry，用来对齐参考实现的帧边界状态，避免输出整体提前。
+- Headrest 保留两样本跨块 carry；Overhead 按生成代码保留每通道 34 样本先读后写环。两者时序不同，不能共用同一延迟近似。
 
 头枕链的用途可写成 $y_{g,c}=h_{g,c}*x_c$：同一源通道 $c$ 针对目标组 $g$ 使用不同系数。四组只按生成模型可证实的连续输出索引命名，不推测座位或模式含义。默认 40 条 FIR 仅在 tap 529 取 1.0，作为可运行的延迟基线；顶置链默认 20 条 FIR 在 tap 529 取 0.2，使每五条相加后的标称总增益保持 1.0。
 

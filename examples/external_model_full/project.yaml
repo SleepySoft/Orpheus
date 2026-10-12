@@ -1,0 +1,568 @@
+version: 1.0.0
+metadata:
+  name: external_model.dual_runtime_audio.full_index_projection
+  description: 由 Algorithm IR 生成的完整研究图；placeholder 表示尚未完成的算法，禁止用于执行等价声明
+sample_rate: 48000
+block_size: 32
+imports:
+- components
+graph:
+  nodes:
+  - id: a_runtime
+    component: external_model.index.a_runtime
+    position:
+      x: 120
+      y: 160
+  - id: b_runtime
+    component: external_model.index.b_runtime
+    position:
+      x: 540
+      y: 160
+  connections:
+  - from: a_runtime:bus_to_b
+    to: b_runtime:bus_from_a
+  - from: b_runtime:bus_to_a
+    to: a_runtime:bus_from_b
+algorithm_projection:
+  schema_version: '2.0'
+  index_file: algorithm-index.yaml
+  definition_count: 68
+  tasks:
+  - id: A0
+    runtime_ref: runtime_a
+    source_tid: 0
+    period_ticks: 1
+    phase_ticks: 0
+    ordinal_calls:
+    - A.SPATIAL_FULL.FDP
+    - A.SPATIAL_FULL.MIX
+    - A.SPATIAL_FULL.PERIPHERAL_EQ
+    - A.SPATIAL_FULL.POST_HOLOGRAM
+    - A.SPATIAL_FULL.FADE_SUM
+    - A.INPUT_SELECT
+    - A.PREAMP
+    - A.POSTPROCESS
+    - A.AUDIOPILOT
+  - id: A1
+    runtime_ref: runtime_a
+    source_tid: 1
+    period_ticks: 2
+    phase_ticks:
+      status: unknown
+      reason: host coincident-call phase unverified
+    ordinal_calls:
+    - A.AUDIOPILOT.LF
+  - id: A2
+    runtime_ref: runtime_a
+    source_tid: 2
+    period_ticks: 4
+    phase_ticks:
+      status: unknown
+      reason: host coincident-call phase unverified
+    ordinal_calls:
+    - A.SPATIAL_FULL.FDP
+  - id: A3
+    runtime_ref: runtime_a
+    source_tid: 3
+    period_ticks: 64
+    phase_ticks:
+      status: unknown
+      reason: host coincident-call phase unverified
+    ordinal_calls:
+    - A.AUDIOPILOT.HF_ESTIMATOR
+  - id: A4
+    runtime_ref: runtime_a
+    source_tid: 4
+    period_ticks: 256
+    phase_ticks:
+      status: unknown
+      reason: host coincident-call phase unverified
+    ordinal_calls:
+    - A.AUDIOPILOT.LF
+  - id: A5
+    runtime_ref: runtime_a
+    source_tid: 5
+    period_ticks: 768
+    phase_ticks:
+      status: unknown
+      reason: host coincident-call phase unverified
+    ordinal_calls:
+    - A.AUDIOPILOT.LF
+  - id: B0
+    runtime_ref: runtime_b
+    source_tid: 0
+    period_ticks: 1
+    phase_ticks: 0
+    ordinal_calls: []
+  - id: B1
+    runtime_ref: runtime_b
+    source_tid: 1
+    period_ticks: 3
+    phase_ticks:
+      status: unknown
+      reason: host coincident-call order unverified
+    ordinal_calls:
+    - B.BANDS
+    - B.MIX_CONTROL
+    - B.POST.RETURN
+  - id: B2
+    runtime_ref: runtime_b
+    source_tid: 2
+    period_ticks: 12
+    phase_ticks:
+      status: unknown
+      reason: host coincident-call order unverified
+    ordinal_calls:
+    - B.BANDS.DECAY
+  - id: B3
+    runtime_ref: runtime_b
+    source_tid: 3
+    period_ticks: 13
+    phase_ticks:
+      status: unknown
+      reason: host coincident-call order unverified
+    ordinal_calls:
+    - B.BANDS
+    - B.FDP
+    - B.MIX_CONTROL
+    - B.MIX_DECI
+    - B.HEQ
+    - B.POST
+  - id: B4
+    runtime_ref: runtime_b
+    source_tid: 4
+    period_ticks: 52
+    phase_ticks:
+      status: unknown
+      reason: host coincident-call order unverified
+    ordinal_calls:
+    - B.FDP
+  parameter_partitions:
+  - id: A.InputSelect.p0
+    source_refs:
+    - a_input_select_top
+    field_count: 4
+    owner_refs:
+    - A.INPUT_SELECT
+    field_groups:
+    - 30 路 router
+    - 12/1/17 selectors
+    extraction_status: extracted
+  - id: A.PreAmp.p0
+    source_refs:
+    - a_preamp_top
+    field_count: 54
+    owner_refs:
+    - A.PREAMP.INPUT_MIXER
+    - A.PREAMP.MUSIC_VOLUME
+    - A.PREAMP.BASS
+    - A.PREAMP.TREBLE
+    - A.PREAMP.MID
+    - A.PREAMP.BALANCE
+    - A.PREAMP.ROUTE_LEVEL
+    field_groups:
+    - InputMixer
+    - Volume
+    - Bass/Treble/Mid
+    - Balance
+    - PreqRouter
+    - LevelDetect
+    extraction_status: extracted
+  - id: A.FDP.p3
+    source_refs:
+    - a_fdp_top
+    field_count: 12
+    owner_refs:
+    - A.SPATIAL_FULL.FDP
+    field_groups:
+    - ESD bounds/step
+    - SPUM fast/slow/overwrite/direct delay
+    - TrebleDelay
+    extraction_status: indexed
+  - id: A.Mix.p5
+    source_refs:
+    - a_mix_top
+    field_count: 4
+    owner_refs:
+    - A.SPATIAL_FULL.MIX
+    field_groups:
+    - MixEQ coefficients/stages
+    - ramp coefficient
+    - surround delay
+    extraction_status: indexed
+  - id: A.Peripheral.p8
+    source_refs:
+    - a_peripheral_top
+    field_count: 2
+    owner_refs:
+    - A.SPATIAL_FULL.PERIPHERAL_EQ
+    field_groups:
+    - 22 路 IIR coefficients/stages
+    extraction_status: indexed
+  - id: A.Holigram.p12
+    source_refs:
+    - a_holigram_top
+    field_count: 7
+    owner_refs:
+    - A.SPATIAL_FULL.POST_HOLOGRAM
+    field_groups:
+    - SleepingBeauty map/table/policy
+    - phase alignment delays
+    extraction_status: indexed
+  - id: A.Fade.p13
+    source_refs:
+    - a_fade_top
+    field_count: 12
+    owner_refs:
+    - A.SPATIAL_FULL.FADE_SUM
+    field_groups:
+    - Fade table/map/policy
+    - LPF coefficients
+    - mute
+    - output route
+    - speaker delays
+    extraction_status: indexed
+  - id: A.Audiopilot.p14
+    source_refs:
+    - a_audiopilot_top
+    field_count: 101
+    owner_refs:
+    - A.AUDIOPILOT
+    field_groups:
+    - HF filters/estimator/slew
+    - LF filters/estimator/speed
+    - ratio
+    - BoostMap
+    - gain application
+    extraction_status: indexed
+  - id: A.PostProcess.p0
+    source_refs:
+    - a_post_top
+    field_count: 34
+    owner_refs:
+    - A.POSTPROCESS
+    field_groups:
+    - ASD router
+    - limiter high/low
+    - PostEQ/FreqComp
+    - two soft clippers
+    - mute
+    - test matrix
+    - delay
+    extraction_status: extracted
+  - id: B.Bands.p1
+    source_refs:
+    - b_bands_top
+    field_count: 34
+    owner_refs:
+    - B.BANDS
+    field_groups:
+    - SRC
+    - mono detector
+    - decay
+    - bass/mid filters
+    extraction_status: indexed
+  - id: B.FDP.p2
+    source_refs:
+    - b_fdp_top
+    field_count: 11
+    owner_refs:
+    - B.FDP
+    field_groups:
+    - stretching metadata
+    - reverb/impulse parameters
+    extraction_status: indexed
+  - id: B.Mix.p4
+    source_refs:
+    - b_mix_top
+    field_count: 10
+    owner_refs:
+    - B.MIX_DECI
+    field_groups:
+    - MixEQ
+    - wiggle FIR
+    - delays
+    - ramp pole
+    extraction_status: indexed
+  - id: B.Control.p6
+    source_refs:
+    - b_control_top
+    field_count: 73
+    owner_refs:
+    - B.MIX_CONTROL
+    field_groups:
+    - seven target families
+    - alternate arrays
+    - sequence delays
+    extraction_status: indexed
+  - id: B.Peripheral.p7
+    source_refs:
+    - b_peripheral_top
+    - b_peripheral_fir
+    field_count: 8
+    owner_refs:
+    - B.HEQ.PERIPHERAL
+    field_groups:
+    - 42 mappings/lengths/delays/stages
+    - 5880 IIR
+    - 22260 FIR
+    - 10 sum starts
+    extraction_status: indexed
+  - id: B.Overhead.p9
+    source_refs:
+    - b_overhead_top
+    - b_overhead_fir
+    field_count: 8
+    owner_refs:
+    - B.HEQ.OVERHEAD
+    field_groups:
+    - 20 mappings/lengths/delays/stages
+    - 2800 IIR
+    - 10600 FIR
+    - 4 sum starts
+    extraction_status: extracted
+  - id: B.Headrest.p10
+    source_refs:
+    - b_headrest_top
+    - b_headrest_fir
+    field_count: 8
+    owner_refs:
+    - B.HEQ.HEADREST
+    field_groups:
+    - 40 mappings/lengths/delays/stages
+    - 5600 IIR
+    - 21200 FIR
+    - 40 sum starts
+    extraction_status: extracted
+  - id: B.Post.p11
+    source_refs:
+    - b_post_top
+    - b_vls_row1_fir
+    - b_vls_row2_fir
+    field_count: 22
+    owner_refs:
+    - B.POST
+    - B.POST.SLEEPING
+    - B.POST.ROW1.GENERATION
+    - B.POST.ROW1.XTALK
+    - B.POST.ROW2.GENERATION
+    - B.POST.ROW2.XTALK
+    - B.POST.RETURN
+    field_groups:
+    - 54 SB map/table
+    - VLS length/map/ramp
+    - two 976-IIR arrays
+    - two delay arrays
+    - four 10368 FIR banks
+    extraction_status: indexed
+  relations:
+  - id: a_to_b
+    from: A.RUNTIME:bus_to_b
+    to: B.RUNTIME:bus_from_a
+    kind: message
+    type_ref: bus488
+    timing: cross_runtime_swap_unverified
+  - id: b_to_a
+    from: B.RUNTIME:bus_to_a
+    to: A.RUNTIME:bus_from_b
+    kind: message
+    type_ref: bus1193
+    timing: cross_runtime_swap_unverified
+  buses:
+  - id: bus_a_to_b
+    producer_runtime: runtime_a
+    consumer_runtime: runtime_b
+    total_words: 488
+    atomicity: unverified
+    fields:
+    - id: adaptive_audio
+      offset_words: 0
+      type_ref: audio10_block
+      producer_definition: A.AUDIOPILOT
+      consumer_definition: B.BANDS
+    - id: center_current
+      offset_words: 320
+      type_ref: gains26
+      producer_definition: A.SPATIAL_FULL.MIX.RAMP_CONTROL
+      consumer_definition: B.MIX_CONTROL
+    - id: left_current
+      offset_words: 346
+      type_ref: gains70
+      producer_definition: A.SPATIAL_FULL.MIX.RAMP_CONTROL
+      consumer_definition: B.MIX_CONTROL
+    - id: right_current
+      offset_words: 416
+      type_ref: gains70
+      producer_definition: A.SPATIAL_FULL.MIX.RAMP_CONTROL
+      consumer_definition: B.MIX_CONTROL
+    - id: fade_targets
+      offset_words: 486
+      type_ref: control2
+      producer_definition: A.SPATIAL_FULL.FADE_SUM
+      consumer_definition: B.MIX_CONTROL
+  - id: bus_b_to_a
+    producer_runtime: runtime_b
+    consumer_runtime: runtime_a
+    total_words: 1193
+    atomicity: unverified
+    sequence_field: fast_sequence
+    fields:
+    - id: enhancement_enable
+      offset_words: 0
+      type_ref: event1
+      producer_definition: B.BANDS
+      consumer_definition: A.RUNTIME
+    - id: decay
+      offset_words: 1
+      type_ref: control1
+      producer_definition: B.BANDS.DECAY
+      consumer_definition: A.SPATIAL_FULL.FDP.REVERB
+    - id: mono
+      offset_words: 2
+      type_ref: audio1_block
+      producer_definition: B.BANDS.MONO
+      consumer_definition: A.AUDIOPILOT.LF
+    - id: treble_lr
+      offset_words: 34
+      type_ref: audio2_block
+      producer_definition: B.BANDS.SRC
+      consumer_definition: A.SPATIAL_FULL.FDP
+    - id: treble_surround
+      offset_words: 98
+      type_ref: audio7_block
+      producer_definition: B.BANDS.SRC
+      consumer_definition: A.SPATIAL_FULL.MIX
+    - id: center_targets
+      offset_words: 322
+      type_ref: gains26
+      producer_definition: B.MIX_CONTROL.TARGETS
+      consumer_definition: A.SPATIAL_FULL.MIX.RAMP_CONTROL
+    - id: left_targets
+      offset_words: 348
+      type_ref: gains70
+      producer_definition: B.MIX_CONTROL.TARGETS
+      consumer_definition: A.SPATIAL_FULL.MIX.RAMP_CONTROL
+    - id: right_targets
+      offset_words: 418
+      type_ref: gains70
+      producer_definition: B.MIX_CONTROL.TARGETS
+      consumer_definition: A.SPATIAL_FULL.MIX.RAMP_CONTROL
+    - id: post_spatial
+      offset_words: 488
+      type_ref: audio22_block
+      producer_definition: B.POST.RETURN
+      consumer_definition: A.SPATIAL_FULL.FADE_SUM
+    - id: fast_sequence
+      offset_words: 1192
+      type_ref: event1
+      producer_definition: B.MIX_CONTROL.SEQUENCE
+      consumer_definition: A.SPATIAL_FULL.MIX.RAMP_CONTROL
+  unlowered_edges:
+  - definition_ref: A.SPATIAL_FULL.FDP
+    from: analysis:spectrum
+    to: coefficients:spectrum
+    kind: spectrum
+    type_ref: spectrum2
+    timing: same_call
+  - definition_ref: A.SPATIAL_FULL.FDP
+    from: coefficients:residual
+    to: reverb:residual
+    kind: spectrum
+    type_ref: spectrum2
+    timing: same_call
+  - definition_ref: A.SPATIAL_FULL.FDP
+    from: coefficients:direct
+    to: synthesis:direct
+    kind: spectrum
+    type_ref: spectrum2
+    timing: same_call
+  - definition_ref: A.SPATIAL_FULL.FDP
+    from: reverb:split
+    to: synthesis:reverb
+    kind: spectrum
+    type_ref: spectrum4
+    timing: same_call
+  - definition_ref: A.AUDIOPILOT
+    from: hf_estimator:metrics
+    to: gain_application:hf_metrics
+    kind: control
+    type_ref: control4
+    timing: same_call
+  - definition_ref: A.AUDIOPILOT
+    from: lf:metrics
+    to: gain_application:lf_metrics
+    kind: control
+    type_ref: control4
+    timing: same_call
+  - definition_ref: B.RUNTIME
+    from: mix_control:deci_targets
+    to: mix_deci:targets
+    kind: control
+    type_ref: gains1134
+    timing: same_call
+  - definition_ref: B.RUNTIME
+    from: mix_control:vls_row1
+    to: post:row1_targets
+    kind: control
+    type_ref: gains40
+    timing: same_call
+  - definition_ref: B.RUNTIME
+    from: mix_control:vls_row2
+    to: post:row2_targets
+    kind: control
+    type_ref: gains40
+    timing: same_call
+  - definition_ref: B.FDP
+    from: stft:spectrum
+    to: coefficients:spectrum
+    kind: spectrum
+    type_ref: spectrum2
+    timing: same_call
+  - definition_ref: B.FDP
+    from: coefficients:residual
+    to: reverb:residual
+    kind: spectrum
+    type_ref: spectrum2
+    timing: same_call
+  - definition_ref: B.FDP
+    from: coefficients:direct
+    to: wola:direct
+    kind: spectrum
+    type_ref: spectrum4
+    timing: same_call
+  - definition_ref: B.FDP
+    from: reverb:split
+    to: wola:reverb
+    kind: spectrum
+    type_ref: spectrum4
+    timing: same_call
+  unresolved:
+  - id: host_phase
+    reason: 同 tick 多 TID 的宿主调用相位与抢占关系未验证
+    required_check: 读取宿主调度实现并记录调用序
+    source_refs:
+    - a_main
+    - b_main
+  - id: bus_atomicity
+    reason: 488/1193 words 的物理 swap 原子性与延迟未验证
+    required_check: 分析 host transport/ping-pong 实现
+    source_refs:
+    - bus
+  - id: numeric_goldens
+    reason: 所有模块尚未完成参考向量逐块对拍
+    required_check: 建立目标参考捕获与模块 golden
+  - id: runtime_downloads
+    reason: TOP/RTC/RMDL 的下载事务、mute/reset/init 协调尚未完整复现
+    required_check: 逐 RTC handler 建状态机测试
+    source_refs:
+    - a_main
+    - b_main
+  - id: overhead_delay
+    reason: HEQ 切片已改为 34 样本 delay_line，但先读后写环的数值等价尚未对拍
+    required_check: 采集 Overhead 跨块 impulse golden
+    source_refs:
+    - b_main
+  - id: hardware_numeric
+    reason: accelerator FIR/IIR/FFT 的精度、舍入和 reduction order 未验证
+    required_check: 目标端与软件实现逐块比对
+  executable: false

@@ -11,7 +11,22 @@
     "description": { "type": "string" },
     "version": { "type": "string" },
     "abi_version": { "type": "integer", "minimum": 1 },
-    "package_type": { "type": "string", "enum": ["source", "binary", "composite"], "default": "source" },
+    "package_type": { "type": "string", "enum": ["source", "binary", "composite", "placeholder"], "default": "source" },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "gate", "reason"],
+        "properties": {
+          "id": { "type": "string" },
+          "gate": { "type": "string", "enum": ["boundary", "schedule", "algorithm", "state", "parameters", "golden", "runtime"] },
+          "reason": { "type": "string" },
+          "source_ref": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "description": "未实现算法的显式阻塞项；placeholder 必须由编译器拒绝"
+    },
     "user_owned": {
       "type": "boolean",
       "default": false,

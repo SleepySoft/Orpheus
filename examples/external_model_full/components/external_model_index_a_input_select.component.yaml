@@ -1,0 +1,73 @@
+id: external_model.index.a_input_select
+name: 输入选择
+category: 外部模型/算法索引
+description: 30 路系统输入统一重排后提取节目、麦克风和提示音
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 30
+  sample_rate: 48000
+  block_size: 32
+- id: entertainment
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 12
+  sample_rate: 48000
+  block_size: 32
+- id: microphone
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  sample_rate: 48000
+  block_size: 32
+- id: announcement
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 17
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: runtime_pending
+  gate: runtime
+  reason: 需要共同 30 路中间总线和 RTC 覆盖语义
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 路由和越界 golden 未完成
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.INPUT_SELECT
+  tasks:
+  - A0
+  operations:
+  - TOP 路由表
+  - 非零 RTC 逐项覆盖
+  - 越界通道置零
+  - 提取 12/1/17 路
+  state:
+  - id: rtc_route
+    role: 30 项运行期覆盖表
+    initialization: generated initialization
+    shape:
+    - 30
+  implementation:
+    status: exact_candidate
+    component: orpheus.builtin.channel_router
+    blockers:
+    - id: runtime_pending
+      gate: runtime
+      reason: 需要共同 30 路中间总线和 RTC 覆盖语义
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 路由和越界 golden 未完成
+      source_ref: a_main

@@ -1,0 +1,58 @@
+id: external_model.index.a_preamp_mid
+name: 中频音调
+category: 外部模型/算法索引
+description: 使用二阶残差滤波和两阶段增益斜坡调节中频
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.PREAMP.MID
+  tasks:
+  - A0
+  operations:
+  - 二阶滤波
+  - 使用 numerator 1/3 项
+  - 残差增益
+  state:
+  - id: filter
+    role: 每通道二阶状态
+    initialization: generated initialization
+    shape:
+    - 20
+  implementation:
+    status: approximation
+    component: orpheus.builtin.midrange
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

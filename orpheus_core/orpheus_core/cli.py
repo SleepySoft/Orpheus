@@ -9,6 +9,12 @@ from pathlib import Path
 import click
 
 from orpheus_core.builder import BuildError, ComponentBuilder
+from orpheus_core.algorithm_index import (
+    AlgorithmIndexError,
+    emit_structural_project,
+    load_algorithm_index,
+    verify_source_fingerprints,
+)
 from orpheus_core.compiler import CompileError, GraphCompiler
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.project import ProjectLoader
@@ -93,6 +99,37 @@ def validate(ctx: click.Context, paths: tuple[Path, ...], target: str | None,
 
     if any(not report.valid for report in reports):
         sys.exit(1)
+
+
+@cli.command("index-validate")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--source-root", type=click.Path(exists=True, file_okay=False, path_type=Path))
+def index_validate(path: Path, source_root: Path | None) -> None:
+    """校验完整算法索引，不生成 Orpheus 图。"""
+    try:
+        document = load_algorithm_index(path)
+        if source_root is not None:
+            verify_source_fingerprints(document, source_root)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(
+        f"PASS {path} definitions={len(document['definitions'])} "
+        f"tasks={len(document['tasks'])} buses={len(document['buses'])} "
+        f"sources={'verified' if source_root is not None else 'not-checked'}"
+    )
+
+
+@cli.command("index-generate")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("output", type=click.Path(path_type=Path))
+def index_generate(path: Path, output: Path) -> None:
+    """从算法索引生成不可误执行的递归 Orpheus 研究图。"""
+    try:
+        document = load_algorithm_index(path)
+        emit_structural_project(document, output)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"algorithm projection written to {output}")
 
 
 @cli.command()

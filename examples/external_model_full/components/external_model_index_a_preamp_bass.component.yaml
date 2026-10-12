@@ -1,0 +1,61 @@
+id: external_model.index.a_preamp_bass
+name: 低频音调
+category: 外部模型/算法索引
+description: 按索引在 boost/cut 一阶残差滤波之间切换并跨 unity 两阶段平滑
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.PREAMP.BASS
+  tasks:
+  - A0
+  operations:
+  - 一阶滤波
+  - y=x+(g-1)f(x)
+  - boost/cut 两阶段 ramper
+  state:
+  - id: filter
+    role: 每通道一阶状态
+    initialization: generated initialization
+    shape:
+    - 10
+  - id: ramper
+    role: phase/frame/current/target/freeze
+    initialization: generated initialization
+  implementation:
+    status: approximation
+    component: orpheus.builtin.bass
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

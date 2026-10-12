@@ -1,0 +1,55 @@
+id: external_model.index.a_spatial_full_fdp_analysis
+name: FDP Analysis WOLA
+category: 外部模型/算法索引
+description: 将前后两个 128 样本半帧加窗并做双通道 256 点 RFFT
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 2
+  sample_rate: 48000
+  block_size: 128
+- id: spectrum
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 2
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.SPATIAL_FULL.FDP.ANALYSIS
+  tasks:
+  - A2
+  operations:
+  - sin/cos 窗
+  - 256 RFFT
+  - 129 complex bins
+  state:
+  - id: overlap
+    role: 前半帧
+    initialization: generated initialization
+    shape:
+    - 256
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

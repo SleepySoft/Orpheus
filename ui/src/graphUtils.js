@@ -171,6 +171,8 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
         clockSource: !!comp?.clock_source,
         ports: resolvePorts(comp, n.params),
         parameters: comp?.parameters || [],
+        packageType: comp?.package_type || 'source',
+        blockers: comp?.blockers || [],
         // 替代组声明（同图内节点 id 列表）与组件平台标签，往返保留
         alters: Array.isArray(n.alters) ? n.alters : [],
         platforms: comp?.platforms || [],
@@ -198,6 +200,8 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
         clockSource: false,
         ports: [],
         parameters: comp?.parameters || [],
+        packageType: comp?.package_type || 'source',
+        blockers: comp?.blockers || [],
         alters: [],
         platforms: [],
         bridgeConfig: true,

@@ -1,0 +1,59 @@
+id: external_model.index.a_spatial_full_peripheral_eq
+name: 22 路外围 EQ
+category: 外部模型/算法索引
+description: 重排扬声器顺序、每通道 IIR，并施加固定 254 样本延迟
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.SPATIAL_FULL.PERIPHERAL_EQ
+  tasks:
+  - A0
+  operations:
+  - 22 路重排
+  - accelerator IIR
+  - 254 样本固定延迟
+  - disable=zero
+  state:
+  - id: iir
+    role: 22 路滤波状态
+    initialization: generated initialization
+  - id: delay
+    role: 22×254 延迟
+    initialization: generated initialization
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

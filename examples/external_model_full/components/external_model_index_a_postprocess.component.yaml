@@ -1,0 +1,79 @@
+id: external_model.index.a_postprocess
+name: 22 路输出后处理
+category: 外部模型/算法索引
+description: 将保护链和 32 路候选路由为最终 22 路输出
+version: '2.0'
+abi_version: 1
+package_type: composite
+ports:
+- id: protected
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+  maps_to: protected:in
+- id: preq_buffer
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 32
+  sample_rate: 48000
+  block_size: 32
+  maps_to: router_output:preq
+- id: announcement
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 17
+  sample_rate: 48000
+  block_size: 32
+  maps_to: router_output:announcement
+- id: main_out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+  maps_to: router_output:out
+parameters: []
+imports:
+- external_model_index_a_postprocess_protected.component.yaml
+- external_model_index_a_postprocess_router_output.component.yaml
+graph:
+  nodes:
+  - id: protected
+    component: external_model.index.a_postprocess_protected
+    position:
+      x: 80
+      y: 80
+  - id: router_output
+    component: external_model.index.a_postprocess_router_output
+    position:
+      x: 340
+      y: 80
+  connections:
+  - from: protected:out
+    to: router_output:protected
+algorithm_index:
+  definition_id: A.POSTPROCESS
+  tasks:
+  - A0
+  operations:
+  - 内部保护
+  - 主辅路由
+  - 校准/FreqComp/延迟
+  state: []
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

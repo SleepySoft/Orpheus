@@ -1,0 +1,84 @@
+id: external_model.index.b_fdp
+name: 降速 2→8 FDP
+category: 外部模型/算法索引
+description: 在 B3/B4 以 WOLA 将两路拆为八路直达、空间、冲击和尾音
+version: '2.0'
+abi_version: 1
+package_type: composite
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 2
+  sample_rate: 48000
+  block_size: 32
+  maps_to: buffer:in
+- id: components
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 8
+  sample_rate: 48000
+  block_size: 32
+  maps_to: buffer:out
+parameters: []
+imports:
+- external_model_index_b_fdp_buffer.component.yaml
+- external_model_index_b_fdp_stft.component.yaml
+- external_model_index_b_fdp_coefficients.component.yaml
+- external_model_index_b_fdp_reverb.component.yaml
+- external_model_index_b_fdp_wola.component.yaml
+graph:
+  nodes:
+  - id: buffer
+    component: external_model.index.b_fdp_buffer
+    position:
+      x: 80
+      y: 80
+  - id: stft
+    component: external_model.index.b_fdp_stft
+    position:
+      x: 340
+      y: 80
+  - id: coefficients
+    component: external_model.index.b_fdp_coefficients
+    position:
+      x: 600
+      y: 80
+  - id: reverb
+    component: external_model.index.b_fdp_reverb
+    position:
+      x: 860
+      y: 80
+  - id: wola
+    component: external_model.index.b_fdp_wola
+    position:
+      x: 80
+      y: 260
+  connections:
+  - from: buffer:frame
+    to: stft:in
+algorithm_index:
+  definition_id: B.FDP
+  tasks:
+  - B3
+  - B4
+  operations:
+  - 跨 TID ring
+  - STFT
+  - 空间系数
+  - 混响分离
+  - 八路 WOLA
+  state: []
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

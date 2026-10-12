@@ -1,0 +1,64 @@
+id: external_model.index.a_spatial_full_post_hologram
+name: 全速率全息后处理
+category: 外部模型/算法索引
+description: 四组 SleepingBeauty 增益后施加 22 路相位对齐延迟
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.SPATIAL_FULL.POST_HOLOGRAM
+  tasks:
+  - A0
+  operations:
+  - 四组表插值
+  - 指数 ramper
+  - -1 通道置零
+  - phase delay
+  state:
+  - id: rampers
+    role: 四组 current/target/frame/freeze
+    initialization: generated initialization
+    shape:
+    - 4
+  - id: delay
+    role: 22×80 延迟
+    initialization: generated initialization
+    shape:
+    - 1760
+  implementation:
+    status: approximation
+    component: orpheus.builtin.sleeping_beauty
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

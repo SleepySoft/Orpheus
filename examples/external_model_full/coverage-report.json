@@ -1,0 +1,64 @@
+{
+  "schema_version": "2.0",
+  "definitions": 68,
+  "composites": 16,
+  "leaves": 52,
+  "implementation_status": {
+    "approximation": 12,
+    "exact_candidate": 5,
+    "unsupported": 35
+  },
+  "blocker_gates": {
+    "algorithm": 46,
+    "golden": 52,
+    "runtime": 1,
+    "state": 1
+  },
+  "unresolved": [
+    {
+      "id": "host_phase",
+      "reason": "同 tick 多 TID 的宿主调用相位与抢占关系未验证",
+      "required_check": "读取宿主调度实现并记录调用序",
+      "source_refs": [
+        "a_main",
+        "b_main"
+      ]
+    },
+    {
+      "id": "bus_atomicity",
+      "reason": "488/1193 words 的物理 swap 原子性与延迟未验证",
+      "required_check": "分析 host transport/ping-pong 实现",
+      "source_refs": [
+        "bus"
+      ]
+    },
+    {
+      "id": "numeric_goldens",
+      "reason": "所有模块尚未完成参考向量逐块对拍",
+      "required_check": "建立目标参考捕获与模块 golden"
+    },
+    {
+      "id": "runtime_downloads",
+      "reason": "TOP/RTC/RMDL 的下载事务、mute/reset/init 协调尚未完整复现",
+      "required_check": "逐 RTC handler 建状态机测试",
+      "source_refs": [
+        "a_main",
+        "b_main"
+      ]
+    },
+    {
+      "id": "overhead_delay",
+      "reason": "HEQ 切片已改为 34 样本 delay_line，但先读后写环的数值等价尚未对拍",
+      "required_check": "采集 Overhead 跨块 impulse golden",
+      "source_refs": [
+        "b_main"
+      ]
+    },
+    {
+      "id": "hardware_numeric",
+      "reason": "accelerator FIR/IIR/FFT 的精度、舍入和 reduction order 未验证",
+      "required_check": "目标端与软件实现逐块比对"
+    }
+  ],
+  "executable": false
+}

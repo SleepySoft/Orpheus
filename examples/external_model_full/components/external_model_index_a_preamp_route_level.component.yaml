@@ -1,0 +1,103 @@
+id: external_model.index.a_preamp_route_level
+name: PreAmp 分支与电平检测
+category: 外部模型/算法索引
+description: 从 Volume、Balance、Mic 和 InputMixer 分出主输出、自适应和电平状态
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: program
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: volume
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: balanced
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: microphone
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 1
+  sample_rate: 48000
+  block_size: 32
+- id: post_buffer
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 32
+  sample_rate: 48000
+  block_size: 32
+- id: adaptive
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: microphone_out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 1
+  sample_rate: 48000
+  block_size: 32
+- id: levels
+  direction: output
+  type: control
+  sample_format: f32
+  channels: 2
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.PREAMP.ROUTE_LEVEL
+  tasks:
+  - A0
+  operations:
+  - Volume→32 路仅源 1..6
+  - Balance→10 路 adaptive
+  - Mic→Buffer2
+  - 预加重/RMS/Peak/InnerLink
+  state:
+  - id: preemphasis
+    role: 10 路 IIR
+    initialization: generated initialization
+    shape:
+    - 20
+  - id: inner_links
+    role: AP/DynEQ hold/decay 状态
+    initialization: generated initialization
+    shape:
+    - 2
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

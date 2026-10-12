@@ -1,0 +1,292 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Orpheus Algorithm Index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "model_id", "sources", "types", "runtimes", "tasks", "buses", "parameter_partitions", "definitions", "relations", "system", "coverage"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "model_id": {"type": "string", "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$"},
+    "name": {"type": "string"},
+    "sources": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/source"}
+    },
+    "types": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/type"}
+    },
+    "runtimes": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/runtime"}
+    },
+    "tasks": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/task"}
+    },
+    "buses": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/bus"}
+    },
+    "parameter_partitions": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/parameter_partition"}
+    },
+    "definitions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/definitions/algorithm_definition"}
+    },
+    "relations": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/relation"}
+    },
+    "system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roots"],
+      "properties": {
+        "roots": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "notes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["definition_ids", "unresolved"],
+      "properties": {
+        "definition_ids": {"type": "array", "items": {"type": "string"}},
+        "unresolved": {"type": "array", "items": {"$ref": "#/definitions/unresolved"}},
+        "exclusions": {"type": "array", "items": {"$ref": "#/definitions/unresolved"}}
+      }
+    }
+  },
+  "definitions": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "relative_file", "sha256"],
+      "properties": {
+        "id": {"type": "string"},
+        "relative_file": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "role": {"type": "string"}
+      }
+    },
+    "type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "dtype", "shape"],
+      "properties": {
+        "id": {"type": "string"},
+        "kind": {"enum": ["audio", "control", "bulk", "message", "spectrum", "event"]},
+        "dtype": {"enum": ["f32", "i16", "i24", "i32", "u32", "complex_f32", "struct"]},
+        "shape": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+        "axes": {"type": "array", "items": {"type": "string"}},
+        "layout": {"type": "string"},
+        "unit": {"type": "string"},
+        "sample_rate_hz": {"type": "number", "exclusiveMinimum": 0},
+        "block_size": {"type": "integer", "minimum": 1}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "clock_hz"],
+      "properties": {
+        "id": {"type": "string"},
+        "clock_hz": {"$ref": "#/definitions/rational"},
+        "notes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["num", "den"],
+      "properties": {
+        "num": {"type": "integer", "minimum": 1},
+        "den": {"type": "integer", "minimum": 1}
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "runtime_ref", "source_tid", "period_ticks", "ordinal_calls"],
+      "properties": {
+        "id": {"type": "string"},
+        "runtime_ref": {"type": "string"},
+        "source_tid": {"type": "integer", "minimum": 0},
+        "period_ticks": {"type": "integer", "minimum": 1},
+        "phase_ticks": {
+          "oneOf": [
+            {"type": "integer", "minimum": 0},
+            {"type": "object", "required": ["status", "reason"], "properties": {"status": {"const": "unknown"}, "reason": {"type": "string"}}, "additionalProperties": false}
+          ]
+        },
+        "ordinal_calls": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "bus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "producer_runtime", "consumer_runtime", "total_words", "fields", "atomicity"],
+      "properties": {
+        "id": {"type": "string"},
+        "producer_runtime": {"type": "string"},
+        "consumer_runtime": {"type": "string"},
+        "total_words": {"type": "integer", "minimum": 1},
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "offset_words", "type_ref"],
+            "properties": {
+              "id": {"type": "string"},
+              "offset_words": {"type": "integer", "minimum": 0},
+              "type_ref": {"type": "string"},
+              "producer_definition": {"type": "string"},
+              "consumer_definition": {"type": "string"}
+            }
+          }
+        },
+        "atomicity": {"enum": ["verified", "unverified"]},
+        "sequence_field": {"type": "string"}
+      }
+    },
+    "parameter_partition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source_refs", "field_count", "owner_refs", "field_groups", "extraction_status"],
+      "properties": {
+        "id": {"type": "string"},
+        "source_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "field_count": {"type": "integer", "minimum": 1},
+        "owner_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "field_groups": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "extraction_status": {"enum": ["indexed", "extracted", "verified"]}
+      }
+    },
+    "port": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type_ref"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+        "type_ref": {"type": "string"},
+        "maps_to": {"type": "string"},
+        "meaning": {"type": "string"}
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role"],
+      "properties": {
+        "id": {"type": "string"},
+        "role": {"type": "string"},
+        "shape": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+        "initialization": {"type": "string"},
+        "transitions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "kind", "type_ref"],
+      "properties": {
+        "from": {"type": "string"},
+        "to": {"type": "string"},
+        "kind": {"enum": ["audio", "control", "message", "state_read", "state_write", "event", "spectrum"]},
+        "type_ref": {"type": "string"},
+        "timing": {"type": "string"},
+        "mapping": {"type": "string"}
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "blockers"],
+      "properties": {
+        "status": {"enum": ["exact_candidate", "approximation", "unsupported"]},
+        "component": {"type": "string"},
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "gate", "reason"],
+            "properties": {
+              "id": {"type": "string"},
+              "gate": {"enum": ["boundary", "schedule", "algorithm", "state", "parameters", "golden", "runtime"]},
+              "reason": {"type": "string"},
+              "source_ref": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "algorithm_definition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "component_id", "node_id", "name", "purpose", "runtime_ref", "task_refs", "source_refs", "interface", "operations", "state", "children", "body", "implementation"],
+      "properties": {
+        "id": {"type": "string"},
+        "component_id": {"type": "string", "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$"},
+        "node_id": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+        "parent": {"type": ["string", "null"]},
+        "name": {"type": "string"},
+        "purpose": {"type": "string"},
+        "runtime_ref": {"type": "string"},
+        "task_refs": {"type": "array", "items": {"type": "string"}},
+        "source_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "interface": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["inputs", "outputs"],
+          "properties": {
+            "inputs": {"type": "array", "items": {"$ref": "#/definitions/port"}},
+            "outputs": {"type": "array", "items": {"$ref": "#/definitions/port"}}
+          }
+        },
+        "operations": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "branches": {"type": "array", "items": {"type": "string"}},
+        "state": {"type": "array", "items": {"$ref": "#/definitions/state"}},
+        "parameter_refs": {"type": "array", "items": {"type": "string"}},
+        "children": {"type": "array", "items": {"type": "string"}},
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["edges"],
+          "properties": {"edges": {"type": "array", "items": {"$ref": "#/definitions/edge"}}}
+        },
+        "implementation": {"$ref": "#/definitions/implementation"}
+      }
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to", "kind", "type_ref"],
+      "properties": {
+        "id": {"type": "string"},
+        "from": {"type": "string"},
+        "to": {"type": "string"},
+        "kind": {"enum": ["audio", "control", "message", "state_read", "state_write", "event", "spectrum"]},
+        "type_ref": {"type": "string"},
+        "timing": {"type": "string"},
+        "mapping": {"type": "string"}
+      }
+    },
+    "unresolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "reason", "required_check"],
+      "properties": {
+        "id": {"type": "string"},
+        "reason": {"type": "string"},
+        "required_check": {"type": "string"},
+        "source_refs": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

@@ -1,0 +1,65 @@
+id: external_model.index.b_fdp_buffer
+name: 降速 FDP ring
+category: 外部模型/算法索引
+description: B3 写 2×32/读 8×32，B4 读 2×128/写 8×128
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 2
+  sample_rate: 48000
+  block_size: 32
+- id: frame
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 2
+  sample_rate: 48000
+  block_size: 128
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 8
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_main
+algorithm_index:
+  definition_id: B.FDP.BUFFER
+  tasks:
+  - B3
+  - B4
+  operations:
+  - 512 输入 ring
+  - 2048 输出 ring
+  - 持久指针和初始 offset
+  state:
+  - id: rings
+    role: 输入输出多速率 ring
+    initialization: generated initialization
+    shape:
+    - 2560
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

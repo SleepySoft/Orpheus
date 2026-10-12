@@ -1,0 +1,59 @@
+id: external_model.index.b_fdp_coefficients
+name: 降速 FDP 系数控制
+category: 外部模型/算法索引
+description: 计算 Lo/Ro/Ls/Rs 和残差的功率加权平滑系数
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: spectrum
+  direction: input
+  type: bulk
+  sample_format: f32
+  channels: 2
+- id: direct
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 4
+- id: residual
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 2
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_main
+algorithm_index:
+  definition_id: B.FDP.COEFFICIENTS
+  tasks:
+  - B4
+  operations:
+  - direct/excess
+  - SPS
+  - 8 个 129-bin LS smoother
+  state:
+  - id: smoothers
+    role: 8×129 x/y history
+    initialization: generated initialization
+    shape:
+    - 8
+    - 129
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

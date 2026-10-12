@@ -1,0 +1,59 @@
+id: external_model.index.b_mix_deci_route
+name: 52 路 HEQ 分发
+category: 外部模型/算法索引
+description: 按生成索引分成 peripheral22、overhead20、headrest10
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 52
+  sample_rate: 48000
+  block_size: 32
+- id: peripheral
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+- id: headrest
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: overhead
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 20
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: golden_pending
+  gate: golden
+  reason: 52 路映射 golden 未完成
+  source_ref: b_main
+algorithm_index:
+  definition_id: B.MIX_DECI.ROUTE
+  tasks:
+  - B3
+  operations:
+  - peripheral selector
+  - overhead selector
+  - headrest selector
+  state: []
+  implementation:
+    status: exact_candidate
+    component: orpheus.builtin.channel_router
+    blockers:
+    - id: golden_pending
+      gate: golden
+      reason: 52 路映射 golden 未完成
+      source_ref: b_main

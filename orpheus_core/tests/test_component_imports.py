@@ -11,7 +11,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from orpheus_core.compiler import GraphCompiler
+from orpheus_core.compiler import CompileError, GraphCompiler
 from orpheus_core.builder import ComponentBuilder
 from orpheus_core.project import ProjectLoader, project_to_dict
 from orpheus_core.registry import Registry
@@ -522,6 +522,41 @@ def test_standalone_validation_accepts_directory_project_with_imports(tmp_path: 
     assert discover_project_files([project_dir]) == [(project_dir / "project.yaml").resolve()]
     report = validate_project(project_dir / "project.yaml", builtin_registry())
     assert report.valid, [issue.message for issue in report.issues]
+
+
+def test_placeholder_component_is_visible_but_never_compilable(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    write_yaml(
+        project_dir / "components" / "pending.component.yaml",
+        {
+            "id": "test.pending_algorithm",
+            "name": "待蒸馏算法",
+            "version": "1.0.0",
+            "abi_version": 1,
+            "package_type": "placeholder",
+            "ports": [
+                {"id": "in", "direction": "input", "type": "audio", "sample_format": "f32", "channels": 1},
+                {"id": "out", "direction": "output", "type": "audio", "sample_format": "f32", "channels": 1},
+            ],
+            "blockers": [
+                {"id": "golden", "gate": "golden", "reason": "参考输出尚未采集"}
+            ],
+        },
+    )
+    write_yaml(
+        project_dir / "project.yaml",
+        project_document(["components/pending.component.yaml"], "test.pending_algorithm"),
+    )
+    registry = builtin_registry()
+    project = ProjectLoader(registry).load(project_dir)
+    assert project.registry is not None
+    assert project.registry.get("test.pending_algorithm").package_type == "placeholder"
+    with pytest.raises(CompileError, match="未实现算法组件.*参考输出尚未采集"):
+        GraphCompiler(project.registry).compile(project)
+    project.debug_mode = True
+    project.graph.connections = []
+    with pytest.raises(CompileError, match="未实现算法组件.*参考输出尚未采集"):
+        GraphCompiler(project.registry).compile(project)
 
 
 def test_discovery_keeps_flat_projects_beside_directory_projects(tmp_path: Path) -> None:

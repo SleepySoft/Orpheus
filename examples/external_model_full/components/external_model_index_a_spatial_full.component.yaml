@@ -1,0 +1,114 @@
+id: external_model.index.a_spatial_full
+name: Runtime A 空间链
+category: 外部模型/算法索引
+description: 把 Runtime B 高频素材转换为 22 路全速率空间结果并与降速结果合成
+version: '2.0'
+abi_version: 1
+package_type: composite
+ports:
+- id: treble_lr
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 2
+  sample_rate: 48000
+  block_size: 32
+  maps_to: fdp:in
+- id: treble_surround
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 7
+  sample_rate: 48000
+  block_size: 32
+  maps_to: mix:surround
+- id: post_spatial
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+  maps_to: fade_sum:deci
+- id: protected
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+  maps_to: fade_sum:out
+- id: analysis
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+  maps_to: fdp:analysis
+parameters: []
+imports:
+- external_model_index_a_spatial_full_fdp.component.yaml
+- external_model_index_a_spatial_full_mix.component.yaml
+- external_model_index_a_spatial_full_peripheral_eq.component.yaml
+- external_model_index_a_spatial_full_post_hologram.component.yaml
+- external_model_index_a_spatial_full_fade_sum.component.yaml
+graph:
+  nodes:
+  - id: fdp
+    component: external_model.index.a_spatial_full_fdp
+    position:
+      x: 80
+      y: 80
+  - id: mix
+    component: external_model.index.a_spatial_full_mix
+    position:
+      x: 340
+      y: 80
+  - id: peripheral_eq
+    component: external_model.index.a_spatial_full_peripheral_eq
+    position:
+      x: 600
+      y: 80
+  - id: post_hologram
+    component: external_model.index.a_spatial_full_post_hologram
+    position:
+      x: 860
+      y: 80
+  - id: fade_sum
+    component: external_model.index.a_spatial_full_fade_sum
+    position:
+      x: 80
+      y: 260
+  connections:
+  - from: fdp:spatial
+    to: mix:fdp
+  - from: mix:out
+    to: peripheral_eq:in
+  - from: peripheral_eq:out
+    to: post_hologram:in
+  - from: post_hologram:out
+    to: fade_sum:full
+algorithm_index:
+  definition_id: A.SPATIAL_FULL
+  tasks:
+  - A0
+  - A2
+  operations:
+  - FDP
+  - 13→22 矩阵
+  - 外围 EQ
+  - 全息延迟
+  - Fade/求和
+  state: []
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

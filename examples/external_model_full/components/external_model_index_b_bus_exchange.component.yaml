@@ -1,0 +1,53 @@
+id: external_model.index.b_bus_exchange
+name: Runtime B 跨核事务
+category: 外部模型/算法索引
+description: 原子消费 A→B 488 words，并发布 B→A 1193 words
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: from_a
+  direction: input
+  type: bulk
+  sample_format: i32
+  channels: 488
+- id: to_a
+  direction: output
+  type: bulk
+  sample_format: i32
+  channels: 1193
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: bus
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: bus
+algorithm_index:
+  definition_id: B.BUS_EXCHANGE
+  tasks:
+  - B1
+  - B3
+  operations:
+  - typed field unpack
+  - 跨 TID snapshot
+  - sequence association
+  - atomic swap timing pending
+  state:
+  - id: snapshot
+    role: 跨核 ping-pong 快照
+    initialization: generated initialization
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: bus
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: bus

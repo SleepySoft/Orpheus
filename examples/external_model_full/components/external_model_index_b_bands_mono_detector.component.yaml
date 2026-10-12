@@ -1,0 +1,54 @@
+id: external_model.index.b_bands_mono_detector
+name: Stereo/Mono 检测
+category: 外部模型/算法索引
+description: 由两路 HPF 电平与能量关系做 silence reset 和 stereo hysteresis
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 2
+  sample_rate: 48000
+  block_size: 32
+- id: gate
+  direction: output
+  type: control
+  sample_format: f32
+  channels: 1
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_bands
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_bands
+algorithm_index:
+  definition_id: B.BANDS.MONO_DETECTOR
+  tasks:
+  - B1
+  operations:
+  - 2 路 HPF
+  - LR mismatch saturation
+  - energy ratio smoothing
+  - hysteresis
+  state:
+  - id: detector
+    role: level/energy/counter/last gate
+    initialization: generated initialization
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_bands
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_bands

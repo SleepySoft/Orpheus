@@ -1,0 +1,81 @@
+id: external_model.index.a_postprocess_router_output
+name: ASD 路由与输出补偿
+category: 外部模型/算法索引
+description: 从 71 路候选加性选择 22 路并完成输出保护、校准、频补和延迟
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: protected
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+- id: preq
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 32
+  sample_rate: 48000
+  block_size: 32
+- id: announcement
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 17
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.POSTPROCESS.ROUTER_OUTPUT
+  tasks:
+  - A0
+  operations:
+  - 22 main select/gain
+  - aux additive select/gain
+  - all mute
+  - 第二级 soft clip
+  - OutputCal
+  - FreqComp
+  - pool delay
+  state:
+  - id: output_cal
+    role: 运行期 22 路校准
+    initialization: generated initialization
+    shape:
+    - 22
+  - id: freq_comp
+    role: 22 路 IIR
+    initialization: generated initialization
+  - id: delay
+    role: 22 路可调延迟
+    initialization: generated initialization
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

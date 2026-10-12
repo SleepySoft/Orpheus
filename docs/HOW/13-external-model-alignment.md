@@ -21,6 +21,7 @@ tags: [orpheus/how]
 
 双 Runtime 模型专项：
 
-- [机器可读模块索引](../../examples/recycled/external_model_structural_reference/distillation-index.yaml)
+- [全量 Algorithm IR](../../examples/recycled/external_model_structural_reference/algorithm-index.yaml)
+- [逐模块验证进度](../../examples/recycled/external_model_structural_reference/distillation-progress.yaml)
 - [逐模块蒸馏流程](../../examples/recycled/external_model_structural_reference/distillation-workflow.md)
 - [Big6 分析记录](../../examples/recycled/external_model_structural_reference/analysis/big6.md)

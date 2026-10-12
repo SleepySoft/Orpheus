@@ -1,0 +1,109 @@
+id: external_model.index.b_runtime
+name: Runtime B 降速空间系统
+category: 外部模型/算法索引
+description: 计算频带、降速 FDP、目标矩阵、HEQ 和 VLS 后空间结果
+version: '2.0'
+abi_version: 1
+package_type: composite
+ports:
+- id: bus_from_a
+  direction: input
+  type: bulk
+  sample_format: i32
+  channels: 488
+  maps_to: bus_exchange:from_a
+- id: bus_to_a
+  direction: output
+  type: bulk
+  sample_format: i32
+  channels: 1193
+  maps_to: bus_exchange:to_a
+parameters: []
+imports:
+- external_model_index_b_bus_exchange.component.yaml
+- external_model_index_b_bands.component.yaml
+- external_model_index_b_fdp.component.yaml
+- external_model_index_b_mix_control.component.yaml
+- external_model_index_b_mix_deci.component.yaml
+- external_model_index_b_heq.component.yaml
+- external_model_index_b_post.component.yaml
+graph:
+  nodes:
+  - id: bus_exchange
+    component: external_model.index.b_bus_exchange
+    position:
+      x: 80
+      y: 80
+  - id: bands
+    component: external_model.index.b_bands
+    position:
+      x: 340
+      y: 80
+  - id: fdp
+    component: external_model.index.b_fdp
+    position:
+      x: 600
+      y: 80
+  - id: mix_control
+    component: external_model.index.b_mix_control
+    position:
+      x: 860
+      y: 80
+  - id: mix_deci
+    component: external_model.index.b_mix_deci
+    position:
+      x: 80
+      y: 260
+  - id: heq
+    component: external_model.index.b_heq
+    position:
+      x: 340
+      y: 260
+  - id: post
+    component: external_model.index.b_post
+    position:
+      x: 600
+      y: 260
+  connections:
+  - from: bands:treble_lr
+    to: fdp:in
+  - from: fdp:components
+    to: mix_deci:fdp
+  - from: bands:bass_mid
+    to: mix_deci:bands
+  - from: mix_deci:peripheral
+    to: heq:peripheral
+  - from: mix_deci:headrest
+    to: heq:headrest
+  - from: mix_deci:overhead
+    to: heq:overhead
+  - from: heq:peripheral_out
+    to: post:peripheral
+  - from: heq:headrest_out
+    to: post:headrest
+  - from: heq:overhead_out
+    to: post:overhead
+algorithm_index:
+  definition_id: B.RUNTIME
+  tasks:
+  - B0
+  - B1
+  - B2
+  - B3
+  - B4
+  operations:
+  - 4500Hz 基准调度
+  - B1/B2/B3/B4 多速率处理
+  - 与 Runtime A 原子交换
+  state: []
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

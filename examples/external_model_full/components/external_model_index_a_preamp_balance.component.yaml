@@ -1,0 +1,59 @@
+id: external_model.index.a_preamp_balance
+name: 四组 Balance
+category: 外部模型/算法索引
+description: 按 L/R/Center/Mono 四组映射平滑调整 10 路声像
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.PREAMP.BALANCE
+  tasks:
+  - A0
+  operations:
+  - 30 点 dB 表
+  - 可选能量补偿
+  - 极端静音
+  - 四 ramper
+  state:
+  - id: rampers
+    role: 四组 current/target/ramp/frame/freeze
+    initialization: generated initialization
+    shape:
+    - 4
+  implementation:
+    status: approximation
+    component: orpheus.builtin.balance
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

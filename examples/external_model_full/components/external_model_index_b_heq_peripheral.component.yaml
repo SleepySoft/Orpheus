@@ -1,0 +1,62 @@
+id: external_model.index.b_heq_peripheral
+name: Peripheral 22→10 HEQ
+category: 外部模型/算法索引
+description: 42 个 530-tap FIR/IIR contribution 按十组求和并延迟 34 样本
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_main
+algorithm_index:
+  definition_id: B.HEQ.PERIPHERAL
+  tasks:
+  - B3
+  operations:
+  - 22→42 mapping
+  - FIR+530 延迟 IIR
+  - 10 contiguous sums
+  - 34-sample output ring
+  state:
+  - id: fir
+    role: 12342 state
+    initialization: generated initialization
+  - id: input_delay
+    role: 15004 state
+    initialization: generated initialization
+  - id: output_ring
+    role: 340 state
+    initialization: generated initialization
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

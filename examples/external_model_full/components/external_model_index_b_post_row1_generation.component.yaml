@@ -1,0 +1,63 @@
+id: external_model.index.b_post_row1_generation
+name: Row1 Drv/Pax FIR 生成
+category: 外部模型/算法索引
+description: 20 路 sequence-gated gain 后构造 72 个 288-tap FIR contribution 并求四路
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 20
+  sample_rate: 48000
+  block_size: 32
+- id: targets
+  direction: input
+  type: bulk
+  sample_format: f32
+  channels: 40
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 4
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_vls
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_vls
+algorithm_index:
+  definition_id: B.POST.ROW1.GENERATION
+  tasks:
+  - B3
+  operations:
+  - 20 gain rampers
+  - Drv36+Pax36 mapped FIR
+  - 四个 18-contribution sums
+  state:
+  - id: fir
+    role: Drv/Pax 各 6380 state
+    initialization: generated initialization
+  - id: gains
+    role: 每支 20 active/target
+    initialization: generated initialization
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_vls
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_vls

@@ -1,0 +1,70 @@
+id: external_model.index.a_spatial_full_mix_organize
+name: 空间混音输入组织
+category: 外部模型/算法索引
+description: 延迟并组合 FDP/环绕，形成 CS13 与 Left/Right7 的有序输入
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: fdp
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 6
+  sample_rate: 48000
+  block_size: 32
+- id: surround
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 7
+  sample_rate: 48000
+  block_size: 32
+- id: organized
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 13
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.SPATIAL_FULL.MIX.ORGANIZE
+  tasks:
+  - A0
+  operations:
+  - 7 路延迟
+  - Ltf+Ltb/Rtf+Rtb
+  - 13 路 per-channel IIR
+  - 三组明确顺序
+  state:
+  - id: surround_delay
+    role: 7 路 1664 样本延迟
+    initialization: generated initialization
+    shape:
+    - 30436
+  - id: mix_eq
+    role: 13 路 IIR
+    initialization: generated initialization
+    shape:
+    - 260
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

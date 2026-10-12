@@ -272,6 +272,24 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
     expect(out.subcomponents.find((sub) => sub.id === 'parent').graph.nodes[0].component).toBe('child');
   });
 
+  test('placeholder 组件把阻塞原因传给画布节点', () => {
+    const placeholder = {
+      id: 'external.pending',
+      name: '待蒸馏算法',
+      package_type: 'placeholder',
+      blockers: [{ id: 'golden', gate: 'golden', reason: '尚未对拍' }],
+      ports: [],
+      parameters: [],
+    };
+    const placeholderDoc = {
+      ...doc,
+      graph: { nodes: [{ id: 'pending', component: placeholder.id }], connections: [] },
+    };
+    const { views } = docToViews(placeholderDoc, [...catalog, placeholder]);
+    expect(views.main.nodes[0].data.packageType).toBe('placeholder');
+    expect(views.main.nodes[0].data.blockers).toEqual(placeholder.blockers);
+  });
+
   test('顶层 bridges 投影为无端口节点并保存回顶层', () => {
     const bridgeDoc = {
       ...doc,

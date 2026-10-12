@@ -1,0 +1,72 @@
+id: external_model.index.b_mix_control_targets
+name: SLC/Downmix 目标计算
+category: 外部模型/算法索引
+description: 对七组矩阵做 index 插值和 Fade 前后向 downmix 混合
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: current
+  direction: input
+  type: bulk
+  sample_format: f32
+  channels: 166
+- id: fade
+  direction: input
+  type: control
+  sample_format: f32
+  channels: 2
+- id: full
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 166
+- id: deci
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 1134
+- id: vls_row1
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 40
+- id: vls_row2
+  direction: output
+  type: bulk
+  sample_format: f32
+  channels: 40
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: b_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: b_main
+algorithm_index:
+  definition_id: B.MIX_CONTROL.TARGETS
+  tasks:
+  - B1
+  - B3
+  operations:
+  - 0/128/255 anchors
+  - linear/dB-linear interpolation
+  - target=(1-d)*slc+d*weights
+  state:
+  - id: targets
+    role: 七组目标矩阵
+    initialization: generated initialization
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: b_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: b_main

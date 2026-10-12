@@ -238,6 +238,7 @@ def group_document(name: str, group: int, spec: dict, metadata: dict) -> dict:
 def composite_document(name: str, spec: dict, metadata: dict) -> dict:
     input_channels = spec["input_channels"]
     output_count = spec["output_count"]
+    output_delay = 2 if name == "headrest" else 34
     nodes: list[dict] = [{
         "id": "split",
         "component": "orpheus.builtin.deinterleave",
@@ -284,8 +285,8 @@ def composite_document(name: str, spec: dict, metadata: dict) -> dict:
             "component": "orpheus.builtin.delay_line",
             "params": {
                 "channels": output_count,
-                "max_delay_samples": 2,
-                "delays_samples": ",".join(["2"] * output_count),
+                "max_delay_samples": output_delay,
+                "delays_samples": ",".join([str(output_delay)] * output_count),
             },
             "position": {"x": 860, "y": 260},
         },
@@ -318,7 +319,7 @@ def composite_document(name: str, spec: dict, metadata: dict) -> dict:
         ],
         "parameters": [],
         "graph": {"nodes": nodes, "connections": connections},
-        "execution": {"latency_samples": 531, "realtime_safe": True},
+        "execution": {"latency_samples": 529 + output_delay, "realtime_safe": True},
     }
 
 
@@ -365,7 +366,11 @@ def write_node_notes(project_root: Path, documents: dict[str, dict], metadata: d
             elif node["id"] == "join":
                 notes[key] = "按下游约定的 OutputMapping 顺序打包结果，避免补偿正确但输出通道错位。"
             elif node["id"] == "carry":
-                notes[key] = "补回生成实现跨帧保留的两个样本，使块边界时序与参考链一致，避免整体提前两样本。"
+                delay = 2 if name == "headrest" else 34
+                notes[key] = (
+                    f"复现生成实现的 {delay} 样本输出时序状态；"
+                    "必须保留先读后写和跨块环语义，不能按画布整洁度缩短。"
+                )
     (project_root / "node-notes.json").write_text(
         json.dumps(notes, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )

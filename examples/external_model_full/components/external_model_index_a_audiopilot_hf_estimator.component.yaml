@@ -1,0 +1,62 @@
+id: external_model.index.a_audiopilot_hf_estimator
+name: HF 相干/噪声/Ratio
+category: 外部模型/算法索引
+description: 对十通道 FFT 协方差做消元相干估计、min-stat 噪声和 LF/HF ratio
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: frames
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 10
+  sample_rate: 3000
+  block_size: 2
+- id: metrics
+  direction: output
+  type: control
+  sample_format: f32
+  channels: 4
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_main
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_main
+algorithm_index:
+  definition_id: A.AUDIOPILOT.HF_ESTIMATOR
+  tasks:
+  - A3
+  operations:
+  - 256 RFFT
+  - 65×10×10 complex covariance
+  - Gaussian elimination
+  - min-stat 三窗口
+  - HF/ratio slew
+  state:
+  - id: covariance
+    role: 65×10×10 complex
+    initialization: generated initialization
+    shape:
+    - 6500
+  - id: minima
+    role: 三窗口频谱最小值
+    initialization: generated initialization
+    shape:
+    - 195
+  implementation:
+    status: unsupported
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_main
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_main

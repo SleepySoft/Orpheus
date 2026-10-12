@@ -1,0 +1,63 @@
+id: external_model.index.a_postprocess_protected
+name: Limiter/PostEQ/内部软削波
+category: 外部模型/算法索引
+description: 对 Part6 保护输入执行增益、限制、EQ、软削波和 RMDL mute
+version: '2.0'
+abi_version: 1
+package_type: placeholder
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+- id: out
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 22
+  sample_rate: 48000
+  block_size: 32
+parameters: []
+blockers:
+- id: algorithm_pending
+  gate: algorithm
+  reason: 尚未完成源算法逐语句实现
+  source_ref: a_post
+- id: golden_pending
+  gate: golden
+  reason: 尚未完成参考输出对拍
+  source_ref: a_post
+algorithm_index:
+  definition_id: A.POSTPROCESS.PROTECTED
+  tasks:
+  - A0
+  operations:
+  - 22 ramper
+  - BDSP limiter
+  - PostEQ
+  - piecewise soft clip
+  - RMDL mute
+  state:
+  - id: limiter_gain
+    role: 每通道递归限制增益
+    initialization: generated initialization
+    shape:
+    - 22
+  - id: posteq
+    role: 22 路 IIR
+    initialization: generated initialization
+  implementation:
+    status: approximation
+    component: orpheus.builtin.limiter
+    blockers:
+    - id: algorithm_pending
+      gate: algorithm
+      reason: 尚未完成源算法逐语句实现
+      source_ref: a_post
+    - id: golden_pending
+      gate: golden
+      reason: 尚未完成参考输出对拍
+      source_ref: a_post
