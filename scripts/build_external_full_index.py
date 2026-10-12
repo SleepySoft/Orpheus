@@ -311,6 +311,10 @@ def build_document() -> dict[str, Any]:
         {"id": "overhead_delay", "reason": "HEQ 切片已改为 34 样本 delay_line，但先读后写环的数值等价尚未对拍", "required_check": "采集 Overhead 跨块 impulse golden", "source_refs": ["b_main"]},
         {"id": "hardware_numeric", "reason": "accelerator FIR/IIR/FFT 的精度、舍入和 reduction order 未验证", "required_check": "目标端与软件实现逐块比对"},
     ]
+    stereo_to_system_matrix = ",".join(
+        str(value)
+        for value in ([1, 0, 0, 1] + [0] * 56)
+    )
     return {
         "schema_version": "2.0",
         "model_id": "external_model.dual_runtime_audio",
@@ -326,7 +330,38 @@ def build_document() -> dict[str, Any]:
         "parameter_partitions": parameter_partitions,
         "definitions": definitions,
         "relations": relations,
-        "system": {"roots": ["A.RUNTIME", "B.RUNTIME"], "notes": ["完整研究图允许 placeholder；可执行发布必须消除全部 blocker"]},
+        "system": {
+            "roots": ["A.RUNTIME", "B.RUNTIME"],
+            "io_projection": [
+                {
+                    "id": "program_input",
+                    "direction": "input",
+                    "type_ref": "audio2",
+                    "component": "orpheus.builtin.embed_in",
+                    "params": {"channels": 2, "sample_rate": 48000},
+                    "endpoint": "A.RUNTIME:audio_in",
+                    "adapter": {
+                        "id": "program_to_system",
+                        "component": "orpheus.builtin.output_router",
+                        "params": {
+                            "channels_in": 2,
+                            "channels_out": 30,
+                            "matrix": stereo_to_system_matrix,
+                        },
+                        "output_type_ref": "audio30",
+                    },
+                },
+                {
+                    "id": "main_output",
+                    "direction": "output",
+                    "type_ref": "audio22",
+                    "component": "orpheus.builtin.embed_out",
+                    "params": {"channels": 22, "sample_rate": 48000},
+                    "endpoint": "A.RUNTIME:main_out",
+                },
+            ],
+            "notes": ["完整研究图允许 placeholder；可执行发布必须消除全部 blocker"],
+        },
         "coverage": {"definition_ids": [item["id"] for item in definitions], "unresolved": unresolved, "exclusions": []},
     }
 

@@ -85,6 +85,11 @@ def test_full_algorithm_index_has_closed_hierarchy_and_source_schedule() -> None
         "B.HEQ",
         "B.POST",
     ]
+    io_projection = document["system"]["io_projection"]
+    assert [item["id"] for item in io_projection] == ["program_input", "main_output"]
+    assert io_projection[0]["type_ref"] == "audio2"
+    assert io_projection[0]["adapter"]["output_type_ref"] == "audio30"
+    assert io_projection[1]["type_ref"] == "audio22"
 
 
 def test_index_rejects_duplicate_yaml_keys(tmp_path: Path) -> None:
@@ -204,11 +209,21 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
     project = ProjectLoader(base_registry).load(FULL_PROJECT)
     project_registry = project.registry or base_registry
     assert len(project_registry.list_components()) >= 66
-    assert {node.component for node in project.graph.nodes.values()} == {
-        "external_model.index.a_runtime",
-        "external_model.index.b_runtime",
+    assert set(project.graph.nodes) == {
+        "a_runtime",
+        "b_runtime",
+        "program_input",
+        "program_to_system",
+        "main_output",
     }
-    assert project.graph.connections == []
+    assert {
+        (str(connection.from_ref), str(connection.to_ref))
+        for connection in project.graph.connections
+    } == {
+        ("program_input:out", "program_to_system:in"),
+        ("program_to_system:out", "a_runtime:audio_in"),
+        ("a_runtime:main_out", "main_output:in"),
+    }
     assert project_registry.get("external_model.index.a_bus_exchange") is None
     assert project_registry.get("external_model.index.b_bus_exchange") is None
     notes = json.loads((FULL_PROJECT / "node-notes.json").read_text(encoding="utf-8"))

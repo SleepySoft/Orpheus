@@ -233,6 +233,32 @@ def validate_algorithm_index(document: dict[str, Any]) -> None:
     if any(definitions[root].get("parent") is not None for root in roots):
         raise AlgorithmIndexError("system roots must not have parents")
 
+    io_ids: set[str] = set()
+    for projection in document["system"]["io_projection"]:
+        if projection["id"] in io_ids:
+            raise AlgorithmIndexError(f"duplicate I/O projection id: {projection['id']}")
+        io_ids.add(projection["id"])
+        endpoint_definition_id, endpoint_port_id = _endpoint(projection["endpoint"])
+        endpoint_definition = definitions.get(endpoint_definition_id)
+        if endpoint_definition_id not in roots or endpoint_definition is None:
+            raise AlgorithmIndexError(f"{projection['id']}: endpoint must belong to a root")
+        direction_key = "inputs" if projection["direction"] == "input" else "outputs"
+        endpoint_port = next(
+            (port for port in endpoint_definition["interface"][direction_key] if port["id"] == endpoint_port_id),
+            None,
+        )
+        if endpoint_port is None:
+            raise AlgorithmIndexError(f"{projection['id']}: root endpoint does not exist")
+        boundary_type = projection["type_ref"]
+        if boundary_type not in types:
+            raise AlgorithmIndexError(f"{projection['id']}: unknown type_ref")
+        adapter = projection.get("adapter")
+        endpoint_type = adapter["output_type_ref"] if adapter else boundary_type
+        if adapter and adapter["output_type_ref"] not in types:
+            raise AlgorithmIndexError(f"{projection['id']}: unknown adapter output type")
+        if endpoint_port["type_ref"] != endpoint_type:
+            raise AlgorithmIndexError(f"{projection['id']}: I/O projection type mismatch")
+
     for relation in document["relations"]:
         if relation["type_ref"] not in types:
             raise AlgorithmIndexError(f"{relation['id']}: unknown type")
@@ -383,7 +409,59 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
             "不作为音频组件或画布连线；字段生产者、消费者和 offset 见 algorithm_projection.buses。"
         )
     root_set = set(roots)
-    root_connections = []
+    graph_nodes = [
+        {
+            "id": definitions[root]["node_id"],
+            "component": definitions[root]["component_id"],
+            "position": {"x": 600, "y": 100 + index * 360},
+        }
+        for index, root in enumerate(roots)
+    ]
+    root_connections: list[dict[str, str]] = []
+    for index, projection in enumerate(document["system"]["io_projection"]):
+        endpoint_definition, endpoint_port = _endpoint(projection["endpoint"])
+        root_node_id = definitions[endpoint_definition]["node_id"]
+        boundary_node = {
+            "id": projection["id"],
+            "component": projection["component"],
+            "params": copy.deepcopy(projection["params"]),
+            "position": {
+                "x": 40 if projection["direction"] == "input" else 1060,
+                "y": 100,
+            },
+        }
+        graph_nodes.append(boundary_node)
+        adapter = projection.get("adapter")
+        if projection["direction"] == "input":
+            if adapter:
+                graph_nodes.append({
+                    "id": adapter["id"],
+                    "component": adapter["component"],
+                    "params": copy.deepcopy(adapter["params"]),
+                    "position": {"x": 300, "y": 100 + index * 180},
+                })
+                root_connections.extend([
+                    {"from": f"{projection['id']}:out", "to": f"{adapter['id']}:in"},
+                    {"from": f"{adapter['id']}:out", "to": f"{root_node_id}:{endpoint_port}"},
+                ])
+            else:
+                root_connections.append({
+                    "from": f"{projection['id']}:out",
+                    "to": f"{root_node_id}:{endpoint_port}",
+                })
+        else:
+            root_connections.append({
+                "from": f"{root_node_id}:{endpoint_port}",
+                "to": f"{projection['id']}:in",
+            })
+        node_notes[projection["id"]] = (
+            "系统边界投影：用于展示和测试完整模型的外部音频入口/出口，不属于目标算法内部模块。"
+        )
+        if adapter:
+            node_notes[adapter["id"]] = (
+                "系统输入装配：把 2 路节目放入 30 路系统输入的前两路，其余通道静音；"
+                "这是测试/部署适配，不是目标算法处理。"
+            )
     for relation in document["relations"]:
         if relation["kind"] != "audio":
             continue
@@ -405,22 +483,20 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
         "block_size": 32,
         "imports": ["components"],
         "graph": {
-            "nodes": [
-                {
-                    "id": definitions[root]["node_id"],
-                    "component": definitions[root]["component_id"],
-                    "position": {"x": 120 + index * 420, "y": 160},
-                }
-                for index, root in enumerate(roots)
-            ],
+            "nodes": graph_nodes,
             "connections": root_connections,
         },
         "algorithm_projection": {
             "schema_version": document["schema_version"],
             "index_file": "algorithm-index.yaml",
             "definition_count": len(document["definitions"]),
+            "runtime_nodes": {
+                definitions[root]["runtime_ref"]: definitions[root]["node_id"]
+                for root in roots
+            },
             "tasks": document["tasks"],
             "parameter_partitions": document["parameter_partitions"],
+            "io_projection": document["system"]["io_projection"],
             "relations": document["relations"],
             "buses": document["buses"],
             "unlowered_edges": [
@@ -471,6 +547,8 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
         f"{len(document['tasks'])} 个任务和 {len(document['parameter_partitions'])} 个参数分区。\n\n"
         "双击 Runtime 和子系统可递归查看音频拓扑。control/message/spectrum/state 边无法投影为普通音频线，"
         "完整记录保存在 `project.yaml` 的 `algorithm_projection` 与原始 IR 中。\n\n"
+        "顶层三条实线是 `2ch 节目输入 -> 30ch 系统输入装配 -> Runtime A -> 22ch 主输出`。"
+        "A/B 之间的两条青色虚线由 typed bus 合同只读投影，不属于音频处理，也不会写入 graph.connections。\n\n"
         "叶节点为 placeholder 时表示算法尚未完成 golden 或运行时能力仍缺失，编译器会主动拒绝；"
         "这张图用于完整分析和逐模块替换，不得宣称可执行或数值等价。\n",
         encoding="utf-8",

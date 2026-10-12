@@ -31,6 +31,7 @@ import {
 import OrpheusNode from './OrpheusNode';
 import AudioEdge from './AudioEdge';
 import ControlEdge from './ControlEdge';
+import MessageEdge from './MessageEdge';
 import ParamPanel from './ParamPanel';
 import ParamBrowser from './ParamBrowser';
 import Palette from './Palette';
@@ -45,7 +46,7 @@ import NotesPanel from './NotesPanel';
 import AlterGroupOverlay from './AlterGroupOverlay';
 
 const nodeTypes = { orpheus: OrpheusNode };
-const edgeTypes = { audio: AudioEdge, control: ControlEdge };
+const edgeTypes = { audio: AudioEdge, control: ControlEdge, message: MessageEdge };
 const AUTOSAVE_DELAY_MS = 1500;
 const EMPTY_VIEW = { nodes: [], edges: [] };
 

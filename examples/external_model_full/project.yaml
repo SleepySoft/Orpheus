@@ -11,18 +11,52 @@ graph:
   - id: a_runtime
     component: external_model.index.a_runtime
     position:
-      x: 120
-      y: 160
+      x: 600
+      y: 100
   - id: b_runtime
     component: external_model.index.b_runtime
     position:
-      x: 540
-      y: 160
-  connections: []
+      x: 600
+      y: 460
+  - id: program_input
+    component: orpheus.builtin.embed_in
+    params:
+      channels: 2
+      sample_rate: 48000
+    position:
+      x: 40
+      y: 100
+  - id: program_to_system
+    component: orpheus.builtin.output_router
+    params:
+      channels_in: 2
+      channels_out: 30
+      matrix: 1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+    position:
+      x: 300
+      y: 100
+  - id: main_output
+    component: orpheus.builtin.embed_out
+    params:
+      channels: 22
+      sample_rate: 48000
+    position:
+      x: 1060
+      y: 100
+  connections:
+  - from: program_input:out
+    to: program_to_system:in
+  - from: program_to_system:out
+    to: a_runtime:audio_in
+  - from: a_runtime:main_out
+    to: main_output:in
 algorithm_projection:
   schema_version: '2.0'
   index_file: algorithm-index.yaml
   definition_count: 66
+  runtime_nodes:
+    runtime_a: a_runtime
+    runtime_b: b_runtime
   tasks:
   - id: A0
     runtime_ref: runtime_a
@@ -351,6 +385,31 @@ algorithm_projection:
     - two delay arrays
     - four 10368 FIR banks
     extraction_status: indexed
+  io_projection:
+  - id: program_input
+    direction: input
+    type_ref: audio2
+    component: orpheus.builtin.embed_in
+    params:
+      channels: 2
+      sample_rate: 48000
+    endpoint: A.RUNTIME:audio_in
+    adapter:
+      id: program_to_system
+      component: orpheus.builtin.output_router
+      params:
+        channels_in: 2
+        channels_out: 30
+        matrix: 1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+      output_type_ref: audio30
+  - id: main_output
+    direction: output
+    type_ref: audio22
+    component: orpheus.builtin.embed_out
+    params:
+      channels: 22
+      sample_rate: 48000
+    endpoint: A.RUNTIME:main_out
   relations: []
   buses:
   - id: bus_a_to_b

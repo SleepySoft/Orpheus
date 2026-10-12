@@ -4480,6 +4480,31 @@ system:
   roots:
   - A.RUNTIME
   - B.RUNTIME
+  io_projection:
+  - id: program_input
+    direction: input
+    type_ref: audio2
+    component: orpheus.builtin.embed_in
+    params:
+      channels: 2
+      sample_rate: 48000
+    endpoint: A.RUNTIME:audio_in
+    adapter:
+      id: program_to_system
+      component: orpheus.builtin.output_router
+      params:
+        channels_in: 2
+        channels_out: 30
+        matrix: 1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+      output_type_ref: audio30
+  - id: main_output
+    direction: output
+    type_ref: audio22
+    component: orpheus.builtin.embed_out
+    params:
+      channels: 22
+      sample_rate: 48000
+    endpoint: A.RUNTIME:main_out
   notes:
   - 完整研究图允许 placeholder；可执行发布必须消除全部 blocker
 coverage:

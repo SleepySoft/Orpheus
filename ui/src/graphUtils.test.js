@@ -290,6 +290,34 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
     expect(views.main.nodes[0].data.blockers).toEqual(placeholder.blockers);
   });
 
+  test('typed bus 仅投影为 message 边且保存时不进入音频连接', () => {
+    const projection = {
+      runtime_nodes: { runtime_a: 'a', runtime_b: 'b' },
+      buses: [
+        { id: 'a_to_b', producer_runtime: 'runtime_a', consumer_runtime: 'runtime_b', total_words: 488, fields: [{ id: 'audio' }], atomicity: 'unverified' },
+        { id: 'b_to_a', producer_runtime: 'runtime_b', consumer_runtime: 'runtime_a', total_words: 1193, fields: [{ id: 'targets' }], atomicity: 'unverified' },
+      ],
+    };
+    const busDoc = {
+      ...doc,
+      graph: {
+        nodes: [
+          { id: 'a', component: 'orpheus.builtin.gain' },
+          { id: 'b', component: 'orpheus.builtin.gain' },
+        ],
+        connections: [],
+      },
+      algorithm_projection: projection,
+    };
+    const { views, subsMeta } = docToViews(busDoc, catalog);
+    expect(views.main.edges.filter((edge) => edge.type === 'message')).toHaveLength(2);
+    expect(views.main.nodes.find((node) => node.id === 'a').data.messagePorts).toHaveLength(2);
+    expect(views.main.nodes.find((node) => node.id === 'b').data.messagePorts).toHaveLength(2);
+    const out = viewsToDoc(views, subsMeta, busDoc);
+    expect(out.graph.connections).toEqual([]);
+    expect(out.algorithm_projection).toEqual(projection);
+  });
+
   test('顶层 bridges 投影为无端口节点并保存回顶层', () => {
     const bridgeDoc = {
       ...doc,

@@ -9,6 +9,7 @@ import { NodeActionsContext } from './NodeActionsContext';
 export default function OrpheusNode({ id, data, selected }) {
   const [enlarged, setEnlarged] = React.useState(false);
   const ports = data.ports || [];
+  const messagePorts = data.messagePorts || [];
   const inputs = ports.filter((p) => p.direction === 'input');
   const outputs = ports.filter((p) => p.direction === 'output');
   const isSub = (data.component || '').startsWith('sub:');
@@ -85,6 +86,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
   const updateNodeInternals = useUpdateNodeInternals();
   const handleSignature = [
     ...ports.map((port) => `audio:${port.direction}:${port.id}:${data.exportedAudioPorts?.[port.id]?.id || ''}`),
+    ...messagePorts.map((port) => `message:${port.direction}:${port.id}`),
     ...(data.parameters || [])
       .filter((parameter) => parameter.control_source || parameter.bindable)
       .map((parameter) => `control:${parameter.control_source ? 'source' : ''}:${parameter.bindable ? 'target' : ''}:${parameter.id}:${data.exportedControlParameters?.[parameter.id]?.id || ''}`),
@@ -170,6 +172,20 @@ const BodyWidget = NODE_WIDGETS[data.component];
         />
       )}
       <div className={`orpheus-node audio-node ${showControlLinks ? 'control-mode' : ''} ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${isBridge ? 'bridge-config-node' : ''} ${data.missing ? 'missing' : ''} ${platformTone ? `platform-${platformTone}` : ''} ${noiseStatusClass(data)}`}>
+      {messagePorts.map((messagePort, index) => {
+        const output = messagePort.direction === 'output';
+        return (
+          <Handle
+            key={messagePort.id}
+            type={output ? 'source' : 'target'}
+            position={output ? Position.Right : Position.Left}
+            id={messagePort.id}
+            className="message-handle"
+            title={messagePort.label}
+            style={{ top: 24 + index * 16, [output ? 'right' : 'left']: -8 }}
+          />
+        );
+      })}
       <div className="node-header">
         <div className="node-title">
           {data.label}

@@ -64,5 +64,8 @@
   "sub:external_model.index.b_post_row2/generation": "用途：20 路 sequence-gated gain 后构造 72 个 288-tap FIR contribution 并求四路 原因：按源代码算法边界独立索引；实现状态：unsupported。",
   "sub:external_model.index.b_post_row2/xtalk": "用途：四路重复成 16 path，经独立 IIR/delay 后按目标求和 原因：按源代码算法边界独立索引；实现状态：unsupported。",
   "a_runtime": "用途：执行输入、Big6、空间处理、输出保护和自适应响度。双击进入按源码边界组织的算法子系统。跨 Runtime typed bus（bus_a_to_b, bus_b_to_a）是调度/部署事务合同，不作为音频组件或画布连线；字段生产者、消费者和 offset 见 algorithm_projection.buses。",
-  "b_runtime": "用途：计算频带、降速 FDP、目标矩阵、HEQ 和 VLS 后空间结果。双击进入按源码边界组织的算法子系统。跨 Runtime typed bus（bus_a_to_b, bus_b_to_a）是调度/部署事务合同，不作为音频组件或画布连线；字段生产者、消费者和 offset 见 algorithm_projection.buses。"
+  "b_runtime": "用途：计算频带、降速 FDP、目标矩阵、HEQ 和 VLS 后空间结果。双击进入按源码边界组织的算法子系统。跨 Runtime typed bus（bus_a_to_b, bus_b_to_a）是调度/部署事务合同，不作为音频组件或画布连线；字段生产者、消费者和 offset 见 algorithm_projection.buses。",
+  "program_input": "系统边界投影：用于展示和测试完整模型的外部音频入口/出口，不属于目标算法内部模块。",
+  "program_to_system": "系统输入装配：把 2 路节目放入 30 路系统输入的前两路，其余通道静音；这是测试/部署适配，不是目标算法处理。",
+  "main_output": "系统边界投影：用于展示和测试完整模型的外部音频入口/出口，不属于目标算法内部模块。"
 }

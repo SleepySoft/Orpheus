@@ -155,7 +155,37 @@ export function alterGroupScreenBounds(nodes, memberIds, viewport, padding = 18)
 }
 
 /** graph {nodes, connections} + 顶层 control_connections -> { nodes, edges } for React Flow. */
-export function graphToFlow(graph, catalogById, controlConnections = [], bridges = []) {
+export function graphToFlow(graph, catalogById, controlConnections = [], bridges = [], algorithmProjection = {}) {
+  const messagePorts = {};
+  const runtimeNodes = algorithmProjection?.runtime_nodes || {};
+  const messageEdges = (algorithmProjection?.buses || []).flatMap((bus, index) => {
+    const source = runtimeNodes[bus.producer_runtime];
+    const target = runtimeNodes[bus.consumer_runtime];
+    if (!source || !target) return [];
+    const sourceHandle = `msg:${bus.id}:out`;
+    const targetHandle = `msg:${bus.id}:in`;
+    messagePorts[source] = [...(messagePorts[source] || []), {
+      id: sourceHandle, direction: 'output', label: `${bus.id} · ${bus.total_words} words`,
+    }];
+    messagePorts[target] = [...(messagePorts[target] || []), {
+      id: targetHandle, direction: 'input', label: `${bus.id} · ${bus.total_words} words`,
+    }];
+    return [{
+      id: `em-${bus.id}`,
+      source,
+      target,
+      sourceHandle,
+      targetHandle,
+      type: 'message',
+      data: {
+        label: `${bus.total_words} words`,
+        busId: bus.id,
+        fields: bus.fields || [],
+        atomicity: bus.atomicity || 'unverified',
+        curveOffset: index % 2 === 0 ? -54 : 54,
+      },
+    }];
+  });
   const nodes = (graph?.nodes || []).map((n) => {
     const comp = catalogById[n.component];
     return {
@@ -167,12 +197,13 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
         component: n.component,
         missing: !comp,
         params: n.params || {},
-          task: n.task || 'default',
+        task: n.task || 'default',
         clockSource: !!comp?.clock_source,
         ports: resolvePorts(comp, n.params),
         parameters: comp?.parameters || [],
         packageType: comp?.package_type || 'source',
         blockers: comp?.blockers || [],
+        messagePorts: messagePorts[n.id] || [],
         // 替代组声明（同图内节点 id 列表）与组件平台标签，往返保留
         alters: Array.isArray(n.alters) ? n.alters : [],
         platforms: comp?.platforms || [],
@@ -226,7 +257,7 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
       type: 'control',
     };
   });
-  return { nodes, edges: [...edges, ...controlEdges] };
+  return { nodes, edges: [...edges, ...controlEdges, ...messageEdges] };
 }
 
 /** React Flow nodes/edges -> graph {nodes, connections}（控制边不进 connections，由 viewsToDoc 单独写回顶层段）。 */
@@ -243,7 +274,7 @@ export function flowToGraph(nodes, edges) {
       ...(Array.isArray(n.data.alters) && n.data.alters.length ? { alters: n.data.alters } : {}),
     })),
     connections: edges
-      .filter((e) => e.sourceHandle && e.targetHandle && e.type !== 'control')
+      .filter((e) => e.sourceHandle && e.targetHandle && !['control', 'message'].includes(e.type))
       .map((e) => ({
         from: `${e.source}:${e.sourceHandle}`,
         to: `${e.target}:${e.targetHandle}`,
@@ -271,7 +302,7 @@ export function docToViews(doc, globalComponents) {
   const views = {
     main: graphToFlow(
       graphToViewDocument(doc.graph, subIds), catalogById,
-      doc.control_connections, doc.bridges
+      doc.control_connections, doc.bridges, doc.algorithm_projection
     ),
   };
   for (const s of doc.subcomponents || []) {
