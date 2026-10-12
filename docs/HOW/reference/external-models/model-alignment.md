@@ -82,6 +82,8 @@ Orpheus 组件：`orpheus.builtin.piecewise_soft_clipper`。`examples/recycled/e
 
 ## 外部模型结构参考
 
+完整双 Runtime 模型不再从结构参考直接转图。后续工作以 `model-b-distillation-index.yaml` 为唯一进度索引，按 `model-b-distillation-workflow.md` 逐模块完成边界、调度、算法、状态、参数和 golden 六项门禁后再组装。Big6 的当前所有权和缺口见 `model-b-big6-analysis.md`。
+
 `examples/recycled/external_model_structural_reference.yaml` 以外部生成输出为调查边界，合并了此前分散的主链、PostProcess 和组件验证模型；它已归档为蒸馏底稿，不再作为 UI 示例：
 
 - Runtime A / `Model_1_1`：6 个 TID、全速率 SAS、PostProcess 与 Audiopilot；

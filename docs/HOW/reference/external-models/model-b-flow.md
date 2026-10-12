@@ -1,5 +1,8 @@
 # 参考工程 B 完整信号流（基于 Model_1_1.c）
 
+> 本文是早期源码调查记录，不作为当前蒸馏完成度依据。模块边界、证据和门禁统一见
+> `model-b-distillation-index.yaml`，执行流程见 `model-b-distillation-workflow.md`。
+>
 > 来源：`外部参考工程 B/components/外部参考模型/src/out/baremetalgxp/slx/code/Model_1_1_ert_shrlib_rtw/Model_1_1.c`（20 641 行）及同目录 PostProcess 生成文件
 > 采样率 48 kHz，块大小 32，帧率 1.5 kHz。
 

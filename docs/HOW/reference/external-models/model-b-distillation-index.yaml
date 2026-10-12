@@ -1,0 +1,381 @@
+version: 1
+model: external_dual_runtime_audio
+purpose: 先保存证据与缺口，再逐模块蒸馏；禁止从生成代码直接拼完整 Orpheus 图
+
+progress_values: [pending, indexed, analyzed, extracted, verified]
+artifact_values: [none, notes, component, slice_graph]
+system_graph_gate:
+  required_verified: [boundary, schedule, algorithm, state, parameters, golden]
+  rule: 任一必需项未 verified，只能发布独立研究切片，不得进入完整系统图
+
+sources:
+  runtime_a_main:
+    file: Model_1_1_ert_shrlib_rtw/Model_1_1.c
+    sha256: 266a97f1f43276b7f93d94a2cb35981b6089a4c4905faf7814a9342e532e0889
+  runtime_a_post:
+    file: Model_1_1_ert_shrlib_rtw/PostProcess.c
+    sha256: fc6fcd638edd10e0be1d9edc6cda7a617967b885cb227d9cdea7cb5abb581098
+  runtime_a_top:
+    file: Model_1_1_ert_shrlib_rtw/Model_1_1_*_TOP.c
+    sha256: per_file_pending
+  runtime_a_preamp_top:
+    file: Model_1_1_ert_shrlib_rtw/Model_1_1_PreAmp_p0_b0_TOP.c
+    sha256: f7fe36b16a469f3a333fd8bee974853e19e1b959ce734bed325d9206765c3390
+  runtime_b_main:
+    file: Model_1_2_ert_shrlib_rtw/Model_1_2.c
+    sha256: e9560f08055eded66e21e1e2646de64de162665f5a4346e2590ec885fcd5354b
+  runtime_b_top:
+    file: Model_1_2_ert_shrlib_rtw/Model_1_2_*_TOP.c
+    sha256: per_file_pending
+  cross_runtime:
+    file: BVP_Config.yml
+    sha256: 5fd73bdb7b47114fef5c68162a0cf591efb27443b98b6081fa68c12e2e6b0730
+
+schedules:
+  runtime_a:
+    - {tid: 0, interval_blocks: 1, rate_hz: 1500, purpose: 主音频链}
+    - {tid: 1, interval_blocks: 2, rate_hz: 750, purpose: 自适应响度参考与麦克风缓冲}
+    - {tid: 2, interval_blocks: 4, rate_hz: 375, purpose: 空间分解 FFT 核心}
+    - {tid: 3, interval_blocks: 64, rate_hz: 23.4375, purpose: 高频噪声相干估计}
+    - {tid: 4, interval_blocks: 256, rate_hz: 5.859375, purpose: 低频速度界限与慢速斜坡}
+    - {tid: 5, interval_blocks: 768, rate_hz: 1.953125, purpose: 相干累积与慢速控制}
+  runtime_b:
+    - {tid: 0, callrate: 1, rate_hz: 4500, purpose: 调度推进}
+    - {tid: 1, callrate: 3, rate_hz: 1500, purpose: 频带输出与混音控制}
+    - {tid: 2, callrate: 12, rate_hz: 375, purpose: 频带慢速状态}
+    - {tid: 3, callrate: 13, rate_hz: 346.153846, purpose: 降速空间处理与 HEQ}
+    - {tid: 4, callrate: 52, rate_hz: 86.538462, purpose: 降速空间分解核心}
+
+cross_runtime_buses:
+  - id: bus_a_to_b
+    total_values: 488
+    fields:
+      - {id: adaptive_audio, shape: [10, 32], count: 320}
+      - {id: center_current_gain, shape: [2, 13], count: 26}
+      - {id: left_current_gain, shape: [10, 7], count: 70}
+      - {id: right_current_gain, shape: [10, 7], count: 70}
+      - {id: fade_gains, shape: [2], count: 2}
+  - id: bus_b_to_a
+    total_values: 1193
+    fields:
+      - {id: enhancement_enable, shape: [1], count: 1}
+      - {id: decay_rate, shape: [1], count: 1}
+      - {id: mono, shape: [1, 32], count: 32}
+      - {id: treble_lr, shape: [2, 32], count: 64}
+      - {id: treble_surround, shape: [7, 32], count: 224}
+      - {id: center_target_gain, shape: [2, 13], count: 26}
+      - {id: left_target_gain, shape: [10, 7], count: 70}
+      - {id: right_target_gain, shape: [10, 7], count: 70}
+      - {id: post_spatial_audio, shape: [22, 32], count: 704}
+      - {id: fast_sequence, shape: [1], count: 1}
+
+modules:
+  - id: SYS.SCHEDULING
+    runtime: system
+    purpose: 保留两个 Runtime 的 11 个 TID、调用顺序和非整数分频，防止把慢速状态误当同速音频节点
+    tids: [A0, A1, A2, A3, A4, A5, B0, B1, B2, B3, B4]
+    io: {inputs: [host_tick], outputs: [runtime_a_ticks, runtime_b_ticks]}
+    evidence: [runtime_a_main, runtime_b_main]
+    dependencies: []
+    orpheus_target: tasks + async_bridge + 独立 Runtime B 调度域
+    progress: {boundary: verified, schedule: analyzed, algorithm: indexed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: SYS.BUS_A_TO_B
+    runtime: system
+    purpose: 同时传递 10 路自适应音频和全速率混音/Fade 当前状态，供 Runtime B 计算下一批目标
+    tids: [A0, B1]
+    io: {inputs: [adaptive_audio, current_gain_arrays, fade_gains], outputs: [bus_a_to_b_488]}
+    evidence: [cross_runtime]
+    dependencies: [A.AUDIOPILOT, A.MIX_2_TO_22, A.FADE_SUM]
+    orpheus_target: 结构化跨 Task 消息；不可拆成纯音频边
+    progress: {boundary: verified, schedule: indexed, algorithm: indexed, state: indexed, parameters: verified, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: SYS.BUS_B_TO_A
+    runtime: system
+    purpose: 把 Runtime B 的频带音频、22 路空间结果和下一批混音目标原子地返回 Runtime A
+    tids: [B1, B3, A0]
+    io: {inputs: [band_audio, target_gain_arrays, post_spatial_audio, sequence], outputs: [bus_b_to_a_1193]}
+    evidence: [cross_runtime]
+    dependencies: [B.BANDS, B.MIX_CONTROL, B.POST_SPATIAL]
+    orpheus_target: 结构化跨 Task 消息；需要数组控制和序列一致性
+    progress: {boundary: verified, schedule: indexed, algorithm: indexed, state: indexed, parameters: verified, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.INPUT_SELECT
+    runtime: runtime_a
+    purpose: 从 30 路系统输入中稳定提取 12 路节目、1 路麦克风和 17 路提示音，并允许运行期更新路由表
+    tids: [A0]
+    io: {inputs: [audio_30], outputs: [entertainment_12, microphone_1, announcement_17]}
+    evidence: [runtime_a_main, runtime_a_top]
+    dependencies: []
+    orpheus_target: channel_router + 双 bank 路由表更新
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.INPUT_MIXER
+    runtime: runtime_a
+    purpose: 把 12 路节目布局转换为内部 10 路声场，并在立体声下混与多声道直达之间切换
+    tids: [A0]
+    io: {inputs: [entertainment_12], outputs: [program_10]}
+    evidence: [runtime_a_main, runtime_a_preamp_top]
+    dependencies: [A.INPUT_SELECT]
+    orpheus_target: input_mixer_3d + switch
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.BIG6_VOLUME
+    runtime: runtime_a
+    purpose: 以无跳变斜坡调整 10 路节目总电平，并把当前增益状态提供给后续控制逻辑
+    tids: [A0]
+    io: {inputs: [program_10, volume_target], outputs: [volume_audio_10, volume_state]}
+    evidence: [runtime_a_main, runtime_a_preamp_top]
+    dependencies: [A.INPUT_MIXER]
+    orpheus_target: gain_ramper；需核对原始 dB/线性域和斜坡律
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: analyzed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.BIG6_TONE
+    runtime: runtime_a
+    purpose: 分别调节低频、中频和高频听感，同时保持 10 路通道间一致的更新时序
+    tids: [A0]
+    io: {inputs: [volume_audio_10, bass, mid, treble], outputs: [tone_audio_10]}
+    evidence: [runtime_a_main, runtime_a_preamp_top]
+    dependencies: [A.BIG6_VOLUME]
+    orpheus_target: bass + midrange + treble；需从原公式证明滤波器类型和参数映射
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.BIG6_BALANCE
+    runtime: runtime_a
+    purpose: 按目标声像平滑调整左右通道组，而不改变未参与声像控制的通道语义
+    tids: [A0]
+    io: {inputs: [tone_audio_10, balance_target], outputs: [balanced_audio_10, balance_state]}
+    evidence: [runtime_a_main, runtime_a_preamp_top]
+    dependencies: [A.BIG6_TONE]
+    orpheus_target: balance 或 gain_ramper 组合；必须先提取四 ramper 的真实通道映射
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: analyzed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.PREAMP_ROUTE_LEVEL
+    runtime: runtime_a
+    purpose: 把 Big6 后的 10 路节目送往 32 路后处理总线、自适应响度支路和电平检测支路
+    tids: [A0]
+    io: {inputs: [balanced_audio_10, microphone_1], outputs: [post_buffer_32, adaptive_buffer_10, mic_buffer_1, level_metrics]}
+    evidence: [runtime_a_main, runtime_a_top]
+    dependencies: [A.BIG6_BALANCE, A.INPUT_SELECT]
+    orpheus_target: channel_router + iir_bank + level_detect
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.POST_PROCESS
+    runtime: runtime_a
+    purpose: 在 22 路最终输出前完成增益斜坡、保护、频响补偿、软削波、校准和扬声器延迟
+    tids: [A0]
+    io: {inputs: [post_buffer_32], outputs: [main_audio_22]}
+    evidence: [runtime_a_post, runtime_a_main, runtime_a_top]
+    dependencies: [A.PREAMP_ROUTE_LEVEL]
+    orpheus_target: channel_router + gain_ramper + limiter + iir_bank + piecewise_soft_clipper + delay_line
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.FDP_2_TO_6
+    runtime: runtime_a
+    purpose: 把 2 路高频内容分解为 6 路直达、瞬态和混响成分，为 2→22 空间混音提供可独立控制的素材
+    tids: [A0, A2]
+    io: {inputs: [treble_lr_2], outputs: [spatial_components_6, analysis_taps_4]}
+    evidence: [runtime_a_main, runtime_a_top]
+    dependencies: [SYS.BUS_B_TO_A]
+    orpheus_target: 新 STFT/FDP 复合组件；256 点 FFT、50% overlap、多速率 ring buffer
+    progress: {boundary: verified, schedule: analyzed, algorithm: indexed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.MIX_2_TO_22
+    runtime: runtime_a
+    purpose: 把 6 路空间分量和 7 路环绕素材组织成 13 路，再经 26/70/70 平滑矩阵生成 22 路扬声器信号
+    tids: [A0]
+    io: {inputs: [spatial_components_6, treble_surround_7, target_gain_arrays], outputs: [mixed_audio_22, current_gain_arrays]}
+    evidence: [runtime_a_main, runtime_a_top, cross_runtime]
+    dependencies: [A.FDP_2_TO_6, SYS.BUS_B_TO_A]
+    orpheus_target: per-channel iir_bank + 三个 slc_matrix_mul + 22 路汇聚
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: analyzed, parameters: analyzed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.PERIPHERAL_EQ
+    runtime: runtime_a
+    purpose: 按实际扬声器顺序重排 22 路信号，并对每只扬声器做独立 IIR 与传播延迟补偿
+    tids: [A0]
+    io: {inputs: [mixed_audio_22], outputs: [equalized_audio_22]}
+    evidence: [runtime_a_main, runtime_a_top]
+    dependencies: [A.MIX_2_TO_22]
+    orpheus_target: channel_router + per-channel iir_bank + delay_line
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.FADE_SUM
+    runtime: runtime_a
+    purpose: 合并全速率与降速空间结果，执行位置相关衰减、静音和扬声器延迟，并反馈到下一帧输入链
+    tids: [A0]
+    io: {inputs: [equalized_audio_22, post_spatial_audio_22, fade_target], outputs: [feedback_audio_22, fade_state]}
+    evidence: [runtime_a_main, runtime_a_top, cross_runtime]
+    dependencies: [A.PERIPHERAL_EQ, SYS.BUS_B_TO_A]
+    orpheus_target: sleeping_beauty + mixer + delay_line + fade + mute
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: analyzed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: A.AUDIOPILOT
+    runtime: runtime_a
+    purpose: 根据麦克风、参考、频带和节目电平估计噪声，平滑计算多频段补偿并施加到 10 路节目
+    tids: [A0, A1, A3, A4, A5]
+    io: {inputs: [adaptive_buffer_10, mic_buffer_1, mono_1, analysis_taps_4], outputs: [adaptive_audio_10, noise_metrics, boost_state]}
+    evidence: [runtime_a_main, runtime_a_top]
+    dependencies: [A.PREAMP_ROUTE_LEVEL, A.FDP_2_TO_6, SYS.BUS_B_TO_A]
+    orpheus_target: 多速率复合组件；需要噪声估计、相干、BoostMap、zipper reduction 和状态机
+    progress: {boundary: verified, schedule: analyzed, algorithm: indexed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: B.BANDS
+    runtime: runtime_b
+    purpose: 从 10 路自适应音频提取 Runtime A 下一帧所需的 mono、2 路高频和 7 路环绕素材
+    tids: [B1, B2]
+    io: {inputs: [adaptive_audio_10], outputs: [mono_1, treble_lr_2, treble_surround_7]}
+    evidence: [runtime_b_main, runtime_b_top]
+    dependencies: [SYS.BUS_A_TO_B]
+    orpheus_target: per-channel iir_bank + channel_router + 慢速状态
+    progress: {boundary: verified, schedule: analyzed, algorithm: indexed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: B.FDP_DECI
+    runtime: runtime_b
+    purpose: 在降速域再次分解高频素材，为降速空间混音和后续 HEQ 生成输入
+    tids: [B3, B4]
+    io: {inputs: [treble_lr_2], outputs: [deci_components_6]}
+    evidence: [runtime_b_main, runtime_b_top]
+    dependencies: [B.BANDS]
+    orpheus_target: 新降速 STFT/FDP 复合组件
+    progress: {boundary: verified, schedule: analyzed, algorithm: indexed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: B.MIX_CONTROL
+    runtime: runtime_b
+    purpose: 根据当前增益和运行状态生成下一批 26/70/70 目标矩阵，并用序列号保证 Runtime A 原子切换
+    tids: [B1]
+    io: {inputs: [current_gain_arrays, fade_gains], outputs: [target_gain_arrays, fast_sequence]}
+    evidence: [runtime_b_main, runtime_b_top, cross_runtime]
+    dependencies: [SYS.BUS_A_TO_B]
+    orpheus_target: 新数组控制状态机，不可用标量 control_link 近似
+    progress: {boundary: verified, schedule: analyzed, algorithm: indexed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: B.MIX_DECI
+    runtime: runtime_b
+    purpose: 把降速空间分量组织为外围、头枕和顶置处理所需的多路信号
+    tids: [B3]
+    io: {inputs: [deci_components_6, band_audio, target_gain_arrays], outputs: [deci_mixed_audio]}
+    evidence: [runtime_b_main, runtime_b_top]
+    dependencies: [B.FDP_DECI, B.MIX_CONTROL]
+    orpheus_target: 路由 + 矩阵混音 + ramp sequencer
+    progress: {boundary: indexed, schedule: analyzed, algorithm: indexed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: B.PERIPHERAL_EQ
+    runtime: runtime_b
+    purpose: 在降速空间链内按目标扬声器修正外围声道，为头枕和顶置专用补偿提供稳定输入
+    tids: [B3]
+    io: {inputs: [deci_mixed_audio], outputs: [deci_equalized_audio]}
+    evidence: [runtime_b_main, runtime_b_top]
+    dependencies: [B.MIX_DECI]
+    orpheus_target: per-channel FIR/IIR bank + delay
+    progress: {boundary: indexed, schedule: analyzed, algorithm: indexed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: B.HEADREST_HEQ_FIR
+    runtime: runtime_b
+    purpose: 让同一组 10 路源信号面向四组目标输出分别使用独立长 FIR 补偿
+    tids: [B3]
+    io: {inputs: [headrest_source_10], outputs: [headrest_fir_40]}
+    evidence: [runtime_b_main, runtime_b_top]
+    dependencies: [B.PERIPHERAL_EQ]
+    orpheus_target: external_model.heq.headrest
+    progress: {boundary: verified, schedule: verified, algorithm: verified, state: extracted, parameters: verified, golden: analyzed}
+    artifact: slice_graph
+    system_graph_eligible: false
+
+  - id: B.HEADREST_HEQ_IIR
+    runtime: runtime_b
+    purpose: 在长 FIR 之外叠加可运行期更新的房间模式修正，并支持 reset/disable/shutdown 事务
+    tids: [B3]
+    io: {inputs: [delayed_headrest_source_40], outputs: [headrest_iir_40]}
+    evidence: [runtime_b_main, runtime_b_top]
+    dependencies: [B.PERIPHERAL_EQ]
+    orpheus_target: 40 路可变级数 IIR bank + RTC 更新状态机
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: extracted, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: B.OVERHEAD_HEQ_FIR
+    runtime: runtime_b
+    purpose: 分别补偿五条输入到同一顶置目标的路径，再按四组求和形成四路输出
+    tids: [B3]
+    io: {inputs: [overhead_source_20], outputs: [overhead_fir_sum_4]}
+    evidence: [runtime_b_main, runtime_b_top]
+    dependencies: [B.PERIPHERAL_EQ]
+    orpheus_target: external_model.heq.overhead
+    progress: {boundary: verified, schedule: verified, algorithm: verified, state: extracted, parameters: verified, golden: analyzed}
+    artifact: slice_graph
+    system_graph_eligible: false
+
+  - id: B.OVERHEAD_HEQ_IIR
+    runtime: runtime_b
+    purpose: 为二十条顶置输入贡献叠加可运行期更新的房间模式修正，再进入四组求和
+    tids: [B3]
+    io: {inputs: [delayed_overhead_source_20], outputs: [overhead_iir_20]}
+    evidence: [runtime_b_main, runtime_b_top]
+    dependencies: [B.PERIPHERAL_EQ]
+    orpheus_target: 20 路可变级数 IIR bank + RTC 更新状态机
+    progress: {boundary: verified, schedule: verified, algorithm: analyzed, state: indexed, parameters: extracted, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+  - id: B.POST_SPATIAL
+    runtime: runtime_b
+    purpose: 生成 VLS 行信号、执行串扰消除和动态衰减，形成返回 Runtime A 的 22 路降速空间结果
+    tids: [B1, B3]
+    io: {inputs: [deci_equalized_audio, headrest_audio, overhead_audio], outputs: [post_spatial_audio_22]}
+    evidence: [runtime_b_main, runtime_b_top]
+    dependencies: [B.PERIPHERAL_EQ, B.HEADREST_HEQ_FIR, B.HEADREST_HEQ_IIR, B.OVERHEAD_HEQ_FIR, B.OVERHEAD_HEQ_IIR]
+    orpheus_target: VLS Row1/Row2 FIR + 16 路串扰 IIR + sleeping_beauty + 路由
+    progress: {boundary: indexed, schedule: analyzed, algorithm: indexed, state: indexed, parameters: indexed, golden: pending}
+    artifact: notes
+    system_graph_eligible: false
+
+distillation_order:
+  - [SYS.SCHEDULING, SYS.BUS_A_TO_B, SYS.BUS_B_TO_A]
+  - [A.INPUT_SELECT, A.INPUT_MIXER, A.BIG6_VOLUME, A.BIG6_TONE, A.BIG6_BALANCE, A.PREAMP_ROUTE_LEVEL]
+  - [A.POST_PROCESS]
+  - [A.FDP_2_TO_6, A.MIX_2_TO_22, A.PERIPHERAL_EQ, A.FADE_SUM]
+  - [A.AUDIOPILOT]
+  - [B.BANDS, B.FDP_DECI, B.MIX_CONTROL, B.MIX_DECI, B.PERIPHERAL_EQ]
+  - [B.HEADREST_HEQ_IIR, B.OVERHEAD_HEQ_IIR, B.POST_SPATIAL]
+  - [SYSTEM_GRAPH_ASSEMBLY]
