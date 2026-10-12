@@ -13,6 +13,7 @@
 - [x] 补齐 2ch 输入、2→30 系统装配和 22ch 输出边界；
 - [x] 将 Runtime 间事务按音频与控制/状态拆成四条只读语义链路；
 - [x] 将块音频 shape 修正为 `[channels, frames]`；
+- [x] 图上音频标签使用 channel × frame，控制标签使用字段语义；words/offset 仅作为事务详情；
 - [x] 确保研究投影不会写入可执行 `graph.connections`；
 - [x] placeholder 编译阻断、确定性生成和浏览器可见性测试。
 

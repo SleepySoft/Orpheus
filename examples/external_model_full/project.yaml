@@ -728,6 +728,9 @@ algorithm_projection:
     consumer_runtime: runtime_b
     total_words: 488
     atomicity: unverified
+    semantic_summary:
+      audio: 自适应音频 10ch × 32帧
+      control: 当前增益 26/70/70 + Fade 2
     fields:
     - id: adaptive_audio
       offset_words: 0
@@ -760,6 +763,9 @@ algorithm_projection:
     total_words: 1193
     atomicity: unverified
     sequence_field: fast_sequence
+    semantic_summary:
+      audio: Mono 1ch + Treble 2/7ch + 空间输出 22ch；每块 32帧
+      control: 使能/衰减 + 目标增益 26/70/70 + Sequence
     fields:
     - id: enhancement_enable
       offset_words: 0

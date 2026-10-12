@@ -300,11 +300,15 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
         { id: 'state169', kind: 'event', shape: [169] },
       ],
       buses: [
-        { id: 'a_to_b', producer_runtime: 'runtime_a', consumer_runtime: 'runtime_b', total_words: 488, fields: [
+        { id: 'a_to_b', producer_runtime: 'runtime_a', consumer_runtime: 'runtime_b', total_words: 488, semantic_summary: {
+          audio: '自适应音频 10ch × 32帧', control: '当前增益 26/70/70 + Fade 2',
+        }, fields: [
           { id: 'audio', type_ref: 'audio320', offset_words: 0 },
           { id: 'current', type_ref: 'state168', offset_words: 320 },
         ], atomicity: 'unverified' },
-        { id: 'b_to_a', producer_runtime: 'runtime_b', consumer_runtime: 'runtime_a', total_words: 1193, fields: [
+        { id: 'b_to_a', producer_runtime: 'runtime_b', consumer_runtime: 'runtime_a', total_words: 1193, semantic_summary: {
+          audio: '多组音频 1/2/7/22ch × 32帧', control: '目标增益 26/70/70 + Sequence',
+        }, fields: [
           { id: 'audio', type_ref: 'audio1024', offset_words: 0 },
           { id: 'targets', type_ref: 'state169', offset_words: 1024 },
         ], atomicity: 'unverified' },
@@ -327,10 +331,10 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
     expect(projectionEdges.filter((edge) => edge.data.projectionKind === 'audio')).toHaveLength(2);
     expect(projectionEdges.filter((edge) => edge.data.projectionKind === 'control')).toHaveLength(2);
     expect(projectionEdges.map((edge) => edge.data.label)).toEqual(expect.arrayContaining([
-      'A→B 音频 · 320 words',
-      'A→B 控制/状态 · 168 words',
-      'B→A 音频 · 1024 words',
-      'B→A 控制/状态 · 169 words',
+      'A→B 音频 · 自适应音频 10ch × 32帧',
+      'A→B 控制/状态 · 当前增益 26/70/70 + Fade 2',
+      'B→A 音频 · 多组音频 1/2/7/22ch × 32帧',
+      'B→A 控制/状态 · 目标增益 26/70/70 + Sequence',
     ]));
     expect(projectionEdges).toEqual(expect.arrayContaining([
       expect.objectContaining({ selectable: false, deletable: false, focusable: false }),

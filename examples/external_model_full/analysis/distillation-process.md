@@ -72,6 +72,8 @@
 - **事务层**：`algorithm_projection.buses` 保留总 words、offset、字段生产者/消费者和 atomicity；
 - **语义层**：UI 按字段类型将每个方向拆成“Runtime 间音频”和“Runtime 间控制/状态”两条只读链路。
 
+图上主标签使用音频通道/块帧格式和控制字段语义，不显示总 words；总 words、offset 与 atomicity 只作为事务详情。这样物理打包尺寸不会被误读为音频通道格式。
+
 语义投影不写入 `graph.connections`，handle 禁止手工连线。物理事务的原子性与延迟尚未验证，因此当前不能 lowering 为可执行桥。
 
 ### 3.5 音频 shape 不展平

@@ -52,7 +52,7 @@ export default function AudioEdge({
           <div
             className={`projection-edge-label projection-edge-label-${data.projectionKind}`}
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
-            title={`${data.busId}\n${data.atomicity || 'unverified'}\n${(data.fields || []).map((field) => `${field.id} [${field.shape.join('×')}] = ${field.words} words @ ${field.offset_words}`).join('\n')}`}
+            title={`${data.busId}\n${data.words} words total · ${data.atomicity || 'unverified'}\n${(data.fields || []).map((field) => `${field.id} [${field.shape.join('×')}] = ${field.words} words @ ${field.offset_words}`).join('\n')}`}
           >
             {data.label}
           </div>

@@ -178,7 +178,15 @@
           }
         },
         "atomicity": {"enum": ["verified", "unverified"]},
-        "sequence_field": {"type": "string"}
+        "sequence_field": {"type": "string"},
+        "semantic_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "audio": {"type": "string"},
+            "control": {"type": "string"}
+          }
+        }
       }
     },
     "parameter_partition": {

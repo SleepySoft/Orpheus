@@ -264,13 +264,7 @@ def build_document() -> dict[str, Any]:
         {"id": "B3", "runtime_ref": "runtime_b", "source_tid": 3, "period_ticks": 13, "phase_ticks": {"status": "unknown", "reason": "host coincident-call order unverified"}, "ordinal_calls": ["B.BANDS", "B.FDP", "B.MIX_CONTROL", "B.MIX_DECI", "B.HEQ", "B.POST"]},
         {"id": "B4", "runtime_ref": "runtime_b", "source_tid": 4, "period_ticks": 52, "phase_ticks": {"status": "unknown", "reason": "host coincident-call order unverified"}, "ordinal_calls": ["B.FDP"]},
     ]
-    buses = [
-        {"id": "bus_a_to_b", "producer_runtime": "runtime_a", "consumer_runtime": "runtime_b", "total_words": 488, "atomicity": "unverified", "fields": [
-            {"id": "adaptive_audio", "offset_words": 0, "type_ref": "audio10", "producer_definition": "A.AUDIOPILOT", "consumer_definition": "B.BANDS"},
-            {"id": "center_current", "offset_words": 320, "type_ref": "gains166", "producer_definition": "A.SPATIAL_FULL.MIX.RAMP_CONTROL", "consumer_definition": "B.MIX_CONTROL", "_slice": 26},
-        ]},
-    ]
-    # Replace the concise bus declarations with exact non-overlapping field types.
+    # Cross-runtime buses use exact non-overlapping field types.
     extra_types = [
         {"id": "gains26", "kind": "bulk", "dtype": "f32", "shape": [26]},
         {"id": "gains70", "kind": "bulk", "dtype": "f32", "shape": [70]},
@@ -282,14 +276,14 @@ def build_document() -> dict[str, Any]:
     ]
     types.extend(extra_types)
     buses = [
-        {"id": "bus_a_to_b", "producer_runtime": "runtime_a", "consumer_runtime": "runtime_b", "total_words": 488, "atomicity": "unverified", "fields": [
+        {"id": "bus_a_to_b", "producer_runtime": "runtime_a", "consumer_runtime": "runtime_b", "total_words": 488, "atomicity": "unverified", "semantic_summary": {"audio": "自适应音频 10ch × 32帧", "control": "当前增益 26/70/70 + Fade 2"}, "fields": [
             {"id": "adaptive_audio", "offset_words": 0, "type_ref": "audio10_block", "producer_definition": "A.AUDIOPILOT", "consumer_definition": "B.BANDS"},
             {"id": "center_current", "offset_words": 320, "type_ref": "gains26", "producer_definition": "A.SPATIAL_FULL.MIX.RAMP_CONTROL", "consumer_definition": "B.MIX_CONTROL"},
             {"id": "left_current", "offset_words": 346, "type_ref": "gains70", "producer_definition": "A.SPATIAL_FULL.MIX.RAMP_CONTROL", "consumer_definition": "B.MIX_CONTROL"},
             {"id": "right_current", "offset_words": 416, "type_ref": "gains70", "producer_definition": "A.SPATIAL_FULL.MIX.RAMP_CONTROL", "consumer_definition": "B.MIX_CONTROL"},
             {"id": "fade_targets", "offset_words": 486, "type_ref": "control2", "producer_definition": "A.SPATIAL_FULL.FADE_SUM", "consumer_definition": "B.MIX_CONTROL"},
         ]},
-        {"id": "bus_b_to_a", "producer_runtime": "runtime_b", "consumer_runtime": "runtime_a", "total_words": 1193, "atomicity": "unverified", "sequence_field": "fast_sequence", "fields": [
+        {"id": "bus_b_to_a", "producer_runtime": "runtime_b", "consumer_runtime": "runtime_a", "total_words": 1193, "atomicity": "unverified", "sequence_field": "fast_sequence", "semantic_summary": {"audio": "Mono 1ch + Treble 2/7ch + 空间输出 22ch；每块 32帧", "control": "使能/衰减 + 目标增益 26/70/70 + Sequence"}, "fields": [
             {"id": "enhancement_enable", "offset_words": 0, "type_ref": "event1", "producer_definition": "B.BANDS", "consumer_definition": "A.RUNTIME"},
             {"id": "decay", "offset_words": 1, "type_ref": "control1", "producer_definition": "B.BANDS.DECAY", "consumer_definition": "A.SPATIAL_FULL.FDP.REVERB"},
             {"id": "mono", "offset_words": 2, "type_ref": "audio1_block", "producer_definition": "B.BANDS.MONO", "consumer_definition": "A.AUDIOPILOT.LF"},

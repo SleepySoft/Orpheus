@@ -186,7 +186,11 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
       const sourceHandle = `projection:${bus.id}:${group.kind}:out`;
       const targetHandle = `projection:${bus.id}:${group.kind}:in`;
       const words = group.fields.reduce((total, field) => total + wordCount(field), 0);
-      const label = `${directionLabel} ${group.label} · ${words} words`;
+      const fallbackSummary = group.fields
+        .map((field) => `${field.id} [${(typesById[field.type_ref]?.shape || []).join('×')}]`)
+        .join(' / ');
+      const semanticSummary = bus.semantic_summary?.[group.kind] || fallbackSummary;
+      const label = `${directionLabel} ${group.label} · ${semanticSummary}`;
       const port = (direction) => ({
         id: direction === 'output' ? sourceHandle : targetHandle,
         direction,
@@ -209,6 +213,7 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
           label,
           busId: bus.id,
           projectionKind: group.kind,
+          words,
           fields: group.fields.map((field) => ({
             ...field,
             shape: typesById[field.type_ref]?.shape || [],
