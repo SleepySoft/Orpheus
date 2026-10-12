@@ -186,6 +186,43 @@ def build_definitions() -> None:
             {"from": f"left:out{index + 20}", "to": f"headrest:in{index * 2}"},
             {"from": f"right:out{index + 20}", "to": f"headrest:in{index * 2 + 1}"},
         ])
+    sleeping_connections = []
+    sleeping_connections.extend(
+        {"from": f"peripheral_split:out{index}", "to": f"join:in{index}"}
+        for index in range(10)
+    )
+    sleeping_connections.extend(
+        {"from": f"overhead_split:out{index}", "to": f"join:in{index + 10}"}
+        for index in range(4)
+    )
+    sleeping_connections.extend(
+        {"from": f"headrest_split:out{index}", "to": f"join:in{index + 14}"}
+        for index in range(40)
+    )
+    sleeping_connections.extend([
+        {"from": "join:out", "to": "gain:in"},
+        {"from": "gain:out", "to": "split:in"},
+    ])
+    sleeping_connections.extend(
+        {"from": f"split:out{index}", "to": f"peripheral_out:in{index}"}
+        for index in range(10)
+    )
+    sleeping_connections.extend(
+        {"from": f"split:out{index + 10}", "to": f"overhead_out:in{index}"}
+        for index in range(4)
+    )
+    sleeping_connections.extend(
+        {"from": f"split:out{index + 14}", "to": f"headrest_out:in{index}"}
+        for index in range(40)
+    )
+    headrest_split_connections = [
+        {"from": f"split:out{index}", "to": f"row1:in{index}"}
+        for index in range(20)
+    ]
+    headrest_split_connections.extend(
+        {"from": f"split:out{index + 20}", "to": f"row2:in{index}"}
+        for index in range(20)
+    )
     # Runtime A hierarchy.
     add("A.RUNTIME", "Runtime A 全速率系统", "执行输入、Big6、空间处理、输出保护和自适应响度", "runtime_a", ["A0", "A1", "A2", "A3", "A4", "A5"], ["a_main"], ["按 A0..A5 调度并与 Runtime B 交换原子总线"],
         inputs=[port("audio_in", "audio30", "input_select:in"), port("mono", "audio1", "audiopilot:mono"), port("treble_lr", "audio2", "spatial_full:treble_lr"), port("treble_surround", "audio7", "spatial_full:treble_surround"), port("post_spatial", "audio22", "spatial_full:post_spatial")],
@@ -297,7 +334,7 @@ def build_definitions() -> None:
     add("B.RUNTIME", "Runtime B 降速空间系统", "计算频带、降速 FDP、目标矩阵、HEQ 和 VLS 后空间结果", "runtime_b", ["B0", "B1", "B2", "B3", "B4"], ["b_main"], ["4500Hz 基准调度", "B1/B2/B3/B4 多速率处理", "跨 Runtime 音频字段导出为标准音频端口，控制字段保留事务合同"],
         inputs=[port("adaptive_audio", "audio10", "bands:adaptive")],
         outputs=[port("mono", "audio1", "bands:mono"), port("treble_lr", "audio2", "bands:treble_lr"), port("treble_surround", "audio7", "bands:treble_surround"), port("post_spatial", "audio22", "post:out")],
-        children=["B.BANDS", "B.FDP", "B.MIX_CONTROL", "B.MIX_DECI", "B.HEQ", "B.POST"], edges=[edge("bands:treble_lr", "fdp:in", "audio2"), edge("fdp:components", "mix_deci:fdp", "audio8"), edge("bands:bass_mid", "mix_deci:bands", "audio4"), edge("mix_control:deci_targets", "mix_deci:targets", "gains1134", "control"), edge("mix_control:vls_row1", "post:row1_targets", "gains40", "control"), edge("mix_control:vls_row2", "post:row2_targets", "gains40", "control"), edge("mix_deci:peripheral", "heq:peripheral", "audio22"), edge("mix_deci:headrest", "heq:headrest", "audio10"), edge("mix_deci:overhead", "heq:overhead", "audio20"), edge("heq:peripheral_out", "post:peripheral", "audio10"), edge("heq:headrest_out", "post:headrest", "audio40"), edge("heq:overhead_out", "post:overhead", "audio4")])
+        children=["B.BANDS", "B.FDP", "B.MIX_CONTROL", "B.MIX_DECI", "B.HEQ", "B.POST"], edges=[edge("bands:treble_lr", "fdp:in", "audio2"), edge("fdp:components", "mix_deci:fdp", "audio8"), edge("bands:bass_mid", "mix_deci:bands", "audio4"), edge("mix_control:deci_targets", "mix_deci:targets", "gains1134", "control"), edge("mix_control:vls_row1", "post:row1_targets", "gains40", "control"), edge("mix_control:vls_row2", "post:row2_targets", "gains40", "control"), edge("mix_deci:peripheral", "heq:peripheral", "audio22"), edge("mix_deci:headrest", "heq:headrest", "audio10"), edge("mix_deci:overhead", "heq:overhead", "audio20"), edge("heq:peripheral_out", "post:peripheral", "b3_audio10"), edge("heq:headrest_out", "post:headrest", "b3_audio40"), edge("heq:overhead_out", "post:overhead", "b3_audio4")])
     add("B.BANDS", "频带与 SRC", "从 A 的十路自适应音频生成 mono、treble、surround、bass/mid 与 decay", "runtime_b", ["B1", "B2", "B3"], ["b_main", "b_bands", "b_bands_top"], ["3/13 rational SRC", "stereo detector", "decay estimator", "mono weighted sum", "bass/mid filters"], parent="B.RUNTIME", inputs=[port("adaptive", "audio10", "src:in")], outputs=[port("mono", "audio1", "mono:out"), port("treble_lr", "audio2", "src:treble_lr"), port("treble_surround", "audio7", "src:surround"), port("bass_mid", "audio4", "bass:out"), port("decay", "control1", "decay:out")], children=["B.BANDS.SRC", "B.BANDS.MONO_DETECTOR", "B.BANDS.DECAY", "B.BANDS.MONO", "B.BANDS.BASS"], edges=[edge("src:treble_lr", "mono_detector:in", "audio2"), edge("src:treble_lr", "decay:in", "audio2"), edge("src:deci", "mono:in", "audio10"), edge("src:deci", "bass:in", "audio10")])
     add("B.BANDS.SRC", "3/13 Rational SRC", "把 10 路 48k 内容变换到 B3 域，并在 B1 重构 treble/surround", "runtime_b", ["B1", "B3"], ["b_main", "b_bands"], ["3 相下采样 348 系数", "13 相上采样 351 系数", "phase 4/4/5", "重构残差"], parent="B.BANDS", inputs=[port("in", "audio10")], outputs=[port("deci", "audio10"), port("treble_lr", "audio2"), port("surround", "audio7")], states=[state("src_rings", "alignment/down/up buffers", [9270])], status="unsupported")
     add("B.BANDS.MONO_DETECTOR", "Stereo/Mono 检测", "由两路 HPF 电平与能量关系做 silence reset 和 stereo hysteresis", "runtime_b", ["B1"], ["b_bands"], ["2 路 HPF", "LR mismatch saturation", "energy ratio smoothing", "hysteresis"], parent="B.BANDS", inputs=[port("in", "audio2")], outputs=[port("gate", "control1")], states=[state("detector", "level/energy/counter/last gate")], status="unsupported")
@@ -338,19 +375,55 @@ def build_definitions() -> None:
         "connections": mix_deci_route_connections,
         "port_maps": {"center": "center:in", "left": "left:in", "right": "right:in", "peripheral": "peripheral:out", "headrest": "headrest:out", "overhead": "overhead:out"},
     }, blockers=[])
-    add("B.HEQ", "三分支 HEQ", "并行计算 peripheral/headrest/overhead 的 FIR、延迟输入 IIR、求和和输出环", "runtime_b", ["B3"], ["b_main", "b_peripheral_top", "b_headrest_top", "b_overhead_top"], ["三分支并行", "mapped FIR + delayed mapped PoolIIR", "contribution add", "OutputMapping sum", "output delay"], parent="B.RUNTIME", inputs=[port("peripheral", "audio22", "peripheral:in"), port("headrest", "audio10", "headrest:in"), port("overhead", "audio20", "overhead:in")], outputs=[port("peripheral_out", "audio10", "peripheral:out"), port("headrest_out", "audio40", "headrest:out"), port("overhead_out", "audio4", "overhead:out")], children=["B.HEQ.PERIPHERAL", "B.HEQ.HEADREST", "B.HEQ.OVERHEAD"], edges=[])
-    add("B.HEQ.PERIPHERAL", "Peripheral 22→10 HEQ", "42 个 530-tap FIR/IIR contribution 按十组求和并延迟 34 样本", "runtime_b", ["B3"], ["b_main", "b_peripheral_top"], ["22→42 mapping", "FIR+530 延迟 IIR", "10 contiguous sums", "34-sample output ring"], parent="B.HEQ", inputs=[port("in", "audio22")], outputs=[port("out", "audio10")], states=[state("fir", "12342 state"), state("input_delay", "15004 state"), state("output_ring", "340 state")], status="unsupported")
-    add("B.HEQ.HEADREST", "Headrest 10→40 HEQ", "同一十路面向四组目标做 40 条长 FIR 与并行 IIR", "runtime_b", ["B3"], ["b_main", "b_headrest_top"], ["10 路重复四次", "40×530 FIR", "530 延迟 PoolIIR", "逐 contribution 相加", "2-sample carry"], parent="B.HEQ", inputs=[port("in", "audio10")], outputs=[port("out", "audio40")], states=[state("fir", "5610 state"), state("iir_delay", "6820 state"), state("carry", "80 state")], status="approximation", component="external_model.heq.headrest")
-    add("B.HEQ.OVERHEAD", "Overhead 20→4 HEQ", "二十条 FIR/IIR contribution 每五条求和为四路并使用 34 样本输出环", "runtime_b", ["B3"], ["b_main", "b_overhead_top"], ["20×530 FIR", "530 延迟 PoolIIR", "四组五路求和", "34-sample output ring"], parent="B.HEQ", inputs=[port("in", "audio20")], outputs=[port("out", "audio4")], states=[state("fir", "11220 state"), state("iir_delay", "13640 state"), state("output_ring", "136 state")], status="approximation", component="external_model.heq.overhead", blockers=[blocker("state", "34 样本 delay_line 已按生成环修正，仍需验证先读后写跨块语义", "b_main"), blocker("golden", "并行 IIR/求和/时序 golden 未完成", "b_main")])
-    add("B.POST", "降速后空间/VLS", "对 54 路做 SleepingBeauty，并以两行 VLS/串扰消除形成 22 路返回", "runtime_b", ["B1", "B3"], ["b_main", "b_vls", "b_post_top"], ["54 路 SB", "Row1/Row2 generation", "16 路串扰 IIR/delay", "13/3 return SRC"], parent="B.RUNTIME", inputs=[port("peripheral", "audio10", "sleeping:peripheral"), port("headrest", "audio40", "sleeping:headrest"), port("overhead", "audio4", "sleeping:overhead"), port("row1_targets", "gains40", "row1:targets"), port("row2_targets", "gains40", "row2:targets")], outputs=[port("out", "audio22", "return:out")], children=["B.POST.SLEEPING", "B.POST.ROW1", "B.POST.ROW2", "B.POST.RETURN"], edges=[edge("sleeping:peripheral_out", "return:peripheral", "audio10"), edge("sleeping:overhead_out", "return:overhead", "audio4"), edge("sleeping:row1", "row1:in", "audio20"), edge("sleeping:row2", "row2:in", "audio20"), edge("row1:out", "return:row1", "audio4"), edge("row2:out", "return:row2", "audio4")])
-    add("B.POST.SLEEPING", "54 路四组 SleepingBeauty", "按 left/right/center/mono 四组表插值与 ramp 处理 peripheral/overhead/headrest", "runtime_b", ["B3"], ["b_main", "b_post_top"], ["54→4 map", "30 点表", "极端策略", "frame-quantized multiplicative ramps"], parent="B.POST", inputs=[port("peripheral", "audio10"), port("headrest", "audio40"), port("overhead", "audio4")], outputs=[port("peripheral_out", "audio10"), port("overhead_out", "audio4"), port("row1", "audio20"), port("row2", "audio20")], states=[state("rampers", "四组 current/target/frame/freeze", [4])], status="unsupported")
-    add("B.POST.ROW1", "VLS Row1", "以第一组 20 路 headrest 生成 Drv/Pax 四路并做串扰消除", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["Drv/Pax generation", "16 path xtalk"], parent="B.POST", inputs=[port("in", "audio20", "generation:in"), port("targets", "gains40", "generation:targets")], outputs=[port("out", "audio4", "xtalk:out")], children=["B.POST.ROW1.GENERATION", "B.POST.ROW1.XTALK"], edges=[edge("generation:out", "xtalk:in", "audio4")])
-    add("B.POST.ROW1.GENERATION", "Row1 Drv/Pax FIR 生成", "20 路 sequence-gated gain 后构造 72 个 288-tap FIR contribution 并求四路", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["20 gain rampers", "Drv36+Pax36 mapped FIR", "四个 18-contribution sums"], parent="B.POST.ROW1", inputs=[port("in", "audio20"), port("targets", "gains40")], outputs=[port("out", "audio4")], states=[state("fir", "Drv/Pax 各 6380 state"), state("gains", "每支 20 active/target")], status="unsupported")
-    add("B.POST.ROW1.XTALK", "Row1 串扰消除", "四路重复成 16 path，经独立 IIR/delay 后按目标求和", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["4→16 repeat", "16 PoolIIR", "16 delay", "4×4 path sum"], parent="B.POST.ROW1", inputs=[port("in", "audio4")], outputs=[port("out", "audio4")], states=[state("iir", "480 state"), state("delay", "600 state")], status="unsupported")
-    add("B.POST.ROW2", "VLS Row2", "以第二组 20 路 headrest 生成 Drv/Pax 四路并做串扰消除", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["Drv/Pax generation", "16 path xtalk"], parent="B.POST", inputs=[port("in", "audio20", "generation:in"), port("targets", "gains40", "generation:targets")], outputs=[port("out", "audio4", "xtalk:out")], children=["B.POST.ROW2.GENERATION", "B.POST.ROW2.XTALK"], edges=[edge("generation:out", "xtalk:in", "audio4")])
-    add("B.POST.ROW2.GENERATION", "Row2 Drv/Pax FIR 生成", "20 路 sequence-gated gain 后构造 72 个 288-tap FIR contribution 并求四路", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["20 gain rampers", "Drv36+Pax36 mapped FIR", "四个 18-contribution sums"], parent="B.POST.ROW2", inputs=[port("in", "audio20"), port("targets", "gains40")], outputs=[port("out", "audio4")], states=[state("fir", "Drv/Pax 各 6380 state"), state("gains", "每支 20 active/target")], status="unsupported")
-    add("B.POST.ROW2.XTALK", "Row2 串扰消除", "四路重复成 16 path，经独立 IIR/delay 后按目标求和", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["4→16 repeat", "16 PoolIIR", "16 delay", "4×4 path sum"], parent="B.POST.ROW2", inputs=[port("in", "audio4")], outputs=[port("out", "audio4")], states=[state("iir", "480 state"), state("delay", "600 state")], status="unsupported")
-    add("B.POST.RETURN", "22 路 13/3 返回 SRC", "组合 SB peripheral10/overhead4 与 Row1/2 各四路，再变换回 A 的 1500Hz 块率", "runtime_b", ["B1", "B3"], ["b_main"], ["22 路顺序拼接", "B3 polyphase write", "B1 13/3 SRC read", "发布 22×32"], parent="B.POST", inputs=[port("peripheral", "audio10"), port("overhead", "audio4"), port("row1", "audio4"), port("row2", "audio4")], outputs=[port("out", "audio22")], states=[state("src_buffer", "2112 polyphase state")], status="unsupported")
+    add("B.HEQ", "三分支 HEQ", "并行计算 peripheral/headrest/overhead 的 FIR、延迟输入 IIR、求和和输出环", "runtime_b", ["B3"], ["b_main", "b_peripheral_top", "b_headrest_top", "b_overhead_top"], ["三分支并行", "mapped FIR + delayed mapped PoolIIR", "contribution add", "OutputMapping sum", "output delay"], parent="B.RUNTIME", inputs=[port("peripheral", "audio22", "peripheral:in"), port("headrest", "audio10", "headrest:in"), port("overhead", "audio20", "overhead:in")], outputs=[port("peripheral_out", "b3_audio10", "peripheral:out"), port("headrest_out", "b3_audio40", "headrest:out"), port("overhead_out", "b3_audio4", "overhead:out")], children=["B.HEQ.PERIPHERAL", "B.HEQ.HEADREST", "B.HEQ.OVERHEAD"], edges=[])
+    add("B.HEQ.PERIPHERAL", "Peripheral 22→10 HEQ", "42 个 530-tap FIR/IIR contribution 按十组求和并延迟 34 样本", "runtime_b", ["B3"], ["b_main", "b_peripheral_top"], ["22→42 mapping", "FIR+530 延迟 IIR", "10 contiguous sums", "34-sample output ring"], parent="B.HEQ", inputs=[port("in", "audio22")], outputs=[port("out", "b3_audio10")], states=[state("fir", "12342 state"), state("input_delay", "15004 state"), state("output_ring", "340 state")], status="unsupported")
+    add("B.HEQ.HEADREST", "Headrest 10→40 HEQ", "同一十路面向四组目标做 40 条长 FIR 与并行 IIR", "runtime_b", ["B3"], ["b_main", "b_headrest_top"], ["10 路重复四次", "40×530 FIR", "530 延迟 PoolIIR", "逐 contribution 相加", "2-sample carry"], parent="B.HEQ", inputs=[port("in", "audio10")], outputs=[port("out", "b3_audio40")], states=[state("fir", "5610 state"), state("iir_delay", "6820 state"), state("carry", "80 state")], status="approximation", component="external_model.heq.headrest")
+    add("B.HEQ.OVERHEAD", "Overhead 20→4 HEQ", "二十条 FIR/IIR contribution 每五条求和为四路并使用 34 样本输出环", "runtime_b", ["B3"], ["b_main", "b_overhead_top"], ["20×530 FIR", "530 延迟 PoolIIR", "四组五路求和", "34-sample output ring"], parent="B.HEQ", inputs=[port("in", "audio20")], outputs=[port("out", "b3_audio4")], states=[state("fir", "11220 state"), state("iir_delay", "13640 state"), state("output_ring", "136 state")], status="approximation", component="external_model.heq.overhead", blockers=[blocker("state", "34 样本 delay_line 已按生成环修正，仍需验证先读后写跨块语义", "b_main"), blocker("golden", "并行 IIR/求和/时序 golden 未完成", "b_main")])
+    add("B.POST", "降速后空间/VLS", "对 54 路做 SleepingBeauty，并以两行 VLS/串扰消除形成 22 路返回", "runtime_b", ["B1", "B3"], ["b_main", "b_vls", "b_post_top"], ["54 路 SB", "Headrest 40→20+20", "Row1/Row2 generation", "16 路串扰 IIR/delay", "13/3 return SRC"], parent="B.RUNTIME", inputs=[port("peripheral", "b3_audio10", "sleeping:peripheral"), port("headrest", "b3_audio40", "sleeping:headrest"), port("overhead", "b3_audio4", "sleeping:overhead"), port("row1_targets", "gains40", "row1:targets"), port("row2_targets", "gains40", "row2:targets")], outputs=[port("out", "audio22", "return:out")], children=["B.POST.SLEEPING", "B.POST.HEADREST_SPLIT", "B.POST.ROW1", "B.POST.ROW2", "B.POST.RETURN"], edges=[edge("sleeping:peripheral_out", "return:peripheral", "b3_audio10"), edge("sleeping:overhead_out", "return:overhead", "b3_audio4"), edge("sleeping:headrest_out", "headrest_split:in", "b3_audio40"), edge("headrest_split:row1", "row1:in", "b3_audio20"), edge("headrest_split:row2", "row2:in", "b3_audio20"), edge("row1:out", "return:row1", "b3_audio4"), edge("row2:out", "return:row2", "b3_audio4")])
+    add("B.POST.SLEEPING", "54 路四组 SleepingBeauty", "按 peripheral10、overhead4、headrest40 顺序拼接后应用四组表插值与 ramp", "runtime_b", ["B3"], ["b_main", "b_post_top"], ["10+4+40 拼接", "54→4 map", "30 点表", "unity cold-start", "block-atomic RTC", "frame-quantized multiplicative ramps"], parent="B.POST", inputs=[port("peripheral", "b3_audio10"), port("headrest", "b3_audio40"), port("overhead", "b3_audio4")], outputs=[port("peripheral_out", "b3_audio10"), port("overhead_out", "b3_audio4"), port("headrest_out", "b3_audio40")], states=[state("rampers", "四组 current/target/frame/freeze", [4], "四组 frame=0/current=target=coeff=1, freeze=0")], status="verified", component="orpheus.builtin.sleeping_beauty", lowering={
+        "nodes": [
+            {"id": "peripheral_split", "component": "orpheus.builtin.deinterleave", "params": {"channels": 10}},
+            {"id": "overhead_split", "component": "orpheus.builtin.deinterleave", "params": {"channels": 4}},
+            {"id": "headrest_split", "component": "orpheus.builtin.deinterleave", "params": {"channels": 40}},
+            {"id": "join", "component": "orpheus.builtin.interleave", "params": {"channels": 54}},
+            {"id": "gain", "component": "orpheus.builtin.sleeping_beauty", "params": {
+                "channels": 54, "gain_index": 0.0, "offset": 128.0, "mutes_bass": 0.0,
+                "ramp_ms": 30.0, "ramp_db_per_s": 0.0, "freeze": False,
+                "center_mono_mode": "attenuated", "apply_index_on_prepare": False,
+                "chan_map": ",".join(str(value - 1) for value in [3,3,1,1,1,1,2,2,2,2,1,1,2,2,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2]),
+                "table_idx": "0,10,31,52,74,95,116,128,138,159,180,202,223,244,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255",
+                "table_db": "-40,-30,-20,-10,0,0,0,0,0,0,0,-10,-20,-30,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40",
+            }},
+            {"id": "split", "component": "orpheus.builtin.deinterleave", "params": {"channels": 54}},
+            {"id": "peripheral_out", "component": "orpheus.builtin.interleave", "params": {"channels": 10}},
+            {"id": "overhead_out", "component": "orpheus.builtin.interleave", "params": {"channels": 4}},
+            {"id": "headrest_out", "component": "orpheus.builtin.interleave", "params": {"channels": 40}},
+        ],
+        "connections": sleeping_connections,
+        "port_maps": {"peripheral": "peripheral_split:in", "headrest": "headrest_split:in", "overhead": "overhead_split:in", "peripheral_out": "peripheral_out:out", "overhead_out": "overhead_out:out", "headrest_out": "headrest_out:out"},
+        "parameters": [
+            {"id": "gain_index", "name": "SleepingBeauty 索引", "type": "float", "default": 0.0, "range": [0.0, 255.0], "update_policy": "block_boundary", "direction": "input", "maps_to": "gain:gain_index", "bindable": True},
+            {"id": "ramp_db_per_s", "name": "斜坡速率", "type": "float", "default": 0.0, "range": [0.0, 50000.0], "update_policy": "block_boundary", "direction": "input", "maps_to": "gain:ramp_db_per_s", "bindable": True},
+            {"id": "ramp_ms", "name": "斜坡时间", "type": "float", "default": 30.0, "range": [1.0, 3000.0], "update_policy": "block_boundary", "direction": "input", "maps_to": "gain:ramp_ms", "bindable": True},
+            {"id": "freeze", "name": "冻结斜坡", "type": "bool", "default": False, "update_policy": "block_boundary", "direction": "input", "maps_to": "gain:freeze", "bindable": True},
+        ],
+    }, blockers=[])
+    add("B.POST.HEADREST_SPLIT", "Headrest 行拆分", "把 SleepingBeauty 后的 40 路按源码顺序拆成 Row1 前20路与 Row2 后20路", "runtime_b", ["B3"], ["b_main"], ["40→20+20 contiguous split"], parent="B.POST", inputs=[port("in", "b3_audio40")], outputs=[port("row1", "b3_audio20"), port("row2", "b3_audio20")], status="verified", component="orpheus.builtin.deinterleave", lowering={
+        "nodes": [
+            {"id": "split", "component": "orpheus.builtin.deinterleave", "params": {"channels": 40}},
+            {"id": "row1", "component": "orpheus.builtin.interleave", "params": {"channels": 20}},
+            {"id": "row2", "component": "orpheus.builtin.interleave", "params": {"channels": 20}},
+        ],
+        "connections": headrest_split_connections,
+        "port_maps": {"in": "split:in", "row1": "row1:out", "row2": "row2:out"},
+    }, blockers=[])
+    add("B.POST.ROW1", "VLS Row1", "以第一组 20 路 headrest 生成 Drv/Pax 四路并做串扰消除", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["Drv/Pax generation", "16 path xtalk"], parent="B.POST", inputs=[port("in", "b3_audio20", "generation:in"), port("targets", "gains40", "generation:targets")], outputs=[port("out", "b3_audio4", "xtalk:out")], children=["B.POST.ROW1.GENERATION", "B.POST.ROW1.XTALK"], edges=[edge("generation:out", "xtalk:in", "b3_audio4")])
+    add("B.POST.ROW1.GENERATION", "Row1 Drv/Pax FIR 生成", "20 路 sequence-gated gain 后构造 72 个 288-tap FIR contribution 并求四路", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["20 gain rampers", "Drv36+Pax36 mapped FIR", "四个 18-contribution sums"], parent="B.POST.ROW1", inputs=[port("in", "b3_audio20"), port("targets", "gains40")], outputs=[port("out", "b3_audio4")], states=[state("fir", "Drv/Pax 各 6380 state"), state("gains", "每支 20 active/target")], status="unsupported")
+    add("B.POST.ROW1.XTALK", "Row1 串扰消除", "四路重复成 16 path，经独立 IIR/delay 后按目标求和", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["4→16 repeat", "16 PoolIIR", "16 delay", "4×4 path sum"], parent="B.POST.ROW1", inputs=[port("in", "b3_audio4")], outputs=[port("out", "b3_audio4")], states=[state("iir", "480 state"), state("delay", "600 state")], status="unsupported")
+    add("B.POST.ROW2", "VLS Row2", "以第二组 20 路 headrest 生成 Drv/Pax 四路并做串扰消除", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["Drv/Pax generation", "16 path xtalk"], parent="B.POST", inputs=[port("in", "b3_audio20", "generation:in"), port("targets", "gains40", "generation:targets")], outputs=[port("out", "b3_audio4", "xtalk:out")], children=["B.POST.ROW2.GENERATION", "B.POST.ROW2.XTALK"], edges=[edge("generation:out", "xtalk:in", "b3_audio4")])
+    add("B.POST.ROW2.GENERATION", "Row2 Drv/Pax FIR 生成", "20 路 sequence-gated gain 后构造 72 个 288-tap FIR contribution 并求四路", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["20 gain rampers", "Drv36+Pax36 mapped FIR", "四个 18-contribution sums"], parent="B.POST.ROW2", inputs=[port("in", "b3_audio20"), port("targets", "gains40")], outputs=[port("out", "b3_audio4")], states=[state("fir", "Drv/Pax 各 6380 state"), state("gains", "每支 20 active/target")], status="unsupported")
+    add("B.POST.ROW2.XTALK", "Row2 串扰消除", "四路重复成 16 path，经独立 IIR/delay 后按目标求和", "runtime_b", ["B3"], ["b_vls", "b_post_top"], ["4→16 repeat", "16 PoolIIR", "16 delay", "4×4 path sum"], parent="B.POST.ROW2", inputs=[port("in", "b3_audio4")], outputs=[port("out", "b3_audio4")], states=[state("iir", "480 state"), state("delay", "600 state")], status="unsupported")
+    add("B.POST.RETURN", "22 路 13/3 返回 SRC", "组合 SB peripheral10/overhead4 与 Row1/2 各四路，再变换回 A 的 1500Hz 块率", "runtime_b", ["B1", "B3"], ["b_main"], ["22 路顺序拼接", "B3 polyphase write", "B1 13/3 SRC read", "发布 22×32"], parent="B.POST", inputs=[port("peripheral", "b3_audio10"), port("overhead", "b3_audio4"), port("row1", "b3_audio4"), port("row2", "b3_audio4")], outputs=[port("out", "audio22")], states=[state("src_buffer", "2112 polyphase state")], status="unsupported")
 
 
 def build_document() -> dict[str, Any]:
@@ -366,6 +439,8 @@ def build_document() -> dict[str, Any]:
         types.append(item)
     for channels in [1, 2, 4, 6, 7, 8, 10, 12, 13, 17, 20, 21, 22, 25, 30, 32, 40, 52, 54]:
         t(f"audio{channels}", "audio", "f32", [channels, 32], 48000, 32)
+    for channels in [4, 10, 20, 40, 54]:
+        t(f"b3_audio{channels}", "audio", "f32", [channels, 32], 11076.923076923076, 32)
     for channels in [2, 6, 8]:
         t(f"audio{channels}_128", "audio", "f32", [channels, 128], 48000, 128)
     t("audio10_2", "audio", "f32", [10, 2], 3000, 2)

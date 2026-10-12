@@ -11,7 +11,7 @@ ports:
   type: audio
   sample_format: f32
   channels: 10
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
   maps_to: sleeping:peripheral
 - id: headrest
@@ -19,7 +19,7 @@ ports:
   type: audio
   sample_format: f32
   channels: 40
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
   maps_to: sleeping:headrest
 - id: overhead
@@ -27,7 +27,7 @@ ports:
   type: audio
   sample_format: f32
   channels: 4
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
   maps_to: sleeping:overhead
 - id: row1_targets
@@ -53,6 +53,7 @@ ports:
 parameters: []
 imports:
 - external_model_index_b_post_sleeping.component.yaml
+- external_model_index_b_post_headrest_split.component.yaml
 - external_model_index_b_post_row1.component.yaml
 - external_model_index_b_post_row2.component.yaml
 - external_model_index_b_post_return.component.yaml
@@ -63,29 +64,36 @@ graph:
     position:
       x: 80
       y: 80
+  - id: headrest_split
+    component: external_model.index.b_post_headrest_split
+    position:
+      x: 340
+      y: 80
   - id: row1
     component: external_model.index.b_post_row1
     position:
-      x: 340
+      x: 600
       y: 80
   - id: row2
     component: external_model.index.b_post_row2
     position:
-      x: 600
+      x: 860
       y: 80
   - id: return
     component: external_model.index.b_post_return
     position:
-      x: 860
-      y: 80
+      x: 80
+      y: 260
   connections:
   - from: sleeping:peripheral_out
     to: return:peripheral
   - from: sleeping:overhead_out
     to: return:overhead
-  - from: sleeping:row1
+  - from: sleeping:headrest_out
+    to: headrest_split:in
+  - from: headrest_split:row1
     to: row1:in
-  - from: sleeping:row2
+  - from: headrest_split:row2
     to: row2:in
   - from: row1:out
     to: return:row1
@@ -98,6 +106,7 @@ algorithm_index:
   - B3
   operations:
   - 54 路 SB
+  - Headrest 40→20+20
   - Row1/Row2 generation
   - 16 路串扰 IIR/delay
   - 13/3 return SRC

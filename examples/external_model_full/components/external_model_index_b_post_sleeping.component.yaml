@@ -1,93 +1,735 @@
 id: external_model.index.b_post_sleeping
 name: 54 路四组 SleepingBeauty
 category: 外部模型/算法索引
-description: 按 left/right/center/mono 四组表插值与 ramp 处理 peripheral/overhead/headrest
+description: 按 peripheral10、overhead4、headrest40 顺序拼接后应用四组表插值与 ramp
 version: '2.0'
 abi_version: 1
-package_type: placeholder
+package_type: composite
 ports:
 - id: peripheral
   direction: input
   type: audio
   sample_format: f32
   channels: 10
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
+  maps_to: peripheral_split:in
 - id: headrest
   direction: input
   type: audio
   sample_format: f32
   channels: 40
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
+  maps_to: headrest_split:in
 - id: overhead
   direction: input
   type: audio
   sample_format: f32
   channels: 4
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
+  maps_to: overhead_split:in
 - id: peripheral_out
   direction: output
   type: audio
   sample_format: f32
   channels: 10
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
+  maps_to: peripheral_out:out
 - id: overhead_out
   direction: output
   type: audio
   sample_format: f32
   channels: 4
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
-- id: row1
+  maps_to: overhead_out:out
+- id: headrest_out
   direction: output
   type: audio
   sample_format: f32
-  channels: 20
-  sample_rate: 48000
+  channels: 40
+  sample_rate: 11077
   block_size: 32
-- id: row2
-  direction: output
-  type: audio
-  sample_format: f32
-  channels: 20
-  sample_rate: 48000
-  block_size: 32
-parameters: []
-blockers:
-- id: algorithm_pending
-  gate: algorithm
-  reason: 尚未完成源算法逐语句实现
-  source_ref: b_main
-- id: golden_pending
-  gate: golden
-  reason: 尚未完成参考输出对拍
-  source_ref: b_main
+  maps_to: headrest_out:out
+parameters:
+- id: gain_index
+  name: SleepingBeauty 索引
+  type: float
+  default: 0.0
+  range:
+  - 0.0
+  - 255.0
+  update_policy: block_boundary
+  direction: input
+  maps_to: gain:gain_index
+  bindable: true
+- id: ramp_db_per_s
+  name: 斜坡速率
+  type: float
+  default: 0.0
+  range:
+  - 0.0
+  - 50000.0
+  update_policy: block_boundary
+  direction: input
+  maps_to: gain:ramp_db_per_s
+  bindable: true
+- id: ramp_ms
+  name: 斜坡时间
+  type: float
+  default: 30.0
+  range:
+  - 1.0
+  - 3000.0
+  update_policy: block_boundary
+  direction: input
+  maps_to: gain:ramp_ms
+  bindable: true
+- id: freeze
+  name: 冻结斜坡
+  type: bool
+  default: false
+  update_policy: block_boundary
+  direction: input
+  maps_to: gain:freeze
+  bindable: true
+graph:
+  nodes:
+  - id: peripheral_split
+    component: orpheus.builtin.deinterleave
+    params:
+      channels: 10
+    position:
+      x: 80
+      y: 80
+  - id: overhead_split
+    component: orpheus.builtin.deinterleave
+    params:
+      channels: 4
+    position:
+      x: 340
+      y: 80
+  - id: headrest_split
+    component: orpheus.builtin.deinterleave
+    params:
+      channels: 40
+    position:
+      x: 600
+      y: 80
+  - id: join
+    component: orpheus.builtin.interleave
+    params:
+      channels: 54
+    position:
+      x: 860
+      y: 80
+  - id: gain
+    component: orpheus.builtin.sleeping_beauty
+    params:
+      channels: 54
+      gain_index: 0.0
+      offset: 128.0
+      mutes_bass: 0.0
+      ramp_ms: 30.0
+      ramp_db_per_s: 0.0
+      freeze: false
+      center_mono_mode: attenuated
+      apply_index_on_prepare: false
+      chan_map: 2,2,0,0,0,0,1,1,1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1
+      table_idx: 0,10,31,52,74,95,116,128,138,159,180,202,223,244,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255
+      table_db: -40,-30,-20,-10,0,0,0,0,0,0,0,-10,-20,-30,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40
+    position:
+      x: 1120
+      y: 80
+  - id: split
+    component: orpheus.builtin.deinterleave
+    params:
+      channels: 54
+    position:
+      x: 1380
+      y: 80
+  - id: peripheral_out
+    component: orpheus.builtin.interleave
+    params:
+      channels: 10
+    position:
+      x: 1640
+      y: 80
+  - id: overhead_out
+    component: orpheus.builtin.interleave
+    params:
+      channels: 4
+    position:
+      x: 1900
+      y: 80
+  - id: headrest_out
+    component: orpheus.builtin.interleave
+    params:
+      channels: 40
+    position:
+      x: 2160
+      y: 80
+  connections:
+  - from: peripheral_split:out0
+    to: join:in0
+  - from: peripheral_split:out1
+    to: join:in1
+  - from: peripheral_split:out2
+    to: join:in2
+  - from: peripheral_split:out3
+    to: join:in3
+  - from: peripheral_split:out4
+    to: join:in4
+  - from: peripheral_split:out5
+    to: join:in5
+  - from: peripheral_split:out6
+    to: join:in6
+  - from: peripheral_split:out7
+    to: join:in7
+  - from: peripheral_split:out8
+    to: join:in8
+  - from: peripheral_split:out9
+    to: join:in9
+  - from: overhead_split:out0
+    to: join:in10
+  - from: overhead_split:out1
+    to: join:in11
+  - from: overhead_split:out2
+    to: join:in12
+  - from: overhead_split:out3
+    to: join:in13
+  - from: headrest_split:out0
+    to: join:in14
+  - from: headrest_split:out1
+    to: join:in15
+  - from: headrest_split:out2
+    to: join:in16
+  - from: headrest_split:out3
+    to: join:in17
+  - from: headrest_split:out4
+    to: join:in18
+  - from: headrest_split:out5
+    to: join:in19
+  - from: headrest_split:out6
+    to: join:in20
+  - from: headrest_split:out7
+    to: join:in21
+  - from: headrest_split:out8
+    to: join:in22
+  - from: headrest_split:out9
+    to: join:in23
+  - from: headrest_split:out10
+    to: join:in24
+  - from: headrest_split:out11
+    to: join:in25
+  - from: headrest_split:out12
+    to: join:in26
+  - from: headrest_split:out13
+    to: join:in27
+  - from: headrest_split:out14
+    to: join:in28
+  - from: headrest_split:out15
+    to: join:in29
+  - from: headrest_split:out16
+    to: join:in30
+  - from: headrest_split:out17
+    to: join:in31
+  - from: headrest_split:out18
+    to: join:in32
+  - from: headrest_split:out19
+    to: join:in33
+  - from: headrest_split:out20
+    to: join:in34
+  - from: headrest_split:out21
+    to: join:in35
+  - from: headrest_split:out22
+    to: join:in36
+  - from: headrest_split:out23
+    to: join:in37
+  - from: headrest_split:out24
+    to: join:in38
+  - from: headrest_split:out25
+    to: join:in39
+  - from: headrest_split:out26
+    to: join:in40
+  - from: headrest_split:out27
+    to: join:in41
+  - from: headrest_split:out28
+    to: join:in42
+  - from: headrest_split:out29
+    to: join:in43
+  - from: headrest_split:out30
+    to: join:in44
+  - from: headrest_split:out31
+    to: join:in45
+  - from: headrest_split:out32
+    to: join:in46
+  - from: headrest_split:out33
+    to: join:in47
+  - from: headrest_split:out34
+    to: join:in48
+  - from: headrest_split:out35
+    to: join:in49
+  - from: headrest_split:out36
+    to: join:in50
+  - from: headrest_split:out37
+    to: join:in51
+  - from: headrest_split:out38
+    to: join:in52
+  - from: headrest_split:out39
+    to: join:in53
+  - from: join:out
+    to: gain:in
+  - from: gain:out
+    to: split:in
+  - from: split:out0
+    to: peripheral_out:in0
+  - from: split:out1
+    to: peripheral_out:in1
+  - from: split:out2
+    to: peripheral_out:in2
+  - from: split:out3
+    to: peripheral_out:in3
+  - from: split:out4
+    to: peripheral_out:in4
+  - from: split:out5
+    to: peripheral_out:in5
+  - from: split:out6
+    to: peripheral_out:in6
+  - from: split:out7
+    to: peripheral_out:in7
+  - from: split:out8
+    to: peripheral_out:in8
+  - from: split:out9
+    to: peripheral_out:in9
+  - from: split:out10
+    to: overhead_out:in0
+  - from: split:out11
+    to: overhead_out:in1
+  - from: split:out12
+    to: overhead_out:in2
+  - from: split:out13
+    to: overhead_out:in3
+  - from: split:out14
+    to: headrest_out:in0
+  - from: split:out15
+    to: headrest_out:in1
+  - from: split:out16
+    to: headrest_out:in2
+  - from: split:out17
+    to: headrest_out:in3
+  - from: split:out18
+    to: headrest_out:in4
+  - from: split:out19
+    to: headrest_out:in5
+  - from: split:out20
+    to: headrest_out:in6
+  - from: split:out21
+    to: headrest_out:in7
+  - from: split:out22
+    to: headrest_out:in8
+  - from: split:out23
+    to: headrest_out:in9
+  - from: split:out24
+    to: headrest_out:in10
+  - from: split:out25
+    to: headrest_out:in11
+  - from: split:out26
+    to: headrest_out:in12
+  - from: split:out27
+    to: headrest_out:in13
+  - from: split:out28
+    to: headrest_out:in14
+  - from: split:out29
+    to: headrest_out:in15
+  - from: split:out30
+    to: headrest_out:in16
+  - from: split:out31
+    to: headrest_out:in17
+  - from: split:out32
+    to: headrest_out:in18
+  - from: split:out33
+    to: headrest_out:in19
+  - from: split:out34
+    to: headrest_out:in20
+  - from: split:out35
+    to: headrest_out:in21
+  - from: split:out36
+    to: headrest_out:in22
+  - from: split:out37
+    to: headrest_out:in23
+  - from: split:out38
+    to: headrest_out:in24
+  - from: split:out39
+    to: headrest_out:in25
+  - from: split:out40
+    to: headrest_out:in26
+  - from: split:out41
+    to: headrest_out:in27
+  - from: split:out42
+    to: headrest_out:in28
+  - from: split:out43
+    to: headrest_out:in29
+  - from: split:out44
+    to: headrest_out:in30
+  - from: split:out45
+    to: headrest_out:in31
+  - from: split:out46
+    to: headrest_out:in32
+  - from: split:out47
+    to: headrest_out:in33
+  - from: split:out48
+    to: headrest_out:in34
+  - from: split:out49
+    to: headrest_out:in35
+  - from: split:out50
+    to: headrest_out:in36
+  - from: split:out51
+    to: headrest_out:in37
+  - from: split:out52
+    to: headrest_out:in38
+  - from: split:out53
+    to: headrest_out:in39
 algorithm_index:
   definition_id: B.POST.SLEEPING
   tasks:
   - B3
   operations:
+  - 10+4+40 拼接
   - 54→4 map
   - 30 点表
-  - 极端策略
+  - unity cold-start
+  - block-atomic RTC
   - frame-quantized multiplicative ramps
   state:
   - id: rampers
     role: 四组 current/target/frame/freeze
-    initialization: generated initialization
+    initialization: 四组 frame=0/current=target=coeff=1, freeze=0
     shape:
     - 4
   implementation:
-    status: unsupported
-    blockers:
-    - id: algorithm_pending
-      gate: algorithm
-      reason: 尚未完成源算法逐语句实现
-      source_ref: b_main
-    - id: golden_pending
-      gate: golden
-      reason: 尚未完成参考输出对拍
-      source_ref: b_main
+    status: verified
+    component: orpheus.builtin.sleeping_beauty
+    lowering:
+      nodes:
+      - id: peripheral_split
+        component: orpheus.builtin.deinterleave
+        params:
+          channels: 10
+      - id: overhead_split
+        component: orpheus.builtin.deinterleave
+        params:
+          channels: 4
+      - id: headrest_split
+        component: orpheus.builtin.deinterleave
+        params:
+          channels: 40
+      - id: join
+        component: orpheus.builtin.interleave
+        params:
+          channels: 54
+      - id: gain
+        component: orpheus.builtin.sleeping_beauty
+        params:
+          channels: 54
+          gain_index: 0.0
+          offset: 128.0
+          mutes_bass: 0.0
+          ramp_ms: 30.0
+          ramp_db_per_s: 0.0
+          freeze: false
+          center_mono_mode: attenuated
+          apply_index_on_prepare: false
+          chan_map: 2,2,0,0,0,0,1,1,1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1
+          table_idx: 0,10,31,52,74,95,116,128,138,159,180,202,223,244,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255
+          table_db: -40,-30,-20,-10,0,0,0,0,0,0,0,-10,-20,-30,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40,-40
+      - id: split
+        component: orpheus.builtin.deinterleave
+        params:
+          channels: 54
+      - id: peripheral_out
+        component: orpheus.builtin.interleave
+        params:
+          channels: 10
+      - id: overhead_out
+        component: orpheus.builtin.interleave
+        params:
+          channels: 4
+      - id: headrest_out
+        component: orpheus.builtin.interleave
+        params:
+          channels: 40
+      connections:
+      - from: peripheral_split:out0
+        to: join:in0
+      - from: peripheral_split:out1
+        to: join:in1
+      - from: peripheral_split:out2
+        to: join:in2
+      - from: peripheral_split:out3
+        to: join:in3
+      - from: peripheral_split:out4
+        to: join:in4
+      - from: peripheral_split:out5
+        to: join:in5
+      - from: peripheral_split:out6
+        to: join:in6
+      - from: peripheral_split:out7
+        to: join:in7
+      - from: peripheral_split:out8
+        to: join:in8
+      - from: peripheral_split:out9
+        to: join:in9
+      - from: overhead_split:out0
+        to: join:in10
+      - from: overhead_split:out1
+        to: join:in11
+      - from: overhead_split:out2
+        to: join:in12
+      - from: overhead_split:out3
+        to: join:in13
+      - from: headrest_split:out0
+        to: join:in14
+      - from: headrest_split:out1
+        to: join:in15
+      - from: headrest_split:out2
+        to: join:in16
+      - from: headrest_split:out3
+        to: join:in17
+      - from: headrest_split:out4
+        to: join:in18
+      - from: headrest_split:out5
+        to: join:in19
+      - from: headrest_split:out6
+        to: join:in20
+      - from: headrest_split:out7
+        to: join:in21
+      - from: headrest_split:out8
+        to: join:in22
+      - from: headrest_split:out9
+        to: join:in23
+      - from: headrest_split:out10
+        to: join:in24
+      - from: headrest_split:out11
+        to: join:in25
+      - from: headrest_split:out12
+        to: join:in26
+      - from: headrest_split:out13
+        to: join:in27
+      - from: headrest_split:out14
+        to: join:in28
+      - from: headrest_split:out15
+        to: join:in29
+      - from: headrest_split:out16
+        to: join:in30
+      - from: headrest_split:out17
+        to: join:in31
+      - from: headrest_split:out18
+        to: join:in32
+      - from: headrest_split:out19
+        to: join:in33
+      - from: headrest_split:out20
+        to: join:in34
+      - from: headrest_split:out21
+        to: join:in35
+      - from: headrest_split:out22
+        to: join:in36
+      - from: headrest_split:out23
+        to: join:in37
+      - from: headrest_split:out24
+        to: join:in38
+      - from: headrest_split:out25
+        to: join:in39
+      - from: headrest_split:out26
+        to: join:in40
+      - from: headrest_split:out27
+        to: join:in41
+      - from: headrest_split:out28
+        to: join:in42
+      - from: headrest_split:out29
+        to: join:in43
+      - from: headrest_split:out30
+        to: join:in44
+      - from: headrest_split:out31
+        to: join:in45
+      - from: headrest_split:out32
+        to: join:in46
+      - from: headrest_split:out33
+        to: join:in47
+      - from: headrest_split:out34
+        to: join:in48
+      - from: headrest_split:out35
+        to: join:in49
+      - from: headrest_split:out36
+        to: join:in50
+      - from: headrest_split:out37
+        to: join:in51
+      - from: headrest_split:out38
+        to: join:in52
+      - from: headrest_split:out39
+        to: join:in53
+      - from: join:out
+        to: gain:in
+      - from: gain:out
+        to: split:in
+      - from: split:out0
+        to: peripheral_out:in0
+      - from: split:out1
+        to: peripheral_out:in1
+      - from: split:out2
+        to: peripheral_out:in2
+      - from: split:out3
+        to: peripheral_out:in3
+      - from: split:out4
+        to: peripheral_out:in4
+      - from: split:out5
+        to: peripheral_out:in5
+      - from: split:out6
+        to: peripheral_out:in6
+      - from: split:out7
+        to: peripheral_out:in7
+      - from: split:out8
+        to: peripheral_out:in8
+      - from: split:out9
+        to: peripheral_out:in9
+      - from: split:out10
+        to: overhead_out:in0
+      - from: split:out11
+        to: overhead_out:in1
+      - from: split:out12
+        to: overhead_out:in2
+      - from: split:out13
+        to: overhead_out:in3
+      - from: split:out14
+        to: headrest_out:in0
+      - from: split:out15
+        to: headrest_out:in1
+      - from: split:out16
+        to: headrest_out:in2
+      - from: split:out17
+        to: headrest_out:in3
+      - from: split:out18
+        to: headrest_out:in4
+      - from: split:out19
+        to: headrest_out:in5
+      - from: split:out20
+        to: headrest_out:in6
+      - from: split:out21
+        to: headrest_out:in7
+      - from: split:out22
+        to: headrest_out:in8
+      - from: split:out23
+        to: headrest_out:in9
+      - from: split:out24
+        to: headrest_out:in10
+      - from: split:out25
+        to: headrest_out:in11
+      - from: split:out26
+        to: headrest_out:in12
+      - from: split:out27
+        to: headrest_out:in13
+      - from: split:out28
+        to: headrest_out:in14
+      - from: split:out29
+        to: headrest_out:in15
+      - from: split:out30
+        to: headrest_out:in16
+      - from: split:out31
+        to: headrest_out:in17
+      - from: split:out32
+        to: headrest_out:in18
+      - from: split:out33
+        to: headrest_out:in19
+      - from: split:out34
+        to: headrest_out:in20
+      - from: split:out35
+        to: headrest_out:in21
+      - from: split:out36
+        to: headrest_out:in22
+      - from: split:out37
+        to: headrest_out:in23
+      - from: split:out38
+        to: headrest_out:in24
+      - from: split:out39
+        to: headrest_out:in25
+      - from: split:out40
+        to: headrest_out:in26
+      - from: split:out41
+        to: headrest_out:in27
+      - from: split:out42
+        to: headrest_out:in28
+      - from: split:out43
+        to: headrest_out:in29
+      - from: split:out44
+        to: headrest_out:in30
+      - from: split:out45
+        to: headrest_out:in31
+      - from: split:out46
+        to: headrest_out:in32
+      - from: split:out47
+        to: headrest_out:in33
+      - from: split:out48
+        to: headrest_out:in34
+      - from: split:out49
+        to: headrest_out:in35
+      - from: split:out50
+        to: headrest_out:in36
+      - from: split:out51
+        to: headrest_out:in37
+      - from: split:out52
+        to: headrest_out:in38
+      - from: split:out53
+        to: headrest_out:in39
+      port_maps:
+        peripheral: peripheral_split:in
+        headrest: headrest_split:in
+        overhead: overhead_split:in
+        peripheral_out: peripheral_out:out
+        overhead_out: overhead_out:out
+        headrest_out: headrest_out:out
+      parameters:
+      - id: gain_index
+        name: SleepingBeauty 索引
+        type: float
+        default: 0.0
+        range:
+        - 0.0
+        - 255.0
+        update_policy: block_boundary
+        direction: input
+        maps_to: gain:gain_index
+        bindable: true
+      - id: ramp_db_per_s
+        name: 斜坡速率
+        type: float
+        default: 0.0
+        range:
+        - 0.0
+        - 50000.0
+        update_policy: block_boundary
+        direction: input
+        maps_to: gain:ramp_db_per_s
+        bindable: true
+      - id: ramp_ms
+        name: 斜坡时间
+        type: float
+        default: 30.0
+        range:
+        - 1.0
+        - 3000.0
+        update_policy: block_boundary
+        direction: input
+        maps_to: gain:ramp_ms
+        bindable: true
+      - id: freeze
+        name: 冻结斜坡
+        type: bool
+        default: false
+        update_policy: block_boundary
+        direction: input
+        maps_to: gain:freeze
+        bindable: true
+    blockers: []

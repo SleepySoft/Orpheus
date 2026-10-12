@@ -1,16 +1,16 @@
 {
   "schema_version": "2.0",
-  "definitions": 66,
+  "definitions": 67,
   "composites": 16,
-  "leaves": 50,
+  "leaves": 51,
   "implementation_status": {
     "approximation": 6,
-    "unsupported": 34,
-    "verified": 10
+    "unsupported": 33,
+    "verified": 12
   },
   "blocker_gates": {
-    "algorithm": 39,
-    "golden": 40,
+    "algorithm": 38,
+    "golden": 39,
     "state": 1
   },
   "unresolved": [

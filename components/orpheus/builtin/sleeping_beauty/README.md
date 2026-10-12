@@ -24,6 +24,7 @@ SleepingBeauty 响度补偿算法。根据音量位置（gain_index）应用非�
 | `ramp_db_per_s` | float | 0.0 | [0, 50000] | block_boundary | 非零时优先按 dB/s 推导斜坡时长，内部钳到 5~50000 dB/s |
 | `freeze` | bool | false | - | block_boundary | 冻结 current gain 与剩余 frameCount |
 | `center_mono_mode` | string | attenuated | attenuated/mean_lr | restart | 中置/低音跟随衰减侧，或取左右目标均值（Balance） |
+| `apply_index_on_prepare` | bool | true | - | restart | false 时冷启动保持四路 unity，首次 `gain_index` 更新后才建立目标 |
 | `channels` | int | 4 | [1, 64] | restart | 通道数（影响签名） |
 | `chan_map` | string | "0,1,2,3" | - | restart | 通道->ramper 映射（0=left,1=right,2=center,3=mono,-1=静音） |
 | `table_idx` | string | "0,10,31,...,255" | - | restart | 锥度增益索引表（15 点默认） |
@@ -76,7 +77,7 @@ $$
 k=\exp\left(\frac{\ln(target/current)}{B N}\right),\qquad g[n]=g_0 k^{n+1}
 $$
 
-每处理一块 `frameCount` 减一，归零时吸附目标；`freeze=true` 时 gain 和 frameCount 均不推进。非零 `ramp_db_per_s` 优先于 `ramp_ms`。
+每处理一块 `frameCount` 减一，归零时吸附目标；`freeze=true` 时 gain 和 frameCount 均不推进。非零 `ramp_db_per_s` 优先于 `ramp_ms`。同一块边界内收到的 `gain_index`、`ramp_ms`、`ramp_db_per_s` 会在下一次 process 开头统一计算，避免参数写入顺序改变目标斜坡。
 
 ## 使用示例
 

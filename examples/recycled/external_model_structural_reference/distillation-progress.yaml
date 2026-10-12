@@ -374,6 +374,30 @@ modules:
     artifact: notes
     system_graph_eligible: false
 
+  - id: B.POST_SLEEPING
+    runtime: runtime_b
+    purpose: 对 Peripheral10、Overhead4、Headrest40 按源码顺序拼接的 54 路执行四组 SleepingBeauty
+    tids: [B3]
+    io: {inputs: [peripheral_10, overhead_4, headrest_40], outputs: [peripheral_10, overhead_4, headrest_40]}
+    evidence: [runtime_b_main, runtime_b_top]
+    dependencies: [B.PERIPHERAL_EQ, B.HEADREST_HEQ_FIR, B.HEADREST_HEQ_IIR, B.OVERHEAD_HEQ_FIR, B.OVERHEAD_HEQ_IIR]
+    orpheus_target: interleave/deinterleave + sleeping_beauty（unity cold-start）
+    progress: {boundary: verified, schedule: verified, algorithm: verified, state: verified, parameters: verified, golden: verified}
+    artifact: slice_graph
+    system_graph_eligible: true
+
+  - id: B.POST_HEADREST_SPLIT
+    runtime: runtime_b
+    purpose: 把 SleepingBeauty 后的 Headrest40 连续拆成 Row1 前20路与 Row2 后20路
+    tids: [B3]
+    io: {inputs: [headrest_40], outputs: [row1_20, row2_20]}
+    evidence: [runtime_b_main]
+    dependencies: [B.POST_SLEEPING]
+    orpheus_target: deinterleave + two interleave
+    progress: {boundary: verified, schedule: verified, algorithm: verified, state: verified, parameters: verified, golden: verified}
+    artifact: slice_graph
+    system_graph_eligible: true
+
   - id: B.POST_SPATIAL
     runtime: runtime_b
     purpose: 生成 VLS 行信号、执行串扰消除和动态衰减，形成返回 Runtime A 的 22 路降速空间结果

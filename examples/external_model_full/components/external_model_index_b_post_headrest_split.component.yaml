@@ -1,0 +1,247 @@
+id: external_model.index.b_post_headrest_split
+name: Headrest 行拆分
+category: 外部模型/算法索引
+description: 把 SleepingBeauty 后的 40 路按源码顺序拆成 Row1 前20路与 Row2 后20路
+version: '2.0'
+abi_version: 1
+package_type: composite
+ports:
+- id: in
+  direction: input
+  type: audio
+  sample_format: f32
+  channels: 40
+  sample_rate: 11077
+  block_size: 32
+  maps_to: split:in
+- id: row1
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 20
+  sample_rate: 11077
+  block_size: 32
+  maps_to: row1:out
+- id: row2
+  direction: output
+  type: audio
+  sample_format: f32
+  channels: 20
+  sample_rate: 11077
+  block_size: 32
+  maps_to: row2:out
+parameters: []
+graph:
+  nodes:
+  - id: split
+    component: orpheus.builtin.deinterleave
+    params:
+      channels: 40
+    position:
+      x: 80
+      y: 80
+  - id: row1
+    component: orpheus.builtin.interleave
+    params:
+      channels: 20
+    position:
+      x: 340
+      y: 80
+  - id: row2
+    component: orpheus.builtin.interleave
+    params:
+      channels: 20
+    position:
+      x: 600
+      y: 80
+  connections:
+  - from: split:out0
+    to: row1:in0
+  - from: split:out1
+    to: row1:in1
+  - from: split:out2
+    to: row1:in2
+  - from: split:out3
+    to: row1:in3
+  - from: split:out4
+    to: row1:in4
+  - from: split:out5
+    to: row1:in5
+  - from: split:out6
+    to: row1:in6
+  - from: split:out7
+    to: row1:in7
+  - from: split:out8
+    to: row1:in8
+  - from: split:out9
+    to: row1:in9
+  - from: split:out10
+    to: row1:in10
+  - from: split:out11
+    to: row1:in11
+  - from: split:out12
+    to: row1:in12
+  - from: split:out13
+    to: row1:in13
+  - from: split:out14
+    to: row1:in14
+  - from: split:out15
+    to: row1:in15
+  - from: split:out16
+    to: row1:in16
+  - from: split:out17
+    to: row1:in17
+  - from: split:out18
+    to: row1:in18
+  - from: split:out19
+    to: row1:in19
+  - from: split:out20
+    to: row2:in0
+  - from: split:out21
+    to: row2:in1
+  - from: split:out22
+    to: row2:in2
+  - from: split:out23
+    to: row2:in3
+  - from: split:out24
+    to: row2:in4
+  - from: split:out25
+    to: row2:in5
+  - from: split:out26
+    to: row2:in6
+  - from: split:out27
+    to: row2:in7
+  - from: split:out28
+    to: row2:in8
+  - from: split:out29
+    to: row2:in9
+  - from: split:out30
+    to: row2:in10
+  - from: split:out31
+    to: row2:in11
+  - from: split:out32
+    to: row2:in12
+  - from: split:out33
+    to: row2:in13
+  - from: split:out34
+    to: row2:in14
+  - from: split:out35
+    to: row2:in15
+  - from: split:out36
+    to: row2:in16
+  - from: split:out37
+    to: row2:in17
+  - from: split:out38
+    to: row2:in18
+  - from: split:out39
+    to: row2:in19
+algorithm_index:
+  definition_id: B.POST.HEADREST_SPLIT
+  tasks:
+  - B3
+  operations:
+  - 40→20+20 contiguous split
+  state: []
+  implementation:
+    status: verified
+    component: orpheus.builtin.deinterleave
+    lowering:
+      nodes:
+      - id: split
+        component: orpheus.builtin.deinterleave
+        params:
+          channels: 40
+      - id: row1
+        component: orpheus.builtin.interleave
+        params:
+          channels: 20
+      - id: row2
+        component: orpheus.builtin.interleave
+        params:
+          channels: 20
+      connections:
+      - from: split:out0
+        to: row1:in0
+      - from: split:out1
+        to: row1:in1
+      - from: split:out2
+        to: row1:in2
+      - from: split:out3
+        to: row1:in3
+      - from: split:out4
+        to: row1:in4
+      - from: split:out5
+        to: row1:in5
+      - from: split:out6
+        to: row1:in6
+      - from: split:out7
+        to: row1:in7
+      - from: split:out8
+        to: row1:in8
+      - from: split:out9
+        to: row1:in9
+      - from: split:out10
+        to: row1:in10
+      - from: split:out11
+        to: row1:in11
+      - from: split:out12
+        to: row1:in12
+      - from: split:out13
+        to: row1:in13
+      - from: split:out14
+        to: row1:in14
+      - from: split:out15
+        to: row1:in15
+      - from: split:out16
+        to: row1:in16
+      - from: split:out17
+        to: row1:in17
+      - from: split:out18
+        to: row1:in18
+      - from: split:out19
+        to: row1:in19
+      - from: split:out20
+        to: row2:in0
+      - from: split:out21
+        to: row2:in1
+      - from: split:out22
+        to: row2:in2
+      - from: split:out23
+        to: row2:in3
+      - from: split:out24
+        to: row2:in4
+      - from: split:out25
+        to: row2:in5
+      - from: split:out26
+        to: row2:in6
+      - from: split:out27
+        to: row2:in7
+      - from: split:out28
+        to: row2:in8
+      - from: split:out29
+        to: row2:in9
+      - from: split:out30
+        to: row2:in10
+      - from: split:out31
+        to: row2:in11
+      - from: split:out32
+        to: row2:in12
+      - from: split:out33
+        to: row2:in13
+      - from: split:out34
+        to: row2:in14
+      - from: split:out35
+        to: row2:in15
+      - from: split:out36
+        to: row2:in16
+      - from: split:out37
+        to: row2:in17
+      - from: split:out38
+        to: row2:in18
+      - from: split:out39
+        to: row2:in19
+      port_maps:
+        in: split:in
+        row1: row1:out
+        row2: row2:out
+    blockers: []

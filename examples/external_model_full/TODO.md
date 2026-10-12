@@ -6,7 +6,7 @@
 
 ## 已完成
 
-- [x] 建立 66 个递归算法定义和源文件指纹；
+- [x] 建立 67 个递归算法定义和源文件指纹；
 - [x] 索引 11 个 Task、17 个参数分区和 404 个字段；
 - [x] 精确记录 A→B 488 words、B→A 1193 words 的字段与 offset；
 - [x] 删除无算法行为的 BUS_EXCHANGE 节点和伪回环；
@@ -24,7 +24,10 @@
 - [x] `B.MIX_DECI.ORGANIZE`：修正为 CS17/LR21 双输出，并用两个 `channel_router` 完成 21 路 one-hot 映射。
 - [x] `B.MIX_DECI.ROUTE`：修正 RAMP 边界为 Center2/Left25/Right25，用 deinterleave/interleave 完成 52 路无重叠分发。
 - [x] 通用 `sleeping_beauty` 升级：64ch、共享四 ramper、逐样本 frameCount/freeze、dB/s 和 `-1→静音`，直接 ABI golden 通过。
-- [ ] `A.SPATIAL_FULL.POST_HOLOGRAM` / `B.POST.SLEEPING`：算法已可由通用 bank 组合，但产品启动时 RTC `gain_index` 未在源码中找到，保留 parameters blocker。
+- [x] `B.POST.SLEEPING`：按 Peripheral10+Overhead4+Headrest40 精确拼接 54ch，保留四路 unity 冷启动、RTC 同块原子更新、30 点表和真实 B3 速率；Headrest 40→20+20 独立标准路由已验证。
+- [ ] `A.SPATIAL_FULL.POST_HOLOGRAM`：算法已可由通用 bank 组合，但产品启动时 RTC `gain_index` 未在源码中找到，保留 parameters blocker。
+
+当前覆盖：67 definitions / 51 leaves / 12 verified leaves；仍有 39 个 golden blocker 待清零。
 
 ## P0：先验证跨 Runtime 契约
 

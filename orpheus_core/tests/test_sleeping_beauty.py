@@ -196,6 +196,52 @@ def test_sleeping_beauty_freeze_stops_ramp_progress() -> None:
 
 
 @pytest.mark.skipif(not DLL.exists(), reason="sleeping_beauty not built")
+def test_sleeping_beauty_can_preserve_unity_until_first_index_update() -> None:
+    _, interface, state, keepalive = _load_instance(
+        {
+            "channels": 1,
+            "gain_index": 10.0,
+            "chan_map": "1",
+            "apply_index_on_prepare": False,
+        },
+        1,
+    )
+    assert _process(interface, state, [1.0] * BLOCK, 1) == pytest.approx([1.0] * BLOCK)
+    _set(interface, state, "gain_index", 10.0)
+    output = _process(interface, state, [1.0] * BLOCK, 1)
+    assert output[0] < 1.0
+    interface.destroy(state)
+    assert keepalive
+
+
+@pytest.mark.skipif(not DLL.exists(), reason="sleeping_beauty not built")
+def test_sleeping_beauty_applies_same_block_controls_atomically() -> None:
+    _, interface, state, keepalive = _load_instance(
+        {
+            "channels": 1,
+            "gain_index": 128.0,
+            "chan_map": "1",
+            "ramp_ms": 30.0,
+            "apply_index_on_prepare": False,
+        },
+        1,
+    )
+    _set(interface, state, "gain_index", 10.0)
+    _set(interface, state, "ramp_ms", 10.0)
+    output = _process(interface, state, [1.0] * BLOCK, 1)
+    target = 10 ** (-30.0 / 20.0)
+    blocks = 15
+    coefficient = math.exp(math.log(target) / (BLOCK * blocks))
+    assert output == pytest.approx(
+        [coefficient ** (sample + 1) for sample in range(BLOCK)],
+        rel=2e-6,
+        abs=2e-7,
+    )
+    interface.destroy(state)
+    assert keepalive
+
+
+@pytest.mark.skipif(not DLL.exists(), reason="sleeping_beauty not built")
 def test_sleeping_beauty_supports_54_channels_and_minus_one_mutes() -> None:
     channel_map = ",".join(["-1", *("0" for _ in range(53))])
     _, interface, state, keepalive = _load_instance(

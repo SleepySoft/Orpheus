@@ -1,6 +1,6 @@
 # Algorithm IR 全量研究图
 
-本工程由 `algorithm-index.yaml` 确定性生成，共 66 个递归算法定义、11 个任务和 17 个参数分区。
+本工程由 `algorithm-index.yaml` 确定性生成，共 67 个递归算法定义、11 个任务和 17 个参数分区。
 
 双击 Runtime 和子系统可递归查看音频拓扑。递归子系统内部尚未 lowering 的 control/message/spectrum/state 边不伪装成普通音频线，完整记录保存在 `project.yaml` 的 `algorithm_projection` 与原始 IR 中。
 

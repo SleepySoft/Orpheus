@@ -65,6 +65,11 @@ parameters:
     widget: select
     options: [attenuated, mean_lr]
     update_policy: restart_required
+  - id: apply_index_on_prepare
+    name: 启动时应用索引
+    type: bool
+    default: true
+    update_policy: restart_required
   - id: channels
     name: 通道数
     type: int

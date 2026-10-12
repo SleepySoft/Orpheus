@@ -11,28 +11,28 @@ ports:
   type: audio
   sample_format: f32
   channels: 10
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
 - id: overhead
   direction: input
   type: audio
   sample_format: f32
   channels: 4
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
 - id: row1
   direction: input
   type: audio
   sample_format: f32
   channels: 4
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
 - id: row2
   direction: input
   type: audio
   sample_format: f32
   channels: 4
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
 - id: out
   direction: output

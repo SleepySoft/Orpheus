@@ -18,7 +18,7 @@ ports:
   type: audio
   sample_format: f32
   channels: 10
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
 parameters: []
 blockers:

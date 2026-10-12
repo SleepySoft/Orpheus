@@ -56,7 +56,7 @@ def tree_bytes(root: Path, exclude: set[str] | None = None) -> dict[str, bytes]:
 def test_full_algorithm_index_has_closed_hierarchy_and_source_schedule() -> None:
     document = load_algorithm_index(INDEX)
     definitions = {item["id"]: item for item in document["definitions"]}
-    assert len(definitions) == 66
+    assert len(definitions) == 67
     assert len(document["tasks"]) == 11
     assert document["system"]["roots"] == ["A.RUNTIME", "B.RUNTIME"]
     assert len(document["sources"]) == 29
@@ -312,6 +312,43 @@ def test_a_preamp_music_volume_preserves_delay_table_and_cold_start() -> None:
     assert gain["table_db"] == "-128,-72,-39.5,-27.5,0,0,0,0"
 
 
+def test_b_post_sleeping_beauty_preserves_source_boundary_and_cold_start() -> None:
+    document = load_algorithm_index(INDEX)
+    definitions = {item["id"]: item for item in document["definitions"]}
+    implementation = definitions["B.POST.SLEEPING"]["implementation"]
+    assert implementation["status"] == "verified"
+    assert implementation["blockers"] == []
+    interface = definitions["B.POST.SLEEPING"]["interface"]
+    assert [item["id"] for item in interface["outputs"]] == [
+        "peripheral_out", "overhead_out", "headrest_out",
+    ]
+
+    lowering = implementation["lowering"]
+    nodes = {node["id"]: node for node in lowering["nodes"]}
+    gain = nodes["gain"]["params"]
+    assert gain["channels"] == 54
+    assert gain["apply_index_on_prepare"] is False
+    assert gain["center_mono_mode"] == "attenuated"
+    assert gain["mutes_bass"] == 0.0
+    assert [int(value) for value in gain["chan_map"].split(",")] == [
+        2, 2, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    ]
+    assert len(gain["table_idx"].split(",")) == 30
+    assert len(gain["table_db"].split(",")) == 30
+    assert len(lowering["connections"]) == 110
+
+    split = definitions["B.POST.HEADREST_SPLIT"]["implementation"]
+    assert split["status"] == "verified"
+    assert len(split["lowering"]["connections"]) == 40
+    types = {item["id"]: item for item in document["types"]}
+    assert types["b3_audio54"]["shape"] == [54, 32]
+    assert types["b3_audio54"]["sample_rate_hz"] == pytest.approx(11076.923076923076)
+
+
 def test_full_index_bus_offsets_cover_exact_typed_transactions() -> None:
     document = load_algorithm_index(INDEX)
     types = {item["id"]: item for item in document["types"]}
@@ -379,19 +416,19 @@ def test_structural_projection_is_deterministic_and_self_contained(tmp_path: Pat
     emit_structural_project(document, second)
     assert tree_bytes(first) == tree_bytes(second)
     assert (first / "algorithm-index.yaml").read_bytes() == INDEX.read_bytes()
-    assert len(list((first / "components").glob("*.component.yaml"))) == 66
+    assert len(list((first / "components").glob("*.component.yaml"))) == 67
     project = yaml.safe_load((first / "project.yaml").read_text(encoding="utf-8"))
     projection = project["algorithm_projection"]
-    assert projection["definition_count"] == 66
+    assert projection["definition_count"] == 67
     assert projection["types"] == document["types"]
     assert len(projection["tasks"]) == 11
     assert len(projection["parameter_partitions"]) == 17
     assert projection["unlowered_edges"]
     report = json.loads((first / "coverage-report.json").read_text(encoding="utf-8"))
-    assert report["definitions"] == 66
-    assert report["leaves"] + report["composites"] == 66
+    assert report["definitions"] == 67
+    assert report["leaves"] + report["composites"] == 67
     assert report["executable"] is False
-    assert report["blocker_gates"]["golden"] == report["leaves"] - 10
+    assert report["blocker_gates"]["golden"] == report["leaves"] - 12
 
 
 def test_projection_refuses_to_overwrite_unmarked_directory(tmp_path: Path) -> None:

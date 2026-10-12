@@ -35,7 +35,7 @@ ports:
   type: audio
   sample_format: f32
   channels: 10
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
   maps_to: peripheral:out
 - id: headrest_out
@@ -43,7 +43,7 @@ ports:
   type: audio
   sample_format: f32
   channels: 40
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
   maps_to: headrest:out
 - id: overhead_out
@@ -51,7 +51,7 @@ ports:
   type: audio
   sample_format: f32
   channels: 4
-  sample_rate: 48000
+  sample_rate: 11077
   block_size: 32
   maps_to: overhead:out
 parameters: []
