@@ -377,7 +377,10 @@ def create_app(project_root: Path, *,
     @app.post("/api/components/rescan")
     def rescan_components() -> dict[str, Any]:
         registry.scan()
-        return {"count": len(registry.list_components())}
+        return {
+            "count": len(registry.list_components()),
+            "invalidated_projects": manager.invalidate_cached_projects(),
+        }
 
     @app.delete("/api/components/{component_id}")
     def delete_component(component_id: str) -> dict[str, Any]:

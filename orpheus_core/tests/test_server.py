@@ -70,6 +70,45 @@ def test_components_have_chinese_name_and_category(client):
         assert segs[0] in allowed_top, f"{c['id']} 顶层分类非法: {segs[0]}"
 
 
+def test_component_rescan_refreshes_cached_project_registry(tmp_path):
+    components = tmp_path / "components"
+    components.mkdir()
+    project_dir = tmp_path / "workspace" / "demo"
+    project_dir.mkdir(parents=True)
+    (project_dir / "project.yaml").write_text(
+        "version: 0.1.0\nmetadata: {name: demo}\ngraph: {nodes: [], connections: []}\n",
+        encoding="utf-8",
+    )
+
+    with TestClient(create_app(tmp_path)) as local_client:
+        first = local_client.get("/api/projects/demo/components")
+        assert first.status_code == 200
+        assert not any(item["id"] == "test.dynamic.component" for item in first.json())
+
+        component_dir = components / "test" / "dynamic" / "component"
+        component_dir.mkdir(parents=True)
+        (component_dir / "component.yaml").write_text(
+            "\n".join([
+                "id: test.dynamic.component",
+                "name: 动态组件",
+                "category: 基础/测试",
+                "version: 1.0.0",
+                "abi_version: 1",
+                "package_type: source",
+                "ports: []",
+                "parameters: []",
+            ]) + "\n",
+            encoding="utf-8",
+        )
+
+        rescanned = local_client.post("/api/components/rescan")
+        assert rescanned.status_code == 200
+        assert rescanned.json()["invalidated_projects"] == 1
+        refreshed = local_client.get("/api/projects/demo/components")
+        assert refreshed.status_code == 200
+        assert any(item["id"] == "test.dynamic.component" for item in refreshed.json())
+
+
 def test_project_lifecycle(client, project):
     # listed
     names = [p["name"] for p in client.get("/api/projects").json()]

@@ -230,6 +230,18 @@ class ProjectManager:
             self._records[name] = rec
             return rec
 
+    def invalidate_cached_projects(self) -> int:
+        """Drop loaded projects so Registry forks rebuild on next access.
+
+        Project mutations are persisted synchronously, so records are only a
+        cache. A global component rescan otherwise leaves each loaded project
+        pointing at the old Registry snapshot.
+        """
+        with self._lock:
+            count = len(self._records)
+            self._records.clear()
+            return count
+
     def get_document(self, name: str) -> dict[str, Any]:
         """Return the project as a plain JSON-serializable document."""
         return project_to_dict(self.get(name).project, materialize_imports=True)
