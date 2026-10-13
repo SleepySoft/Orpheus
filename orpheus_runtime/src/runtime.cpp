@@ -538,6 +538,9 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             bulk_active_map_[key] = static_cast<uint8_t*>(kv.second->state) + e.offset;
             bulk_span_map_[key] = e.count * e.size;
             bulk_pending_[key] = false;
+            std::memcpy(bulk_shadow_.data() + shadow_offset,
+                        static_cast<uint8_t*>(kv.second->state) + e.offset,
+                        e.count * e.size);
             shadow_offset += align_up(e.count * e.size, 8);
         }
     }
@@ -550,16 +553,35 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         key_to_id_[e.node + "\x1f" + e.key] = e.id;
     }
 
-    // 控制链路运行态初始化（快照/字符串缓冲在此预分配，process 路径零分配）。
-    // 本期运行期仅执行 float/int/bool 标量（count==1）与 string 原样透传；
-    // count>1 的数值数组链编译期已做形状校验，运行期跳过。
+    // 控制链路运行态初始化：标量、字符串及 BULK 快照均在此预分配。
     control_links_.clear();
     size_t skipped_links = 0;
     for (const auto& cl : plan_.control_links) {
         ControlLinkState st;
         st.cfg = &cl;
-        st.skip = (cl.type != "string") && cl.count > 1;
-        if (cl.type == "string") {
+        if (cl.transport == "bulk") {
+            auto src_instance = instances_.find(cl.src_node);
+            if (src_instance != instances_.end()) {
+                for (const auto& slot : src_instance->second->slots) {
+                    if (slot.kind == ORPHEUS_SLOT_BULK && slot.key == cl.src_slot) {
+                        size_t bytes = cl.count * slot.size;
+                        st.bulk_source = static_cast<const uint8_t*>(src_instance->second->state) + slot.offset;
+                        st.bulk_snapshot.resize(bytes);
+                        break;
+                    }
+                }
+            }
+            const std::string dst_key = cl.dst_node + "\x1f" + cl.dst_slot;
+            auto shadow = bulk_shadow_map_.find(dst_key);
+            auto pending = bulk_pending_.find(dst_key);
+            auto span = bulk_span_map_.find(dst_key);
+            if (shadow != bulk_shadow_map_.end() && pending != bulk_pending_.end() &&
+                span != bulk_span_map_.end() && span->second >= st.bulk_snapshot.size()) {
+                st.bulk_target_shadow = shadow->second;
+                st.bulk_target_pending = &pending->second;
+            }
+            st.skip = st.bulk_source == nullptr || st.bulk_target_shadow == nullptr;
+        } else if (cl.type == "string") {
             st.str_buf.assign(256, '\0');  // 预分配上限，超长截断
         }
         if (st.skip) ++skipped_links;
@@ -567,7 +589,7 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
     }
     if (skipped_links > 0) {
         std::cerr << "[Runtime] 控制链路：" << skipped_links
-                  << " 条数组链（count>1）本期运行时不执行，仅编译期校验" << std::endl;
+                  << " 条控制链缺少可执行槽映射，已跳过" << std::endl;
     }
 
     return 0;
@@ -1080,6 +1102,11 @@ void Runtime::control_tick_for_task(const std::string* task_id) {
         if (task_id != nullptr &&
             (plan_.node_configs[l.cfg->src_node].task != *task_id ||
              plan_.node_configs[l.cfg->dst_node].task != *task_id)) continue;
+        if (l.cfg->transport == "bulk") {
+            std::memcpy(l.bulk_snapshot.data(), l.bulk_source, l.bulk_snapshot.size());
+            l.read_ok = true;
+            continue;
+        }
         l.read_ok = get_parameter(l.cfg->src_node, l.cfg->src_param, &l.snapshot) == ORPHEUS_OK;
         if (l.read_ok && l.snapshot.type == ORPHEUS_VALUE_STRING && !l.str_buf.empty()) {
             const char* s = l.snapshot.value.str != nullptr ? l.snapshot.value.str : "";
@@ -1096,6 +1123,11 @@ void Runtime::control_tick_for_task(const std::string* task_id) {
         if (task_id != nullptr &&
             (plan_.node_configs[l.cfg->src_node].task != *task_id ||
              plan_.node_configs[l.cfg->dst_node].task != *task_id)) continue;
+        if (l.cfg->transport == "bulk") {
+            std::memcpy(l.bulk_target_shadow, l.bulk_snapshot.data(), l.bulk_snapshot.size());
+            *l.bulk_target_pending = true;
+            continue;
+        }
         OrpheusValue v = l.snapshot;
         if (v.type == ORPHEUS_VALUE_STRING && !l.str_buf.empty()) {
             v.value.str = l.str_buf.data();

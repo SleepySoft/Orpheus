@@ -20,7 +20,7 @@
 
 | 资料 | 角色 |
 |---|---|
-| `algorithm-index.yaml` | 结构权威：66 个递归定义、11 个 Task、类型、关系、双向 bus 和未决事实 |
+| `algorithm-index.yaml` | 结构权威：67 个递归定义、11 个 Task、类型、关系、双向 bus 和未决事实 |
 | `coverage-report.json` | 生成覆盖率与 blocker 汇总 |
 | `project.yaml` | 从 Algorithm IR 确定性生成的 Orpheus 研究图 |
 | `node-notes.json` | 画布节点用途与边界说明 |
@@ -72,7 +72,7 @@
 - **事务层**：`algorithm_projection.buses` 保留总 words、offset、字段生产者/消费者和 atomicity；
 - **执行图层**：音频字段导出为 Runtime 根组件的标准 audio ports，并写入 `graph.connections`；控制/状态字段只有在建立标准公开参数映射后才可写入 `control_connections`。
 
-当前控制/状态字段不画线，避免产生 audio/control 之外的第三种连接。物理事务的原子性与延迟尚未验证，因此标准音频边只表达已确认的音频生产者、消费者和端口格式，不代表跨 Runtime 数据面已经实现。
+当前已确认控制因果写入 `algorithm_projection.relations`。同 Task BULK 控制基础设施已经可执行；叶子尚未公开标准参数或关系跨 Task/Runtime 时仍不画线，避免产生伪控制连接。物理事务的原子性与延迟尚未验证，因此标准音频边只表达已确认的音频生产者、消费者和端口格式，不代表跨 Runtime 数据面已经实现。完整剩余队列与控制 lowering 见 `analysis/remaining-distillation-plan.md`。
 
 ### 3.5 音频 shape 不展平
 

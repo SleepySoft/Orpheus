@@ -135,6 +135,7 @@
             "items": { "type": ["integer", "string"] },
             "description": "参数维度声明：整数常量或 param:xxx 表达式（复用端口表达式语法）；缺省 = 标量 []"
           },
+          "bulk_slot": { "type": "string", "description": "kind=bulk 控制端点映射到的运行期 bulk_slots id；缺省同参数 id" },
           "direction": { "type": "string", "enum": ["input", "output"], "description": "Composite public parameter direction" },
           "maps_to": { "type": "string", "description": "Composite public parameter target: direct_child:param" }
         }

@@ -172,13 +172,17 @@ private:
     std::map<std::string, uint64_t> task_frame_indices_;  // 每 Task 所属时间线位置
     std::map<std::string, uint32_t> task_timeline_flags_;
 
-    // 控制链路运行态：快照与字符串缓冲在 load_plan 预分配，process 路径零 malloc。
+    // 控制链路运行态：快照在 load_plan 预分配，process 路径零 malloc。
     struct ControlLinkState {
         const ControlLinkConfig* cfg = nullptr;  // 指向 plan_.control_links（加载后不变）
-        bool skip = false;       // count>1 的数值数组链本期不执行（编译期已做形状校验）
+        bool skip = false;
         bool read_ok = false;    // 本 tick 源读取是否成功
         OrpheusValue snapshot{}; // 数值/布尔快照
         std::vector<char> str_buf;  // 字符串快照预分配缓冲（string 透传用）
+        std::vector<uint8_t> bulk_snapshot;
+        const uint8_t* bulk_source = nullptr;
+        uint8_t* bulk_target_shadow = nullptr;
+        bool* bulk_target_pending = nullptr;
     };
     std::vector<ControlLinkState> control_links_;
 

@@ -18,6 +18,11 @@ ports:
   type: bulk
   sample_format: f32
   channels: 166
+- id: sequence
+  direction: input
+  type: bulk
+  sample_format: i32
+  channels: 1
 - id: out
   direction: output
   type: audio

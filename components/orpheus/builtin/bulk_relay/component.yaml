@@ -1,0 +1,51 @@
+id: orpheus.builtin.bulk_relay
+name: BULK 控制中继
+category: 基础/控制
+description: 固定容量、块边界原子提交的 float 数组控制源/目标
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: BulkRelayState
+sources:
+  - src/bulk_relay.c
+headers:
+  - include/orpheus_bulk_relay.h
+ports: []
+parameters:
+  - id: count
+    name: 有效元素数
+    type: int
+    default: 4
+    range: [1, 2048]
+    update_policy: restart_required
+  - id: initial_values
+    name: 初始数组
+    type: string
+    default: "0,0,0,0"
+    widget: text
+    update_policy: restart_required
+  - id: values
+    name: 数组值
+    type: float
+    kind: bulk
+    shape: [param:count]
+    bulk_slot: values_storage
+    bindable: true
+    control_source: true
+    readback: true
+    update_policy: block_boundary
+bulk_slots:
+  - id: values_storage
+    name: 数组存储
+    type: float
+    count: 2048
+    double_bank: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

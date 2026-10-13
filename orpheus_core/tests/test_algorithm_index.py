@@ -421,6 +421,22 @@ def test_full_index_bus_offsets_cover_exact_typed_transactions() -> None:
         assert occupied == list(range(bus["total_words"]))
 
 
+def test_full_index_records_control_and_event_causality_without_fake_edges() -> None:
+    document = load_algorithm_index(INDEX)
+    relations = {relation["id"]: relation for relation in document["relations"]}
+    assert set(relations) == {
+        "ctl_a_hf_metrics", "ctl_a_lf_metrics",
+        "ctl_b_deci_targets", "ctl_b_vls_row1", "ctl_b_vls_row2",
+        "bus_ctl_a_current_to_b", "bus_ctl_a_fade_to_b",
+        "bus_ctl_b_targets_to_a", "bus_ctl_b_decay_to_a",
+        "bus_evt_b_sequence_to_a",
+    }
+    assert relations["ctl_b_deci_targets"]["type_ref"] == "gains1134"
+    assert relations["bus_ctl_b_decay_to_a"]["type_ref"] == "control1"
+    assert relations["bus_evt_b_sequence_to_a"]["kind"] == "event"
+    assert relations["bus_evt_b_sequence_to_a"]["type_ref"] == "event1"
+
+
 def test_full_index_builder_is_reproducible(tmp_path: Path) -> None:
     output = tmp_path / "algorithm-index.yaml"
     subprocess.run(
@@ -542,7 +558,8 @@ def test_committed_full_project_loads_recursively_and_notes_every_visible_node()
     assert input_mixer.package_type == "composite"
     notes = json.loads((FULL_PROJECT / "node-notes.json").read_text(encoding="utf-8"))
     assert "标准音频端口并写入 graph.connections" in notes["a_runtime"]
-    assert "标准 control_connections 映射前只保留" in notes["b_runtime"]
+    assert "algorithm_projection.relations" in notes["b_runtime"]
+    assert "同 Task" in notes["b_runtime"]
     expected = set(project.graph.nodes)
     expected.update(
         f"sub:{sub.id}/{node.id}"

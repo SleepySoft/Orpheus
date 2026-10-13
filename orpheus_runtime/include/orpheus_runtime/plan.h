@@ -69,7 +69,10 @@ struct ControlLinkConfig {
     std::string src_param;
     std::string dst_node;
     std::string dst_param;
+    std::string src_slot;
+    std::string dst_slot;
     std::string type;              // "float"/"int"/"bool"/"string"（编译期已严格匹配）
+    std::string transport = "scalar"; // scalar / bulk
     std::vector<uint32_t> shape;   // 求值后的维度（空 = 标量）
     uint32_t count = 1;            // shape 各维乘积（标量为 1）
 };

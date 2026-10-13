@@ -461,7 +461,7 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
             f"用途：{root_definition['purpose']}。双击进入按源码边界组织的算法子系统。"
             f"跨 Runtime typed bus（{', '.join(related_buses)}）是调度/部署事务合同，"
             "音频字段已导出为标准音频端口并写入 graph.connections；"
-            "控制/状态字段在具备标准 control_connections 映射前只保留于 algorithm_projection.buses。"
+            "控制/事件因果保留于 algorithm_projection.relations；只有同 Task 且具备标准公开参数映射后才提升为 control_connections。"
         )
     root_set = set(roots)
     graph_nodes = [

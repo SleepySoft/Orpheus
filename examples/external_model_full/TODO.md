@@ -27,6 +27,8 @@
 - [x] `B.POST.SLEEPING`：按 Peripheral10+Overhead4+Headrest40 精确拼接 54ch，保留四路 unity 冷启动、RTC 同块原子更新、30 点表和真实 B3 速率；Headrest 40→20+20 独立标准路由已验证。
 - [x] `A.SPATIAL_FULL.POST_HOLOGRAM`：22ch SleepingBeauty + phase delay 精确组合；保留 unity 冷启动、reset 不打断 ramp，TOP 22 路 delay 全零。
 - [x] `B.BANDS.BASS`：删除错误 `audio4` 边界，按源码恢复 HPF LR2 / HPF other7 / LPF bass2 三流；11×10 构造矩阵与11路三级 PoolIIR 转换通过 Runtime impulse。
+- [x] 同 Task typed BULK 控制链：显式 shape/slot、两相快照、double-bank 提交、跨 Task 拒绝，动态/生成路径集成测试通过。
+- [x] 枚举并分类剩余 37 个叶子；10 条已确认 control/event 因果写入 Algorithm IR，完整队列见 `analysis/remaining-distillation-plan.md`。
 
 当前覆盖：67 definitions / 51 leaves / 14 verified leaves；仍有 37 个 golden blocker 待清零。
 
@@ -45,7 +47,8 @@
 
 - [ ] 为音频字段选择跨 Task/跨 Runtime 数据面：评估 `async_bridge`、多端口结构化 bridge 或新的事务桥；
 - [ ] 保证一条物理事务拆出的音频与控制字段仍共享 sequence/epoch，不因图上分线而失去一致性；
-- [ ] 扩展运行时数组控制能力，支持 `[26]`、`[70]` 等 bulk 控制，不用标量 control link 冒充；
+- [x] 扩展同 Task 数组控制能力，支持 typed BULK 两相快照，不用标量 control link 冒充；
+- [ ] 实现跨 Task/Runtime 控制事务桥，把 `[26]`、`[70]`、sequence/epoch 与音频保持同事务；
 - [ ] 明确 1500 Hz Runtime A 与 Runtime B 多速率 Task 之间的 rate bridge、缓冲深度和欠载/溢出策略；
 - [ ] 为动态 Runtime 和生成代码实现同一 lowering，并加入逐字节一致性测试；
 - [ ] 在控制数组建立标准公开参数映射前，不创建任何画布控制边；完成后只写入 `control_connections`。

@@ -215,6 +215,7 @@ def test_compile_returns_control_links(client):
                 "type": "float",
                 "shape": [],
                 "count": 1,
+                    "transport": "scalar",
             }
         ]
     finally:

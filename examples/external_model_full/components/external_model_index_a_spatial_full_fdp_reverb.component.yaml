@@ -11,6 +11,11 @@ ports:
   type: bulk
   sample_format: f32
   channels: 2
+- id: decay
+  direction: input
+  type: control
+  sample_format: f32
+  channels: 1
 - id: split
   direction: output
   type: bulk

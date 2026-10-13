@@ -143,7 +143,10 @@ Plan Plan::load_from_file(const std::string& path) {
         cc.src_param = cl.value("src_param", "");
         cc.dst_node = cl.value("dst_node", "");
         cc.dst_param = cl.value("dst_param", "");
+        cc.src_slot = cl.value("src_slot", cc.src_param);
+        cc.dst_slot = cl.value("dst_slot", cc.dst_param);
         cc.type = cl.value("type", "float");
+        cc.transport = cl.value("transport", "scalar");
         for (const auto& d : cl.value("shape", json::array())) {
             cc.shape.push_back(static_cast<uint32_t>(d.get<int>()));
         }

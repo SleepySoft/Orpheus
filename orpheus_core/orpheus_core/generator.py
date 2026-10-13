@@ -972,7 +972,12 @@ class CodeGenerator:
             lines.append(f'static OrpheusValue g_ctl_snap[{len(ctl_links)}];  /* 控制帧快照 */')
             lines.append(f'static int g_ctl_ok[{len(ctl_links)}];             /* 源读取成功标志 */')
             for i, link in enumerate(ctl_links):
-                if link["type"] == "string":
+                if link.get("transport", "scalar") == "bulk":
+                    ctype = {"float": "float", "int": "int32_t", "bool": "uint8_t"}[link["type"]]
+                    lines.append(
+                        f'static {ctype} g_ctl_bulk{i}[{int(link["count"])}];  /* BULK 链快照 */'
+                    )
+                elif link["type"] == "string":
                     lines.append(
                         f'static char g_ctl_str{i}[256];  /* string 链快照缓冲（256B 上限，超长截断） */'
                     )
@@ -982,9 +987,14 @@ class CodeGenerator:
             for i, link in enumerate(ctl_links):
                 desc = (f'{link["src_node"]}.{link["src_param"]} [{_fmt_shape(link["shape"])}]'
                         f' -> {link["dst_node"]}.{link["dst_param"]}')
-                if link["type"] != "string" and int(link.get("count", 1)) > 1:
+                if link.get("transport", "scalar") == "bulk":
                     lines.append(
-                        f'    /* {desc}：数组链（count={int(link["count"])}）本期不执行，仅编译期形状校验 */'
+                        f'    /* {desc}：BULK 两相快照 */'
+                    )
+                    lines.append(
+                        f'    g_ctl_ok[{i}] = (orpheus_control_get_bulk('
+                        f'"{link["src_node"]}", "{link.get("src_slot", link["src_param"])}", '
+                        f'g_ctl_bulk{i}, {int(link["count"])}) == 0);'
                     )
                     continue
                 s_src = self._sanitized_node_id(link["src_node"])
@@ -1008,8 +1018,13 @@ class CodeGenerator:
             lines.append('')
             lines.append('    /* 第二相：写 —— 快照 → 全部目标（经组件 set_parameter） */')
             for i, link in enumerate(ctl_links):
-                if link["type"] != "string" and int(link.get("count", 1)) > 1:
-                    continue  # 数组链：第一相已注记，本相同样跳过
+                if link.get("transport", "scalar") == "bulk":
+                    lines.append(
+                        f'    if (g_ctl_ok[{i}]) (void)orpheus_control_write_bulk('
+                        f'"{link["dst_node"]}", "{link.get("dst_slot", link["dst_param"])}", '
+                        f'g_ctl_bulk{i}, {int(link["count"])});'
+                    )
+                    continue
                 s_dst = self._sanitized_node_id(link["dst_node"])
                 lines.append(f'    if (g_ctl_ok[{i}] && g_iface_{s_dst}->set_parameter != NULL) {{')
                 if link["type"] == "string":
@@ -1146,7 +1161,7 @@ class CodeGenerator:
                 f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);'
             )
             lines.append(f'    g_created_nodes = {node_index + 1};')
-            lines.append(f'    if (g_iface_{s}->get_descriptor()->abi_version >= 2 && g_iface_{s}->register_slots) {{')
+            lines.append(f'    if (g_iface_{s}->register_slots) {{')
             lines.append(f'        g_reg.ctx = g_state_{s};')
             lines.append(f'        orpheus_control_set_reg_node("{node_id}", g_state_{s});')
             lines.append(f'        g_iface_{s}->register_slots(g_state_{s}, &g_reg);')
@@ -1803,8 +1818,8 @@ class CodeGenerator:
         lines.append('        /* 读回：解析时仅记录，处理完再读（块边界提交后才是新值） */')
         lines.append('        if (rb_node) {')
         lines.append('            size_t n = orpheus_control_bulk_count(rb_node, rb_key);')
-        lines.append('            if (n == 0 || n > 64) { printf("ERR GETBULK %s %s\\n", rb_node, rb_key); goto teardown; }')
-        lines.append('            float vals[64];')
+        lines.append('            if (n == 0 || n > 4096) { printf("ERR GETBULK %s %s\\n", rb_node, rb_key); goto teardown; }')
+        lines.append('            float vals[4096];')
         lines.append('            if (orpheus_control_get_bulk(rb_node, rb_key, vals, n) == 0) {')
         lines.append('                printf("BULKVALUE %s %s", rb_node, rb_key);')
         lines.append('                for (size_t k = 0; k < n; ++k) printf(" %g", vals[k]);')
@@ -1812,8 +1827,8 @@ class CodeGenerator:
         lines.append('            } else { printf("ERR GETBULK %s %s\\n", rb_node, rb_key); }')
         lines.append('        } else if (rb_by_id) {')
         lines.append('            size_t n = orpheus_control_bulk_count_id(rb_id);')
-        lines.append('            if (n == 0 || n > 64) { printf("ERR GETBULK 0x%08X\\n", rb_id); goto teardown; }')
-        lines.append('            float vals[64];')
+        lines.append('            if (n == 0 || n > 4096) { printf("ERR GETBULK 0x%08X\\n", rb_id); goto teardown; }')
+        lines.append('            float vals[4096];')
         lines.append('            if (orpheus_control_get_bulk_id(rb_id, vals, n) == 0) {')
         lines.append('                printf("BULKVALUE 0x%08X", rb_id);')
         lines.append('                for (size_t k = 0; k < n; ++k) printf(" %g", vals[k]);')
@@ -2693,6 +2708,7 @@ class CodeGenerator:
         c.append('    s->offset = info->offset;')
         c.append('    s->state = state;')
         c.append('    s->shadow = orpheus_control_shadow_of(g_reg_node, info->key);')
+        c.append('    if (s->shadow) memcpy(s->shadow, (const char*)state + info->offset, info->count * info->size);')
         c.append('    s->pending = 0;')
         c.append('}')
         c.append('')

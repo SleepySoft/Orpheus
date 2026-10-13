@@ -4,7 +4,7 @@
 
 ## 结论（TL;DR）
 
-**第 0/1 期及跨子图公开参数已落地。** 本文前九节保留最初的可行性分析与分期设计，当前实现状态以第十节为准：manifest/schema、compiler、runtime、generator、UI、子组件公开控制点和双路径一致性均已接通；连续 control-rate sidechain 仍属后续。
+**第 0/1 期、同 Task BULK 数组控制及跨子图公开参数已落地。** 本文前九节保留最初的可行性分析与分期设计，当前实现状态以第十节为准：manifest/schema、compiler、runtime、generator、UI、标量与数组两相快照、子组件公开控制点和双路径一致性均已接通；跨 Task/Runtime 事务桥和连续 control-rate sidechain 仍属后续。
 
 ---
 
@@ -300,4 +300,13 @@ static void control_tick(void) {          /* 块边界调用一次 */
 - **试点组件**：gain.gain_db（bindable）、level_detect.level / probe_rms.rms（control_source）、matrix_mul.matrix（shape=[param:rows, param:cols]）。
 - **测试**：`test_control_links.py` 16 项（含重复目标拒绝、扇出、多跳中继）+ `test_server.py` compile API 2 项（非法链 400 中文报错、合法链响应含 control_links）+ `ui/src/graphUtils.test.js`（jest 11 项：resolveShape/shapeText/shapeEquals/控制 handle/doc↔views 往返）+ `test_generated_run_matches_dynamic_run_with_control_link`（双路径逐字节一致 + 无链基线对照证明控制生效）；示例 `examples/control_link_demo.yaml`（电平闭环 AGC）。compile API 响应新增 `control_links` 字段（增量兼容）。
 
-**当前边界**：运行期执行 float/int/bool 标量 + string 透传；count>1 数值数组链与 bulk 槽投递仍仅做编译期校验、运行期跳过；零延迟链（`latency: 0`）未实现；第 2 期 control-rate 缓冲端口 sidechain 未动工。跨子图标量/string 控制连接已通过 `public_parameters` 实现。
+**2026-10 BULK 扩展**：
+
+- 数组端点显式声明 `kind: bulk`、数值 `type`、`shape` 与 `bulk_slot`；初始化字符串参数与运行期数组槽不再混为同一类型。
+- compiler 要求两端 shape/type 一致、slot 容量不小于 shape count、目标启用 double bank，并在 plan 标记 `transport: bulk` 与实际槽 ID。
+- 动态 Runtime 在 load plan 时预分配快照并缓存 active/shadow 指针；块末先全读、后全写，下一块开始前 commit，实时路径零分配。
+- generator 产出等价静态数组和 `orpheus_control_get_bulk/write_bulk` 直线代码；动态/生成两块传递集成测试通过。
+- 新增 `orpheus.builtin.bulk_relay`，用于同 Task 数组快照、中继和多跳控制。
+- 标准控制连接禁止跨 Task；跨 Task/Runtime 必须使用显式控制/事务 bridge，不能依赖全局入口的偶然调用顺序。
+
+**当前边界**：运行期支持 float/int/bool 标量、string 透传和同 Task typed BULK；零延迟链（`latency: 0`）、跨 Task/Runtime 控制事务桥和第 2 期 control-rate 缓冲端口 sidechain 尚未实现。

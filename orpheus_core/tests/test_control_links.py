@@ -26,6 +26,7 @@ from orpheus_core.project import (
     ProjectLoader,
     SubParameter,
     Subcomponent,
+    Task,
 )
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.subgraph import flatten_project
@@ -60,7 +61,12 @@ def make_project(
     return project
 
 
-def add_stub_component(registry: Registry, comp_id: str, parameters: list[dict]) -> None:
+def add_stub_component(
+    registry: Registry,
+    comp_id: str,
+    parameters: list[dict],
+    bulk_slots: list[dict] | None = None,
+) -> None:
     """注册一个纯参数 stub 组件（无端口），用于精确命中单条校验规则。"""
     manifest = {
         "id": comp_id,
@@ -68,6 +74,7 @@ def add_stub_component(registry: Registry, comp_id: str, parameters: list[dict])
         "version": "1.0.0",
         "abi_version": 1,
         "parameters": parameters,
+        "bulk_slots": bulk_slots or [],
     }
     schemas.validate(manifest, schemas.load_component_manifest_schema())
     registry._components[comp_id] = ComponentInfo(
@@ -136,8 +143,64 @@ def test_compile_scalar_control_link(compiler):
             "type": "float",
             "shape": [],
             "count": 1,
+            "transport": "scalar",
         }
     ]
+
+
+def test_compile_bulk_control_link(compiler, registry):
+    source_param = {
+        "id": "values", "type": "float", "kind": "bulk", "shape": [4],
+        "bulk_slot": "values_storage",
+        "readback": True, "control_source": True,
+    }
+    target_param = {
+        "id": "values", "type": "float", "kind": "bulk", "shape": [4],
+        "bulk_slot": "values_storage",
+        "bindable": True, "update_policy": "block_boundary",
+    }
+    add_stub_component(
+        registry, "orpheus.builtin._test_bulk_src", [source_param],
+        [{"id": "values_storage", "name": "源数组", "type": "float", "count": 8}],
+    )
+    add_stub_component(
+        registry, "orpheus.builtin._test_bulk_dst", [target_param],
+        [{"id": "values_storage", "name": "目标数组", "type": "float", "count": 8,
+          "double_bank": True}],
+    )
+    project = make_project(
+        {
+            "src": Node(id="src", component="orpheus.builtin._test_bulk_src"),
+            "dst": Node(id="dst", component="orpheus.builtin._test_bulk_dst"),
+        },
+        [ctl("src:values", "dst:values")],
+    )
+    assert compiler.compile(project).control_links == [{
+        "src_node": "src", "src_param": "values",
+        "dst_node": "dst", "dst_param": "values",
+        "type": "float", "shape": [4], "count": 4, "transport": "bulk",
+        "src_slot": "values_storage", "dst_slot": "values_storage",
+    }]
+
+
+def test_reject_array_without_bulk_slots(compiler, registry):
+    add_stub_component(registry, "orpheus.builtin._test_arrsrc", [{
+        "id": "values", "type": "float", "shape": [4],
+        "readback": True, "control_source": True,
+    }])
+    add_stub_component(registry, "orpheus.builtin._test_arrdst", [{
+        "id": "values", "type": "float", "shape": [4],
+        "bindable": True, "update_policy": "block_boundary",
+    }])
+    project = make_project(
+        {
+            "src": Node(id="src", component="orpheus.builtin._test_arrsrc"),
+            "dst": Node(id="dst", component="orpheus.builtin._test_arrdst"),
+        },
+        [ctl("src:values", "dst:values")],
+    )
+    with pytest.raises(CompileError, match="数组控制连接必须使用显式 BULK"):
+        compiler.compile(project)
 
 
 def test_compile_matrix_shape_link(compiler):
@@ -254,6 +317,24 @@ def test_reject_source_not_control_source(compiler):
         [ctl("gain1:gain_db", "gain2:gain_db")],  # gain_db 未声明 control_source
     )
     with pytest.raises(CompileError, match="control_source"):
+        compiler.compile(project)
+
+
+def test_reject_cross_task_control_link(compiler):
+    project = make_project(
+        {
+            "level": Node(id="level", component="orpheus.builtin.level_detect",
+                          task="producer", params={"channels": 2}),
+            "gain": Node(id="gain", component="orpheus.builtin.gain",
+                         task="consumer", params={"channels": 2}),
+        },
+        [ctl("level:level", "gain:gain_db")],
+    )
+    project.tasks = {
+        "producer": Task(id="producer"),
+        "consumer": Task(id="consumer"),
+    }
+    with pytest.raises(CompileError, match="跨 Task 控制连接必须经过显式控制桥"):
         compiler.compile(project)
 
 
@@ -382,17 +463,18 @@ def test_public_parameter_direction_is_enforced():
 
 
 def test_codegen_control_tick_emission(compiler, registry, tmp_path):
-    """生成路径：标量链产出两相快照 control_tick；数组链只生成注释说明、不产生读写。"""
+    """生成路径：标量与 BULK 链都产出两相快照 control_tick。"""
     add_stub_component(registry, "orpheus.builtin._test_arrsrc", [
         {"id": "rows", "type": "int", "default": 2},
-        {"id": "vec", "type": "float", "readback": True, "control_source": True,
+        {"id": "vec", "type": "float", "kind": "bulk", "readback": True, "control_source": True,
          "shape": ["param:rows"]},
-    ])
+    ], [{"id": "vec", "name": "源数组", "type": "float", "count": 2}])
     add_stub_component(registry, "orpheus.builtin._test_arrdst", [
         {"id": "n", "type": "int", "default": 2},
-        {"id": "vec", "type": "float", "bindable": True, "update_policy": "immediate",
+        {"id": "vec", "type": "float", "kind": "bulk", "bindable": True, "update_policy": "block_boundary",
          "shape": ["param:n"]},
-    ])
+    ], [{"id": "vec", "name": "目标数组", "type": "float", "count": 2,
+         "double_bank": True}])
     project = make_project(
         {
             "lvl": Node(id="lvl", component="orpheus.builtin.level_detect",
@@ -419,10 +501,11 @@ def test_codegen_control_tick_emission(compiler, registry, tmp_path):
     assert "/* lvl.level [标量] -> g.gain_db */" in main_c
     assert 'g_iface_lvl->get_parameter(g_state_lvl, "level", &g_ctl_snap[0])' in main_c
     assert 'g_iface_g->set_parameter(g_state_g, "gain_db", &g_ctl_snap[0])' in main_c
-    # 数组链（count=2）：仅注释说明本期不执行，不产生读写调用
-    assert "asrc.vec [2] -> adst.vec：数组链（count=2）本期不执行" in main_c
-    assert "g_iface_asrc->get_parameter" not in main_c
-    assert "g_iface_adst->set_parameter" not in main_c
+    # BULK 链（count=2）：静态快照 + get/write bulk，两相执行。
+    assert "static float g_ctl_bulk1[2]" in main_c
+    assert "asrc.vec [2] -> adst.vec：BULK 两相快照" in main_c
+    assert 'orpheus_control_get_bulk("asrc", "vec", g_ctl_bulk1, 2)' in main_c
+    assert 'orpheus_control_write_bulk("adst", "vec", g_ctl_bulk1, 2)' in main_c
 
 
 # ---- 重复目标 / 扇出 / 多跳 ----

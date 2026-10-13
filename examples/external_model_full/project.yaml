@@ -758,7 +758,77 @@ algorithm_projection:
       channels: 22
       sample_rate: 48000
     endpoint: A.RUNTIME:main_out
-  relations: []
+  relations:
+  - id: ctl_a_hf_metrics
+    from: A.AUDIOPILOT.HF_ESTIMATOR:metrics
+    to: A.AUDIOPILOT.GAIN_APPLICATION:hf_metrics
+    kind: control
+    type_ref: control4
+    timing: cross_task_snapshot_pending
+    mapping: 标准 BULK control endpoint 待实现
+  - id: ctl_a_lf_metrics
+    from: A.AUDIOPILOT.LF:metrics
+    to: A.AUDIOPILOT.GAIN_APPLICATION:lf_metrics
+    kind: control
+    type_ref: control4
+    timing: cross_task_snapshot_pending
+    mapping: 标准 BULK control endpoint 待实现
+  - id: ctl_b_deci_targets
+    from: B.MIX_CONTROL:deci_targets
+    to: B.MIX_DECI:targets
+    kind: control
+    type_ref: gains1134
+    timing: B3 block snapshot
+    mapping: 同 Task BULK control_connection；叶子端点实现后提升
+  - id: ctl_b_vls_row1
+    from: B.MIX_CONTROL:vls_row1
+    to: B.POST.ROW1:targets
+    kind: control
+    type_ref: gains40
+    timing: B3 block snapshot
+    mapping: 同 Task BULK control_connection；叶子端点实现后提升
+  - id: ctl_b_vls_row2
+    from: B.MIX_CONTROL:vls_row2
+    to: B.POST.ROW2:targets
+    kind: control
+    type_ref: gains40
+    timing: B3 block snapshot
+    mapping: 同 Task BULK control_connection；叶子端点实现后提升
+  - id: bus_ctl_a_current_to_b
+    from: A.SPATIAL_FULL.MIX:current_gains
+    to: B.MIX_CONTROL:current_gains
+    kind: state_write
+    type_ref: gains166
+    timing: A→B transaction timing unresolved
+    mapping: bus_a_to_b offsets 320/346/416；禁止直接跨 Task 控制线
+  - id: bus_ctl_a_fade_to_b
+    from: A.SPATIAL_FULL.FADE_SUM:fade_targets
+    to: B.MIX_CONTROL:fade
+    kind: control
+    type_ref: control2
+    timing: A→B transaction timing unresolved
+    mapping: bus_a_to_b offset 486；禁止直接跨 Task 控制线
+  - id: bus_ctl_b_targets_to_a
+    from: B.MIX_CONTROL:full_targets
+    to: A.SPATIAL_FULL.MIX:targets
+    kind: control
+    type_ref: gains166
+    timing: B→A transaction timing unresolved
+    mapping: bus_b_to_a offsets 322/348/418；禁止直接跨 Task 控制线
+  - id: bus_ctl_b_decay_to_a
+    from: B.BANDS.DECAY:out
+    to: A.SPATIAL_FULL.FDP.REVERB:decay
+    kind: control
+    type_ref: control1
+    timing: B1→A2 transaction timing unresolved
+    mapping: bus_b_to_a offset 1；需要显式跨 Task/Runtime 控制桥
+  - id: bus_evt_b_sequence_to_a
+    from: B.MIX_CONTROL:sequence
+    to: A.SPATIAL_FULL.MIX.RAMP_CONTROL:sequence
+    kind: event
+    type_ref: event1
+    timing: B→A atomic sequence
+    mapping: bus_b_to_a offset 1192；必须与三组 targets 同事务
   buses:
   - id: bus_a_to_b
     producer_runtime: runtime_a

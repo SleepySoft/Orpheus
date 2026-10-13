@@ -990,6 +990,13 @@ class GraphCompiler:
             dst_node = graph.nodes.get(dst_ref.node_id)
             if dst_node is None:
                 raise CompileError(f"控制连接目标节点不存在：{dst_ref.node_id}（{dst_ref}）")
+            src_task = node_task(src_node).id
+            dst_task = node_task(dst_node).id
+            if src_task != dst_task:
+                raise CompileError(
+                    f"跨 Task 控制连接必须经过显式控制桥：{src_ref}（{src_task}）→ "
+                    f"{dst_ref}（{dst_task}）"
+                )
             src_comp = self.registry.get(src_node.component)
             dst_comp = self.registry.get(dst_node.component)
 
@@ -1045,6 +1052,44 @@ class GraphCompiler:
             count = 1
             for d in dst_shape:
                 count *= d
+            src_bulk = src_param.get("kind") == "bulk"
+            dst_bulk = dst_param.get("kind") == "bulk"
+            if src_bulk != dst_bulk:
+                raise CompileError(
+                    f"控制连接传输形式不匹配：{src_ref}（{'BULK' if src_bulk else '标量'}）→ "
+                    f"{dst_ref}（{'BULK' if dst_bulk else '标量'}）"
+                )
+            transport = "bulk" if src_bulk else "scalar"
+            if count > 1 and transport != "bulk":
+                raise CompileError(
+                    f"数组控制连接必须使用显式 BULK 参数与同名 bulk_slots："
+                    f"{src_ref} → {dst_ref}（count={count}）"
+                )
+            if transport == "bulk":
+                def bulk_slot(comp: ComponentInfo, param_id: str) -> dict[str, Any] | None:
+                    return next(
+                        (slot for slot in comp.manifest.get("bulk_slots", [])
+                         if slot.get("id") == param_id),
+                        None,
+                    )
+
+                src_slot_id = src_param.get("bulk_slot", src_ref.port_id)
+                dst_slot_id = dst_param.get("bulk_slot", dst_ref.port_id)
+                src_slot = bulk_slot(src_comp, src_slot_id)
+                dst_slot = bulk_slot(dst_comp, dst_slot_id)
+                if src_slot is None or dst_slot is None:
+                    missing = src_ref if src_slot is None else dst_ref
+                    raise CompileError(f"BULK 控制参数缺少同名 bulk_slots 声明：{missing}")
+                if (src_slot.get("type", "float") != src_type or
+                        dst_slot.get("type", "float") != dst_type):
+                    raise CompileError(f"BULK 槽元素类型必须与参数类型一致：{src_ref}/{dst_ref}")
+                if src_slot.get("count", 0) < count or dst_slot.get("count", 0) < count:
+                    raise CompileError(
+                        f"BULK 槽容量必须不小于控制形状元素数 {count}："
+                        f"{src_ref}={src_slot.get('count')}，{dst_ref}={dst_slot.get('count')}"
+                    )
+                if not dst_slot.get("double_bank"):
+                    raise CompileError(f"BULK 控制目标必须启用 double_bank：{dst_ref}")
             links.append(
                 {
                     "src_node": src_ref.node_id,
@@ -1054,6 +1099,9 @@ class GraphCompiler:
                     "type": dst_type,
                     "shape": dst_shape,
                     "count": count,
+                    "transport": transport,
+                          **({"src_slot": src_slot_id, "dst_slot": dst_slot_id}
+                              if transport == "bulk" else {}),
                 }
             )
         return links

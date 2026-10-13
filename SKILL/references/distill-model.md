@@ -29,6 +29,9 @@
 - `488 words`、`1193 words` 等是物理事务大小，不是通道格式。音频类型写成 `[channels, frames]`，例如 `[10, 32]`，不能展平成 `[320]`。
 - bus 的 offset、atomicity、sequence、epoch 和交换延迟保留在 IR；不能用无行为 BUS_EXCHANGE 节点、伪回环或“消息线”代替。
 - 标准音频边只证明端口/通道/采样率/块长契约；跨 Task/跨 Runtime 数据面尚未 lowering 时仍要保留 blocker，不能宣称可运行。
+- 数组控制不得编码成 string 或拆成若干标量链。可执行同 Task 数组控制必须声明数值 `type`、`kind: bulk`、`shape`、`bulk_slot`，源/目标槽容量覆盖 shape，目标启用 double bank；动态/生成路径均采用先全读、后全写、下一块提交。
+- 标准 `control_connections` 禁止隐式跨 Task。跨 Task/Runtime 的数组、标量和 event 必须先建立显式控制/事务 bridge，并说明 sequence/epoch/validity 与音频字段是否同事务；event 不得降格为 float control。
+- 已确认但尚不具备可执行端点或 bridge 的控制因果写入 Algorithm IR `relations`，不得为了画线提前生成 `control_connections`。
 
 ### 0.3 六门禁
 
@@ -219,6 +222,7 @@ model_tree:
 - [ ] 每个叶模块六门禁独立记录；未完成者为 placeholder，Compiler 明确阻断。
 - [ ] 已按“已有通用组件 → 通用组合 → 新通用组件 → 独有组件”顺序记录选择理由。
 - [ ] 画布只有标准 audio/control 边；不存在伪处理组件、无行为回环或第三种 edge。
+- [ ] 数组控制使用 typed BULK endpoint/slot；同 Task 才能直接生成 `control_connections`，跨 Task/Runtime relation 有显式 bridge blocker。
 - [ ] `version` + `graph` 存在；schema 校验通过（`ProjectLoader` 加载无异常）。
 - [ ] `task_flows` 覆盖全部 TID：`call_interval × rate_hz = 基块率`；主链只引用音频链 id，
       分析侧链用 `chains`/`blocks` 显式列出且不串进主链（无多速率则省略 task_flows）。
