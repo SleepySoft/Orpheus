@@ -1,7 +1,7 @@
 id: external_model.index.a_preamp_route_level
 name: PreAmp 分支与电平检测
 category: 外部模型/算法索引
-description: 从 Volume、Balance、Mic 和 InputMixer 分出主输出、自适应和电平状态
+description: 从 Volume、Balance、Mic 和 InputMixer 分出主输出、自适应和两路 block-rate level 状态
 version: '2.0'
 abi_version: 1
 package_type: placeholder
@@ -64,29 +64,41 @@ parameters: []
 blockers:
 - id: algorithm_pending
   gate: algorithm
-  reason: 尚未完成源算法逐语句实现
+  reason: 缺少可运行期更新的 32 项路由表与 block-rate RMS/hold/decay 通用原语
+  source_ref: a_main
+- id: state_pending
+  gate: state
+  reason: PreAmpReset1 对 delay/IIR/InnerLink 的运行期复位顺序尚未验证
   source_ref: a_main
 - id: golden_pending
   gate: golden
-  reason: 尚未完成参考输出对拍
+  reason: 路由覆盖、预加重与 4500-block hold/decay 尚未逐块对拍
   source_ref: a_main
 algorithm_index:
   definition_id: A.PREAMP.ROUTE_LEVEL
   tasks:
   - A0
   operations:
-  - Volume→32 路仅源 1..6
-  - Balance→10 路 adaptive
-  - Mic→Buffer2
-  - 预加重/RMS/Peak/InnerLink
+  - Volume→32 路运行期路由
+  - Balance→10 路 adaptive 直通
+  - Mic→Buffer2 直通
+  - 72-sample program delay
+  - 10 路预加重
+  - RMS/Peak dB
+  - AP/DynEQ InnerLink hold/decay
   state:
+  - id: program_delay
+    role: 10 路 72 样本 detector 对齐延迟
+    initialization: 全零
+    shape:
+    - 720
   - id: preemphasis
-    role: 10 路 IIR
-    initialization: generated initialization
+    role: 10 路一阶 PoolIIR
+    initialization: 全零
     shape:
     - 20
   - id: inner_links
-    role: AP/DynEQ hold/decay 状态
+    role: AP/DynEQ 独立 envelope/holdFlag/holdState
     initialization: generated initialization
     shape:
     - 2
@@ -95,9 +107,13 @@ algorithm_index:
     blockers:
     - id: algorithm_pending
       gate: algorithm
-      reason: 尚未完成源算法逐语句实现
+      reason: 缺少可运行期更新的 32 项路由表与 block-rate RMS/hold/decay 通用原语
+      source_ref: a_main
+    - id: state_pending
+      gate: state
+      reason: PreAmpReset1 对 delay/IIR/InnerLink 的运行期复位顺序尚未验证
       source_ref: a_main
     - id: golden_pending
       gate: golden
-      reason: 尚未完成参考输出对拍
+      reason: 路由覆盖、预加重与 4500-block hold/decay 尚未逐块对拍
       source_ref: a_main

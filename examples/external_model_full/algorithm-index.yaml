@@ -1785,12 +1785,13 @@ definitions:
   node_id: route_level
   parent: A.PREAMP
   name: PreAmp 分支与电平检测
-  purpose: 从 Volume、Balance、Mic 和 InputMixer 分出主输出、自适应和电平状态
+  purpose: 从 Volume、Balance、Mic 和 InputMixer 分出主输出、自适应和两路 block-rate level 状态
   runtime_ref: runtime_a
   task_refs:
   - A0
   source_refs:
   - a_main
+  - a_preamp_top
   interface:
     inputs:
     - id: program
@@ -1811,19 +1812,27 @@ definitions:
     - id: levels
       type_ref: control2
   operations:
-  - Volume→32 路仅源 1..6
-  - Balance→10 路 adaptive
-  - Mic→Buffer2
-  - 预加重/RMS/Peak/InnerLink
+  - Volume→32 路运行期路由
+  - Balance→10 路 adaptive 直通
+  - Mic→Buffer2 直通
+  - 72-sample program delay
+  - 10 路预加重
+  - RMS/Peak dB
+  - AP/DynEQ InnerLink hold/decay
   branches: []
   state:
+  - id: program_delay
+    role: 10 路 72 样本 detector 对齐延迟
+    initialization: 全零
+    shape:
+    - 720
   - id: preemphasis
-    role: 10 路 IIR
-    initialization: generated initialization
+    role: 10 路一阶 PoolIIR
+    initialization: 全零
     shape:
     - 20
   - id: inner_links
-    role: AP/DynEQ hold/decay 状态
+    role: AP/DynEQ 独立 envelope/holdFlag/holdState
     initialization: generated initialization
     shape:
     - 2
@@ -1837,18 +1846,22 @@ definitions:
     blockers:
     - id: algorithm_pending
       gate: algorithm
-      reason: 尚未完成源算法逐语句实现
+      reason: 缺少可运行期更新的 32 项路由表与 block-rate RMS/hold/decay 通用原语
+      source_ref: a_main
+    - id: state_pending
+      gate: state
+      reason: PreAmpReset1 对 delay/IIR/InnerLink 的运行期复位顺序尚未验证
       source_ref: a_main
     - id: golden_pending
       gate: golden
-      reason: 尚未完成参考输出对拍
+      reason: 路由覆盖、预加重与 4500-block hold/decay 尚未逐块对拍
       source_ref: a_main
 - id: A.POSTPROCESS
   component_id: external_model.index.a_postprocess
   node_id: postprocess
   parent: A.RUNTIME
   name: 22 路输出后处理
-  purpose: 将保护链和 32 路候选路由为最终 22 路输出
+  purpose: 保护输入与 announcement17、preq32 拼成 71 路候选，经 ASD 路由和输出补偿形成 22 路
   runtime_ref: runtime_a
   task_refs:
   - A0
@@ -1872,7 +1885,10 @@ definitions:
       maps_to: router_output:out
   operations:
   - 内部保护
+  - 22+17+32 candidate concatenate
   - 主辅路由
+  - AllMute
+  - 输出软削波
   - 校准/FreqComp/延迟
   branches: []
   state: []
@@ -1904,12 +1920,13 @@ definitions:
   node_id: protected
   parent: A.POSTPROCESS
   name: Limiter/PostEQ/内部软削波
-  purpose: 对 Part6 保护输入执行增益、限制、EQ、软削波和 RMDL mute
+  purpose: 执行22路逐样本输入 ramper、递归 limiter、PostEQ、内部分段软削波、共享 RMDL mute 与 test-mode 分支
   runtime_ref: runtime_a
   task_refs:
   - A0
   source_refs:
   - a_post
+  - a_post_top
   interface:
     inputs:
     - id: in
@@ -1918,48 +1935,61 @@ definitions:
     - id: out
       type_ref: audio22
   operations:
-  - 22 ramper
-  - BDSP limiter
-  - PostEQ
-  - piecewise soft clip
-  - RMDL mute
+  - 22 samplewise rampers
+  - source-recursive limiter high/low banks
+  - PostEQ PoolIIR/shutdown
+  - internal piecewise soft clip
+  - shared samplewise RMDL mute
+  - 22×10 test matrix branch
   branches: []
   state:
-  - id: limiter_gain
-    role: 每通道递归限制增益
+  - id: input_rampers
+    role: 每通道 current/target/coeff/frame
     initialization: generated initialization
     shape:
     - 22
+  - id: limiter_gain
+    role: 每通道递归 gain，cold-start=1
+    initialization: 全1
+    shape:
+    - 22
   - id: posteq
-    role: 22 路 IIR
+    role: 22 路 accelerator IIR
+    initialization: generated initialization
+  - id: rmdl_mute
+    role: 共享 current/target/nframes/filter
     initialization: generated initialization
   parameter_refs: []
   children: []
   body:
     edges: []
   implementation:
-    status: approximation
-    component: orpheus.builtin.limiter
+    status: unsupported
     blockers:
     - id: algorithm_pending
       gate: algorithm
-      reason: 尚未完成源算法逐语句实现
+      reason: 现有 limiter/gain_ramper/mute 平滑律不等价；需新增 source-recursive limiter 与 samplewise ramp-bank
       source_ref: a_post
+    - id: parameters_pending
+      gate: parameters
+      reason: PostEQ 560-float PoolIIR 非平凡系数布局与 accelerator 等价性未验证
+      source_ref: a_post_top
     - id: golden_pending
       gate: golden
-      reason: 尚未完成参考输出对拍
+      reason: high/low/disable/test-mode/reset 与跨块状态尚未参考对拍
       source_ref: a_post
 - id: A.POSTPROCESS.ROUTER_OUTPUT
   component_id: external_model.index.a_postprocess_router_output
   node_id: router_output
   parent: A.POSTPROCESS
   name: ASD 路由与输出补偿
-  purpose: 从 71 路候选加性选择 22 路并完成输出保护、校准、频补和延迟
+  purpose: 将 protected22、announcement17、preq32 按该顺序拼为71路，主选择后叠加 AUX，再执行 AllMute、输出软削波、OutputCal、FreqComp 与逐通道 delay
   runtime_ref: runtime_a
   task_refs:
   - A0
   source_refs:
   - a_main
+  - a_post_top
   interface:
     inputs:
     - id: protected
@@ -1972,25 +2002,28 @@ definitions:
     - id: out
       type_ref: audio22
   operations:
-  - 22 main select/gain
-  - aux additive select/gain
-  - all mute
-  - 第二级 soft clip
-  - OutputCal
-  - FreqComp
-  - pool delay
+  - 71→22 main select/gain
+  - announcement AUX additive select/gain
+  - shared samplewise AllMute
+  - output piecewise soft clip
+  - OutputCal clamp[0,1]
+  - FreqComp PoolIIR/shutdown
+  - enabled tunable pool delay
   branches: []
   state:
-  - id: output_cal
-    role: 运行期 22 路校准
+  - id: all_mute
+    role: 共享 current/target/nframes/filter
     initialization: generated initialization
+  - id: output_cal
+    role: 运行期 22 路校准，clamp[0,1]
+    initialization: 全1
     shape:
     - 22
   - id: freq_comp
-    role: 22 路 IIR
+    role: 22 路 accelerator IIR
     initialization: generated initialization
   - id: delay
-    role: 22 路可调延迟
+    role: 22 路可调 delay ring
     initialization: generated initialization
   parameter_refs: []
   children: []
@@ -2001,11 +2034,15 @@ definitions:
     blockers:
     - id: algorithm_pending
       gate: algorithm
-      reason: 尚未完成源算法逐语句实现
+      reason: 缺少支持运行期 main/aux select+gain 的 71→22 加性路由与 samplewise AllMute 原语
       source_ref: a_main
+    - id: parameters_pending
+      gate: parameters
+      reason: FreqComp 175-float PoolIIR 布局与非平凡系数等价性未验证
+      source_ref: a_post_top
     - id: golden_pending
       gate: golden
-      reason: 尚未完成参考输出对拍
+      reason: RTC MSB fallback、非法选择、AUX叠加、校准、shutdown、delay 尚未逐块对拍
       source_ref: a_main
 - id: A.SPATIAL_FULL
   component_id: external_model.index.a_spatial_full

@@ -1,7 +1,7 @@
 id: external_model.index.a_postprocess
 name: 22 路输出后处理
 category: 外部模型/算法索引
-description: 将保护链和 32 路候选路由为最终 22 路输出
+description: 保护输入与 announcement17、preq32 拼成 71 路候选，经 ASD 路由和输出补偿形成 22 路
 version: '2.0'
 abi_version: 1
 package_type: composite
@@ -63,7 +63,10 @@ algorithm_index:
   - A0
   operations:
   - 内部保护
+  - 22+17+32 candidate concatenate
   - 主辅路由
+  - AllMute
+  - 输出软削波
   - 校准/FreqComp/延迟
   state: []
   implementation:

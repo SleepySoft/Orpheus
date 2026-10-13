@@ -6,10 +6,8 @@
 
 ## 1. 剩余叶子分类
 
-### 1.1 现有通用组件可组合（13）
+### 1.1 现有通用组件可组合（11）
 
-- `A.POSTPROCESS.ROUTER_OUTPUT`
-- `A.PREAMP.ROUTE_LEVEL`
 - `A.SPATIAL_FULL.FADE_SUM`
 - `A.SPATIAL_FULL.MIX.ORGANIZE`
 - `A.SPATIAL_FULL.PERIPHERAL_EQ`
@@ -24,12 +22,15 @@
 
 优先顺序：边界与参数已明确的路由/HEQ/Xtalk 先做；每项仍需默认、非零、跨块、reset/bypass golden，不能因组件已存在直接标 verified。
 
-### 1.2 需要新增可复用算法原语（11）
+### 1.2 需要新增可复用算法原语（14）
 
 - A FDP：`ANALYSIS`、`COEFFICIENTS`、`REVERB`、`SYNTHESIS`
 - B FDP：`STFT`、`COEFFICIENTS`、`REVERB`、`WOLA`
 - Audiopilot：`HF_ESTIMATOR`、`LF`
 - Bands：`B.BANDS.DECAY`
+- PreAmp：`A.PREAMP.ROUTE_LEVEL` 需要 block-rate 路由表与 RMS/hold/decay tracker
+- PostProcess：`A.POSTPROCESS.PROTECTED` 需要 samplewise ramp-bank 与 source-recursive limiter
+- PostProcess：`A.POSTPROCESS.ROUTER_OUTPUT` 需要 71→22 main+aux 数组路由与 samplewise AllMute
 
 共享原语按依赖实现：STFT/WOLA transport → 复谱系数/平滑 → spectral history/冲击分离 → covariance/min-stat/onset tracker。A/B FDP 必须复用相同原语，参数与状态不同由实例配置表达。
 
@@ -55,9 +56,9 @@
 
 框架已实现同 Task 标准 BULK `control_connections`：显式 `kind: bulk` + `bulk_slot`、两相静态快照、目标 double bank、动态/生成双路径一致。跨 Task/Runtime 仍禁止隐式连接，必须经过显式事务桥。
 
-### 1.5 外部证据 blocker（1）
+### 1.5 硬件数值证据 blocker（1）
 
-- `A.POSTPROCESS.PROTECTED`：源 BDSP limiter 行为未公开；现有 limiter 只能 approximation。解阻需要目标参考捕获或 vendor 行为证据。
+- PostProcess PoolIIR：limiter 递推已从生成源码恢复；真正 blocker 是 PostEQ/FreqComp 非平凡 PoolIIR accelerator 布局、舍入与目标 goldens。详见 `analysis/a-route-level-postprocess-audit.md`。
 
 ## 2. 已确认控制流
 

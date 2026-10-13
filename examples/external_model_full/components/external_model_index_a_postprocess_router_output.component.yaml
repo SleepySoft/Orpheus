@@ -1,7 +1,8 @@
 id: external_model.index.a_postprocess_router_output
 name: ASD 路由与输出补偿
 category: 外部模型/算法索引
-description: 从 71 路候选加性选择 22 路并完成输出保护、校准、频补和延迟
+description: 将 protected22、announcement17、preq32 按该顺序拼为71路，主选择后叠加 AUX，再执行 AllMute、输出软削波、OutputCal、FreqComp
+  与逐通道 delay
 version: '2.0'
 abi_version: 1
 package_type: placeholder
@@ -38,44 +39,55 @@ parameters: []
 blockers:
 - id: algorithm_pending
   gate: algorithm
-  reason: 尚未完成源算法逐语句实现
+  reason: 缺少支持运行期 main/aux select+gain 的 71→22 加性路由与 samplewise AllMute 原语
   source_ref: a_main
+- id: parameters_pending
+  gate: parameters
+  reason: FreqComp 175-float PoolIIR 布局与非平凡系数等价性未验证
+  source_ref: a_post_top
 - id: golden_pending
   gate: golden
-  reason: 尚未完成参考输出对拍
+  reason: RTC MSB fallback、非法选择、AUX叠加、校准、shutdown、delay 尚未逐块对拍
   source_ref: a_main
 algorithm_index:
   definition_id: A.POSTPROCESS.ROUTER_OUTPUT
   tasks:
   - A0
   operations:
-  - 22 main select/gain
-  - aux additive select/gain
-  - all mute
-  - 第二级 soft clip
-  - OutputCal
-  - FreqComp
-  - pool delay
+  - 71→22 main select/gain
+  - announcement AUX additive select/gain
+  - shared samplewise AllMute
+  - output piecewise soft clip
+  - OutputCal clamp[0,1]
+  - FreqComp PoolIIR/shutdown
+  - enabled tunable pool delay
   state:
-  - id: output_cal
-    role: 运行期 22 路校准
+  - id: all_mute
+    role: 共享 current/target/nframes/filter
     initialization: generated initialization
+  - id: output_cal
+    role: 运行期 22 路校准，clamp[0,1]
+    initialization: 全1
     shape:
     - 22
   - id: freq_comp
-    role: 22 路 IIR
+    role: 22 路 accelerator IIR
     initialization: generated initialization
   - id: delay
-    role: 22 路可调延迟
+    role: 22 路可调 delay ring
     initialization: generated initialization
   implementation:
     status: unsupported
     blockers:
     - id: algorithm_pending
       gate: algorithm
-      reason: 尚未完成源算法逐语句实现
+      reason: 缺少支持运行期 main/aux select+gain 的 71→22 加性路由与 samplewise AllMute 原语
       source_ref: a_main
+    - id: parameters_pending
+      gate: parameters
+      reason: FreqComp 175-float PoolIIR 布局与非平凡系数等价性未验证
+      source_ref: a_post_top
     - id: golden_pending
       gate: golden
-      reason: 尚未完成参考输出对拍
+      reason: RTC MSB fallback、非法选择、AUX叠加、校准、shutdown、delay 尚未逐块对拍
       source_ref: a_main

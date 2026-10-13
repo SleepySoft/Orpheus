@@ -29,6 +29,8 @@
 - [x] `B.BANDS.BASS`：删除错误 `audio4` 边界，按源码恢复 HPF LR2 / HPF other7 / LPF bass2 三流；11×10 构造矩阵与11路三级 PoolIIR 转换通过 Runtime impulse。
 - [x] 同 Task typed BULK 控制链：显式 shape/slot、两相快照、double-bank 提交、跨 Task 拒绝，动态/生成路径集成测试通过。
 - [x] 枚举并分类剩余 37 个叶子；10 条已确认 control/event 因果写入 Algorithm IR，完整队列见 `analysis/remaining-distillation-plan.md`。
+- [x] 修复组件 rescan 后工程 Registry fork 不刷新；live catalog 已确认 `indexed_gain/indexed_tone` 正常，缺失徽标清零。
+- [x] 重新审计 `A.PREAMP.ROUTE_LEVEL` 与 PostProcess 两叶：恢复71路真实拼接/路由顺序和 limiter 递推，具体 blocker 见 `analysis/a-route-level-postprocess-audit.md`。
 
 当前覆盖：67 definitions / 51 leaves / 14 verified leaves；仍有 37 个 golden blocker 待清零。
 

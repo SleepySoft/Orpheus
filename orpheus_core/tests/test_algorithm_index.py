@@ -370,6 +370,34 @@ def test_a_post_hologram_preserves_unity_start_reset_and_zero_phase_delay() -> N
     }
 
 
+def test_named_unimplemented_a_leaves_keep_precise_source_blockers() -> None:
+    definitions = {
+        item["id"]: item for item in load_algorithm_index(INDEX)["definitions"]
+    }
+    route = definitions["A.PREAMP.ROUTE_LEVEL"]["implementation"]
+    assert route["status"] == "unsupported"
+    assert {item["gate"] for item in route["blockers"]} == {
+        "algorithm", "state", "golden",
+    }
+
+    protected = definitions["A.POSTPROCESS.PROTECTED"]["implementation"]
+    assert protected["status"] == "unsupported"
+    assert "component" not in protected
+    assert {item["gate"] for item in protected["blockers"]} == {
+        "algorithm", "parameters", "golden",
+    }
+
+    router_definition = definitions["A.POSTPROCESS.ROUTER_OUTPUT"]
+    assert [item["type_ref"] for item in router_definition["interface"]["inputs"]] == [
+        "audio22", "audio32", "audio17",
+    ]
+    router = router_definition["implementation"]
+    assert router["status"] == "unsupported"
+    assert {item["gate"] for item in router["blockers"]} == {
+        "algorithm", "parameters", "golden",
+    }
+
+
 def test_b_bands_bass_uses_three_source_streams_and_per_channel_iir() -> None:
     definitions = {
         item["id"]: item for item in load_algorithm_index(INDEX)["definitions"]
