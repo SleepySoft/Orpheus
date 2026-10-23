@@ -742,7 +742,7 @@ int Runtime::get_bulk(const std::string& node_id, const std::string& key,
     auto si = inst.slot_index.find(key);
     if (si == inst.slot_index.end()) return -1;
     const SlotEntry& e = inst.slots[si->second];
-    if (e.kind != ORPHEUS_SLOT_BULK) return -1;
+    if (e.kind != ORPHEUS_SLOT_BULK && e.kind != ORPHEUS_SLOT_PROBE) return -1;
     if (count > e.count) return -1;                  /* 内部边界 */
     size_t span = count * e.size;
     if (inst.state == nullptr || e.offset + span > inst.state_size) return -1; /* 上下边界 */

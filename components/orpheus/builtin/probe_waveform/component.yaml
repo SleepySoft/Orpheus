@@ -31,8 +31,10 @@ parameters:
     affects_signature: true
   - id: waveform
     name: 波形
-    type: string
-    default: ""
+    type: float
+    count: 1023
+    default: 0.0
+    kind: probe
     update_policy: immediate
     readback: true
 memory:

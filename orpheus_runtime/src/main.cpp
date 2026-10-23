@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 void print_usage(const char* prog) {
     std::cerr << "Usage: " << prog << " <plan.json> <component_dir> [--pace] [--probe-interval ms]"
@@ -120,6 +121,17 @@ static void dump_probes(orpheus::Runtime& runtime, const orpheus::Plan& plan) {
     for (const auto& node_id : plan.execution_order) {
         auto slots = runtime.probe_slots(node_id);
         for (const orpheus::SlotEntry* e : slots) {
+            if (e->count > 1 && e->type == ORPHEUS_VALUE_FLOAT) {
+                std::vector<float> values(e->count);
+                if (runtime.get_bulk(node_id, e->key, values.data(), values.size()) != ORPHEUS_OK) continue;
+                std::cout << "PROBE_JSON " << node_id << " " << e->key << " [";
+                for (size_t i = 0; i < values.size(); ++i) {
+                    if (i > 0) std::cout << ",";
+                    std::cout << values[i];
+                }
+                std::cout << "]" << std::endl;
+                continue;
+            }
             OrpheusValue v;
             if (runtime.get_parameter(node_id, e->key, &v) != ORPHEUS_OK) continue;
             if (v.type == ORPHEUS_VALUE_FLOAT) {

@@ -75,7 +75,7 @@ def id_kind_of(param: dict[str, Any]) -> str:
 
 def id_form_of(param: dict[str, Any]) -> str:
     """数据点形式（form，与用途正交）：bulk 参数/运行期槽 → BULK，否则 SCALAR。"""
-    if param.get("runtime") or param.get("kind") == "bulk":
+    if param.get("runtime") or param.get("kind") == "bulk" or int(param.get("count", 1) or 1) > 1:
         return "BULK"
     return "SCALAR"
 

@@ -1,6 +1,5 @@
 #include "orpheus_probe_waveform.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -9,8 +8,8 @@ static const OrpheusParameter params[] = {
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
       .min_i32 = 1, .max_i32 = 32, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true, .affects_signature = true },
-    { .id = "waveform", .name = "Waveform", .type = ORPHEUS_VALUE_STRING,
-      .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "" },
+        { .id = "waveform", .name = "Waveform", .type = ORPHEUS_VALUE_FLOAT,
+            .default_value = { .type = ORPHEUS_VALUE_FLOAT, .value.f32 = 0.0f },
       .update_policy = ORPHEUS_UPDATE_IMMEDIATE,
       .readback = true, .persistent = false, .affects_signature = false }
 };
@@ -39,7 +38,6 @@ static int prepare(void* state, const OrpheusConfig* config) {
     s->channels = config->channels > 0 ? config->channels : 2;
     s->head = 0;
     memset(s->buf, 0, sizeof(s->buf));
-    s->json[0] = '\0';
     return ORPHEUS_OK;
 }
 static int reset(void* state) { (void)state; return ORPHEUS_OK; }
@@ -69,25 +67,6 @@ static int set_param(void* state, const char* id, const OrpheusValue* v) { (void
 static int get_param(void* state, const char* id, OrpheusValue* v) {
     ProbeWaveformState* s = (ProbeWaveformState*)state;
     if (strcmp(id, "channels") == 0) { v->type = ORPHEUS_VALUE_INT; v->value.i32 = (int32_t)s->channels; return ORPHEUS_OK; }
-    if (strcmp(id, "waveform") == 0) {
-        /* 非实时线程（probe 上报）：把环形缓冲编码为 JSON 数组字符串。
-           host 对 STRING readback 参数以 PROBE_JSON <node> <param> <json> 上报。 */
-        char* p = s->json;
-        size_t rem = sizeof(s->json);
-        int n = snprintf(p, rem, "[");
-        if (n < 0) return ORPHEUS_ERR_PROCESSING;
-        p += n; rem -= (size_t)n;
-        for (uint32_t i = 0; i < PROBE_WAVEFORM_SAMPLES && rem > 16; ++i) {
-            float x = s->buf[(s->head + i) % PROBE_WAVEFORM_SAMPLES];
-            n = snprintf(p, rem, i ? ",%.6g" : "%.6g", x);
-            if (n < 0 || (size_t)n >= rem) break;
-            p += n; rem -= (size_t)n;
-        }
-        if (rem > 2) snprintf(p, rem, "]");
-        v->type = ORPHEUS_VALUE_STRING;
-        v->value.str = s->json;
-        return ORPHEUS_OK;
-    }
     return ORPHEUS_ERR_NOT_FOUND;
 }
 static int register_slots(void* state, const OrpheusRegistry* reg) {

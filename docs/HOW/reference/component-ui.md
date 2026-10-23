@@ -8,10 +8,10 @@
 
 **已落地：probe_waveform 波形显示（第一条完整闭环）**
 
-- C 组件：`probe_waveform` 增加 1024 帧环形缓冲（取第 0 通道）+ `waveform` STRING readback 参数（`get_param` 在非实时线程编码为 JSON 数组）。
-- 数据通路：宿主（`rt_host` / `orpheus_runtime`）对 STRING 型 readback 参数输出 `PROBE_JSON <node> <param> <json>`；`rt.py` / `app.py` 解析为结构化值（数组/对象/数字）。
+- C 组件：`probe_waveform` 使用 1023 帧环形缓冲（取第 0 通道）；Bridge 以单帧 float 数组上报，离线文本宿主读取数组后编码 JSON。
+- 数据通路：实时 Bridge 直接返回 float 数组；离线宿主对 STRING 型回调值输出 `PROBE_JSON <node> <param> <json>`，`rt.py` / `app.py` 解析为结构化值。
 - UI：`nodeWidgets.js` 新增 `ScopeWidget`（canvas 示波器）并注册到 `orpheus.builtin.probe_waveform`；参数面板隐藏显示型 readback 参数（`readback && !affects_signature`）。
-- 示例与测试：`examples/probe_waveform_scope.yaml` + e2e 测试断言回读 1024 点浮点数组。
+- 示例与测试：`examples/probe_waveform_scope.yaml` + e2e 测试断言回读 1023 点浮点数组。
 
 **已落地：画布信号类型与子组件接口可视化**
 

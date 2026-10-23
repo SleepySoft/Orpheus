@@ -329,7 +329,7 @@ def test_run_example_end_to_end(client):
     reason="runtime and components not built",
 )
 def test_probe_waveform_readback_offline(client):
-    """Probe waveform component reports a 1024-sample JSON array via PROBE_JSON."""
+    """Probe waveform component reports a 1023-sample JSON array via PROBE_JSON."""
     name = f"test_{uuid.uuid4().hex[:8]}"
     try:
         resp = client.post("/api/projects", json={"name": name, "from_example": "probe_waveform_scope"})
@@ -343,7 +343,7 @@ def test_probe_waveform_readback_offline(client):
         by = {(p["node"], p["param"]): p["value"] for p in result["probes"]}
         wave = by.get(("scope", "waveform"))
         assert isinstance(wave, list), f"expected waveform array, got {type(wave)}"
-        assert len(wave) == 1024
+        assert len(wave) == 1023
         assert all(isinstance(x, float) for x in wave)
         assert max(abs(x) for x in wave) > 0.1  # 440Hz sine captured
     finally:

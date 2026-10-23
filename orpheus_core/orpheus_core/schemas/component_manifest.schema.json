@@ -105,6 +105,7 @@
           "id": { "type": "string" },
           "name": { "type": "string" },
           "type": { "type": "string", "enum": ["float", "int", "bool", "string"] },
+          "count": { "type": "integer", "minimum": 1, "description": "固定长度数组数据点；count > 1 时使用 BULK form 传输。" },
           "default": {},
           "range": { "type": "array", "minItems": 2, "maxItems": 2 },
           "unit": { "type": "string" },

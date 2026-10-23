@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
+import json
 from pathlib import Path
 
 import pytest
@@ -18,9 +19,11 @@ from fastapi.testclient import TestClient
 
 from orpheus_core.compiler import GraphCompiler
 from orpheus_core.generator import CodeGenerator
+from orpheus_core.link.olink import OLINK_MSG_MAX
 from orpheus_core.project import ProjectLoader
 from orpheus_core.registry import Registry
 from orpheus_core.server.app import create_app
+from orpheus_core.server.bridge_process_session import ProcessBridgeSession
 from orpheus_core.subgraph import flatten_project
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -78,6 +81,60 @@ def test_module_layout_deterministic(registry: Registry, plan) -> None:
     plan2 = GraphCompiler(registry).compile(flatten_project(proj))
     assert [m["path"] for m in plan.modules] == [m["path"] for m in plan2.modules]
     assert [m["id"] for m in plan.modules] == [m["id"] for m in plan2.modules]
+
+
+def test_waveform_probe_fits_one_bridge_message(registry: Registry) -> None:
+    project = ProjectLoader().load(ROOT / "examples" / "probe_waveform_scope.yaml")
+    waveform_plan = GraphCompiler(registry).compile(flatten_project(project))
+    waveform = next(
+        entry for entry in waveform_plan.id_map
+        if entry["node"] == "scope" and entry["key"] == "waveform"
+    )
+
+    assert waveform["kind"] == "PROBE"
+    assert waveform["form"] == "BULK"
+    assert waveform["type"] == "float"
+    assert waveform["count"] == 1023
+    assert 8 + waveform["count"] * 4 <= OLINK_MSG_MAX
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_dynamic_bridge_polls_waveform_array(
+    tmp_path: Path, registry: Registry,
+) -> None:
+    project = ProjectLoader().load(ROOT / "examples" / "probe_waveform_scope.yaml")
+    waveform_plan = GraphCompiler(registry).compile(flatten_project(project))
+    plan_path = tmp_path / "waveform.plan.json"
+    plan_path.write_text(
+        json.dumps(waveform_plan.__dict__, ensure_ascii=False), encoding="utf-8"
+    )
+    (tmp_path / "outputs").mkdir()
+
+    session = ProcessBridgeSession(
+        [
+            str(ROOT / "build" / "orpheus_runtime.exe"),
+            str(plan_path),
+            str(ROOT / "build" / "components"),
+            "--bridge-stdio",
+            "--pace",
+        ],
+        tmp_path,
+        waveform_plan.id_map,
+        expected_id_map_hash=waveform_plan.bridge_identity["id_map_hash"],
+        log_path=tmp_path / "waveform-bridge.log",
+        probe_interval=0.0,
+    )
+    try:
+        assert session.poll_observations() == 1
+        waveform = session.snapshot()["probes"]["scope"]["waveform"]
+        assert len(waveform) == 1023
+        assert all(isinstance(sample, float) for sample in waveform)
+    finally:
+        session.stop()
 
 
 def test_generated_ids_macros_and_map(tmp_path: Path, registry: Registry, plan) -> None:
