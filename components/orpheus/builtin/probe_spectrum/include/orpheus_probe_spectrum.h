@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 #define SPECTRUM_MAX_WINDOW 4096
-#define SPECTRUM_JSON_CAP 16384
+#define SPECTRUM_PROBE_BINS 1023
 
 typedef struct {
     uint32_t channels;
@@ -21,7 +21,7 @@ typedef struct {
     float* re;      /* FFT 实部 */
     float* im;      /* FFT 虚部 */
     float* mags;    /* half 个幅度 */
-    char json[SPECTRUM_JSON_CAP];
+    float probe[SPECTRUM_PROBE_BINS]; /* 重采样到完整 Nyquist 频段 */
 } SpectrumState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);

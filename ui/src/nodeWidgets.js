@@ -123,16 +123,15 @@ function ScopeWidget({ data, large }) {
 
 /**
  * Frequency spectrum widget: renders data.probe.spectrum (magnitude bins from
- * the probe_spectrum component). Freq axis derived from the compiled node rate
- * and the FFT window size parameter.
+ * the probe_spectrum component). Freq axis spans the compiled node rate's
+ * Nyquist range; the component resamples variable FFT windows to fixed bins.
  */
 function SpectrumWidget({ data, large }) {
   const bins = data.probe?.spectrum;
-  const windowSize = data.params?.window_size ?? 1024;
   const sampleRate = data.rate?.sample_rate ?? 48000;
   const values = Array.isArray(bins) ? bins : [];
   const nyquist = sampleRate / 2;
-  const binWidth = values.length ? sampleRate / windowSize : 0;
+  const binWidth = values.length > 1 ? nyquist / (values.length - 1) : 0;
   const series = values.length
     ? [{
       id: 'spectrum',

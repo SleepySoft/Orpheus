@@ -745,9 +745,9 @@ def test_sweep_spectrum_peak_at_end_frequency(client):
 
         probes = {f"{p['node']}:{p['param']}": p["value"] for p in result["probes"]}
         bins = probes.get("spec:spectrum")
-        assert isinstance(bins, list) and len(bins) == 512, f"bad spectrum: {type(bins)}"
+        assert isinstance(bins, list) and len(bins) == 1023, f"bad spectrum: {type(bins)}"
         peak_idx = max(range(len(bins)), key=lambda i: bins[i])
-        peak_freq = peak_idx * 48000 / 1024
+        peak_freq = peak_idx * 24000 / (len(bins) - 1)
         assert bins[peak_idx] > 0.05, f"spectrum flat: peak {bins[peak_idx]}"
         assert 4000 <= peak_freq <= 6000, f"peak at {peak_freq}Hz, expected ~5000Hz"
     finally:

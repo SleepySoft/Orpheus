@@ -1,7 +1,6 @@
 #include "orpheus_probe_spectrum.h"
 
 #include <math.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -32,8 +31,8 @@ static const OrpheusParameter params[] = {
     {
         .id = "spectrum",
         .name = "Spectrum",
-        .type = ORPHEUS_VALUE_STRING,
-        .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "" },
+        .type = ORPHEUS_VALUE_FLOAT,
+        .default_value = { .type = ORPHEUS_VALUE_FLOAT, .value.f32 = 0.0f },
         .update_policy = ORPHEUS_UPDATE_IMMEDIATE,
         .readback = true,
         .persistent = false,
@@ -177,7 +176,7 @@ static int prepare(void* state, const OrpheusConfig* config) {
     for (uint32_t i = 0; i < s->window_size; ++i) {
         s->window[i] = 0.5f - 0.5f * cosf(2.0f * 3.14159265358979323846f * i / (s->window_size - 1));
     }
-    s->json[0] = '\0';
+    memset(s->probe, 0, sizeof(s->probe));
     return ORPHEUS_OK;
 }
 
@@ -187,6 +186,7 @@ static int reset(void* state) {
     s->samples_seen = 0;
     if (s->ring) memset(s->ring, 0, s->window_size * sizeof(float));
     if (s->mags) memset(s->mags, 0, s->half * sizeof(float));
+    memset(s->probe, 0, sizeof(s->probe));
     return ORPHEUS_OK;
 }
 
@@ -200,6 +200,13 @@ static void analyze(SpectrumState* s) {
     fft_radix2(s->re, s->im, n);
     for (uint32_t i = 0; i < s->half; ++i) {
         s->mags[i] = 2.0f * sqrtf(s->re[i] * s->re[i] + s->im[i] * s->im[i]) / (float)n;
+    }
+    for (uint32_t i = 0; i < SPECTRUM_PROBE_BINS; ++i) {
+        float source = (float)i * (float)(s->half - 1) / (float)(SPECTRUM_PROBE_BINS - 1);
+        uint32_t lower = (uint32_t)source;
+        uint32_t upper = lower + 1 < s->half ? lower + 1 : lower;
+        float fraction = source - (float)lower;
+        s->probe[i] = s->mags[lower] + (s->mags[upper] - s->mags[lower]) * fraction;
     }
 }
 
@@ -246,22 +253,6 @@ static int get_param(void* state, const char* id, OrpheusValue* v) {
         v->value.i32 = (int32_t)s->window_size;
         return ORPHEUS_OK;
     }
-    if (strcmp(id, "spectrum") == 0) {
-        char* p = s->json;
-        size_t rem = sizeof(s->json);
-        int n = snprintf(p, rem, "[");
-        if (n < 0) return ORPHEUS_ERR_PROCESSING;
-        p += n; rem -= (size_t)n;
-        for (uint32_t i = 0; i < s->half && rem > 16; ++i) {
-            n = snprintf(p, rem, i ? ",%.6g" : "%.6g", s->mags[i]);
-            if (n < 0 || (size_t)n >= rem) break;
-            p += n; rem -= (size_t)n;
-        }
-        if (rem > 2) snprintf(p, rem, "]");
-        v->type = ORPHEUS_VALUE_STRING;
-        v->value.str = s->json;
-        return ORPHEUS_OK;
-    }
     return ORPHEUS_ERR_NOT_FOUND;
 }
 
@@ -276,8 +267,9 @@ static int register_slots(void* state, const OrpheusRegistry* reg) {
                      ORPHEUS_VALUE_INT, .min_i32=64, .max_i32=4096,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT);
-    ORPHEUS_REG_SLOT(reg, s, json, ORPHEUS_SLOT_PROBE, "spectrum", "频谱",
-                     ORPHEUS_VALUE_STRING, .flags=ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_ARRAY(reg, s, probe, SPECTRUM_PROBE_BINS, ORPHEUS_SLOT_PROBE,
+                      "spectrum", "频谱", ORPHEUS_VALUE_FLOAT,
+                      .flags=ORPHEUS_SLOT_READBACK);
     return ORPHEUS_OK;
 }
 

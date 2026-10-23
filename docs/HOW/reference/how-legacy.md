@@ -773,7 +773,7 @@ orpheus_platform_memory_section_bind(...);
 - **监控界面增强**：电平条/示波器大屏化（`large` 模式 + 放大弹层 ⤢）；示波器改滚动历史显示（250ms 轮询）。
 - **`orpheus.builtin.fir`**：系数以逗号分隔字符串传入，每通道环形延迟线，实时安全；数值测试与 numpy 卷积逐点比对。
 - **`orpheus.builtin.sweep_gen`**：对数/线性扫频发生器（起止频率、时长、幅度）；配合 `probe_waveform`（示波）、`wav_out`（记录）和 `probe_spectrum`（绘图）形成完整扫频测量链路，示例 `examples/sweep_spectrum.yaml`。
-- **`orpheus.builtin.probe_spectrum`**：radix-2 FFT + Hann 窗，`spectrum` readback 以 PROBE_JSON 输出幅度数组；UI 频谱控件按采样率/窗口绘制 dB 柱状图，可放大。
+- **`orpheus.builtin.probe_spectrum`**：radix-2 FFT + Hann 窗，原始幅度谱重采样为覆盖 Nyquist 频段的 1023 点二进制 float Probe；UI 频谱控件按采样率绘制 dB 柱状图，可放大。
 - **子组件框选**：React Flow 开启 `selectionOnDrag`，画布拖拽框选 + Shift 点击多选；「包装为子组件」自动推导边界端口并打开新标签页（多标签已支持），层级嵌套由 `flatten_project` 递归展开。
 
 ---

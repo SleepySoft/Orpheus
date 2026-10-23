@@ -2,7 +2,7 @@
 
 ## 功能
 
-实时频谱监控组件：把输入音频原样直通，同时把第 0 通道写入长度为 `window_size` 的环形缓冲；每攒满一窗样本，对整窗加 Hann 窗后做 radix-2 FFT，得到前半段（`window_size/2` 个）幅度谱，通过 `spectrum` 探针以 JSON 数组上报。适合观察信号的频率成分、确认滤波器效果、找啸叫/噪声频点。
+实时频谱监控组件：把输入音频原样直通，同时把第 0 通道写入长度为 `window_size` 的环形缓冲；每攒满一窗样本，对整窗加 Hann 窗后做 radix-2 FFT，再重采样为覆盖完整 Nyquist 频段的 1023 个显示 bins，通过 `spectrum` 探针以二进制 float 数组上报。适合观察信号的频率成分、确认滤波器效果、找啸叫/噪声频点。
 
 ## 参数
 
@@ -10,7 +10,7 @@
 |---|---|---|---|---|---|
 | `channels` | int | 2 | 1–32 | restart_required | 通道数，改变后需重新编译（影响端口签名）。 |
 | `window_size` | int | 1024 | 64–4096 | restart_required | FFT 点数（见下文，实际会取整到 2 的幂）。 |
-| `spectrum` | string | `""` | — | immediate | 当前幅度谱的 JSON 数组（readback，只读）。 |
+| `spectrum` | float[1023] | `0.0` | — | immediate | 当前幅度谱（readback，只读）；Bridge 使用二进制数组传输。 |
 
 ### `window_size` 的真实含义
 
@@ -20,7 +20,7 @@
 
 ### `spectrum` 上报的是什么
 
-- JSON 数组，共 `window_size/2` 个元素，第 `i` 个元素对应频率 `i × 采样率 / window_size`（0 Hz 到奈奎斯特频率）。
+- float 数组，共 1023 个显示 bins，由原始 `window_size/2` 点幅度谱线性重采样而来；第 `i` 个元素对应 `i × 奈奎斯特频率 / 1022`。
 - 每个值是**幅度谱**：`2 × |FFT[i]| / N`，因此一个幅度为 A 的正弦波，其主峰读数 ≈ A（满幅正弦 ≈ 1.0）。不是 dB，也不是功率谱。
 - 分析前对整窗乘 Hann 窗，减少频谱泄漏；代价是主瓣略展宽，相邻很近的两个峰可能糊在一起。
 - 只分析第 0 通道。
@@ -44,7 +44,7 @@ UI 节点本体（`nodeWidgets.js` 的 `SpectrumWidget`）读取 `spectrum` 探�
 - 分析触发点是"攒满一整窗"，与块边界无关；启动后第一窗出来前读数为 0。
 - `window_size` 是 `restart_required`，运行时改不动；改窗口需重新编译/重启。
 - 内存分配（窗口表、环形缓冲、FFT 工作区）全部在 `prepare` 完成，`process` 内无分配；FFT 在攒满一窗的那一帧同步执行，峰值 CPU 占用集中在该帧——块长很短时请注意余量。
-- JSON 编码在非实时线程（探针轮询）执行，不在音频回调里。
+- 1023 个 float 加 8 字节消息头恰好符合 Bridge 单帧上限；离线文本宿主按需转换为 JSON 供现有 UI 数据通路使用。
 
 ## 典型用法
 

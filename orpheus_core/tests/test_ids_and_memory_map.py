@@ -98,6 +98,21 @@ def test_waveform_probe_fits_one_bridge_message(registry: Registry) -> None:
     assert 8 + waveform["count"] * 4 <= OLINK_MSG_MAX
 
 
+def test_spectrum_probe_fits_one_bridge_message(registry: Registry) -> None:
+    project = ProjectLoader().load(ROOT / "examples" / "sweep_spectrum.yaml")
+    spectrum_plan = GraphCompiler(registry).compile(flatten_project(project))
+    spectrum = next(
+        entry for entry in spectrum_plan.id_map
+        if entry["node"] == "spectrum" and entry["key"] == "spectrum"
+    )
+
+    assert spectrum["kind"] == "PROBE"
+    assert spectrum["form"] == "BULK"
+    assert spectrum["type"] == "float"
+    assert spectrum["count"] == 1023
+    assert 8 + spectrum["count"] * 4 <= OLINK_MSG_MAX
+
+
 @pytest.mark.skipif(
     not (ROOT / "build" / "orpheus_runtime.exe").exists()
     or not (ROOT / "build" / "components").exists(),
@@ -133,6 +148,48 @@ def test_dynamic_bridge_polls_waveform_array(
         waveform = session.snapshot()["probes"]["scope"]["waveform"]
         assert len(waveform) == 1023
         assert all(isinstance(sample, float) for sample in waveform)
+    finally:
+        session.stop()
+
+
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_dynamic_bridge_reads_spectrum_array(
+    tmp_path: Path, registry: Registry,
+) -> None:
+    project = ProjectLoader().load(ROOT / "examples" / "sweep_spectrum.yaml")
+    spectrum_plan = GraphCompiler(registry).compile(flatten_project(project))
+    plan_path = tmp_path / "spectrum.plan.json"
+    plan_path.write_text(
+        json.dumps(spectrum_plan.__dict__, ensure_ascii=False), encoding="utf-8"
+    )
+    (tmp_path / "outputs").mkdir()
+    spectrum_id = next(
+        entry["id"] for entry in spectrum_plan.id_map
+        if entry["node"] == "spectrum" and entry["key"] == "spectrum"
+    )
+
+    session = ProcessBridgeSession(
+        [
+            str(ROOT / "build" / "orpheus_runtime.exe"),
+            str(plan_path),
+            str(ROOT / "build" / "components"),
+            "--bridge-stdio",
+            "--pace",
+        ],
+        tmp_path,
+        spectrum_plan.id_map,
+        expected_id_map_hash=spectrum_plan.bridge_identity["id_map_hash"],
+        log_path=tmp_path / "spectrum-bridge.log",
+        probe_interval=0.0,
+    )
+    try:
+        spectrum = session.read_bulk(data_id=spectrum_id)
+        assert len(spectrum) == 1023
+        assert all(isinstance(magnitude, float) for magnitude in spectrum)
     finally:
         session.stop()
 
