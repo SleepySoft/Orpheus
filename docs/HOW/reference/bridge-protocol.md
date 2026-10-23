@@ -89,6 +89,12 @@ SoC/HLOS 不需要新的“双工模式”，而需要与双工正交的扩展�
 
 SHM/RPMsg/TCP Adapter 只提供传输能力；Lane 调度、credit、订阅和 ownership 仍属于 Bridge/Endpoint 契约。
 
+当前 Core Profile 单帧 payload 上限为 1023 个 32 位 word。所有自动轮询 Probe
+必须在单帧内完成：波形/频谱使用定长二进制数组，结构化 STRING Probe 必须证明
+最坏编码长度不超过上限。大 BULK 分片尚未实现；当前已知超限槽为
+`bulk_relay.values_storage`、`iir_bank.coefs_per_channel`、
+`input_mixer_3d.weights`、`rnc_mimo_nlms.weights`，不得缩短组件容量冒充协议支持。
+
 ## 4. 半双工基线时序
 
 ```text

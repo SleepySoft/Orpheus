@@ -1,7 +1,6 @@
 #include "orpheus_psd.h"
 
 #include <math.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -47,8 +46,8 @@ static const OrpheusParameter psd_params[] = {
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 8 },
       .min_i32 = 1, .max_i32 = 128, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true, .affects_signature = false },
-    { .id = "spectrum", .name = "功率谱", .type = ORPHEUS_VALUE_STRING,
-      .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "[]" },
+        { .id = "spectrum", .name = "功率谱", .type = ORPHEUS_VALUE_FLOAT,
+            .default_value = { .type = ORPHEUS_VALUE_FLOAT, .value.f32 = 0.0f },
       .update_policy = ORPHEUS_UPDATE_IMMEDIATE,
       .readback = true, .persistent = false, .affects_signature = false }
 };
@@ -104,14 +103,14 @@ static int psd_prepare(void* state, const OrpheusConfig* config) {
     s->re = (float*)malloc(s->half * 2 * sizeof(float));
     s->im = (float*)malloc(s->half * 2 * sizeof(float));
     if (!s->mags || !s->re || !s->im) { psd_free(s); return ORPHEUS_ERR_OUT_OF_MEMORY; }
-    s->json[0] = '\0';
+    memset(s->probe, 0, sizeof(s->probe));
     return ORPHEUS_OK;
 }
 
 static int psd_reset(void* state) {
     PsdState* s = (PsdState*)state;
     if (s->mags) memset(s->mags, 0, s->channels * s->half * sizeof(float));
-    s->json[0] = '\0';
+    memset(s->probe, 0, sizeof(s->probe));
     return ORPHEUS_OK;
 }
 
@@ -143,27 +142,20 @@ static int psd_process(void* state, const OrpheusProcessContext* ctx) {
             mag[k] += a * (m - mag[k]);
         }
     }
-    /* readback：通道 0 的平滑幅度（与 probe_spectrum 同构，复用频谱 widget） */
+    /* readback：通道 0 的平滑幅度重采样到固定 Bridge payload。 */
     float* mag0 = s->mags;
-    char* p = s->json;
-    size_t rem = sizeof(s->json);
-    int len = snprintf(p, rem, "[");
-    p += len; rem -= (size_t)len;
-    for (uint32_t k = 0; k < half && rem > 8; ++k) {
-        len = snprintf(p, rem, k ? ",%.6g" : "%.6g", mag0[k]);
-        p += len; rem -= (size_t)len;
+    for (uint32_t i = 0; i < PSD_PROBE_BINS; ++i) {
+        float source = (float)i * (float)(half - 1) / (float)(PSD_PROBE_BINS - 1);
+        uint32_t lower = (uint32_t)source;
+        uint32_t upper = lower + 1 < half ? lower + 1 : lower;
+        float fraction = source - (float)lower;
+        s->probe[i] = mag0[lower] + (mag0[upper] - mag0[lower]) * fraction;
     }
-    if (rem > 2) snprintf(p, rem, "]");
     return ORPHEUS_OK;
 }
 
 static int psd_get_parameter(void* state, const char* param_id, OrpheusValue* value) {
     PsdState* s = (PsdState*)state;
-    if (strcmp(param_id, "spectrum") == 0) {
-        value->type = ORPHEUS_VALUE_STRING;
-        value->value.str = s->json;
-        return ORPHEUS_OK;
-    }
     if (strcmp(param_id, "channels") == 0) {
         value->type = ORPHEUS_VALUE_INT;
         value->value.i32 = (int32_t)s->channels;
@@ -187,8 +179,9 @@ static int psd_register_slots(void* state, const OrpheusRegistry* reg) {
                      ORPHEUS_VALUE_FLOAT, .min_f32=1.0f, .max_f32=128.0f,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
-    ORPHEUS_REG_SLOT(reg, s, json, ORPHEUS_SLOT_PROBE, "spectrum", "功率谱",
-                     ORPHEUS_VALUE_STRING, .flags=ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_ARRAY(reg, s, probe, PSD_PROBE_BINS, ORPHEUS_SLOT_PROBE,
+                      "spectrum", "功率谱", ORPHEUS_VALUE_FLOAT,
+                      .flags=ORPHEUS_SLOT_READBACK);
     return ORPHEUS_OK;
 }
 

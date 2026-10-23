@@ -20,7 +20,8 @@ from fastapi.testclient import TestClient
 from orpheus_core.compiler import GraphCompiler
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.link.olink import OLINK_MSG_MAX
-from orpheus_core.project import ProjectLoader
+from orpheus_core.parameter_catalog import id_kind_of
+from orpheus_core.project import Connection, Graph, Node, PortRef, Project, ProjectLoader
 from orpheus_core.registry import Registry
 from orpheus_core.server.app import create_app
 from orpheus_core.server.bridge_process_session import ProcessBridgeSession
@@ -111,6 +112,100 @@ def test_spectrum_probe_fits_one_bridge_message(registry: Registry) -> None:
     assert spectrum["type"] == "float"
     assert spectrum["count"] == 1023
     assert 8 + spectrum["count"] * 4 <= OLINK_MSG_MAX
+
+
+def test_psd_probe_fits_one_bridge_message(registry: Registry) -> None:
+    project = Project()
+    project.graph = Graph(
+        nodes={
+            "source": Node(
+                id="source", component="orpheus.builtin.signal_gen",
+                params={"channels": 1, "sample_rate": 48000},
+            ),
+            "psd": Node(
+                id="psd", component="orpheus.builtin.psd",
+                params={"channels": 1, "smoothing": 8},
+            ),
+            "sink": Node(
+                id="sink", component="orpheus.builtin.null_sink",
+                params={"channels": 1},
+            ),
+        },
+        connections=[
+            Connection(PortRef.parse("source:out"), PortRef.parse("psd:in")),
+            Connection(PortRef.parse("psd:out"), PortRef.parse("sink:in")),
+        ],
+    )
+    psd_plan = GraphCompiler(registry).compile(project)
+    spectrum = next(
+        entry for entry in psd_plan.id_map
+        if entry["node"] == "psd" and entry["key"] == "spectrum"
+    )
+
+    assert spectrum["kind"] == "PROBE"
+    assert spectrum["form"] == "BULK"
+    assert spectrum["type"] == "float"
+    assert spectrum["count"] == 1023
+    assert 8 + spectrum["count"] * 4 <= OLINK_MSG_MAX
+
+
+def test_sweep_record_probe_fits_one_bridge_message(registry: Registry) -> None:
+    project = ProjectLoader().load(ROOT / "examples" / "sweep_spectrum.yaml")
+    sweep_plan = GraphCompiler(registry).compile(flatten_project(project))
+    sweep = next(
+        entry for entry in sweep_plan.id_map
+        if entry["node"] == "rec" and entry["key"] == "sweep"
+    )
+
+    assert sweep["kind"] == "PROBE"
+    assert sweep["form"] == "BULK"
+    assert sweep["type"] == "float"
+    assert sweep["count"] == 512
+    assert 8 + sweep["count"] * 4 <= OLINK_MSG_MAX
+
+
+def test_builtin_probes_fit_bridge_core_profile(registry: Registry) -> None:
+    safe_string_probes = {
+        ("orpheus.builtin.adaptive_fir", "detail"),       # <= 512 bytes
+        ("orpheus.builtin.anc_fxlms", "detail"),          # <= 512 bytes
+        ("orpheus.builtin.coherence_matrix", "coherence"),  # <= 100 values
+        ("orpheus.builtin.coherence_matrix", "history"),   # 64 values
+        ("orpheus.builtin.interp_lut", "history"),        # 64 values
+        ("orpheus.builtin.noise_detector", "detail"),     # <= 1024 bytes
+        ("orpheus.builtin.noise_detector_ab", "detail"),  # <= 1024 bytes
+        ("orpheus.builtin.noise_detector_nlms", "detail"),  # <= 1024 bytes
+    }
+    actual_string_probes: set[tuple[str, str]] = set()
+
+    for component in registry.list_components():
+        for parameter in component.manifest.get("parameters", []):
+            if id_kind_of(parameter) != "PROBE":
+                continue
+            count = int(parameter.get("count", 1) or 1)
+            if parameter.get("type") == "string":
+                actual_string_probes.add((component.id, parameter["id"]))
+            else:
+                assert 8 + count * 4 <= OLINK_MSG_MAX, (
+                    f"{component.id}.{parameter['id']} 超过 Bridge Core Profile 单帧上限"
+                )
+
+    assert actual_string_probes == safe_string_probes
+
+
+def test_oversized_bulk_slots_require_bridge_fragmentation(registry: Registry) -> None:
+    oversized = {
+        (component.id, slot["id"], int(slot["count"]))
+        for component in registry.list_components()
+        for slot in component.manifest.get("bulk_slots", [])
+        if 8 + int(slot["count"]) * 4 > OLINK_MSG_MAX
+    }
+
+    assert oversized == {
+        ("orpheus.builtin.bulk_relay", "values_storage", 2048),
+        ("orpheus.builtin.iir_bank", "coefs_per_channel", 2560),
+        ("orpheus.builtin.input_mixer_3d", "weights", 1024),
+        ("orpheus.builtin.rnc_mimo_nlms", "weights", 12000),
+    }, "新增超限 BULK 槽必须先实现 Bridge 分片或显式更新审计"
 
 
 @pytest.mark.skipif(

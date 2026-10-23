@@ -81,17 +81,18 @@ def _run(client, comp_id: str, params: dict, samples: list[float], ch: int = 1) 
     reason="runtime and components not built",
 )
 def test_psd_spectrum_peak_bin(client) -> None:
-    """1kHz 正弦 → 功率谱峰值落在 bin≈2.7（48k/128 块），通道 0 readback 为幅度数组。"""
+    """1kHz 正弦 → 1023 点 Nyquist 映射的峰值接近 1kHz。"""
     n = 4800
     sine = [0.5 * math.sin(2 * math.pi * 1000.0 * i / 48000.0) for i in range(n)]
     probes = _run(client, "psd", {"smoothing": 4}, sine)
     spec = [p for p in probes if p["node"] == "est" and p["param"] == "spectrum"]
     assert spec
     bins = spec[-1]["value"]
-    assert isinstance(bins, list) and len(bins) == 64  # block 128 → half 64
+    assert isinstance(bins, list) and len(bins) == 1023
     peak = max(range(len(bins)), key=lambda k: bins[k])
     assert bins[peak] > 0.2
-    assert 1 <= peak <= 5  # 1000Hz/48000*128 ≈ 2.7
+    peak_freq = peak * 24000 / (len(bins) - 1)
+    assert 700 <= peak_freq <= 1300
 
 
 @pytest.mark.skipif(

@@ -1,7 +1,6 @@
 #include "orpheus_sweep_record.h"
 
 #include <math.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -48,7 +47,19 @@ static const OrpheusParameter params[] = {
     { .id = "channels", .name = "Channels", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 1 },
       .min_i32 = 1, .max_i32 = 32, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
-      .readback = true, .persistent = true, .affects_signature = true }
+            .readback = true, .persistent = true, .affects_signature = true },
+        { .id = "sweep", .name = "Sweep Curve", .type = ORPHEUS_VALUE_FLOAT,
+            .default_value = { .type = ORPHEUS_VALUE_FLOAT, .value.f32 = 0.0f },
+            .update_policy = ORPHEUS_UPDATE_IMMEDIATE,
+            .readback = true, .persistent = false, .affects_signature = false },
+        { .id = "progress", .name = "Progress", .type = ORPHEUS_VALUE_FLOAT,
+            .default_value = { .type = ORPHEUS_VALUE_FLOAT, .value.f32 = 0.0f },
+            .update_policy = ORPHEUS_UPDATE_IMMEDIATE,
+            .readback = true, .persistent = false, .affects_signature = false },
+        { .id = "current_freq", .name = "Current Frequency", .type = ORPHEUS_VALUE_FLOAT,
+            .default_value = { .type = ORPHEUS_VALUE_FLOAT, .value.f32 = 0.0f },
+            .update_policy = ORPHEUS_UPDATE_IMMEDIATE,
+            .readback = true, .persistent = false, .affects_signature = false }
 };
 
 static const OrpheusPort ports[] = {
@@ -62,7 +73,7 @@ static const OrpheusPort ports[] = {
 
 static const OrpheusComponentDescriptor desc = {
     .id = "orpheus.builtin.sweep_record", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = ports, .port_count = 2, .params = params, .param_count = 6,
+    .ports = ports, .port_count = 2, .params = params, .param_count = 9,
     .state_size = sizeof(SweepRecordState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = true
 };
@@ -115,14 +126,15 @@ static int prepare(void* state, const OrpheusConfig* config) {
     memset(s->acc, 0, sizeof(s->acc));
     memset(s->count, 0, sizeof(s->count));
     memset(s->mag, 0, sizeof(s->mag));
+    memset(s->probe, 0, sizeof(s->probe));
     /* 预计算各箱中心频率 */
     for (uint32_t i = 0; i < s->bins; ++i) {
         double u = (double)i / (double)(s->bins - 1);
         s->freq[i] = s->log_scale
             ? (float)((double)s->start_freq * pow((double)s->end_freq / (double)s->start_freq, u))
             : s->start_freq + (s->end_freq - s->start_freq) * (float)u;
+        s->probe[i] = s->freq[i];
     }
-    s->json[0] = '\0';
     return ORPHEUS_OK;
 }
 static int reset(void* state) {
@@ -137,13 +149,15 @@ static int reset(void* state) {
     memset(s->acc, 0, sizeof(s->acc));
     memset(s->count, 0, sizeof(s->count));
     memset(s->mag, 0, sizeof(s->mag));
-    s->json[0] = '\0';
+        memset(s->probe + SWEEP_RECORD_MAX_BINS, 0,
+            SWEEP_RECORD_MAX_BINS * sizeof(float));
     return ORPHEUS_OK;
 }
 
 static void sweep_finalize(SweepRecordState* s) {
     for (uint32_t i = 0; i < s->bins; ++i) {
         s->mag[i] = s->count[i] > 0 ? sqrtf(s->acc[i] / (float)s->count[i]) : 0.0f;
+        s->probe[SWEEP_RECORD_MAX_BINS + i] = s->mag[i];
     }
     s->done = true;
     s->progress = 1.0f;
@@ -187,6 +201,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     s->current_freq = (float)f;
     /* 实时更新当前箱幅度：曲线边扫边长（扫频报告风格），最终由 finalize 补齐 */
     s->mag[bin] = sqrtf(s->acc[bin] / (float)s->count[bin]);
+    s->probe[SWEEP_RECORD_MAX_BINS + (uint32_t)bin] = s->mag[bin];
     /* 静音检测：输入结束（发生器扫完输出 0）后 0.25s 静音 → 完结 */
     float block_rms = frames > 0 ? sqrtf((float)(sum / (double)frames)) : 0.0f;
     if (block_rms > s->peak_rms) s->peak_rms = block_rms;
@@ -228,32 +243,6 @@ static int get_param(void* state, const char* id, OrpheusValue* v) {
         v->value.f32 = s->progress;
         return ORPHEUS_OK;
     }
-    if (strcmp(id, "sweep") == 0) {
-        /* 非实时线程：频率/幅度数组 + 完成标志 + 进度，编码为 JSON 对象 */
-        char* p = s->json;
-        size_t rem = sizeof(s->json);
-        int n = snprintf(p, rem, "{\"freq\":[");
-        if (n < 0) return ORPHEUS_ERR_PROCESSING;
-        p += n; rem -= (size_t)n;
-        for (uint32_t i = 0; i < s->bins && rem > 16; ++i) {
-            n = snprintf(p, rem, i ? ",%.4g" : "%.4g", s->freq[i]);
-            if (n < 0 || (size_t)n >= rem) break;
-            p += n; rem -= (size_t)n;
-        }
-        if (rem > 2) { n = snprintf(p, rem, "],\"mag\":["); p += n; rem -= (size_t)n; }
-        for (uint32_t i = 0; i < s->bins && rem > 16; ++i) {
-            n = snprintf(p, rem, i ? ",%.6g" : "%.6g", s->mag[i]);
-            if (n < 0 || (size_t)n >= rem) break;
-            p += n; rem -= (size_t)n;
-        }
-        if (rem > 2) {
-            n = snprintf(p, rem, "],\"done\":%s,\"progress\":%.4f}",
-                         s->done ? "true" : "false", s->progress);
-        }
-        v->type = ORPHEUS_VALUE_STRING;
-        v->value.str = s->json;
-        return ORPHEUS_OK;
-    }
     return ORPHEUS_ERR_NOT_FOUND;
 }
 
@@ -283,8 +272,9 @@ static int register_slots(void* state, const OrpheusRegistry* reg) {
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);
-    ORPHEUS_REG_SLOT(reg, s, json, ORPHEUS_SLOT_PROBE, "sweep", "扫频曲线",
-                     ORPHEUS_VALUE_STRING, .flags=ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_ARRAY(reg, s, probe, SWEEP_RECORD_PROBE_COUNT, ORPHEUS_SLOT_PROBE,
+                      "sweep", "扫频曲线", ORPHEUS_VALUE_FLOAT,
+                      .flags=ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, progress, ORPHEUS_SLOT_PROBE, "progress", "扫频进度",
                      ORPHEUS_VALUE_FLOAT, .flags=ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, current_freq, ORPHEUS_SLOT_PROBE, "current_freq", "当前频率",

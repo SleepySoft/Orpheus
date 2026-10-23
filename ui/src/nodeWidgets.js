@@ -170,8 +170,13 @@ function SpectrumWidget({ data, large }) {
 
 function SweepPlotWidget({ data, large }) {
   const sweep = data.probe?.sweep;
-  const freq = Array.isArray(sweep?.freq) ? sweep.freq : [];
-  const mag = Array.isArray(sweep?.mag) ? sweep.mag : [];
+  const binCount = Math.max(0, Math.min(256, Number(data.params?.bins ?? 64)));
+  const freq = Array.isArray(sweep)
+    ? sweep.slice(0, binCount)
+    : (Array.isArray(sweep?.freq) ? sweep.freq : []);
+  const mag = Array.isArray(sweep)
+    ? sweep.slice(256, 256 + binCount)
+    : (Array.isArray(sweep?.mag) ? sweep.mag : []);
   const valid = freq.length > 1 && mag.length > 1;
   const db = valid ? mag.map((value) => (value > 0 ? 20 * Math.log10(value) : null)) : [];
   const measured = db.filter((value) => value !== null);

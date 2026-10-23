@@ -8,10 +8,9 @@ extern "C" {
 #endif
 
 #define SWEEP_RECORD_MAX_BINS 256
-#define SWEEP_RECORD_JSON_CAP 16384
+#define SWEEP_RECORD_PROBE_COUNT (SWEEP_RECORD_MAX_BINS * 2)
 
-/* 扫频记录：与 sweep_gen 使用相同参数，按当前频率把输入能量分箱累计，
-   扫频结束后得到 频率→幅度 曲线（探针 JSON 供绘图控件消费）。 */
+/* 扫频记录：与 sweep_gen 使用相同参数，按当前频率把输入能量分箱累计。 */
 typedef struct {
     uint32_t channels;
     uint32_t bins;
@@ -31,7 +30,7 @@ typedef struct {
     float peak_rms;                   /* 输入峰值 RMS（静音检测基准） */
     uint32_t quiet_frames;            /* 连续静音帧数（输入结束 → 完结兜底） */
     bool done;
-    char json[SWEEP_RECORD_JSON_CAP]; /* get_param 非实时线程编码用 */
+    float probe[SWEEP_RECORD_PROBE_COUNT]; /* [0:256]=freq, [256:512]=mag */
 } SweepRecordState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);

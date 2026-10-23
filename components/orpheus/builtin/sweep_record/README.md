@@ -31,7 +31,7 @@
 
 | 探针 | 类型 | 说明 |
 |---|---|---|
-| `sweep` | string | JSON 对象：`{"freq":[...], "mag":[...], "done":bool, "progress":float}`，`freq[i]` 为第 i 箱中心频率（Hz），`mag[i]` 为该箱 RMS 幅度。 |
+| `sweep` | float[512] | 紧凑数组：`[0:256]` 为频率，`[256:512]` 为 RMS 幅度；实际有效长度由 `bins` 决定。 |
 | `progress` | float | 进度 0~1 = 已采集箱数 / 总箱数（频率覆盖度）。 |
 | `current_freq` | float | 当前分箱对应的频率（Hz），可与发生器的 `current_freq` 对照。 |
 
@@ -50,7 +50,7 @@
 
 ## UI 行为
 
-UI 节点本体（`nodeWidgets.js` 的 `SweepPlotWidget`）读取 `sweep` 探针画频响曲线：横轴为对数频率轴（自动用 `freq` 数组取 log10），纵轴为 dB（`20×log10(mag)`，只统计已采集的箱）。扫频进行中能看到曲线从左到右逐段补全，画完即定型。
+UI 节点本体（`nodeWidgets.js` 的 `SweepPlotWidget`）按 `bins` 从 `sweep` 紧凑数组拆出频率和幅度：横轴为对数频率轴，纵轴为 dB（`20×log10(mag)`，只统计已采集的箱）。扫频进行中能看到曲线从左到右逐段补全，画完即定型。
 
 ## 注意事项
 
@@ -58,7 +58,7 @@ UI 节点本体（`nodeWidgets.js` 的 `SweepPlotWidget`）读取 `sweep` 探针
 - `duration_s=0` 表示自动模式：不按时间截断，靠"发生器扫完 → 输入静音 0.25s"兜底完结，时长由编译器注入跟随发生器。
 - 只分析第 0 通道，但所有通道原样直通。
 - 测量的是"链路的稳态幅度响应"：每箱只取 RMS，不含相位；块跨越箱边界时整个块计入块起始频率对应的箱，块越小分箱越准。
-- 实时安全：`process` 仅直通拷贝与定长累加，无分配、无 IO；JSON 编码在非实时线程（探针轮询）执行。
+- 实时安全：`process` 仅直通拷贝与定长累加，无分配、无 IO；512 个 float 的 Probe payload 为 2048 字节，低于 Bridge 单帧上限。
 
 ## 典型用法
 

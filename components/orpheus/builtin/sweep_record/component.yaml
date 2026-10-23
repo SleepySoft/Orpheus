@@ -64,8 +64,10 @@ parameters:
     affects_signature: true
   - id: sweep
     name: 扫频曲线
-    type: string
-    default: ""
+    type: float
+    count: 512
+    default: 0.0
+    kind: probe
     readback: true
     update_policy: immediate
   - id: progress

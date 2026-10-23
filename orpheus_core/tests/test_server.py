@@ -760,7 +760,7 @@ def test_sweep_spectrum_peak_at_end_frequency(client):
     reason="runtime and components not built",
 )
 def test_sweep_record_probe_curve(client):
-    """扫频记录组件采集 频率→幅度 曲线，以 JSON 探针上报（供绘图控件消费）。"""
+    """扫频记录组件以紧凑二进制 Probe 上报频率与幅度曲线。"""
     name = f"test_{uuid.uuid4().hex[:8]}"
     try:
         assert client.post("/api/projects", json={"name": name}).status_code == 201
@@ -794,14 +794,11 @@ def test_sweep_record_probe_curve(client):
         assert result["status"] == "ok", result["stderr"]
         by = {(p["node"], p["param"]): p["value"] for p in result["probes"]}
         curve = by.get(("rec", "sweep"))
-        assert isinstance(curve, dict), f"expected sweep curve dict, got {type(curve)}"
-        freq = curve.get("freq")
-        mag = curve.get("mag")
-        assert isinstance(freq, list) and len(freq) == 32, f"freq len {len(freq) if isinstance(freq, list) else freq}"
-        assert isinstance(mag, list) and len(mag) == 32, f"mag len {len(mag) if isinstance(mag, list) else mag}"
+        assert isinstance(curve, list) and len(curve) == 512
+        freq = curve[:32]
+        mag = curve[256:288]
         assert all(freq[i] < freq[i + 1] for i in range(len(freq) - 1)), "freq 应单调递增"
-        assert curve.get("done") is True
-        assert abs(float(curve.get("progress", 0)) - 1.0) < 1e-3
+        assert abs(float(by.get(("rec", "progress"), 0)) - 1.0) < 1e-3
         # 0.8 幅度正弦 → RMS ≈ 0.566；允许首尾分箱不完整
         assert 0.3 < max(mag) < 0.9, f"幅度异常: max={max(mag)}"
         assert min(mag) > 0.05, f"存在空箱: min={min(mag)}"
@@ -849,10 +846,10 @@ def test_sweep_record_follows_generator_duration(client):
         assert result["status"] == "ok", result["stderr"]
         by = {(p["node"], p["param"]): p["value"] for p in result["probes"]}
         curve = by.get(("rec", "sweep"))
-        assert isinstance(curve, dict), f"expected dict, got {type(curve)}"
-        mag = curve.get("mag", [])
+        assert isinstance(curve, list) and len(curve) == 512
+        mag = curve[256:288]
         assert len(mag) == 32
-        assert curve.get("done") is True, f"记录未完结: progress={curve.get('progress')}"
+        assert abs(float(by.get(("rec", "progress"), 0)) - 1.0) < 1e-3
         # 完整频率响应：所有箱都应采到幅度（约 0.566），不允许只有低频一个峰
         assert min(mag) > 0.3, f"曲线不完整: min={min(mag)}, max={max(mag)}"
         # 发生器探针：进度 100%、当前频率接近结束频率（离线恰好跑满时长，未进入静音段）
@@ -1038,8 +1035,10 @@ def test_offline_paced_session(client):
         assert probes.get("sweep", {}).get("progress") is not None, probes
         # 记录跟随发生器参数：曲线完整（32 箱全采到幅度），不是"一个小尖尖"
         curve = probes.get("rec", {}).get("sweep")
-        assert isinstance(curve, dict), f"记录曲线缺失: {list(probes.get('rec', {}).keys())}"
-        mag = curve.get("mag", [])
+        assert isinstance(curve, list) and len(curve) == 512, (
+            f"记录曲线缺失: {list(probes.get('rec', {}).keys())}"
+        )
+        mag = curve[256:288]
         assert len(mag) == 32 and min(mag) > 0.3, f"曲线不完整: min={min(mag) if mag else None}"
         pdir = ROOT / "workspace" / name
         with wave.open(str(pdir / "outputs" / "out.wav"), "rb") as w:

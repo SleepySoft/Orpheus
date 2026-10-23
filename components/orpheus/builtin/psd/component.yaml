@@ -37,8 +37,10 @@ parameters:
     update_policy: restart_required
   - id: spectrum
     name: 功率谱
-    type: string
-    default: "[]"
+    type: float
+    count: 1023
+    default: 0.0
+    kind: probe
     readback: true
     update_policy: immediate
 memory:
