@@ -1627,7 +1627,7 @@ const { screenToFlowPosition } = useReactFlow();
   }, [current]);
 
   const doCreate = useCallback(async () => {
-    const name = window.prompt('新工程名称（字母/数字/-/_）:');
+    const name = window.prompt('新工程路径（相对 workspace，可用 / 分隔目录，如 仓库/工程）:');
     if (!name) return;
     try {
       const r = await api.createProject(name);
@@ -1758,8 +1758,8 @@ const { screenToFlowPosition } = useReactFlow();
               {projects.length ? '选择工程…' : '无工程'}
             </option>
             {projects.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
+              <option key={p.name} value={p.name} title={p.error || p.name}>
+                {p.name}{p.error ? '（工程信息读取失败）' : ''}
               </option>
             ))}
           </select>

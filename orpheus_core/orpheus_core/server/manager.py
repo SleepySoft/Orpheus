@@ -8,6 +8,7 @@ handled by the Registry.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import threading
@@ -21,7 +22,9 @@ import yaml
 from orpheus_core import schemas
 from orpheus_core.project import Graph, Project, ProjectLoader, Task, project_to_dict
 
-_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_INVALID_PATH_CHARS = re.compile(r'[<>:"\\|?*\x00-\x1f]')
+_RESERVED_PATH_NAME = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)", re.I)
+_IGNORED_DIRECTORIES = {"node_modules", "__pycache__"}
 
 
 class ProjectError(Exception):
@@ -67,7 +70,7 @@ class ProjectManager:
 
     def __init__(self, project_root: Path, registry=None):
         self.project_root = Path(project_root).resolve()
-        self.workspace = self.project_root / "workspace"
+        self.workspace = (self.project_root / "workspace").resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
         self._loader = ProjectLoader(registry)
         self._schema = schemas.load_project_schema()
@@ -78,44 +81,84 @@ class ProjectManager:
 
     @staticmethod
     def _validate_name(name: str) -> None:
-        if not _NAME_RE.match(name or ""):
+        parts = (name or "").split("/")
+        if any(
+            not part or part.startswith(".") or part.endswith((" ", "."))
+            or part in _IGNORED_DIRECTORIES
+            or _INVALID_PATH_CHARS.search(part) or _RESERVED_PATH_NAME.match(part)
+            for part in parts
+        ):
             raise ProjectValidationError(
-                f"invalid project name {name!r}: use letters, digits, '-' and '_' only"
+                f"无效工程路径 {name!r}：请使用 workspace 内的相对路径，以 / 分隔目录，"
+                "不可包含隐藏目录、上级目录、Windows 保留名称或非法文件名字符"
             )
 
     def project_dir(self, name: str) -> Path:
         self._validate_name(name)
-        return self.workspace / name
+        directory = self.workspace.joinpath(*name.split("/"))
+        if directory.resolve() != directory:
+            raise ProjectValidationError(f"工程路径不可经过符号链接或目录联接：{name}")
+        return directory
 
     def _project_yaml(self, name: str) -> Path:
-        return self.project_dir(name) / "project.yaml"
+        path = self.project_dir(name) / "project.yaml"
+        if path.is_symlink():
+            raise ProjectValidationError(f"工程文件不可为符号链接：{name}")
+        return path
+
+    def project_paths(self) -> list[Path]:
+        """递归发现工程；不跟随链接，不扫描版本库元数据和依赖缓存。"""
+        def scan_error(error: OSError) -> None:
+            raise ProjectValidationError(f"扫描 workspace 失败：{error}") from error
+
+        paths = []
+        for directory, children, files in os.walk(self.workspace, onerror=scan_error):
+            parent = Path(directory)
+            children[:] = sorted(
+                child for child in children
+                if not child.startswith(".") and child not in _IGNORED_DIRECTORIES
+                and (parent / child).resolve() == parent / child
+            )
+            path = parent / "project.yaml"
+            if (
+                parent != self.workspace and "project.yaml" in files
+                and path.is_file() and not path.is_symlink()
+            ):
+                paths.append(path)
+        return sorted(paths)
 
     # ------------------------------------------------------------------ CRUD
 
     def list_projects(self) -> list[dict[str, Any]]:
         """List projects on disk, merged with in-memory dirty state."""
         result: list[dict[str, Any]] = []
-        for child in sorted(self.workspace.iterdir()):
-            yaml_path = child / "project.yaml"
-            if not child.is_dir() or not yaml_path.exists():
-                continue
+        for yaml_path in self.project_paths():
+            name = yaml_path.parent.relative_to(self.workspace).as_posix()
             metadata: dict[str, Any] = {}
+            error = None
             try:
                 with open(yaml_path, "r", encoding="utf-8") as f:
-                    metadata = (yaml.safe_load(f) or {}).get("metadata", {}) or {}
-            except Exception:
-                pass
-            rec = self._records.get(child.name)
-            result.append(
-                {
-                    "name": child.name,
-                    "metadata": metadata,
-                    "mtime": yaml_path.stat().st_mtime,
-                    "dirty": rec.dirty if rec else False,
-                    "open": rec is not None,
-                }
-            )
-        return result
+                    document = yaml.safe_load(f) or {}
+                if not isinstance(document, dict):
+                    raise ValueError("工程文档必须为映射")
+                metadata = document.get("metadata", {}) or {}
+                if not isinstance(metadata, dict):
+                    raise ValueError("metadata 必须为映射")
+            except (OSError, UnicodeError, yaml.YAMLError, ValueError) as exc:
+                error = f"读取工程信息失败：{exc}"
+                metadata = {}
+            rec = self._records.get(name)
+            item = {
+                "name": name,
+                "metadata": metadata,
+                "mtime": yaml_path.stat().st_mtime,
+                "dirty": rec.dirty if rec else False,
+                "open": rec is not None,
+            }
+            if error:
+                item["error"] = error
+            result.append(item)
+        return sorted(result, key=lambda item: item["name"])
 
     def list_examples(self) -> list[str]:
         """List flat YAML and directory examples under <root>/examples/."""
@@ -133,7 +176,7 @@ class ProjectManager:
     def create(self, name: str, from_example: str | None = None) -> ProjectRecord:
         with self._lock:
             pdir = self.project_dir(name)
-            yaml_path = pdir / "project.yaml"
+            yaml_path = self._project_yaml(name)
             if yaml_path.exists():
                 raise ProjectExistsError(f"project already exists: {name}")
             pdir.mkdir(parents=True, exist_ok=True)
@@ -205,6 +248,7 @@ class ProjectManager:
     def get(self, name: str) -> ProjectRecord:
         """Get a project record, loading from disk on first access."""
         with self._lock:
+            yaml_path = self._project_yaml(name)
             rec = self._records.get(name)
             if rec is not None:
                 current_mtime_ns = rec.path.stat().st_mtime_ns if rec.path.is_file() else 0
@@ -217,8 +261,7 @@ class ProjectManager:
                     )
                     self._records[name] = rec
                 return rec
-            yaml_path = self._project_yaml(name)
-            if not yaml_path.exists():
+            if not yaml_path.is_file():
                 raise ProjectNotFoundError(f"project not found: {name}")
             project = self._loader.load(yaml_path)
             rec = ProjectRecord(
@@ -334,7 +377,7 @@ class ProjectManager:
         """Validate and persist a full project document (write-through)."""
         with self._lock:
             yaml_path = self._project_yaml(name)
-            if not yaml_path.exists():
+            if not yaml_path.is_file():
                 raise ProjectNotFoundError(f"project not found: {name}")
             try:
                 schemas.validate(doc, self._schema)
@@ -365,7 +408,16 @@ class ProjectManager:
     def delete(self, name: str) -> None:
         with self._lock:
             pdir = self.project_dir(name)
-            if not (pdir / "project.yaml").exists():
+            if not self._project_yaml(name).is_file():
                 raise ProjectNotFoundError(f"project not found: {name}")
+            nested = [
+                path.parent.relative_to(self.workspace).as_posix()
+                for path in self.project_paths()
+                if path.parent != pdir and pdir in path.parents
+            ]
+            if nested:
+                raise ProjectValidationError(
+                    f"工程目录包含子工程，请先移动或删除子工程：{', '.join(nested)}"
+                )
             self._records.pop(name, None)
             shutil.rmtree(pdir)

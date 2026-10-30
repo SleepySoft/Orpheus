@@ -7,8 +7,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import time
 import yaml
@@ -17,6 +19,7 @@ from fastapi import Body, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.convertors import Convertor, register_url_convertor
 
 from orpheus_core.bridge import (
     AsyncFileLogSink,
@@ -43,6 +46,25 @@ from orpheus_core.todos import collect_todos
 RUN_TIMEOUT_SECONDS = 60
 DEVICES_CACHE_SECONDS = 30
 DEVICE_COMPONENTS = {"orpheus.builtin.device_in", "orpheus.builtin.device_out"}
+
+
+class ProjectNameConvertor(Convertor[str]):
+    """URL 单段以冒号表示目录分隔，避免工程名与 /files 等操作路由歧义。"""
+
+    regex = "[^/]+"
+
+    def convert(self, value: str) -> str:
+        return value.replace(":", "/")
+
+    def to_string(self, value: str) -> str:
+        return value.replace("/", ":")
+
+
+register_url_convertor("project_name", ProjectNameConvertor())
+
+
+def _project_url(name: str) -> str:
+    return "/api/projects/" + quote(name.replace("/", ":"), safe="")
 
 
 def _session_log_path(rec: ProjectRecord, endpoint: str) -> Path:
@@ -341,7 +363,7 @@ def create_app(project_root: Path, *,
     def list_components() -> list[dict[str, Any]]:
         return [_component_to_dict(i) for i in registry.list_components()]
 
-    @app.get("/api/projects/{name}/components")
+    @app.get("/api/projects/{name:project_name}/components")
     def list_project_components(name: str) -> list[dict[str, Any]]:
         try:
             project = manager.get(name).project
@@ -361,7 +383,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=404, detail=f"组件暂无 README: {component_id}")
         return FileResponse(readme_path, media_type="text/markdown; charset=utf-8")
 
-    @app.get("/api/projects/{name}/components/{component_id}/readme")
+    @app.get("/api/projects/{name:project_name}/components/{component_id}/readme")
     def get_project_component_readme(name: str, component_id: str) -> FileResponse:
         try:
             project = manager.get(name).project
@@ -393,7 +415,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=400, detail="公共库组件不可删除")
         # 防护：仍被工程（含子组件图）引用的组件禁止删除
         refs: list[str] = []
-        for pdir in sorted((root / "workspace").glob("*/project.yaml")):
+        for pdir in manager.project_paths():
             try:
                 data = yaml.safe_load(pdir.read_text(encoding="utf-8"))
             except Exception:
@@ -406,7 +428,7 @@ def create_app(project_root: Path, *,
                 for g in graphs
                 for n in (g.get("nodes") or [])
             ):
-                refs.append(pdir.parent.name)
+                refs.append(pdir.parent.relative_to(manager.workspace).as_posix())
         if refs:
             raise HTTPException(
                 status_code=400,
@@ -487,7 +509,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return {"name": rec.name, "document": manager.get_document(rec.name)}
 
-    @app.post("/api/projects/{name}/distill")
+    @app.post("/api/projects/{name:project_name}/distill")
     def import_distilled_model(name: str, req: DistillImportRequest) -> dict[str, Any]:
         """一键导入蒸馏模型：接受 Orpheus 工程 YAML（含嵌套子组件与 model_tree 注释），
         校验后创建为新工程；顶层未知字段（presets/model_tree 等）原样保留。"""
@@ -530,14 +552,14 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return {"name": name, "document": manager.get_document(name)}
 
-    @app.get("/api/projects/{name}")
+    @app.get("/api/projects/{name:project_name}")
     def get_project(name: str) -> dict[str, Any]:
         try:
             return manager.get_document(name)
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
-    @app.put("/api/projects/{name}")
+    @app.put("/api/projects/{name:project_name}")
     def put_project(name: str, doc: dict[str, Any] = Body(...)) -> dict[str, Any]:
         try:
             manager.put(name, doc)
@@ -545,7 +567,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return {"status": "saved", "name": name}
 
-    @app.post("/api/projects/{name}/lesson/check")
+    @app.post("/api/projects/{name:project_name}/lesson/check")
     def check_lesson(name: str) -> dict[str, Any]:
         try:
             rec = manager.get(name)
@@ -561,7 +583,7 @@ def create_app(project_root: Path, *,
             compile_error = str(exc)
         return evaluate_lesson(rec.project, flat, plan, compile_error)
 
-    @app.get("/api/projects/{name}/notes")
+    @app.get("/api/projects/{name:project_name}/notes")
     def get_project_notes(name: str) -> dict[str, Any]:
         """读取工程侧车笔记 notes.md（与 project.yaml 并置）。"""
         try:
@@ -573,7 +595,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=404, detail="工程笔记不存在")
         return {"content": notes_path.read_text(encoding="utf-8")}
 
-    @app.put("/api/projects/{name}/notes")
+    @app.put("/api/projects/{name:project_name}/notes")
     def put_project_notes(name: str, req: ProjectNotesRequest) -> dict[str, Any]:
         """保存工程侧车笔记 notes.md。"""
         try:
@@ -584,7 +606,7 @@ def create_app(project_root: Path, *,
         notes_path.write_text(req.content, encoding="utf-8")
         return {"status": "saved", "path": str(notes_path)}
 
-    @app.get("/api/projects/{name}/node_notes")
+    @app.get("/api/projects/{name:project_name}/node_notes")
     def get_node_notes(name: str) -> dict[str, Any]:
         """读取工程节点笔记 sidecar（node-notes.json）。"""
         try:
@@ -600,7 +622,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=500, detail=f"node-notes.json 解析失败: {exc}") from exc
         return {"notes": notes}
 
-    @app.put("/api/projects/{name}/node_notes")
+    @app.put("/api/projects/{name:project_name}/node_notes")
     def put_node_notes(name: str, req: NodeNotesRequest) -> dict[str, Any]:
         """保存工程节点笔记 sidecar（node-notes.json）。"""
         try:
@@ -614,7 +636,7 @@ def create_app(project_root: Path, *,
         )
         return {"status": "saved", "path": str(notes_path)}
 
-    @app.delete("/api/projects/{name}")
+    @app.delete("/api/projects/{name:project_name}")
     def delete_project(name: str) -> dict[str, Any]:
         try:
             rt_sessions.stop(name)
@@ -623,7 +645,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return {"status": "deleted", "name": name}
 
-    @app.get("/api/projects/{name}/todos")
+    @app.get("/api/projects/{name:project_name}/todos")
     def get_project_todos(name: str, include_done: bool = False) -> dict[str, Any]:
         try:
             rec = manager.get(name)
@@ -631,7 +653,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return collect_todos(rec.project, include_done=include_done)
 
-    @app.post("/api/projects/{name}/compile")
+    @app.post("/api/projects/{name:project_name}/compile")
     def compile_project(name: str) -> dict[str, Any]:
         try:
             rec = manager.get(name)
@@ -663,7 +685,7 @@ def create_app(project_root: Path, *,
             "id_map": plan.id_map,
         }
 
-    @app.post("/api/projects/{name}/run")
+    @app.post("/api/projects/{name:project_name}/run")
     def run_project(name: str, pace: bool = False) -> dict[str, Any]:
         """Base-host run: dispatch by graph IO. Graphs with device components run
         as a realtime session; pure file graphs run the offline host.
@@ -753,7 +775,7 @@ def create_app(project_root: Path, *,
             "probes": _parse_probe_lines(result.stdout),
         }
 
-    @app.post("/api/projects/{name}/run_generated")
+    @app.post("/api/projects/{name:project_name}/run_generated")
     def run_generated_project(name: str) -> dict[str, Any]:
         """Codegen run: generate a standalone C project, build it statically, run it."""
         try:
@@ -809,7 +831,7 @@ def create_app(project_root: Path, *,
                 "ignored_nodes": plan.ignored_nodes,
                 "warnings": plan.warnings,
                 "generated_path": str(gen_dir.relative_to(rec.directory)),
-                "download_url": f"/api/projects/{name}/generated/archive",
+                "download_url": f"{_project_url(name)}/generated/archive",
             }
 
         # match the offline host's duration: blocks = ceil(wav_in frames / tick)
@@ -863,10 +885,10 @@ def create_app(project_root: Path, *,
             "warnings": plan.warnings,
             "outputs": outputs,
             "generated_path": str(gen_dir.relative_to(rec.directory)),
-            "download_url": f"/api/projects/{name}/generated/archive",
+            "download_url": f"{_project_url(name)}/generated/archive",
         }
 
-    @app.post("/api/projects/{name}/generate")
+    @app.post("/api/projects/{name:project_name}/generate")
     def generate_project(name: str) -> dict[str, Any]:
         """只生成独立 C 工程（不构建/运行）：嵌入部署导出代码（含 platform_io.c 适配模板）。"""
         try:
@@ -879,7 +901,7 @@ def create_app(project_root: Path, *,
             "status": "ok",
             "generated_dir": str(gen_dir),
             "generated_path": str(gen_dir.relative_to(rec.directory)),
-            "download_url": f"/api/projects/{name}/generated/archive",
+            "download_url": f"{_project_url(name)}/generated/archive",
             "blocks_default": plan.duration_frames > 0
             and (plan.duration_frames + tick - 1) // tick
             or 1000,
@@ -887,7 +909,7 @@ def create_app(project_root: Path, *,
             "warnings": plan.warnings,
         }
 
-    @app.get("/api/projects/{name}/generated/archive")
+    @app.get("/api/projects/{name:project_name}/generated/archive")
     def download_generated_code(name: str) -> FileResponse:
         """下载生成工程目录（workspace/<name>/generated）为 zip，供嵌入部署取用。"""
         try:
@@ -901,19 +923,17 @@ def create_app(project_root: Path, *,
                 detail="尚未生成代码：先点「⤓ 生成代码」或「⚙ 编译后运行」",
             )
         archive = shutil.make_archive(
-            str(Path(tempfile.gettempdir()) / f"orpheus_{name}_generated"),
+            str(Path(tempfile.gettempdir()) / f"orpheus_{sha256(name.encode('utf-8')).hexdigest()}_generated"),
             "zip",
             root_dir=gen_dir,
         )
-        return FileResponse(archive, filename=f"{name}_generated.zip")
+        return FileResponse(archive, filename=f"{rec.directory.name}_generated.zip")
 
-    @app.get("/api/projects/{name}/files")
+    @app.get("/api/projects/{name:project_name}/files")
     def list_project_files(name: str, ext: str | None = None) -> list[dict[str, Any]]:
         """List files inside a project dir (relative POSIX paths), optional extension filter."""
         try:
-            pdir = manager.project_dir(name)
-            if not pdir.exists():
-                raise HTTPException(status_code=404, detail=f"project not found: {name}")
+            pdir = manager.get(name).directory
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         ext_filter = ext.lower() if ext else None
@@ -926,13 +946,11 @@ def create_app(project_root: Path, *,
             items.append({"path": p.relative_to(pdir).as_posix(), "size": p.stat().st_size})
         return items
 
-    @app.post("/api/projects/{name}/uploads", status_code=201)
+    @app.post("/api/projects/{name:project_name}/uploads", status_code=201)
     async def upload_project_file(name: str, file: UploadFile) -> dict[str, Any]:
         """Upload a file into the project dir; returns its project-relative path."""
         try:
-            pdir = manager.project_dir(name)
-            if not pdir.exists():
-                raise HTTPException(status_code=404, detail=f"project not found: {name}")
+            pdir = manager.get(name).directory
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         filename = Path(file.filename or "upload.bin").name  # strip any client path
@@ -945,7 +963,7 @@ def create_app(project_root: Path, *,
 
     # ---- realtime sessions (rt_host subprocess)
 
-    @app.post("/api/projects/{name}/rt/start")
+    @app.post("/api/projects/{name:project_name}/rt/start")
     def rt_start(name: str, req: RtStartRequest | None = None) -> dict[str, Any]:
         try:
             rec = manager.get(name)
@@ -1046,7 +1064,7 @@ def create_app(project_root: Path, *,
                 )
                 endpoint = f"{req.host}:{req.network_port}"
             else:
-                address = req.pipe_address or local_pipe_address(name)
+                address = req.pipe_address or local_pipe_address(name.replace("/", ":"))
                 transport = hlos_adapters.create("pipe", address=address)
                 endpoint = address
         except HTTPException:
@@ -1086,7 +1104,7 @@ def create_app(project_root: Path, *,
             "log_path": f"logs/{target}-bridge.log",
         }
 
-    @app.post("/api/projects/{name}/rt/stop")
+    @app.post("/api/projects/{name:project_name}/rt/stop")
     def rt_stop(name: str) -> dict[str, Any]:
         session = rt_sessions.get(name)
         if session is None:
@@ -1095,14 +1113,14 @@ def create_app(project_root: Path, *,
         proc = getattr(session, "proc", None)  # 子进程会话有 exit_code；串口会话没有
         return {"status": "stopped", "exit_code": proc.poll() if proc else None}
 
-    @app.get("/api/projects/{name}/rt/status")
+    @app.get("/api/projects/{name:project_name}/rt/status")
     def rt_status(name: str) -> dict[str, Any]:
         session = rt_sessions.get(name)
         if session is None:
             return {"running": False, "logs": [], "probes": {}}
         return session.snapshot()
 
-    @app.post("/api/projects/{name}/rt/param")
+    @app.post("/api/projects/{name:project_name}/rt/param")
     def rt_set_param(name: str, req: RtParamRequest) -> dict[str, Any]:
         session = rt_sessions.get(name)
         if session is None or not session.running:
@@ -1113,7 +1131,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": "sent"}
 
-    @app.post("/api/projects/{name}/rt/bulk")
+    @app.post("/api/projects/{name:project_name}/rt/bulk")
     def rt_write_bulk(name: str, req: RtBulkRequest) -> dict[str, Any]:
         """实时会话 BULK 直写：把数值数组写入组件注册的 BULK 槽（如 biquad_bank 系数）。"""
         session = rt_sessions.get(name)
@@ -1125,7 +1143,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": "sent"}
 
-    @app.get("/api/projects/{name}/rt/resolve")
+    @app.get("/api/projects/{name:project_name}/rt/resolve")
     def rt_resolve_id(name: str, id: int) -> dict[str, Any]:
         """内存透明：按 32 位数据 ID 查询类型/长度/基址/偏移。"""
         session = rt_sessions.get(name)
@@ -1136,7 +1154,7 @@ def create_app(project_root: Path, *,
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.get("/api/projects/{name}/rt/map")
+    @app.get("/api/projects/{name:project_name}/rt/map")
     def rt_map(name: str) -> dict[str, Any]:
         """dump 全表：所有数据点 + 模块包（含真实基址）。"""
         session = rt_sessions.get(name)
@@ -1147,7 +1165,7 @@ def create_app(project_root: Path, *,
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/api/projects/{name}/rt/write")
+    @app.post("/api/projects/{name:project_name}/rt/write")
     def rt_write_id(name: str, req: RtWriteRequest) -> dict[str, Any]:
         """按 ID 实时控制（RTC 通道）：方向只在接口，PROBE/STATE 由注册表拒写。"""
         session = rt_sessions.get(name)
@@ -1159,7 +1177,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": "sent", "id": req.id}
 
-    @app.post("/api/projects/{name}/rt/read")
+    @app.post("/api/projects/{name:project_name}/rt/read")
     def rt_read_id(name: str, req: RtIdRequest) -> dict[str, Any]:
         session = rt_sessions.get(name)
         if session is None or not session.running:
@@ -1170,7 +1188,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"id": req.id, "value": value}
 
-    @app.post("/api/projects/{name}/rt/write_bulk")
+    @app.post("/api/projects/{name:project_name}/rt/write_bulk")
     def rt_write_bulk_id(name: str, req: RtWriteBulkRequest) -> dict[str, Any]:
         """按 ID 直写 BULK 槽（如 biquad_bank 系数）。"""
         session = rt_sessions.get(name)
@@ -1182,7 +1200,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": "sent", "id": req.id}
 
-    @app.post("/api/projects/{name}/rt/read_bulk")
+    @app.post("/api/projects/{name:project_name}/rt/read_bulk")
     def rt_read_bulk(name: str, req: RtReadBulkRequest) -> dict[str, Any]:
         """BULK 读回（active bank）：按 ID 或 (node, key)；越界检查后仅拷贝。"""
         session = rt_sessions.get(name)
@@ -1196,7 +1214,7 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"id": req.id, "values": values}
 
-    @app.post("/api/projects/{name}/rt/msg")
+    @app.post("/api/projects/{name:project_name}/rt/msg")
     def rt_msg(name: str, req: RtMsgRequest) -> dict[str, Any]:
         """二进制消息：CALL → 同步 RESPONSE（按 call_id 匹配），NOTIFICATION → 无返回。"""
         session = rt_sessions.get(name)
@@ -1216,26 +1234,25 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"call_id": call_id, "response_hex": rsp or None}
 
-    @app.get("/api/projects/{name}/files/{relpath:path}")
+    @app.get("/api/projects/{name:project_name}/files/{relpath:path}")
     def get_project_file(name: str, relpath: str) -> FileResponse:
         try:
-            manager.project_dir(name)  # validates name
+            manager.get(name)
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return FileResponse(safe_project_file(name, relpath))
 
-    @app.get("/api/projects/{name}/download")
+    @app.get("/api/projects/{name:project_name}/download")
     def download_project(name: str) -> FileResponse:
         try:
-            pdir = manager.project_dir(name)
-            if not (pdir / "project.yaml").exists():
-                raise HTTPException(status_code=404, detail=f"project not found: {name}")
+            pdir = manager.get(name).directory
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         archive = shutil.make_archive(
-            str(Path(tempfile.gettempdir()) / f"orpheus_{name}"), "zip", root_dir=pdir
+            str(Path(tempfile.gettempdir()) / f"orpheus_{sha256(name.encode('utf-8')).hexdigest()}"),
+            "zip", root_dir=pdir,
         )
-        return FileResponse(archive, filename=f"{name}.zip")
+        return FileResponse(archive, filename=f"{pdir.name}.zip")
 
     # ---- static UI hosting (single-command mode: API + web on one port)
     ui_build = root / "ui" / "build"

@@ -10,14 +10,17 @@ const api = axios.create({
 
 const unwrap = (p) => p.then((r) => r.data);
 
+// 冒号在工程目录名中非法，可无歧义地将嵌套路径编码为一个 URL 段。
+export const projectPath = (name) => `/projects/${encodeURIComponent(name.replace(/\//g, ':'))}`;
+
 export const listComponents = () => unwrap(api.get('/components'));
-export const listProjectComponents = (name) => unwrap(api.get(`/projects/${name}/components`));
+export const listProjectComponents = (name) => unwrap(api.get(`${projectPath(name)}/components`));
 export const rescanComponents = () => unwrap(api.post('/components/rescan'));
 export const getComponentReadme = (id, project = null) =>
   api
     .get(
       project
-        ? `/projects/${project}/components/${id}/readme`
+        ? `${projectPath(project)}/components/${id}/readme`
         : `/components/${id}/readme`,
       { responseType: 'text' }
     )
@@ -29,55 +32,55 @@ export const listExamples = () => unwrap(api.get('/examples'));
 export const createProject = (name, fromExample = null) =>
   unwrap(api.post('/projects', { name, from_example: fromExample }));
 export const importDistilled = (name, yamlText) =>
-  unwrap(api.post(`/projects/${name}/distill`, { yaml: yamlText }));
-export const getProject = (name) => unwrap(api.get(`/projects/${name}`));
-export const saveProject = (name, doc) => unwrap(api.put(`/projects/${name}`, doc));
-export const checkLesson = (name) => unwrap(api.post(`/projects/${name}/lesson/check`));
-export const getProjectNotes = (name) => unwrap(api.get(`/projects/${name}/notes`));
+  unwrap(api.post(`${projectPath(name)}/distill`, { yaml: yamlText }));
+export const getProject = (name) => unwrap(api.get(projectPath(name)));
+export const saveProject = (name, doc) => unwrap(api.put(projectPath(name), doc));
+export const checkLesson = (name) => unwrap(api.post(`${projectPath(name)}/lesson/check`));
+export const getProjectNotes = (name) => unwrap(api.get(`${projectPath(name)}/notes`));
 export const saveProjectNotes = (name, content) =>
-  unwrap(api.put(`/projects/${name}/notes`, { content }));
-export const getNodeNotes = (name) => unwrap(api.get(`/projects/${name}/node_notes`));
+  unwrap(api.put(`${projectPath(name)}/notes`, { content }));
+export const getNodeNotes = (name) => unwrap(api.get(`${projectPath(name)}/node_notes`));
 export const saveNodeNotes = (name, notes) =>
-  unwrap(api.put(`/projects/${name}/node_notes`, { notes }));
-export const deleteProject = (name) => unwrap(api.delete(`/projects/${name}`));
-export const compileProject = (name) => unwrap(api.post(`/projects/${name}/compile`));
+  unwrap(api.put(`${projectPath(name)}/node_notes`, { notes }));
+export const deleteProject = (name) => unwrap(api.delete(projectPath(name)));
+export const compileProject = (name) => unwrap(api.post(`${projectPath(name)}/compile`));
 export const runProject = (name, pace) =>
-  unwrap(api.post(`/projects/${name}/run`, null, { params: { pace: pace ? 1 : 0 } }));
-export const runGenerated = (name) => unwrap(api.post(`/projects/${name}/run_generated`));
-export const generateProject = (name) => unwrap(api.post(`/projects/${name}/generate`));
+  unwrap(api.post(`${projectPath(name)}/run`, null, { params: { pace: pace ? 1 : 0 } }));
+export const runGenerated = (name) => unwrap(api.post(`${projectPath(name)}/run_generated`));
+export const generateProject = (name) => unwrap(api.post(`${projectPath(name)}/generate`));
 export const listDevices = () => unwrap(api.get('/devices'));
-export const rtStart = (name, opts) => unwrap(api.post(`/projects/${name}/rt/start`, opts || {}));
+export const rtStart = (name, opts) => unwrap(api.post(`${projectPath(name)}/rt/start`, opts || {}));
 export const getLinkPorts = () => unwrap(api.get('/link/ports'));
-export const rtStop = (name) => unwrap(api.post(`/projects/${name}/rt/stop`));
-export const rtStatus = (name) => unwrap(api.get(`/projects/${name}/rt/status`));
+export const rtStop = (name) => unwrap(api.post(`${projectPath(name)}/rt/stop`));
+export const rtStatus = (name) => unwrap(api.get(`${projectPath(name)}/rt/status`));
 export const rtSetParam = (name, node, param, value) =>
-  unwrap(api.post(`/projects/${name}/rt/param`, { node, param, value }));
+  unwrap(api.post(`${projectPath(name)}/rt/param`, { node, param, value }));
 export const rtWriteBulk = (name, node, key, values) =>
-  unwrap(api.post(`/projects/${name}/rt/bulk`, { node, key, values }));
+  unwrap(api.post(`${projectPath(name)}/rt/bulk`, { node, key, values }));
 export const rtResolve = (name, id) =>
-  unwrap(api.get(`/projects/${name}/rt/resolve`, { params: { id } }));
-export const rtMap = (name) => unwrap(api.get(`/projects/${name}/rt/map`));
+  unwrap(api.get(`${projectPath(name)}/rt/resolve`, { params: { id } }));
+export const rtMap = (name) => unwrap(api.get(`${projectPath(name)}/rt/map`));
 export const rtWriteById = (name, id, value) =>
-  unwrap(api.post(`/projects/${name}/rt/write`, { id, value }));
+  unwrap(api.post(`${projectPath(name)}/rt/write`, { id, value }));
 export const rtReadById = (name, id) =>
-  unwrap(api.post(`/projects/${name}/rt/read`, { id }));
+  unwrap(api.post(`${projectPath(name)}/rt/read`, { id }));
 export const rtWriteBulkById = (name, id, values) =>
-  unwrap(api.post(`/projects/${name}/rt/write_bulk`, { id, values }));
+  unwrap(api.post(`${projectPath(name)}/rt/write_bulk`, { id, values }));
 export const rtReadBulkById = (name, id) =>
-  unwrap(api.post(`/projects/${name}/rt/read_bulk`, { id }));
+  unwrap(api.post(`${projectPath(name)}/rt/read_bulk`, { id }));
 export const listProjectFiles = (name, ext = null) =>
-  unwrap(api.get(`/projects/${name}/files`, { params: ext ? { ext } : {} }));
+  unwrap(api.get(`${projectPath(name)}/files`, { params: ext ? { ext } : {} }));
 export const uploadProjectFile = (name, file) => {
   const form = new FormData();
   form.append('file', file);
-  return unwrap(api.post(`/projects/${name}/uploads`, form));
+  return unwrap(api.post(`${projectPath(name)}/uploads`, form));
 };
 
 export const projectFileUrl = (name, relpath) =>
-  `${api.defaults.baseURL}/projects/${name}/files/${relpath}`;
-export const downloadUrl = (name) => `${api.defaults.baseURL}/projects/${name}/download`;
+  `${api.defaults.baseURL}${projectPath(name)}/files/${relpath.split('/').map(encodeURIComponent).join('/')}`;
+export const downloadUrl = (name) => `${api.defaults.baseURL}${projectPath(name)}/download`;
 export const downloadGeneratedUrl = (name) =>
-  `${api.defaults.baseURL}/projects/${name}/generated/archive`;
+  `${api.defaults.baseURL}${projectPath(name)}/generated/archive`;
 
 /** Extract a readable message from an axios error. */
 export const errorDetail = (e) =>
