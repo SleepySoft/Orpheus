@@ -1274,6 +1274,7 @@ button.danger {
 /* ---------------------------------------------------------- nodes */
 
 .orpheus-node {
+  --node-left-border-width: 1px;
   background: white;
   border: 1px solid #ced4da;
   border-radius: 8px;
@@ -1296,25 +1297,33 @@ button.danger {
 }
 
 .orpheus-node.bridge-config-node {
+  --node-left-border-width: 4px;
   border-color: #5c7cfa;
-  border-left: 4px solid #4263eb;
+  border-left: var(--node-left-border-width) solid #4263eb;
 }
 
 .orpheus-node.bridge-config-node .node-header {
   background: #edf2ff;
 }
 
+.orpheus-node.platform-win,
+.orpheus-node.platform-dsp,
+.orpheus-node.platform-multi,
+.orpheus-node.platform-other {
+  --node-left-border-width: 5px;
+}
+
 .orpheus-node.platform-win {
-  border-left: 5px solid #1971c2;
+  border-left: var(--node-left-border-width) solid #1971c2;
 }
 
 .orpheus-node.platform-dsp {
-  border-left: 5px solid #d97706;
+  border-left: var(--node-left-border-width) solid #d97706;
 }
 
 .orpheus-node.platform-multi,
 .orpheus-node.platform-other {
-  border-left: 5px solid #0f766e;
+  border-left: var(--node-left-border-width) solid #0f766e;
 }
 
 
@@ -1570,20 +1579,23 @@ button.danger {
   background: #ffb454;
 }
 
-/* 子组件内部导出的控制点：补偿控制坞内缩后，从组件边框向外伸出长引线。 */
+/* 引线接到节点外沿；左侧补偿控制坞的 5px margin、4px 边框和节点自身边框。 */
 .export-control-pin { cursor: pointer; }
 .export-control-pin::before,
 .export-control-pin::after {
   content: '';
   position: absolute;
   top: 50%;
-  width: 44px;
+  width: 43px;
   height: 2px;
   background: #d97706;
   transform: translateY(-50%);
   pointer-events: none;
 }
-.export-control-input::before { left: -53px; }
+.export-control-input::before {
+  left: -53px;
+  width: calc(44px - var(--node-left-border-width));
+}
 .export-control-output::after { right: -50px; }
 .export-control-handle {
   width: 10px !important;

@@ -1,6 +1,25 @@
 const { test, expect } = require('@playwright/test');
 
+test.use({ viewport: { width: 1920, height: 1080 } });
+
 const projectName = `e2e_multitask_${Date.now()}`;
+
+async function expectControlLeadAtBorder(row, direction) {
+  const error = await row.evaluate((element, side) => {
+    const nodeBox = element.closest('.orpheus-node').getBoundingClientRect();
+    const rowBox = element.getBoundingClientRect();
+    const viewport = element.closest('.react-flow__viewport');
+    const scale = new DOMMatrixReadOnly(getComputedStyle(viewport).transform).a;
+    const style = getComputedStyle(element, side === 'input' ? '::before' : '::after');
+    const width = parseFloat(style.width);
+    const endpoint = side === 'input'
+      ? rowBox.left + (parseFloat(style.left) + width) * scale
+      : rowBox.right - (parseFloat(style.right) + width) * scale;
+    const boundary = side === 'input' ? nodeBox.left : nodeBox.right;
+    return Math.abs(endpoint - boundary) / scale;
+  }, direction);
+  expect(error).toBeLessThan(0.25);
+}
 
 const project = {
   version: '0.1.0',
@@ -63,16 +82,28 @@ const project = {
       { id: 'in', direction: 'input', maps_to: 'gain:in' },
       { id: 'out', direction: 'output', maps_to: 'gain:out' },
     ],
-    public_parameters: [{
-      id: 'gain', name: '增益', direction: 'input', maps_to: 'gain:gain_db',
-      type: 'float', default: -6, update_policy: 'smoothed',
-    }],
+    public_parameters: [
+      {
+        id: 'gain', name: '增益', direction: 'input', maps_to: 'gain:gain_db',
+        type: 'float', default: -6, update_policy: 'smoothed',
+      },
+      {
+        id: 'level', name: '电平', direction: 'output', maps_to: 'observer:level',
+        type: 'float', update_policy: 'immediate',
+      },
+    ],
     graph: {
-      nodes: [{
-        id: 'gain', component: 'orpheus.builtin.gain', task: 'producer',
-        params: { gain_db: -6, channels: 1 }, position: { x: 160, y: 120 },
-      }],
-      connections: [],
+      nodes: [
+        {
+          id: 'gain', component: 'orpheus.builtin.gain', task: 'producer',
+          params: { gain_db: -6, channels: 1 }, position: { x: 160, y: 120 },
+        },
+        {
+          id: 'observer', component: 'orpheus.builtin.level_detect', task: 'producer',
+          params: { channels: 1 }, position: { x: 420, y: 120 },
+        },
+      ],
+      connections: [{ from: 'gain:out', to: 'observer:in' }],
     },
   }],
 };
@@ -186,17 +217,34 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   const exportedControlInput = internalGain.locator('.export-control-input .export-control-handle');
   const controlInputBox = await exportedControlInput.boundingBox();
   expect((internalGainBox.x - (controlInputBox.x + controlInputBox.width / 2)) / flowScale).toBeGreaterThan(30);
-  const controlLineGeometry = await internalGain.locator('.export-control-input').evaluate((row) => {
-    const rowBox = row.getBoundingClientRect();
-    const nodeBox = row.closest('.orpheus-node').getBoundingClientRect();
-    const lineStyle = getComputedStyle(row, '::before');
-    const scale = rowBox.width / row.offsetWidth;
-    const lineEnd = rowBox.left
-      + (parseFloat(lineStyle.left) + parseFloat(lineStyle.width)) * scale;
-    return { lineEnd, nodeLeft: nodeBox.left };
-  });
-  expect(Math.abs(controlLineGeometry.lineEnd - controlLineGeometry.nodeLeft)).toBeLessThan(2);
+  await expectControlLeadAtBorder(internalGain.locator('.export-control-input'), 'input');
   await exportedControlInput.click();
   await expect(page.locator('.control-export-row.export-highlight').filter({ hasText: 'gain' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('control-export-revealed.png'), fullPage: true });
+
+  const controlOutputRow = page.locator('.react-flow__node[data-id="observer"] .export-control-output');
+  await controlOutputRow.locator('.export-control-handle').click();
+  await expect(page.locator('.control-export-row.export-highlight').filter({ hasText: 'level' })).toBeVisible();
+  for (let step = 0; step < 8; step += 1) {
+    await expectControlLeadAtBorder(internalGain.locator('.export-control-input'), 'input');
+    await expectControlLeadAtBorder(controlOutputRow, 'output');
+    const previousZoom = await page.locator('.react-flow__viewport').evaluate(
+      (element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).a
+    );
+    await page.getByRole('button', { name: 'zoom out', exact: true }).click();
+    await expect.poll(() => page.locator('.react-flow__viewport').evaluate(
+      (element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).a
+    )).toBeCloseTo(Math.max(0.5, previousZoom / 1.2), 3);
+  }
+  await expectControlLeadAtBorder(internalGain.locator('.export-control-input'), 'input');
+  await expectControlLeadAtBorder(controlOutputRow, 'output');
+  for (const platform of ['win', 'dsp', 'multi', 'other']) {
+    await internalGain.locator('.orpheus-node').evaluate(
+      (node, name) => node.classList.add(`platform-${name}`), platform
+    );
+    await expectControlLeadAtBorder(internalGain.locator('.export-control-input'), 'input');
+    await internalGain.locator('.orpheus-node').evaluate(
+      (node, name) => node.classList.remove(`platform-${name}`), platform
+    );
+  }
 });
