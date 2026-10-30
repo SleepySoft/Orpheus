@@ -41,7 +41,7 @@ class OrpheusBuffer(ctypes.Structure):
 
 class OrpheusConfig(ctypes.Structure):
     _fields_ = [
-        ("sample_rate", ctypes.c_uint32),
+        ("sample_rate", ctypes.c_double),
         ("block_size", ctypes.c_uint32),
         ("channels", ctypes.c_uint32),
         ("param_ids", ctypes.POINTER(ctypes.c_char_p)),
@@ -59,7 +59,7 @@ class OrpheusProcessContext(ctypes.Structure):
         ("input_count", ctypes.c_uint32),
         ("output_count", ctypes.c_uint32),
         ("frame_count", ctypes.c_uint32),
-        ("sample_rate", ctypes.c_uint32),
+        ("sample_rate", ctypes.c_double),
         ("scratch", ctypes.c_void_p),
         ("scratch_size", ctypes.c_size_t),
         ("timestamp", ctypes.c_double),

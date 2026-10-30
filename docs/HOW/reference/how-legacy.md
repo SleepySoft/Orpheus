@@ -149,11 +149,11 @@ execution:
 
 ### 3.3 C ABI 演进（当前 v4）
 
-下方代码是最初 v1 契约的历史简化快照，用于说明 ABI 的基本形状，**不是当前可复制的头文件**。当前唯一契约以 `orpheus_abi/include/orpheus_abi.h` 为准：v2 追加统一 state arena 与 `register_slots`，v3 在接口表尾部追加消息 `hook`，v4 在处理上下文尾部追加绝对帧时间线；当前 `ORPHEUS_ABI_VERSION` 为 4。
+下方代码是最初 v1 契约的历史简化快照，用于说明 ABI 的基本形状，**不是当前可复制的头文件**。当前唯一契约以 `orpheus_abi/include/orpheus_abi.h` 为准：v2 追加统一 state arena 与 `register_slots`，v3 在接口表尾部追加消息 `hook`，v4 在处理上下文尾部追加绝对帧时间线，v5 将配置/处理采样率改为double以支持有理SRC；当前 `ORPHEUS_ABI_VERSION` 为 5。
 
 ```c
 // orpheus_abi.h
-#define ORPHEUS_ABI_VERSION 1  /* 历史 v1 快照；当前头文件为 v4 */
+#define ORPHEUS_ABI_VERSION 1  /* 历史 v1 快照；当前头文件为 v5 */
 
 typedef struct OrpheusComponentDescriptor {
     const char* id;

@@ -4,10 +4,11 @@
 #include <string>
 
 int main(int argc, char** argv) {
-    if (argc != 2) return 2;
+    if (argc != 3) return 2;
 
     orpheus::ComponentLoader loader;
     if (loader.load("definitely_missing_orpheus_component") != nullptr) return 3;
+    if (loader.load(argv[2]) != nullptr) return 8;
 
     const OrpheusComponentInterface* iface = loader.load(argv[1]);
     if (iface == nullptr || iface->get_descriptor == nullptr) return 4;

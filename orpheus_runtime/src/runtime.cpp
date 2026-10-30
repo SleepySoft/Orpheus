@@ -2,6 +2,8 @@
 
 #include <cstring>
 #include <cstdlib>
+#include <cmath>
+#include <limits>
 #include <algorithm>
 #include <functional>
 #include <iostream>
@@ -605,23 +607,43 @@ int Runtime::prepare_instance(Instance& inst, const NodeConfig& cfg) {
     for (const auto& kv : cfg.params) {
         param_id_storage.push_back(kv.first);
         OrpheusValue v;
-        bool declared_string = false;
+        const OrpheusParameter* declared = nullptr;
         for (uint32_t i = 0; i < descriptor->param_count; ++i) {
             if (kv.first == descriptor->params[i].id) {
-                declared_string = descriptor->params[i].type == ORPHEUS_VALUE_STRING;
+                declared = &descriptor->params[i];
                 break;
             }
         }
         // 数字形式的路由、文件名等仍须遵循组件声明的字符串类型。
-        if (declared_string) {
+        if (declared && declared->type == ORPHEUS_VALUE_STRING) {
             v.type = ORPHEUS_VALUE_STRING;
             v.value.str = kv.second.c_str();
-        } else if (kv.first == "channels" || kv.first == "sample_rate") {
+        } else if ((declared && declared->type == ORPHEUS_VALUE_INT) ||
+                   kv.first == "channels" || kv.first == "sample_rate") {
+            char* end = nullptr;
+            const double number = std::strtod(kv.second.c_str(), &end);
+            if (end == kv.second.c_str() || !end || *end != '\0' ||
+                !std::isfinite(number) || std::floor(number) != number ||
+                number < std::numeric_limits<int32_t>::min() ||
+                number > std::numeric_limits<int32_t>::max()) {
+                std::cerr << "[Runtime] 无效整数参数 " << inst.node_id << ":"
+                          << kv.first << "=" << kv.second << std::endl;
+                return ORPHEUS_ERR_INVALID_ARG;
+            }
             v.type = ORPHEUS_VALUE_INT;
-            v.value.i32 = static_cast<int32_t>(std::atoi(kv.second.c_str()));
+            v.value.i32 = static_cast<int32_t>(number);
             if (kv.first == "channels") {
                 channels = static_cast<uint32_t>(v.value.i32);
             }
+        } else if (declared && declared->type == ORPHEUS_VALUE_BOOL) {
+            if (kv.second != "true" && kv.second != "false" &&
+                kv.second != "1" && kv.second != "0") {
+                std::cerr << "[Runtime] 无效布尔参数 " << inst.node_id << ":"
+                          << kv.first << "=" << kv.second << std::endl;
+                return ORPHEUS_ERR_INVALID_ARG;
+            }
+            v.type = ORPHEUS_VALUE_BOOL;
+            v.value.b = kv.second == "true" || kv.second == "1";
         } else {
             // numeric strings become FLOAT, anything else (e.g. "lowpass") stays STRING
             const std::string& s = kv.second;
@@ -1253,7 +1275,8 @@ int Runtime::process_nodes(const std::vector<std::string>& execution_order,
         ctx.input_count = static_cast<uint32_t>(inst.inputs.size());
         ctx.output_count = static_cast<uint32_t>(inst.outputs.size());
         ctx.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : plan_.sample_rate;
-        ctx.frame_index = (counter / period) * static_cast<uint64_t>(ctx.frame_count);
+        ctx.frame_index = (counter / period) *
+            static_cast<uint64_t>(cfg.frame_step > 0 ? cfg.frame_step : ctx.frame_count);
         ctx.timestamp = ctx.sample_rate > 0
             ? static_cast<double>(ctx.frame_index) / static_cast<double>(ctx.sample_rate)
             : 0.0;

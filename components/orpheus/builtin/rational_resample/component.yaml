@@ -1,0 +1,57 @@
+id: orpheus.builtin.rational_resample
+name: 有理采样率转换
+category: 高级/多速率
+description: L/M多相FIR采样率转换；输入批次须使输出样本数为整数，不满足时先用分频器组块
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: RationalResampleState
+sources:
+  - src/rational_resample.c
+headers:
+  - include/orpheus_rational_resample.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+    sample_rate: in:sample_rate*param:up/param:down
+    block_size: in:block_size*param:up/param:down
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 64]
+    update_policy: restart_required
+    affects_signature: true
+  - id: up
+    name: 插值因子
+    type: int
+    default: 3
+    range: [1, 512]
+    update_policy: restart_required
+    affects_signature: true
+  - id: down
+    name: 抽取因子
+    type: int
+    default: 13
+    range: [1, 512]
+    update_policy: restart_required
+    affects_signature: true
+  - id: taps
+    name: 每相滤波抽头数
+    type: int
+    default: 128
+    range: [16, 1024]
+    update_policy: restart_required
+execution:
+  sample_rate_independent: false
+  supports_inplace: false
+  realtime_safe: true

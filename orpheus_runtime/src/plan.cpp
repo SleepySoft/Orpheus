@@ -94,7 +94,8 @@ Plan Plan::load_from_file(const std::string& path) {
         cfg.period = it.value().value("period", 0u);
         cfg.block_size = it.value().value("block_size", 0u);
         cfg.frames = it.value().value("frames", 0u);
-        cfg.sample_rate = it.value().value("sample_rate", 0u);
+        cfg.frame_step = it.value().value("frame_step", 0u);
+        cfg.sample_rate = it.value().value("sample_rate", 0.0);
         p.node_configs[it.key()] = cfg;
         } catch (const std::exception& e) {
             std::cerr << "[Plan] parse node config failed: " << it.key()

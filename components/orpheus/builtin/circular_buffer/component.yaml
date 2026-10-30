@@ -2,10 +2,12 @@ id: orpheus.builtin.circular_buffer
 name: 循环缓冲分帧
 category: 高级/频域
 description: 带历史重叠的循环缓冲分帧组件。输入一块新样本，输出 num_frames 个展开帧（每帧 frame_size），帧移 hop_size。用于拼接 STFT 帧流。
-version: 1.0.0
-abi_version: 1
+version: 1.1.0
+abi_version: 5
 package_type: source
 state_type: CircularBufferState
+scheduling:
+  input_block_size: param:hop_size*param:num_frames
 sources:
   - src/circular_buffer.c
 headers:
@@ -21,6 +23,7 @@ ports:
     type: audio
     sample_format: f32
     channels: param:channels
+    block_size: param:frame_size*param:num_frames
 parameters:
   - id: channels
     name: 通道数

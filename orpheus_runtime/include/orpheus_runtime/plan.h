@@ -22,7 +22,8 @@ struct NodeConfig {
     uint32_t period = 0;    // 静态调度周期（主 tick 数）；0 = 回退 divisor（旧 plan）
     uint32_t block_size = 0;  // node rate-domain scheduling quantum (0 = plan fallback)
     uint32_t frames = 0;    // samples to call process with per firing (0 = plan block_size)
-    uint32_t sample_rate = 0;  // node effective sample rate (0 = inherit plan rate)
+    double sample_rate = 0;  // 节点采样率，支持有理SRC；0继承图速率
+    uint32_t frame_step = 0;  // 窗口重叠时的时间线步长；0使用frames
 };
 
 struct BufferConfig {

@@ -14,7 +14,7 @@ extern "C" {
    v3: 接口表尾部追加统一 hook（外部注册 hook 优先于组件 hook）。
     v4: OrpheusProcessContext 尾部追加绝对帧时间线（frame_index/epoch/flags）。
    组件接口表尾部追加字段，旧 DLL 由 Runtime 按版本号规避访问。 */
-#define ORPHEUS_ABI_VERSION 4
+#define ORPHEUS_ABI_VERSION 5
 
 /* 平台导出宏 */
 #ifndef ORPHEUS_API
@@ -330,7 +330,7 @@ typedef struct {
     uint32_t input_count;
     uint32_t output_count;
     uint32_t frame_count;
-    uint32_t sample_rate;    /* 当前处理采样率 */
+    double sample_rate;      /* v5：Hz，支持有理SRC产生的非整数采样率 */
     void* scratch;
     size_t scratch_size;
     double timestamp;        /* 秒 = frame_index / sample_rate（兼容字段） */
@@ -342,7 +342,7 @@ typedef struct {
 
 /* 配置上下文（prepare 时传入） */
 typedef struct {
-    uint32_t sample_rate;
+    double sample_rate;      /* v5：Hz，与处理上下文一致 */
     uint32_t block_size;
     uint32_t channels;       /* 主通道数，可变端口可覆盖 */
     const char** param_ids;       /* 参数 ID 数组，与 param_values 一一对应 */

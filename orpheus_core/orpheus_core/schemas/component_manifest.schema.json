@@ -147,6 +147,8 @@
     "scheduling": {
       "type": "object",
       "properties": {
+        "split": { "type": "boolean", "description": "以输出小块为执行量子；prepare仍接收输入大块长度" },
+        "input_block_size": { "type": ["integer", "string"], "description": "输入批次约束表达式，例如窗口的帧移乘窗口数" },
         "divisor": { "type": ["integer", "string"], "description": "Rate divisor expression for the OUTPUT domain, e.g. param:factor" }
       }
     },

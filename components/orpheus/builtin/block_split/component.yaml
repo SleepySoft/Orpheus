@@ -1,0 +1,45 @@
+id: orpheus.builtin.block_split
+name: 音频拆块器
+category: 高级/多速率
+description: 同采样率大块转小块；首次完整输入到达前输出零，之后按节拍依次交付，不丢弃或重复样本
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: BlockSplitState
+scheduling:
+  split: true
+sources:
+  - src/block_split.c
+headers:
+  - include/orpheus_block_split.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+    block_size: in:block_size/param:factor
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 64]
+    update_policy: restart_required
+    affects_signature: true
+  - id: factor
+    name: 拆分份数
+    type: int
+    default: 4
+    range: [1, 64]
+    update_policy: restart_required
+    affects_signature: true
+execution:
+  sample_rate_independent: true
+  supports_inplace: false
+  realtime_safe: true

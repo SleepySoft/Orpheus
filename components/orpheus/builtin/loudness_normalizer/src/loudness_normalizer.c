@@ -35,7 +35,7 @@ static float energy_to_db(float energy) {
     return 10.0f * log10f(energy);
 }
 
-static float block_coeff(float ms, uint32_t frames, uint32_t sample_rate) {
+static float block_coeff(float ms, uint32_t frames, double sample_rate) {
     if (ms <= 0.0f || sample_rate == 0 || frames == 0) return 1.0f;
     return 1.0f - expf(-(float)frames / (ms * 0.001f * (float)sample_rate));
 }

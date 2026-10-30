@@ -60,11 +60,25 @@ const OrpheusComponentInterface* ComponentLoader::load(const std::string& librar
         return nullptr;
     }
 #endif
+    const OrpheusComponentInterface* interface_ = fn();
+    const OrpheusComponentDescriptor* descriptor =
+        interface_ && interface_->get_descriptor ? interface_->get_descriptor() : nullptr;
+    if (!descriptor || descriptor->abi_version != ORPHEUS_ABI_VERSION) {
+        std::cerr << "[Loader] ABI不兼容：" << library_path
+                  << "，需要 " << ORPHEUS_ABI_VERSION << "，实际 "
+                  << (descriptor ? descriptor->abi_version : 0) << std::endl;
+#ifdef _WIN32
+        FreeLibrary(h);
+#else
+        dlclose(h);
+#endif
+        return nullptr;
+    }
     LoadedLib lib;
     lib.path = library_path;
     lib.handle = h;
     impl_->libs.push_back(lib);
-    return fn();
+    return interface_;
 }
 
 void ComponentLoader::unload_all() {

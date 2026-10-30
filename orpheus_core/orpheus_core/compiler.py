@@ -6,6 +6,7 @@ import math
 import re
 import copy
 from dataclasses import dataclass, field, replace
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,7 @@ class ResolvedPort:
     type: str
     sample_format: str
     channels: int
-    sample_rate: int
+    sample_rate: Fraction
     block_size: int
     block_size_explicit: bool = False
 
@@ -79,14 +80,13 @@ def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
         return task.sample_rate
     if expr == "task:block_size":
         return task.block_size
-    # in:block_size / in:sample_rate reference this node's input port values;
-    # resolved during block-size propagation (initial resolve returns None -> task default).
+    # 输入签名表达式在速率/块长传播时解析，初次解析先使用Task默认值。
     if isinstance(expr, str) and expr.startswith("in:"):
         return None
     return expr
 
 
-def _resolve_value(expr: Any, node: Node, task: Task) -> Any:
+def _resolve_value(expr: Any, node: Node, task: Task, *, exact: bool = False) -> Any:
     """Resolve a manifest expression against node params and task context.
 
     Supports integer arithmetic chains over atoms, e.g.
@@ -102,11 +102,11 @@ def _resolve_value(expr: Any, node: Node, task: Task) -> Any:
             if result is None or operand is None:
                 return None
             if op == "*":
-                result = int(result) * int(operand)
+                result = Fraction(result) * Fraction(operand) if exact else int(result) * int(operand)
             else:
                 if int(operand) == 0:
                     raise CompileError(f"division by zero in expression {expr!r} (node {node.id})")
-                result = int(result) // int(operand)
+                result = Fraction(result) / Fraction(operand) if exact else int(result) // int(operand)
             i += 2
         return result
     return _resolve_atom(expr, node, task)
@@ -180,7 +180,7 @@ def _resolve_port_signature(
         raise CompileError(f"cannot resolve channels for {node.id}:{port_manifest['id']}")
 
     sample_rate_expr = port_manifest.get("sample_rate", "task:sample_rate")
-    sample_rate = _resolve_value(sample_rate_expr, node, task)
+    sample_rate = _resolve_value(sample_rate_expr, node, task, exact=True)
     if sample_rate is None:
         sample_rate = task.sample_rate
 
@@ -197,7 +197,7 @@ def _resolve_port_signature(
         type=port_type,
         sample_format=sample_format,
         channels=int(channels),
-        sample_rate=int(sample_rate),
+        sample_rate=Fraction(sample_rate),
         block_size=int(block_size),
         block_size_explicit=block_size_explicit,
     )
@@ -571,7 +571,7 @@ class GraphCompiler:
             if to_node is None or to_node.component != "orpheus.builtin.wav_out":
                 continue
             fp = resolved_ports.get(str(conn.from_ref))
-            if fp is not None:
+            if fp is not None and fp.sample_rate.denominator == 1:
                 # 仅在编译内存中注入（compile 不持久化工程），运行时/生成路径经 plan 参数消费
                 to_node.params = {**to_node.params, "sample_rate": str(int(fp.sample_rate))}
 
@@ -603,6 +603,74 @@ class GraphCompiler:
                 if key in resolved_ports:
                     continue
                 resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, nt)
+
+        # 同Task默认端口跟随上游速率；显式速率约束保持不变。
+        rate_inputs: dict[str, list[Connection]] = {key: [] for key in graph.nodes}
+        for conn in graph.connections:
+            if conn.to_ref.node_id in rate_inputs:
+                rate_inputs[conn.to_ref.node_id].append(conn)
+        for _ in range(len(graph.nodes) + 1):
+            changed = False
+            for node in graph.nodes.values():
+                incoming = rate_inputs[node.id]
+                if not incoming or any(
+                    conn.from_ref.node_id not in graph.nodes
+                    or graph.nodes[conn.from_ref.node_id].task != node.task
+                    for conn in incoming
+                ):
+                    continue
+                rates = {
+                    resolved_ports[str(conn.from_ref)].sample_rate
+                    for conn in incoming
+                    if str(conn.from_ref) in resolved_ports
+                    and resolved_ports[str(conn.from_ref)].type == "audio"
+                }
+                if len(rates) != 1:
+                    continue
+                input_rate = next(iter(rates))
+                if node.component == "orpheus.builtin.wav_out" and input_rate.denominator == 1:
+                    node.params = {**node.params, "sample_rate": str(input_rate)}
+                for pm in expanded_ports[node.id]:
+                    key = f"{node.id}:{pm['id']}"
+                    rp = resolved_ports[key]
+                    if rp.type != "audio":
+                        continue
+                    expr = pm.get("sample_rate")
+                    if expr is None:
+                        rate = input_rate
+                    elif isinstance(expr, str) and "in:sample_rate" in expr:
+                        rate = _resolve_value(
+                            expr.replace("in:sample_rate", str(input_rate)),
+                            node, node_task(node), exact=True,
+                        )
+                        if rate is None or rate <= 0:
+                            raise CompileError(f"cannot resolve sample rate for {key}")
+                    elif node.component == "orpheus.builtin.wav_out":
+                        rate = input_rate
+                    else:
+                        continue
+                    if rp.sample_rate != rate:
+                        resolved_ports[key] = replace(rp, sample_rate=Fraction(rate))
+                        changed = True
+            if not changed:
+                break
+        for node in graph.nodes.values():
+            if node.component == "orpheus.builtin.wav_out":
+                rate = resolved_ports[f"{node.id}:in"].sample_rate
+                if rate.denominator != 1:
+                    raise CompileError(
+                        f"节点 {node.id}：WAV只支持整数采样率，不能写入 {rate} Hz；请先重采样"
+                    )
+            elif node.component in {
+                "orpheus.builtin.device_out", "orpheus.builtin.embed_out",
+                "orpheus.builtin.sport_tdm_out",
+            }:
+                for pm in expanded_ports[node.id]:
+                    rate = resolved_ports[f"{node.id}:{pm['id']}"].sample_rate
+                    if rate.denominator != 1:
+                        raise CompileError(
+                            f"节点 {node.id}：物理IO端点不能使用 {rate} Hz；请先重采样为整数Hz"
+                        )
 
         # 2. Validate connections
         driven_inputs: set[str] = set()
@@ -741,7 +809,16 @@ class GraphCompiler:
             for node_id in execution_order:
                 node = graph.nodes[node_id]
                 nt = node_task(node)
-                node_in_frames = in_frames.get(node_id, nt.block_size)
+                source_sizes = [
+                    resolved_ports[str(conn.from_ref)].block_size
+                    for conn in rate_inputs[node_id]
+                ]
+                comp = self.registry.get(node.component)
+                merging = bool(comp and (comp.manifest.get("scheduling") or {}).get("merge"))
+                node_in_frames = (
+                    math.lcm(*source_sizes) if merging and source_sizes
+                    else source_sizes[-1] if source_sizes else nt.block_size
+                )
                 for pm in expanded_ports[node_id]:
                     if pm["direction"] != "output":
                         continue
@@ -752,7 +829,14 @@ class GraphCompiler:
                         # rate-change component (e.g. downrate): out block = in block x factor,
                         # auto-discovered from input, not the global task block_size.
                         resolved_bs = _resolve_value(
-                            bs_expr.replace("in:block_size", str(node_in_frames)), node, nt)
+                            bs_expr.replace("in:block_size", str(node_in_frames)), node, nt,
+                            exact=True)
+                        if (resolved_bs is None or resolved_bs <= 0
+                                or Fraction(resolved_bs).denominator != 1):
+                            raise CompileError(
+                                f"节点 {node_id}：输出块长必须为正整数（{bs_expr}，输入{node_in_frames}帧）；"
+                                "请先用downrate积累到转换比例所需的完整批次"
+                            )
                         if resolved_bs is not None and int(resolved_bs) != rp.block_size:
                             resolved_ports[key] = replace(rp, block_size=int(resolved_bs))
                             changed = True
@@ -785,6 +869,17 @@ class GraphCompiler:
             # 不依赖工程全局 block_size（后者仅是宿主导入默认/旧版回退）。
             scheduling = (comp.manifest.get("scheduling") or {}) if comp else {}
             node_quantum = nt.block_size if scheduling.get("async_bridge") else in_frames.get(node.id, nt.block_size)
+            required_input = scheduling.get("input_block_size")
+            if required_input is not None:
+                expected = _resolve_value(required_input, node, nt)
+                if expected != node_quantum:
+                    raise CompileError(
+                        f"节点 {node.id}：输入块长需为 {expected} 帧，实际为 {node_quantum} 帧"
+                    )
+            processing_frames = (
+                resolved_ports[f"{node.id}:{out_ports[0]['id']}"].block_size
+                if scheduling.get("split") else node_quantum
+            )
             plan.node_configs[node.id] = {
                 "component": node.component,
                 "version": comp.version if comp else "",
@@ -792,8 +887,11 @@ class GraphCompiler:
                 "task": nt.id,
                 "divisor": node_divisor[node.id],
                 "block_size": node_quantum,
-                "frames": node_quantum,
-                "sample_rate": node_rate,
+                "frames": processing_frames,
+                "sample_rate": int(node_rate) if node_rate.denominator == 1 else float(node_rate),
+                **({
+                    "sample_rate_ratio": [node_rate.numerator, node_rate.denominator],
+                } if node_rate.denominator != 1 else {}),
                 # ordered port ids: runtime binds buffers by port id, not order
                 "input_ports": [p["id"] for p in port_manifests if p["direction"] == "input"],
                 "output_ports": [p["id"] for p in out_ports],
@@ -810,28 +908,58 @@ class GraphCompiler:
         # 4.5 静态调度表：每个节点的触发间隔统一折算为图采样率帧数
         #     I_n = frames_n × 图速率 / 节点流速率（整除不了立即报错，不静默掩盖），
         #     主步长 tick = 所有 I_n 的 GCD，节点周期 period_n = I_n / tick。
-        def _node_stream_rate(node_id: str) -> int:
+        def _node_stream_rate(node_id: str) -> Fraction:
             """节点量子 frames 所在的流速率：有输入取首个输入端口速率，源节点取首个端口。"""
             pms = expanded_ports[node_id]
             inputs = [p for p in pms if p["direction"] == "input"]
             chosen = inputs[0] if inputs else (pms[0] if pms else None)
             if chosen is None:
-                return plan.sample_rate
+                return Fraction(plan.sample_rate)
             rp = resolved_ports.get(f"{node_id}:{chosen['id']}")
-            return int(rp.sample_rate) if rp is not None else plan.sample_rate
+            return rp.sample_rate if rp is not None else Fraction(plan.sample_rate)
 
         intervals: dict[str, int] = {}
-        for node_id, cfg in plan.node_configs.items():
+        output_intervals: dict[str, Fraction] = {}
+        for node_id in execution_order:
+            cfg = plan.node_configs[node_id]
             frames_n = int(cfg["frames"])
             rate_n = _node_stream_rate(node_id)
             task_rate = node_task(graph.nodes[node_id]).sample_rate
-            num = frames_n * task_rate
-            if rate_n <= 0 or num % rate_n != 0:
+            comp = self.registry.get(graph.nodes[node_id].component)
+            scheduling = (comp.manifest.get("scheduling") or {}) if comp else {}
+            incoming = {
+                output_intervals[conn.from_ref.node_id]
+                for conn in rate_inputs[node_id]
+            }
+            if not incoming or scheduling.get("async_bridge"):
+                seconds = frames_n / rate_n
+            elif scheduling.get("merge"):
+                seconds = Fraction(
+                    math.lcm(*(value.numerator for value in incoming)),
+                    math.gcd(*(value.denominator for value in incoming)),
+                )
+            elif len(incoming) != 1:
+                raise CompileError(f"时钟链不匹配：节点 {node_id} 的输入交付周期不同，请显式对齐")
+            else:
+                seconds = next(iter(incoming))
+                if scheduling.get("split"):
+                    seconds *= Fraction(frames_n, int(cfg["block_size"]))
+            interval = seconds * task_rate
+            if rate_n <= 0 or interval <= 0 or interval.denominator != 1:
                 raise CompileError(
                     f"时钟链不匹配：节点 {node_id} 的触发间隔无法折算为 Task 速率整数帧"
                     f"（frames={frames_n}, node_rate={rate_n}, task_rate={task_rate}）"
                 )
-            intervals[node_id] = num // rate_n
+            intervals[node_id] = int(interval)
+            frame_step = seconds * rate_n
+            if frame_step.denominator != 1:
+                raise CompileError(f"节点 {node_id} 的时间线步长不是整数样本：{frame_step}")
+            if frame_step != frames_n:
+                cfg["frame_step"] = int(frame_step)
+            factor_expr = scheduling.get("divisor", 1)
+            factor = _resolve_value(factor_expr, graph.nodes[node_id],
+                                    node_task(graph.nodes[node_id]))
+            output_intervals[node_id] = seconds * int(factor)
         tick = 0
         for iv in intervals.values():
             tick = iv if tick == 0 else math.gcd(tick, iv)
@@ -912,7 +1040,8 @@ class GraphCompiler:
                 # 约束：桥接源必须是整写组件（每次触发完整交付输出端口块 = 节点量子）；
                 # downrate/resample 等部分产出组件直连接入在此报错，不打表面补丁。
                 producer_frames = int(plan.node_configs[conn.from_ref.node_id]["frames"])
-                if frame_count != producer_frames:
+                frame_step = int(plan.node_configs[conn.from_ref.node_id].get("frame_step", producer_frames))
+                if frame_count != producer_frames or frame_step != producer_frames:
                     raise CompileError(
                         f"时钟链不匹配：合流节点 {to_node_id} 的源 {conn.from_ref.node_id} "
                         f"不是整写组件（每次触发产出 {producer_frames} 帧，输出端口块长 "

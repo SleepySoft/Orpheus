@@ -26,7 +26,7 @@ static const char* read_string(const OrpheusConfig* config, const char* id, cons
 
 static float db_to_linear(float db) { return powf(10.0f, db / 20.0f); }
 
-static float ms_to_coeff(float ms, uint32_t sample_rate) {
+static float ms_to_coeff(float ms, double sample_rate) {
     if (ms <= 0.0f || sample_rate == 0) return 1.0f;
     float c = 1.0f - expf(-1.0f / ((ms / 1000.0f) * (float)sample_rate));
     return c > 1.0f ? 1.0f : c;

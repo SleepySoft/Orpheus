@@ -8,6 +8,23 @@ add_executable(abi_smoke abi_smoke.c)
 target_include_directories(abi_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
 add_test(NAME abi_smoke COMMAND abi_smoke)
 
+add_executable(audio_adapters_smoke audio_adapters_smoke.c)
+foreach(adapter rational_resample block_split circular_buffer)
+    set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})
+    add_library(audio_test_${adapter} OBJECT ${adapter_dir}/src/${adapter}.c)
+    target_include_directories(audio_test_${adapter} PRIVATE
+        ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${adapter_dir}/include)
+    target_compile_definitions(audio_test_${adapter} PRIVATE
+        ORPHEUS_BUILDING_COMPONENT ORPHEUS_ENTRY_NAME=test_${adapter})
+    target_include_directories(audio_adapters_smoke PRIVATE ${adapter_dir}/include)
+    target_sources(audio_adapters_smoke PRIVATE $<TARGET_OBJECTS:audio_test_${adapter}>)
+endforeach()
+target_include_directories(audio_adapters_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
+if(NOT WIN32)
+    target_link_libraries(audio_adapters_smoke PRIVATE m)
+endif()
+add_test(NAME audio_adapters_smoke COMMAND audio_adapters_smoke)
+
 add_executable(placeholder_smoke
     placeholder_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/placeholder/src/placeholder.c
@@ -21,7 +38,11 @@ add_test(NAME placeholder_smoke COMMAND placeholder_smoke)
 
 add_executable(loader_smoke loader_smoke.cpp)
 target_link_libraries(loader_smoke PRIVATE orpheus_runtime_lib)
-add_test(NAME loader_smoke COMMAND loader_smoke $<TARGET_FILE:orpheus_builtin_gain>)
+add_library(incompatible_component SHARED incompatible_component.c)
+target_include_directories(incompatible_component PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
+target_compile_definitions(incompatible_component PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME loader_smoke COMMAND loader_smoke
+    $<TARGET_FILE:orpheus_builtin_gain> $<TARGET_FILE:incompatible_component>)
 
 add_library(timeline_probe_component SHARED timeline_probe_component.c)
 target_include_directories(timeline_probe_component PRIVATE

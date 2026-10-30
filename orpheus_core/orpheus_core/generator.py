@@ -1249,7 +1249,9 @@ class CodeGenerator:
             node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
             lines.append(f'{indent}ctx.sample_rate = {node_sr};')
             lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
-            lines.append(f'{indent}ctx.frame_index = (g_block_counter / {period}u) * (uint64_t)ctx.frame_count;')
+            frame_step = int(cfg.get("frame_step", 0))
+            step_expr = str(frame_step) if frame_step else "ctx.frame_count"
+            lines.append(f'{indent}ctx.frame_index = (g_block_counter / {period}u) * (uint64_t){step_expr};')
             lines.append(f'{indent}ctx.timestamp = ctx.sample_rate > 0 ? (double)ctx.frame_index / (double)ctx.sample_rate : 0.0;')
             lines.append(f'{indent}ctx.epoch = g_timeline_epoch;')
             lines.append(f'{indent}ctx.valid_frames = ctx.frame_count;')
@@ -1366,15 +1368,17 @@ class CodeGenerator:
                 node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
                 lines.append(f'{indent}ctx.sample_rate = {node_sr};')
                 lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
+                frame_step = int(cfg.get("frame_step", 0))
+                step_expr = str(frame_step) if frame_step else "ctx.frame_count"
                 if external_trigger:
                     lines.append(
                         f'{indent}ctx.frame_index = trigger != NULL ? trigger->frame_index : '
-                        f'(g_task_counter_{task_sym} / {period}u) * (uint64_t)ctx.frame_count;'
+                        f'(g_task_counter_{task_sym} / {period}u) * (uint64_t){step_expr};'
                     )
                 else:
                     lines.append(
                         f'{indent}ctx.frame_index = (g_task_counter_{task_sym} / {period}u) '
-                        f'* (uint64_t)ctx.frame_count;'
+                        f'* (uint64_t){step_expr};'
                     )
                 lines.append(
                     f'{indent}ctx.timestamp = ctx.sample_rate > 0 ? '

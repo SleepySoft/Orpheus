@@ -14,7 +14,7 @@ static float read_float(const OrpheusConfig* config, const char* id, float fallb
     return fallback;
 }
 
-static float ms_to_coeff(float ms, uint32_t sample_rate) {
+static float ms_to_coeff(float ms, double sample_rate) {
     if (ms <= 0.0f || sample_rate == 0) return 1.0f;
     float c = 1.0f - expf(-1.0f / ((ms / 1000.0f) * (float)sample_rate));
     return c > 1.0f ? 1.0f : c;

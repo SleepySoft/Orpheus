@@ -177,6 +177,63 @@ def test_resample_divisor_propagation(compiler):
     assert plan.node_configs["out"]["sample_rate"] == 24000
 
 
+def test_resample_then_superblock_inherits_local_rate(compiler):
+    project = make_project(
+        [
+            Node(id="out", component="orpheus.builtin.wav_out",
+                 params={"file_path": "o.wav", "channels": 1}),
+            Node(id="gain", component="orpheus.builtin.gain", params={"channels": 1}),
+            Node(id="batch", component="orpheus.builtin.downrate",
+                 params={"channels": 1, "factor": 4}),
+            Node(id="rs", component="orpheus.builtin.resample",
+                 params={"channels": 1, "factor": 16}),
+            sig("sig"),
+        ],
+        [conn("sig:out", "rs:in"), conn("rs:out", "batch:in"),
+         conn("batch:out", "gain:in"), conn("gain:out", "out:in")],
+    )
+    plan = compiler.compile(project)
+    for key in ("batch", "gain", "out"):
+        assert plan.node_configs[key]["sample_rate"] == 3000
+    assert plan.node_configs["gain"]["frames"] == plan.block_size * 4
+    assert plan.node_configs["out"]["params"]["sample_rate"] == "3000"
+    assert plan.schedule["periods"]["gain"] == 64
+
+
+def test_cascaded_resample_uses_input_rate_not_task_rate(compiler):
+    project = make_project(
+        [
+            sig("sig"),
+            Node(id="a", component="orpheus.builtin.resample",
+                 params={"channels": 1, "factor": 2}),
+            Node(id="b", component="orpheus.builtin.resample",
+                 params={"channels": 1, "factor": 3}),
+            Node(id="out", component="orpheus.builtin.null_sink", params={"channels": 1}),
+        ],
+        [conn("sig:out", "a:in"), conn("a:out", "b:in"), conn("b:out", "out:in")],
+    )
+    plan = compiler.compile(project)
+    assert plan.node_configs["b"]["sample_rate"] == 24000
+    assert plan.node_configs["out"]["sample_rate"] == 8000
+    assert plan.schedule["periods"]["out"] == 6
+
+
+def test_explicit_audio_rate_is_not_overridden_by_upstream(compiler):
+    manifest = compiler.registry.get("orpheus.builtin.gain").manifest
+    manifest["ports"][0]["sample_rate"] = "task:sample_rate"
+    project = make_project(
+        [
+            sig("sig"),
+            Node(id="rs", component="orpheus.builtin.resample",
+                 params={"channels": 1, "factor": 2}),
+            Node(id="out", component="orpheus.builtin.gain", params={"channels": 1}),
+        ],
+        [conn("sig:out", "rs:in"), conn("rs:out", "out:in")],
+    )
+    with pytest.raises(CompileError, match="sample rate mismatch"):
+        compiler.compile(project)
+
+
 def test_downrate_superblock(compiler):
     project = make_project(
         [

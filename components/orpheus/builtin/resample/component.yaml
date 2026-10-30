@@ -23,7 +23,7 @@ ports:
     type: audio
     sample_format: f32
     channels: param:channels
-    sample_rate: task:sample_rate/param:factor
+    sample_rate: in:sample_rate/param:factor
 parameters:
   - id: factor
     name: 抽取比

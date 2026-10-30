@@ -42,7 +42,7 @@ static const OrpheusPort cb_ports[] = {
 };
 
 static const OrpheusComponentDescriptor cb_descriptor = {
-    .id = "orpheus.builtin.circular_buffer", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .id = "orpheus.builtin.circular_buffer", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
     .ports = cb_ports, .port_count = 2, .params = cb_params, .param_count = 4,
     .state_size = sizeof(CircularBufferState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
@@ -74,15 +74,19 @@ static int cb_destroy(void* state) {
 
 static int cb_prepare(void* state, const OrpheusConfig* config) {
     CircularBufferState* s = (CircularBufferState*)state;
+    if (config == NULL) return ORPHEUS_ERR_INVALID_ARG;
     cb_free(s);
 
     s->channels = config->channels > 0 ? config->channels : 2;
     s->frame_size = (uint32_t)read_float(config, "frame_size", 128.0f);
     s->hop_size = (uint32_t)read_float(config, "hop_size", 64.0f);
     s->num_frames = (uint32_t)read_float(config, "num_frames", 12.0f);
-    if (s->frame_size < 1) s->frame_size = 128;
-    if (s->hop_size < 1) s->hop_size = 64;
-    if (s->num_frames < 1) s->num_frames = 12;
+    if (s->channels < 1 || s->channels > 64 ||
+        s->frame_size < 2 || s->frame_size > 4096 ||
+        s->hop_size < 1 || s->hop_size > s->frame_size ||
+        s->num_frames < 1 || s->num_frames > 256 ||
+        config->block_size != s->hop_size * s->num_frames)
+        return ORPHEUS_ERR_INVALID_ARG;
     s->history_len = s->frame_size > s->hop_size ? s->frame_size - s->hop_size : 0;
     s->max_input_frames = config->block_size > 0 ? config->block_size : (s->num_frames * s->hop_size);
 
@@ -105,9 +109,15 @@ static int cb_reset(void* state) {
 
 static int cb_process(void* state, const OrpheusProcessContext* ctx) {
     CircularBufferState* s = (CircularBufferState*)state;
+    if (ctx == NULL || ctx->input_count < 1 || ctx->output_count < 1)
+        return ORPHEUS_ERR_INVALID_ARG;
     const OrpheusBuffer* in = ctx->inputs[0];
     OrpheusBuffer* out = ctx->outputs[0];
-    if (in == NULL || out == NULL) return ORPHEUS_ERR_INVALID_ARG;
+    if (in == NULL || out == NULL || in->data == NULL || out->data == NULL ||
+        in->channels != s->channels || out->channels != s->channels ||
+        !in->interleaved || !out->interleaved ||
+        in->format != ORPHEUS_FORMAT_F32 || out->format != ORPHEUS_FORMAT_F32)
+        return ORPHEUS_ERR_INVALID_ARG;
 
     uint32_t ch = s->channels;
     uint32_t frame = s->frame_size;
@@ -115,7 +125,8 @@ static int cb_process(void* state, const OrpheusProcessContext* ctx) {
     uint32_t nframes = s->num_frames;
     uint32_t hlen = s->history_len;
     uint32_t frames = ctx->frame_count;
-    if (frames > s->max_input_frames) frames = s->max_input_frames;
+    if (frames != s->max_input_frames || in->frame_capacity < frames ||
+        out->frame_capacity < nframes * frame) return ORPHEUS_ERR_INVALID_ARG;
 
     const float* in_data = (const float*)in->data;
     float* out_data = (float*)out->data;
@@ -133,7 +144,6 @@ static int cb_process(void* state, const OrpheusProcessContext* ctx) {
 
     /* 提取 num_frames 个重叠帧，输出帧顺序展开 */
     uint32_t out_frames = nframes * frame;
-    if (out->frame_capacity < out_frames) out_frames = out->frame_capacity;
     uint32_t actual_nframes = out_frames / frame;
     for (uint32_t c = 0; c < ch; ++c) {
         for (uint32_t f = 0; f < actual_nframes; ++f) {
