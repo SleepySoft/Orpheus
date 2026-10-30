@@ -99,6 +99,7 @@ cd ui; npm start                      # 前端热更新（:3000，代理到 :800
 
 ## 典型工作流
 
+- **提交约定**：今后每次完成修改并通过相应验证后，自动在对应 Git 仓库提交本次改动，无需再次询问；涉及独立研究工程时分别提交。只提交本任务相关改动，不混入他人编辑。用户明确要求暂不提交时除外；默认不推送远端，验证失败须如实说明。
 - **加组件**：复制最相近的现有组件目录（如 `components/orpheus/builtin/gain/`）→ 改 id/name/manifest/实现 → `cli build` → 写示例工程验证（对照 `examples/`）。
 - **改 UI**：编辑 `ui/src/` → `npm run build` → serve 托管即更新。参数控件走 `widgets.js` 注册表；节点本体定制走 `nodeWidgets.js`。
 - **改编译/运行逻辑**：Python 侧改完跑 `pytest orpheus_core/tests/`；C++ 侧改完用 `cmake --build build` 重建 runtime/host 并跑相关 e2e/一致性测试。
