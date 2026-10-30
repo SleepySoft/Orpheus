@@ -361,6 +361,39 @@ def test_materialized_composite_edits_write_back_to_definition_file(tmp_path: Pa
     assert manager.get_document("demo")["subcomponents"][0]["name"] == "Edited Chain"
 
 
+def test_saving_shared_composite_refreshes_cached_parent_and_nested_project(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    parent = root / "workspace" / "demo"
+    child = parent / "nested"
+    write_yaml(
+        child / "components" / "chain.component.yaml",
+        composite_manifest("test.shared", "orpheus.builtin.gain", "gain"),
+    )
+    write_yaml(parent / "project.yaml",
+               project_document(["nested/components/chain.component.yaml"], "test.shared"))
+    write_yaml(child / "project.yaml",
+               project_document(["components/chain.component.yaml"], "test.shared"))
+    write_yaml(root / "workspace" / "unrelated" / "project.yaml",
+               project_document([], "orpheus.builtin.gain"))
+    manager = ProjectManager(root, builtin_registry())
+    parent_document = manager.get_document("demo")
+    manager.get_document("demo/nested")
+    unrelated = manager.get("unrelated")
+
+    parent_document["subcomponents"][0]["name"] = "Edited from parent"
+    manager.put("demo", parent_document)
+    assert b"\r" not in (parent / "project.yaml").read_bytes()
+    assert b"\r" not in (child / "components" / "chain.component.yaml").read_bytes()
+    child_document = manager.get_document("demo/nested")
+    assert child_document["subcomponents"][0]["name"] == "Edited from parent"
+
+    child_document["subcomponents"][0]["graph"]["nodes"][0]["params"]["gain_db"] = -6.0
+    manager.put("demo/nested", child_document)
+    parent_document = manager.get_document("demo")
+    assert parent_document["subcomponents"][0]["graph"]["nodes"][0]["params"]["gain_db"] == -6.0
+    assert manager.get("unrelated") is unrelated
+
+
 def test_project_save_does_not_modify_global_composite(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     global_path = root / "global" / "chain.component.yaml"

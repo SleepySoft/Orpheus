@@ -599,12 +599,24 @@ int Runtime::prepare_instance(Instance& inst, const NodeConfig& cfg) {
     // Build parameter arrays
     std::vector<OrpheusValue> param_values;
     std::vector<std::string> param_id_storage;
+    const OrpheusComponentDescriptor* descriptor = inst.interface_->get_descriptor();
 
     uint32_t channels = 2;
     for (const auto& kv : cfg.params) {
         param_id_storage.push_back(kv.first);
         OrpheusValue v;
-        if (kv.first == "channels" || kv.first == "sample_rate") {
+        bool declared_string = false;
+        for (uint32_t i = 0; i < descriptor->param_count; ++i) {
+            if (kv.first == descriptor->params[i].id) {
+                declared_string = descriptor->params[i].type == ORPHEUS_VALUE_STRING;
+                break;
+            }
+        }
+        // 数字形式的路由、文件名等仍须遵循组件声明的字符串类型。
+        if (declared_string) {
+            v.type = ORPHEUS_VALUE_STRING;
+            v.value.str = kv.second.c_str();
+        } else if (kv.first == "channels" || kv.first == "sample_rate") {
             v.type = ORPHEUS_VALUE_INT;
             v.value.i32 = static_cast<int32_t>(std::atoi(kv.second.c_str()));
             if (kv.first == "channels") {

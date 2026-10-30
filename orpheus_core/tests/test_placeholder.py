@@ -196,6 +196,8 @@ def test_todo_gate_passes_after_real_component_verified(tmp_path, registry):
 @pytest.mark.parametrize("mode,routes,expected", [
     ("passthrough", "0,-1", [0.25, -0.5]),
     ("silence", "0,-1", [0.0, 0.0]),
+    ("passthrough", "0", [0.25, -0.5]),
+    ("silence", "-1", [0.0, 0.0]),
 ])
 def test_placeholder_dynamic_generated_byte_identical(mode, routes, expected):
     name = f"placeholder_{uuid.uuid4().hex[:8]}"
@@ -214,6 +216,8 @@ def test_placeholder_dynamic_generated_byte_identical(mode, routes, expected):
                 {"id": "result", "direction": "output", "channels": 2},
                 {"id": "unused", "direction": "output", "channels": 1},
             ]
+            if "," not in routes:
+                interface = interface[:2]
             doc = document()
             doc["graph"]["nodes"][0] = {
                 "id": "input", "component": "orpheus.builtin.wav_in",

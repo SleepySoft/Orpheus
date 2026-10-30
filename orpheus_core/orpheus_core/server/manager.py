@@ -361,7 +361,7 @@ class ProjectManager:
             manifest = self._merge_composite_manifest(existing, sub)
             schemas.validate(manifest, schemas.load_component_manifest_schema())
             source_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(source_path, "w", encoding="utf-8") as stream:
+            with open(source_path, "w", encoding="utf-8", newline="\n") as stream:
                 yaml.safe_dump(manifest, stream, sort_keys=False, allow_unicode=True)
         if imports:
             root_document["imports"] = imports
@@ -390,7 +390,7 @@ class ProjectManager:
                 else self._loader.load(yaml_path)
             )
             persistent_doc = self._persist_composite_definitions(name, doc, current)
-            with open(yaml_path, "w", encoding="utf-8") as f:
+            with open(yaml_path, "w", encoding="utf-8", newline="\n") as f:
                 yaml.safe_dump(persistent_doc, f, sort_keys=False, allow_unicode=True)
             try:
                 project = self._loader.load(yaml_path)
@@ -402,6 +402,17 @@ class ProjectManager:
                 path=yaml_path,
                 loaded_mtime_ns=yaml_path.stat().st_mtime_ns,
             )
+            saved_definitions = {
+                sub.source_path for sub in project.subcomponents
+                if sub.imported and not sub.read_only and sub.source_path is not None
+            }
+            # 一个定义可被父、子工程共同导入；保存后不能继续返回另一工程的旧快照。
+            for cached_name, cached in list(self._records.items()):
+                if cached_name != name and any(
+                    sub.source_path in saved_definitions
+                    for sub in cached.project.subcomponents
+                ):
+                    self._records.pop(cached_name)
             self._records[name] = rec
             return rec
 
