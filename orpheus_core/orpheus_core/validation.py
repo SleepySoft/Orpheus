@@ -448,6 +448,8 @@ def validate_project(
     try:
         flat = flatten_project(project)
         plan = GraphCompiler(project_registry).compile(flat, target=target)
+        for warning in plan.warnings:
+            report.add_warning("compile", warning)
         if plan.ignored_nodes:
             report.add_warning(
                 "compile",

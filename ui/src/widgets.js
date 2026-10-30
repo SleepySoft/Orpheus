@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import FileBrowseModal from './FileBrowseModal';
+import { PlaceholderPortsWidget } from './TodoPanel';
 
 /**
  * Widget registry: manifest `widget` hint -> React control component.
@@ -125,6 +126,7 @@ function FileWidget({ schema, value, onChange, disabled, ctx }) {
 }
 
 export const WIDGETS = {
+  placeholder_ports: PlaceholderPortsWidget,
   number: NumberWidget,
   text: TextWidget,
   slider: SliderWidget,

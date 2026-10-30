@@ -38,6 +38,7 @@ from orpheus_core.server.manager import ProjectError, ProjectManager, ProjectRec
 from orpheus_core.server.bridge_process_session import ProcessBridgeSession
 from orpheus_core.server.session_manager import RuntimeSessionManager
 from orpheus_core.subgraph import flatten_project
+from orpheus_core.todos import collect_todos
 
 RUN_TIMEOUT_SECONDS = 60
 DEVICES_CACHE_SECONDS = 30
@@ -622,6 +623,14 @@ def create_app(project_root: Path, *,
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return {"status": "deleted", "name": name}
 
+    @app.get("/api/projects/{name}/todos")
+    def get_project_todos(name: str, include_done: bool = False) -> dict[str, Any]:
+        try:
+            rec = manager.get(name)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        return collect_todos(rec.project, include_done=include_done)
+
     @app.post("/api/projects/{name}/compile")
     def compile_project(name: str) -> dict[str, Any]:
         try:
@@ -637,6 +646,7 @@ def create_app(project_root: Path, *,
             "buffers": len(plan.buffers),
             "connections": len(plan.connections),
             "ignored_nodes": plan.ignored_nodes,
+            "warnings": plan.warnings,
             "bridges": plan.bridges,
             # 控制链路（编译期已校验），供 UI 显示与测试断言；空图为 []
             "control_links": plan.control_links,
@@ -685,7 +695,8 @@ def create_app(project_root: Path, *,
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             return {"mode": "realtime", "status": "started", "pid": session.proc.pid,
                     "log_path": "logs/dynamic-device.log",
-                    "built_components": built, "ignored_nodes": plan.ignored_nodes}
+                    "built_components": built, "ignored_nodes": plan.ignored_nodes,
+                    "warnings": plan.warnings}
 
         if pace:
             # 主动推进 + 墙钟 pacing：处理线程与标准 Bridge Endpoint 并行。
@@ -701,7 +712,8 @@ def create_app(project_root: Path, *,
             )
             return {"mode": "offline_live", "status": "started", "pid": session.proc.pid,
                     "log_path": "logs/dynamic-paced.log",
-                    "built_components": built, "ignored_nodes": plan.ignored_nodes}
+                    "built_components": built, "ignored_nodes": plan.ignored_nodes,
+                    "warnings": plan.warnings}
 
         exe = ensure_runtime_built()
         project_dir = rec.directory
@@ -736,6 +748,7 @@ def create_app(project_root: Path, *,
             "log_path": log_path,
             "built_components": built,
             "ignored_nodes": plan.ignored_nodes,
+            "warnings": plan.warnings,
             "outputs": outputs,
             "probes": _parse_probe_lines(result.stdout),
         }
@@ -794,6 +807,7 @@ def create_app(project_root: Path, *,
                 "generated": True,
                 "log_path": "logs/generated-device.log",
                 "ignored_nodes": plan.ignored_nodes,
+                "warnings": plan.warnings,
                 "generated_path": str(gen_dir.relative_to(rec.directory)),
                 "download_url": f"/api/projects/{name}/generated/archive",
             }
@@ -846,6 +860,7 @@ def create_app(project_root: Path, *,
             "log_path": log_path,
             "blocks": blocks,
             "ignored_nodes": plan.ignored_nodes,
+            "warnings": plan.warnings,
             "outputs": outputs,
             "generated_path": str(gen_dir.relative_to(rec.directory)),
             "download_url": f"/api/projects/{name}/generated/archive",
@@ -869,6 +884,7 @@ def create_app(project_root: Path, *,
             and (plan.duration_frames + tick - 1) // tick
             or 1000,
             "ignored_nodes": plan.ignored_nodes,
+            "warnings": plan.warnings,
         }
 
     @app.get("/api/projects/{name}/generated/archive")

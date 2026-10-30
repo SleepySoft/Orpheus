@@ -114,6 +114,10 @@
           "codec": { "type": "string", "enum": ["olink", "length_prefixed", "datagram", "none"], "default": "olink" },
           "enabled": { "type": "boolean", "default": true },
           "params": { "type": "object" },
+          "todos": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/todo" }
+          },
           "position": {
             "type": "object",
             "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
@@ -212,6 +216,22 @@
     }
   },
   "definitions": {
+    "todo": {
+      "type": "object",
+      "required": ["id", "title", "status"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_-]+$" },
+        "title": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["pending", "in_progress", "blocked", "done"] },
+        "source_ref": { "type": "string" },
+        "source_hash": { "type": "string" },
+        "intent": { "type": "string" },
+        "next_step": { "type": "string" },
+        "acceptance": { "type": "string" },
+        "blocker": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "graph": {
       "type": "object",
       "required": ["nodes", "connections"],

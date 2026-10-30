@@ -4,6 +4,7 @@ import { Handle, Position, NodeResizer, useUpdateNodeInternals } from 'reactflow
 import { resolveExprValue, resolveShape, shapeText, CTL_PREFIX } from './graphUtils';
 import { NODE_WIDGETS } from './nodeWidgets';
 import { NodeActionsContext } from './NodeActionsContext';
+import { PLACEHOLDER_ID } from './placeholder';
 
 /** Custom React Flow node: ports come from the component manifest (resolved). */
 export default function OrpheusNode({ id, data, selected }) {
@@ -13,7 +14,7 @@ export default function OrpheusNode({ id, data, selected }) {
   const outputs = ports.filter((p) => p.direction === 'output');
   const isSub = (data.component || '').startsWith('sub:');
   const isBridge = !!data.bridgeConfig;
-  const isPlaceholder = data.packageType === 'placeholder';
+  const isPlaceholder = data.packageType === 'placeholder' || data.component === PLACEHOLDER_ID;
   const blockerText = (data.blockers || [])
     .map((item) => `${item.gate || item.id}: ${item.reason}`)
     .join('\n');
@@ -182,6 +183,9 @@ const BodyWidget = NODE_WIDGETS[data.component];
             <span className="placeholder-badge" title={blockerText || '该算法尚未完成蒸馏'}>
               待蒸馏
             </span>
+          )}
+          {(data.todos || []).some((todo) => todo.status !== 'done') && (
+            <span className="placeholder-badge" title="在参数面板查看待办，工程 TODO 可查找全部待办">TODO</span>
           )}
           {rateBadge}
           {data.hasNote && (

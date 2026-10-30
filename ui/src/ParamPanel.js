@@ -1,5 +1,6 @@
 import React from 'react';
 import ParamField from './widgets';
+import { NodeTodos, isRunnablePlaceholder } from './TodoPanel';
 
 // Universal params (channel count, sample rate, ...) always go on top,
 // separated from component-specific params.
@@ -14,6 +15,8 @@ export default function ParamPanel({
   node,
   viewKey,
   onParamChange,
+  onTodosChange,
+  todosReadOnly,
   onNodeNoteChange,
   nodeNotes,
   onDeleteNode,
@@ -81,6 +84,7 @@ export default function ParamPanel({
       )}
       {specific.length > 0 && universal.length > 0 && <div className="param-section">组件参数</div>}
       {specific.map(renderField)}
+      <NodeTodos todos={node.data.todos} onChange={onTodosChange} isPlaceholder={isRunnablePlaceholder(node)} readOnly={todosReadOnly} />
       <NodeNoteSection
         viewKey={viewKey}
         nodeId={node.id}

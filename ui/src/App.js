@@ -44,6 +44,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import NotesPanel from './NotesPanel';
 import AlterGroupOverlay from './AlterGroupOverlay';
+import TodoPanel from './TodoPanel';
+import { PLACEHOLDER_ID, newTodo } from './placeholder';
 
 const nodeTypes = { orpheus: OrpheusNode };
 const edgeTypes = { audio: AudioEdge, control: ControlEdge };
@@ -658,10 +660,11 @@ const { screenToFlowPosition } = useReactFlow();
       updateView(activeView, (v) => ({
         ...v,
         nodes: [
-          ...v.nodes,
+          ...v.nodes.map((node) => ({ ...node, selected: false })),
           {
             id,
             type: 'orpheus',
+            selected: true,
             position,
             data: {
               label: id,
@@ -673,11 +676,14 @@ const { screenToFlowPosition } = useReactFlow();
               parameters: comp.parameters || [],
               platforms: comp.platforms || [],
               bridgeConfig: !!comp.bridge_config,
+              packageType: comp.package_type || 'source',
+              todos: componentId === PLACEHOLDER_ID ? [newTodo()] : [],
             },
           },
         ],
       }));
       setSelectedId(id);
+      setSelectedIds([id]);
       setDirty(true);
     },
     [catalogById, activeView, view.nodes, screenToFlowPosition, updateView, doc]
@@ -730,6 +736,15 @@ const { screenToFlowPosition } = useReactFlow();
     }));
     setDirty(true);
   }, [activeView, updateView]);
+
+  const onTodosChange = useCallback((todos) => {
+    updateView(activeView, (currentView) => ({
+      ...currentView,
+      nodes: currentView.nodes.map((node) => node.id === selectedId
+        ? { ...node, data: { ...node.data, todos } } : node),
+    }));
+    setDirty(true);
+  }, [activeView, selectedId, updateView]);
 
   /** 参数面板专用：更新任意视图（主图/子组件标签）里某节点的参数，并在实时会话中即时推送。 */
   const onNodeParamChange = useCallback(
@@ -867,10 +882,16 @@ const { screenToFlowPosition } = useReactFlow();
 
   /** 工程树定位：切到节点所在视图并选中该节点。 */
   const onLocateNode = useCallback((viewKey, nodeId) => {
+    updateView(viewKey, (currentView) => ({
+      ...currentView,
+      nodes: currentView.nodes.map((node) => ({ ...node, selected: node.id === nodeId })),
+    }));
+    setOpenTabs((tabs) => tabs.includes(viewKey) ? tabs : [...tabs, viewKey]);
     setActiveView(viewKey);
     setSelectedId(nodeId);
     setSelectedIds([nodeId]);
-  }, []);
+    setRightOpen(true);
+  }, [updateView]);
 
   /** 工程树导航：打开指定视图（主图或子组件画布）。 */
   const onOpenView = useCallback((viewKey) => setActiveView(viewKey), []);
@@ -1390,11 +1411,12 @@ const { screenToFlowPosition } = useReactFlow();
     try {
       const r = await api.compileProject(current);
       const ignored = r.ignored_nodes || [];
-      setStatus(`编译成功: ${r.nodes} 节点, ${r.buffers} buffers${ignored.length ? `，调试旁路跳过 ${ignored.length} 个节点` : ''}`);
+      setStatus(`编译成功: ${r.nodes} 节点, ${r.buffers} buffers${ignored.length ? `，调试旁路跳过 ${ignored.length} 个节点` : ''}${r.warnings?.length ? '，警告：含未实现占位模块' : ''}`);
       setLog({
         title: '编译结果',
         lines: [
           `执行顺序: ${r.execution_order.join(' → ')}`,
+          ...(r.warnings || []),
           ignored.length ? `调试旁路跳过: ${ignored.join(', ')}` : null,
           r.plan_path,
         ].filter(Boolean),
@@ -1474,9 +1496,9 @@ const { screenToFlowPosition } = useReactFlow();
     setStatus('运行中…');
     try {
       const r = await api.runProject(current, paceRun);
-      const ignoredSuffix = r.ignored_nodes?.length
+      const ignoredSuffix = (r.ignored_nodes?.length
         ? `，调试旁路跳过 ${r.ignored_nodes.length} 个节点`
-        : '';
+        : '') + (r.warnings?.length ? '，警告：含未实现占位模块' : '');
       if (r.mode === 'realtime' || r.mode === 'offline_live') {
         // device graph: base host started a realtime session
         setRt({ running: true, logs: [], probes: {} });
@@ -1512,6 +1534,7 @@ const { screenToFlowPosition } = useReactFlow();
         title: '运行输出',
         lines: [
           r.built_components?.length ? `新构建组件: ${r.built_components.join(', ')}` : null,
+          ...(r.warnings || []),
           r.ignored_nodes?.length ? `调试旁路跳过: ${r.ignored_nodes.join(', ')}` : null,
           r.stdout,
           r.stderr ? `stderr:\n${r.stderr}` : null,
@@ -1529,9 +1552,9 @@ const { screenToFlowPosition } = useReactFlow();
     setStatus('生成代码并构建中…');
     try {
       const r = await api.runGenerated(current);
-      const ignoredSuffix = r.ignored_nodes?.length
+      const ignoredSuffix = (r.ignored_nodes?.length
         ? `，调试旁路跳过 ${r.ignored_nodes.length} 个节点`
-        : '';
+        : '') + (r.warnings?.length ? '，警告：含未实现占位模块' : '');
       if (r.generated_path) {
         setGeneratedInfo({
           path: r.generated_path,
@@ -1552,6 +1575,7 @@ const { screenToFlowPosition } = useReactFlow();
       setLog({
         title: '编译后运行输出',
         lines: [
+          ...(r.warnings || []),
           r.ignored_nodes?.length ? `调试旁路跳过: ${r.ignored_nodes.join(', ')}` : null,
           r.stdout,
           r.stderr ? `stderr:\n${r.stderr}` : null,
@@ -1569,7 +1593,7 @@ const { screenToFlowPosition } = useReactFlow();
     setStatus('生成独立 C 工程中…');
     try {
       const r = await api.generateProject(current);
-      setStatus(`已生成独立 C 工程：${r.generated_dir}${r.ignored_nodes?.length ? `（调试旁路跳过 ${r.ignored_nodes.length} 个节点）` : ''}`);
+      setStatus(`已生成独立 C 工程：${r.generated_dir}${r.ignored_nodes?.length ? `（调试旁路跳过 ${r.ignored_nodes.length} 个节点）` : ''}${r.warnings?.length ? '，警告：含未实现占位模块' : ''}`);
       setGeneratedInfo({
         path: r.generated_path,
         url: api.downloadGeneratedUrl(current),
@@ -1577,6 +1601,7 @@ const { screenToFlowPosition } = useReactFlow();
       setLog({
         title: '生成结果',
         lines: [
+          ...(r.warnings || []),
           `生成目录（工程目录下）: ${r.generated_path}`,
           r.ignored_nodes?.length ? `调试旁路跳过: ${r.ignored_nodes.join(', ')}` : null,
           '嵌入部署：改 src/platform_io.c 的 USER CODE 段接入实际 DMA/编解码器后，按目标工具链交叉编译。',
@@ -2003,6 +2028,9 @@ const { screenToFlowPosition } = useReactFlow();
               </button>
             </div>
             <div className="side-tabs">
+              <button className={leftTab === 'todos' ? 'active' : ''} onClick={() => setLeftTab('todos')}>
+                TODO
+              </button>
               <button
                 className={leftTab === 'palette' ? 'active' : ''}
                 onClick={() => setLeftTab('palette')}
@@ -2053,6 +2081,7 @@ const { screenToFlowPosition } = useReactFlow();
                 onNodeNoteChange={handleNodeNoteChange}
               />
             )}
+            {leftTab === 'todos' && <TodoPanel views={views} onLocate={onLocateNode} />}
           </div>
           <div className="side-resizer" onMouseDown={onLeftResizeStart} title="拖拽调整宽度" />
           </>
@@ -2119,6 +2148,8 @@ const { screenToFlowPosition } = useReactFlow();
               node={selectedNode}
               viewKey={activeView}
               onParamChange={onParamChange}
+              onTodosChange={onTodosChange}
+              todosReadOnly={!!activeSub?.read_only}
               onNodeNoteChange={handleNodeNoteChange}
               nodeNotes={nodeNotes}
               onDeleteNode={onDeleteNode}

@@ -2482,3 +2482,14 @@ pre {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.todo-item {
+  border: 1px solid #66512a;
+  border-radius: 4px;
+  padding: 8px;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.todo-item label, .todo-item strong { display: block; margin: 4px 0; }
+.todo-item textarea, .todo-item select { width: 100%; box-sizing: border-box; }
+.placeholder-port-row { display: flex; gap: 4px; align-items: center; margin: 4px 0; }
+.placeholder-port-row input { min-width: 0; width: 70px; }

@@ -8,6 +8,17 @@ add_executable(abi_smoke abi_smoke.c)
 target_include_directories(abi_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
 add_test(NAME abi_smoke COMMAND abi_smoke)
 
+add_executable(placeholder_smoke
+    placeholder_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/placeholder/src/placeholder.c
+)
+target_include_directories(placeholder_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/placeholder/include
+)
+target_compile_definitions(placeholder_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME placeholder_smoke COMMAND placeholder_smoke)
+
 add_executable(loader_smoke loader_smoke.cpp)
 target_link_libraries(loader_smoke PRIVATE orpheus_runtime_lib)
 add_test(NAME loader_smoke COMMAND loader_smoke $<TARGET_FILE:orpheus_builtin_gain>)

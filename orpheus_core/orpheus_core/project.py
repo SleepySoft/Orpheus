@@ -44,6 +44,7 @@ class Node:
     params: dict[str, Any] = field(default_factory=dict)
     position: dict[str, float] = field(default_factory=dict)
     alters: list[str] = field(default_factory=list)  # 用户声明的替代组（同图节点 id）
+    todos: list[dict[str, Any]] = field(default_factory=list)
     param_resources: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
 
 
@@ -199,7 +200,13 @@ def _parse_graph(
     graph_data: dict[str, Any], resource_values: dict[str, list[float]] | None = None
 ) -> Graph:
     graph = Graph()
+    todo_schema = schemas.load_project_schema()["definitions"]["todo"]
     for n in graph_data.get("nodes", []):
+        if "todos" in n:
+            schemas.validate(n["todos"], {"type": "array", "items": todo_schema})
+        todo_ids = [todo["id"] for todo in n.get("todos", [])]
+        if len(todo_ids) != len(set(todo_ids)):
+            raise ValueError(f"节点 {n['id']} 的 TODO id 重复")
         params = dict(n.get("params", {}) or {})
         param_resources: dict[str, dict[str, Any]] = {}
         for param_id, value in list(params.items()):
@@ -229,6 +236,7 @@ def _parse_graph(
             params=params,
             position=n.get("position", {}),
             alters=list(n.get("alters", []) or []),
+            todos=copy.deepcopy(n.get("todos", [])),
             param_resources=param_resources,
         )
         graph.nodes[node.id] = node
@@ -257,6 +265,7 @@ def _graph_to_dict(graph: Graph) -> dict[str, Any]:
                 },
                 "position": n.position,
                 **({"alters": n.alters} if n.alters else {}),
+                **({"todos": copy.deepcopy(n.todos)} if n.todos else {}),
             }
             for n in graph.nodes.values()
         ],

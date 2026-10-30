@@ -1,4 +1,5 @@
 /** Conversion between project documents (with subcomponents) and React Flow views. */
+import { PLACEHOLDER_ID, placeholderPorts } from './placeholder';
 
 export const SUB_PREFIX = 'sub:';
 
@@ -75,6 +76,7 @@ export function shapeEquals(a, b) {
  * (e.g. param:channels) is replicated as <id>0..<id>N-1 (variable pins).
  */
 export function resolvePorts(component, params) {
+  if (component?.id === PLACEHOLDER_ID) return placeholderPorts(params?.interface);
   const ports = [];
   for (const p of component?.ports || []) {
     if (p.count !== undefined) {
@@ -173,6 +175,7 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
         parameters: comp?.parameters || [],
         packageType: comp?.package_type || 'source',
         blockers: comp?.blockers || [],
+        todos: n.todos || [],
         // 替代组声明（同图内节点 id 列表）与组件平台标签，往返保留
         alters: Array.isArray(n.alters) ? n.alters : [],
         platforms: comp?.platforms || [],
@@ -241,6 +244,7 @@ export function flowToGraph(nodes, edges) {
       ...(n.data.label && n.data.label !== n.id ? { label: n.data.label } : {}),
       // alters 非空数组时写回节点，空则省略
       ...(Array.isArray(n.data.alters) && n.data.alters.length ? { alters: n.data.alters } : {}),
+      ...(n.data.todos?.length ? { todos: n.data.todos } : {}),
     })),
     connections: edges
       .filter((edge) => edge.sourceHandle && edge.targetHandle && edge.type !== 'control')

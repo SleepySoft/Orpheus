@@ -21,6 +21,7 @@ from orpheus_core.project import ProjectLoader
 from orpheus_core.registry import Registry
 from orpheus_core.subgraph import flatten_project
 from orpheus_core.validation import discover_project_files, validate_project
+from orpheus_core.todos import collect_todos
 
 
 @click.group()
@@ -146,6 +147,36 @@ def scan(ctx: click.Context) -> None:
 
 @cli.command()
 @click.argument("project_file", type=click.Path(exists=True, path_type=Path))
+@click.option("--json", "as_json", is_flag=True, help="输出机器可读 TODO 清单")
+@click.option("--all", "include_done", is_flag=True, help="包含已完成 TODO")
+@click.option("--check", is_flag=True, help="存在未完成 TODO 时以状态码 1 退出")
+@click.pass_context
+def todos(ctx: click.Context, project_file: Path, as_json: bool,
+          include_done: bool, check: bool) -> None:
+    """枚举主图及全部子图定义中的结构化 TODO（无需编译）。"""
+    registry = Registry([ctx.obj["project_root"] / "components"])
+    registry.scan()
+    try:
+        project = ProjectLoader(registry).load(project_file)
+        report = collect_todos(project, include_done=include_done)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    if as_json:
+        click.echo(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        click.echo(report["scope"])
+        for item in report["items"]:
+            click.echo(f"{item['status']:12s} {item['location']}  {item['title']}")
+            for key in ("source_ref", "next_step", "acceptance", "blocker"):
+                if item.get(key):
+                    click.echo(f"  {key}: {item[key]}")
+        click.echo(f"未完成: {report['summary']['open']}，阻塞: {report['summary']['blocked']}")
+    if check and report["summary"]["open"]:
+        ctx.exit(1)
+
+
+@cli.command()
+@click.argument("project_file", type=click.Path(exists=True, path_type=Path))
 @click.option("--target", "target", default=None,
               help="目标平台覆盖（auto/win/dsp）；缺省读工程 target 字段")
 @click.option("--debug/--strict", "debug_mode", default=None,
@@ -181,6 +212,8 @@ def compile(ctx: click.Context, project_file: Path, target: str | None,
         json.dump(plan.__dict__, f, indent=2, ensure_ascii=False)
     if plan.ignored_nodes:
         click.echo(f"debug bypass ignored nodes: {', '.join(plan.ignored_nodes)}")
+    for warning in plan.warnings:
+        click.echo(f"警告: {warning}", err=True)
     click.echo(f"execution plan written to {output}")
 
 
@@ -267,6 +300,8 @@ def generate(ctx: click.Context, project_file: Path, output_dir: Path,
 
     generator = CodeGenerator(project_registry, root)
     generator.generate(plan, output_dir)
+    for warning in plan.warnings:
+        click.echo(f"警告: {warning}", err=True)
     if plan.ignored_nodes:
         click.echo(f"debug bypass ignored nodes: {', '.join(plan.ignored_nodes)}")
     click.echo(f"generated project written to {output_dir}")

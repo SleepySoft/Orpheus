@@ -1,0 +1,34 @@
+version: "0.1.0"
+metadata:
+  name: 占位骨架示例
+  description: TODO 驱动的双通道骨架；占位输出不是算法等价证据
+sample_rate: 48000
+block_size: 128
+graph:
+  nodes:
+    - id: source
+      component: orpheus.builtin.signal_gen
+      params: {channels: 2, duration_s: 0.1}
+      position: {x: 50, y: 120}
+    - id: pending
+      component: orpheus.builtin.placeholder
+      params:
+        interface: '[{"id":"mic","direction":"input","channels":2},{"id":"audio","direction":"output","channels":2},{"id":"monitor","direction":"output","channels":1}]'
+        mode: passthrough
+        routes: "0,-1"
+      todos:
+        - id: implement
+          title: 用真实前处理替换占位模块
+          status: pending
+          source_ref: "待填写：源文件相对路径、函数符号或权威索引 ID"
+          intent: 双通道前处理；当前只有透传和单通道零值监测桩
+          next_step: 固定源版本，确认接口与状态，再选择标准组件或拆分子图
+          acceptance: 模块 golden、边界测试和动态/生成一致性均通过
+      position: {x: 340, y: 120}
+    - id: sink
+      component: orpheus.builtin.null_sink
+      params: {channels: 2}
+      position: {x: 680, y: 120}
+  connections:
+    - {from: "source:out", to: "pending:mic"}
+    - {from: "pending:audio", to: "sink:in"}

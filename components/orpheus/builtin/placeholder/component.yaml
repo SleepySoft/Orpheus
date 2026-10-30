@@ -1,0 +1,44 @@
+id: orpheus.builtin.placeholder
+name: 占位模块
+category: 基础/工程辅助
+description: 可运行的音频骨架桩；没有模型算法。通过接口编辑器配置端口，并在节点 TODO 中记录源码索引、下一步和验收条件。
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: PlaceholderState
+sources: [src/placeholder.c]
+headers: [include/orpheus_placeholder.h]
+ports:
+  - {id: in, direction: input, type: audio, sample_format: f32, channels: 2}
+  - {id: out, direction: output, type: audio, sample_format: f32, channels: 2}
+parameters:
+  - id: interface
+    name: 占位接口
+    type: string
+    widget: placeholder_ports
+    default: '[{"id":"in","direction":"input","channels":2},{"id":"out","direction":"output","channels":2}]'
+    update_policy: restart_required
+    affects_signature: true
+  - id: mode
+    name: 桩行为
+    type: string
+    widget: select
+    options:
+      - {value: passthrough, label: 显式路由透传}
+      - {value: silence, label: 全部输出置零}
+    default: passthrough
+    update_policy: restart_required
+  - id: routes
+    name: 输出路由（按输出顺序填输入序号，逗号分隔；-1 置零）
+    type: string
+    default: "0"
+    update_policy: restart_required
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

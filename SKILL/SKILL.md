@@ -54,30 +54,26 @@ cd ui; npm run test:e2e            # Playwright：真实后端 + 浏览器核心
 - 现有内置组件均遵循公开状态/arena 契约；资源槽按组件需要注册，旧回调仅作为兼容兜底。
 - 写新组件：见 `references/abi-v2-registration.md` 的检查清单。
 
-## 模型蒸馏：证据索引 → 逐模块实现 → 完整系统图
+## 模型蒸馏：轻量索引 → 可运行骨架 → TODO 驱动的逐模块实现
 
 当任务涉及外部/公司 C/C++ 模型、生成代码、TOP/RTC 参数、多个 Runtime/TID 或完整算法蒸馏时，**必须先读** `references/distill-model.md`。以下规则不可省略：
 
-### 完成度分层
+### 主流程与推进约束
 
-- **结构复刻不等于算法实现**：完整层级、端口和连线可以先进入研究图，但未实现叶节点必须是 `package_type: placeholder`，并由编译器硬阻断。
-- `composite` 只表达组合与边界；`placeholder` 是空实现/待蒸馏边界；只有 source/binary 或完全由可执行通用组件组成的 composite 才能称为实现。
-- UI 可见、schema 通过、能生成 plan 都不能替代公式、状态、参数和 golden 验证；禁止把 approximation 或空节点称为“蒸馏完成”。
-
-### 证据优先流程
-
-1. 先固定源文件 SHA-256，并建立严格 Algorithm IR：模块层级、类型、真实 `[channels, frames]`、Task/TID、状态、参数分区、关系、bus 字段/offset 和 unresolved。
-2. 每个模块分别维护 `boundary / schedule / algorithm / state / parameters / golden` 六门禁；任一未验证，只能是研究图或独立切片。
-3. 先分析调用者与被调用者、生产者与消费者，再决定端口；禁止只看函数名或单个函数签名直接画图。
-4. 逐模块形成分析记录、实现、参数提取、golden 和独立可运行切片；门禁通过后才替换完整图中的 placeholder。
-5. 用户要求“完整/全量蒸馏”时，全部 placeholder 就是必须清零的工作队列；除非缺失外部证据形成真实 blocker，否则不得在索引、计划或局部实现阶段停止。每完成一项立即更新进度与 TODO。
+1. 首轮只建立搭骨架所需的权威索引：层次、用途、源码符号/相对路径/hash、接口、调用/数据关系、状态归属与已知调度。未知显式标记，不预先精读全模型。
+2. 自顶向下搭目录 composite 与占位节点；函数是初始结构边界，不强制一函数一原子组件。调用树不是数据流图，连线必须由读写与时序证据支持。
+3. 可模拟的音频边界使用 `orpheus.builtin.placeholder`：配置端口名称/方向/各端口通道数，明确路由透传或置零，不为每个占位节点写 C。无法合法模拟的边界保留 `package_type: placeholder`，编译仍硬阻断。
+4. 每个节点用 `todos` 记录源码索引、意图、下一步、验收与阻塞；每轮通过 `cli todos <工程> --json` 枚举，UI 左侧 TODO 可定位编辑。清单覆盖未实例化子图定义，不靠搜索注释猜任务。
+5. 按 TODO 局部读取、逐模块复用/组合/实现；过大的模块继续拆分。候选可尽早接入研究工程，但 TODO 保持进行中；`boundary/schedule/algorithm/state/parameters/golden` 随实现补齐，通过后才标 done。
+6. 模块、边界、完整系统逐级对拍；骨架运行不是算法等价，动态/生成一致也不等于与外部参考一致。
+7. 完整请求不得停在索引、报告或局部切片。每个工作单元交付实现/测试证据或明确 blocker；继续全部可推进项，局部阻塞不停止独立模块。无新证据不重复扫描全模型。
 
 ### 实现选择顺序
 
 1. **已有通用组件直接复用**：先搜索 builtin、相邻示例和组件 README，确认语义、状态和数值边界都匹配。
 2. **通用组件组合**：能由 FIR/IIR/matrix/mixer/delay/rate/bridge 等组合表达时，做 composite，不写专用 C。
 3. **新增通用组件**：现有组件不够但算法可跨项目复用时，设计通用参数/端口/状态 API，放入 `components/orpheus/builtin/`，补 README、数值测试和动态/生成一致性测试。
-4. **项目独有组件**：只有算法确实无法合理泛化，且源码证据、状态机、参数布局和 golden 均完整时才允许；必须记录“为什么不能通用化”。生成目录会被覆盖，手写源码必须放入非生成组件包路径，并由生成器写入 imports，不得直接塞进生成器拥有的 `components/`。
+4. **项目独有组件**：项目特有或组合代价不合理时使用，简短记录理由；不要为证明“无法泛化”无限消耗分析。手写源码必须放在非生成路径。平台加速实现替换为通用组件时，验证定点格式、舍入/饱和、系数/状态布局和延迟。
 
 ### 图语义红线
 
@@ -88,9 +84,10 @@ cd ui; npm run test:e2e            # Playwright：真实后端 + 浏览器核心
 
 ### 交付与同步
 
-- 完整目录工程同时维护：权威索引、确定性生成器、`analysis/` 蒸馏过程、`TODO.md`、节点笔记和覆盖报告。
-- 生成文件与手工文件边界必须写清；修改算法事实时，同一提交同步代码、索引、测试、原则文档、分析记录和 TODO。
-- 小型单速率模型仍可使用 `model_tree` / 一键导入兼容路径；复杂多 Runtime 模型禁止从生成 C 代码直接转图。
+- 中间文件保留在工程中；权威索引只一份，节点 TODO 属于工程数据，替换组件不丢。下一轮从 TODO、源 hash 和测试证据恢复，不重新全量分析。
+- 生成/手工边界必须明确；`index-generate` 会清理生成组件目录，手工实现与 TODO 不可仅留在那里。
+- 完成要求：占位清零、必需 TODO 完成、完整参考对拍、动态/生成一致及目标验证通过。近似与候选不冒充 verified，缺证据/语义未决/框架缺口及时报告。
+- 严格 Algorithm IR 按复杂度增量补齐；旧 `model_tree`/一键导入仅兼容浏览，不能证明原模型接口或调度。
 
 ## 任务索引（按需加载 references/）
 
@@ -101,7 +98,7 @@ cd ui; npm run test:e2e            # Playwright：真实后端 + 浏览器核心
 | 理解架构：两种执行模式、ABI、plan、宿主分工、API 面 | `references/architecture.md` |
 | 运行/调试：实时会话协议、日志约定、故障排查目录 | `references/run-debug.md` |
 | 工程 YAML 格式、子组件（sub:）、workspace 布局 | `references/project-format.md` |
-| 模型蒸馏：证据索引、六门禁、组件决策树、目录研究图、逐模块实现与交接 | `references/distill-model.md` |
+| 模型蒸馏：轻量索引、可运行占位、结构化 TODO、逐模块替换与验证恢复 | `references/distill-model.md` |
 
 > 当前状态与待办以 `docs/HOW/roadmap.md` 为准；实现历史见 `docs/HOW/implementation-log.md`。
 

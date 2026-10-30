@@ -13,6 +13,7 @@ from orpheus_core.project import Connection, ControlConnection, Graph, Node, Por
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.parameter_catalog import id_form_of, id_kind_of, id_value
 from orpheus_core.bridge.identity import build_identity
+from orpheus_core.placeholder import COMPONENT_ID as PLACEHOLDER_ID, placeholder_ports, validate_routes
 
 # 可作为控制连接目标的 update_policy（restart_required/transactional 不允许运行期被驱动）
 _BINDABLE_POLICIES = {"immediate", "smoothed", "block_boundary"}
@@ -67,6 +68,7 @@ class ExecutionPlan:
     clock_domains: list[dict[str, Any]] = field(default_factory=list)
     trigger_groups: list[dict[str, Any]] = field(default_factory=list)
     sport_bindings: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 def _resolve_atom(expr: Any, node: Node, task: Task) -> Any:
@@ -120,6 +122,13 @@ def _expand_port_manifests(
     e.g. deinterleave outputs).
     """
     expanded: list[dict[str, Any]] = []
+    if node.component == PLACEHOLDER_ID:
+        try:
+            ports = placeholder_ports(node.params)
+            validate_routes(node.params, ports)
+            return ports
+        except ValueError as exc:
+            raise CompileError(f"节点 {node.id}：{exc}") from exc
     for pm in comp.manifest.get("ports", []):
         count_expr = pm.get("count")
         if count_expr is None:
@@ -640,6 +649,17 @@ class GraphCompiler:
                         f"{to_key}（{to_task}）；请在目标 Task 插入 orpheus.builtin.async_bridge"
                     )
 
+        for node in graph.nodes.values():
+            if node.component != PLACEHOLDER_ID or node.params.get("mode", "passthrough") != "passthrough":
+                continue
+            inputs = [p for p in expanded_ports[node.id] if p["direction"] == "input"]
+            for token in node.params.get("routes", "0").split(","):
+                if not token.strip() or int(token) < 0:
+                    continue
+                port_id = inputs[int(token)]["id"]
+                if f"{node.id}:{port_id}" not in driven_inputs:
+                    raise CompileError(f"占位模块 {node.id} 的透传输入 {port_id} 未连接；请连接或显式使用 -1 置零")
+
         # 2.5 Clock domains: every flow must be driven by exactly one clock
         self._validate_clock_domains(graph, node_task)
 
@@ -933,6 +953,12 @@ class GraphCompiler:
         plan.id_map = self._build_id_map(plan, getattr(project, "double_bank", "auto"))
         plan.bridge_identity = build_identity(plan)
 
+        for node in graph.nodes.values():
+            if node.component == PLACEHOLDER_ID:
+                plan.warnings.append(
+                    f"节点 {node.id} 是未实现的占位模块，仅执行 "
+                    f"{node.params.get('mode', 'passthrough')} 桩行为；不能作为模型等价证据"
+                )
         return plan
 
     def _resolve_param_shape(
