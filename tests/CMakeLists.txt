@@ -9,7 +9,7 @@ target_include_directories(abi_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/inc
 add_test(NAME abi_smoke COMMAND abi_smoke)
 
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
-foreach(adapter rational_resample block_split circular_buffer)
+foreach(adapter rational_resample block_split circular_buffer resample)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})
     add_library(audio_test_${adapter} OBJECT ${adapter_dir}/src/${adapter}.c)
     target_include_directories(audio_test_${adapter} PRIVATE

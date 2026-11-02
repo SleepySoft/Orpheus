@@ -12,6 +12,8 @@ extern "C" {
 typedef struct {
     uint32_t factor;
     uint32_t channels;
+    int32_t mode;
+    uint32_t phase;
     float acc[RESAMPLE_MAX_CHANNELS];
     uint32_t n;          /* input samples accumulated in current group */
     uint32_t write_pos;  /* frames written into the output block */

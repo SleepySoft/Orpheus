@@ -1,8 +1,8 @@
 id: orpheus.builtin.resample
 name: 降采样器
 category: 高级/多速率
-description: 整数倍降采样（N:1，滑动平均抗混叠）：输入每 N 个样本输出 1 个，下游按分频调度执行
-version: 1.0.0
+description: 整数倍降采样（N:1），默认滑动平均，也可按指定相位纯选点；纯选点须由上游承担抗混叠
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: ResampleState
@@ -25,6 +25,19 @@ ports:
     channels: param:channels
     sample_rate: in:sample_rate/param:factor
 parameters:
+  - id: mode
+    name: 抽取方式（0=平均，1=选点）
+    type: int
+    default: 0
+    range: [0, 1]
+    update_policy: restart_required
+  - id: phase
+    name: 选点相位
+    type: int
+    default: 0
+    range: [0, 63]
+    description: 纯选点模式取每组中此0基位置的样本，必须小于抽取比
+    update_policy: restart_required
   - id: factor
     name: 抽取比
     type: int

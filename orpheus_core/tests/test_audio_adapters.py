@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import math
+import json
 import struct
+import subprocess
 import uuid
 import wave
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -69,6 +72,84 @@ def test_rational_src_exact_rate_and_clock(compiler):
     assert plan.node_configs["split"]["block_size"] == 416
     assert plan.node_configs["split"]["frames"] == 32
     assert plan.node_configs["consumer"]["sample_rate"] == 48000
+
+
+def test_integer_decimation_dynamic_generated_global_task(compiler, tmp_path):
+    from test_generated_double_bank import _build
+
+    frames = 4096
+    samples = [[((frame * 101 + channel * 719) % 16001) - 8000 for channel in range(10)]
+               for frame in range(frames)]
+    with wave.open(str(tmp_path / "input.wav"), "wb") as stream:
+        stream.setnchannels(10)
+        stream.setsampwidth(2)
+        stream.setframerate(48000)
+        stream.writeframes(b"".join(struct.pack("<10h", *row) for row in samples))
+    cases = [(16, 0, 10, 1), (64, 0, 1, 1), (16, 15, 2, 1),
+             (64, 63, 2, 1), (2, 0, 2, 0)]
+    nodes = [Node(id="source", component="orpheus.builtin.wav_in",
+                  params={"channels": 10, "file_path": "input.wav"})]
+    edges = []
+    for i, (factor, phase, channels, mode) in enumerate(cases):
+        nodes.extend([
+            Node(id=f"route{i}", component="orpheus.builtin.channel_router",
+                 params={"channels_in": 10, "channels_out": channels,
+                         "indices": ",".join(str(c) for c in range(channels))}),
+            Node(id=f"down{i}", component="orpheus.builtin.resample",
+                 params={"channels": channels, "factor": factor,
+                         **({"mode": mode, "phase": phase} if mode else {})}),
+            Node(id=f"output{i}", component="orpheus.builtin.wav_out",
+                 params={"channels": channels, "file_path": f"output{i}.wav"}),
+        ])
+        for left, right in (("source", f"route{i}"), (f"route{i}", f"down{i}"),
+                            (f"down{i}", f"output{i}")):
+            edges.append(Connection(from_ref=PortRef(left, "out"), to_ref=PortRef(right, "in")))
+    project = Project(metadata={"name": "整数抽取双路径"})
+    project.tasks = {"default": Task(id="default", sample_rate=48000, block_size=32)}
+    project.graph = Graph(nodes={n.id: n for n in reversed(nodes)}, connections=edges)
+    plan = compiler.compile(project)
+    assert not plan.warnings
+    for i, (factor, _, _, _) in enumerate(cases):
+        assert plan.node_configs[f"output{i}"]["sample_rate"] == 48000 / factor
+        assert plan.schedule["periods"][f"output{i}"] == factor
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
+    generated = tmp_path / "generated"
+    CodeGenerator(compiler.registry, ROOT).generate(plan, generated)
+    executable = _build(generated, tmp_path)
+    runtime = ROOT / "build/orpheus_runtime.exe"
+    components = ROOT / "build/components"
+    commands = [
+        [str(runtime), str(path), str(components), "--run", str(frames // 32)],
+        [str(executable), str(frames // 32)],
+        [str(runtime), str(path), str(components), "--task", "default", str(frames // 32)],
+        [str(executable), "0", "--task", "default", str(frames // 32)],
+    ]
+    references = {}
+    for command in commands:
+        for i in range(len(cases)):
+            (tmp_path / f"output{i}.wav").unlink(missing_ok=True)
+        result = subprocess.run(command, cwd=tmp_path, capture_output=True,
+                                text=True, encoding="utf-8")
+        assert result.returncode == 0, result.stdout + result.stderr
+        for i, (factor, phase, channels, mode) in enumerate(cases):
+            output = tmp_path / f"output{i}.wav"
+            data = output.read_bytes()
+            assert data == references.setdefault(i, data)
+            with wave.open(str(output), "rb") as stream:
+                assert (stream.getnframes(), stream.getframerate(), stream.getnchannels()) == (
+                    frames // factor, 48000 // factor, channels,
+                )
+                actual = struct.unpack(f"<{frames // factor * channels}h",
+                                       stream.readframes(frames // factor))
+            expected = []
+            for frame in range(0, frames, factor):
+                for channel in range(channels):
+                    value = samples[frame + phase][channel] if mode else sum(
+                        samples[j][channel] for j in range(frame, frame + factor)
+                    ) / factor
+                    expected.append(int(value * 32767 / 32768))
+            assert max(abs(a - b) for a, b in zip(actual, expected)) <= 1
 
 
 def test_split_restores_small_quantum_without_resampling(compiler):

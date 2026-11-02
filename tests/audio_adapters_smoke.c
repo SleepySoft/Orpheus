@@ -1,6 +1,7 @@
 #include "orpheus_rational_resample.h"
 #include "orpheus_block_split.h"
 #include "orpheus_circular_buffer.h"
+#include "orpheus_resample.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -9,6 +10,7 @@
 const OrpheusComponentInterface* test_rational_resample(void);
 const OrpheusComponentInterface* test_block_split(void);
 const OrpheusComponentInterface* test_circular_buffer(void);
+const OrpheusComponentInterface* test_resample(void);
 
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "音频适配断言失败：%s:%d: %s\n", __FILE__, __LINE__, #condition); \
@@ -209,7 +211,92 @@ static int test_window(void) {
     return 0;
 }
 
+static int test_integer_decimation(void) {
+    const OrpheusComponentInterface* api = test_resample();
+    const uint32_t factors[] = {2, 16, 64};
+    for (uint32_t variant = 0; variant < 3; ++variant) {
+        uint32_t factor = factors[variant];
+        for (int mode = 0; mode < 2; ++mode) {
+            for (int last = 0; last < 2; ++last) {
+                ResampleState state = {0};
+                const char* ids[] = {"factor", "mode", "phase"};
+                uint32_t phase = last ? factor - 1 : 0;
+                OrpheusValue values[] = {integer((int)factor), integer(mode), integer((int)phase)};
+                OrpheusConfig cfg = {.channels=2, .sample_rate=48000, .block_size=32,
+                    .param_ids=ids, .param_values=values, .param_count=3};
+                CHECK(api->prepare(&state, &cfg) == ORPHEUS_OK);
+                for (int pass = 0; pass < 2; ++pass) {
+                    if (pass) CHECK(api->reset(&state) == ORPHEUS_OK);
+                    float input[64], output[16];
+                    OrpheusBuffer in = {.data=input, .format=ORPHEUS_FORMAT_F32,
+                        .channels=2, .frame_capacity=32, .interleaved=true};
+                    OrpheusBuffer out = {.data=output, .format=ORPHEUS_FORMAT_F32,
+                        .channels=2, .frame_capacity=8, .interleaved=true};
+                    const OrpheusBuffer* inputs[] = {&in};
+                    OrpheusBuffer* outputs[] = {&out};
+                    OrpheusProcessContext ctx = {.inputs=inputs, .outputs=outputs,
+                        .input_count=1, .output_count=1};
+                    uint32_t consumed = 0;
+                    while (consumed < factor * 8) {
+                        uint32_t count = (consumed % 2) ? 7 : 5;
+                        if (count > factor * 8 - consumed) count = factor * 8 - consumed;
+                        for (uint32_t i = 0; i < count; ++i) {
+                            input[2*i] = (float)(consumed + i + 1);
+                            input[2*i+1] = -input[2*i];
+                        }
+                        ctx.frame_count = in.frame_count = count;
+                        CHECK(api->process(&state, &ctx) == ORPHEUS_OK);
+                        consumed += count;
+                    }
+                    CHECK(out.frame_count == 8);
+                    for (uint32_t i = 0; i < 8; ++i) {
+                        float expected = mode ? (float)(i*factor + phase + 1) :
+                            (float)(i*factor) + ((float)factor + 1.0f)*0.5f;
+                        CHECK(output[2*i] == expected && output[2*i+1] == -expected);
+                    }
+                }
+                OrpheusValue value;
+                CHECK(api->get_parameter(&state, "mode", &value) == ORPHEUS_OK);
+                CHECK(value.value.i32 == mode);
+                CHECK(api->get_parameter(&state, "phase", &value) == ORPHEUS_OK);
+                CHECK(value.value.i32 == (int)phase);
+                values[2] = integer((int)factor);
+                CHECK(api->prepare(&state, &cfg) == ORPHEUS_ERR_INVALID_ARG);
+                values[2] = integer(0);
+                values[1] = integer(2);
+                CHECK(api->prepare(&state, &cfg) == ORPHEUS_ERR_INVALID_ARG);
+                cfg.param_count = 1;
+                CHECK(api->prepare(&state, &cfg) == ORPHEUS_OK);
+                CHECK(state.mode == 0 && state.phase == 0);
+                CHECK(api->destroy(&state) == ORPHEUS_OK);
+            }
+        }
+    }
+    ResampleState state = {0};
+    const char* ids[] = {"factor", "mode"};
+    OrpheusValue values[] = {integer(2), integer(1)};
+    OrpheusConfig cfg = {.channels=2, .sample_rate=48000, .block_size=2,
+        .param_ids=ids, .param_values=values, .param_count=2};
+    CHECK(api->prepare(&state, &cfg) == ORPHEUS_OK);
+    float input[] = {-0.0f, NAN, NAN, INFINITY}, output[2];
+    OrpheusBuffer in = {.data=input, .format=ORPHEUS_FORMAT_F32,
+        .channels=2, .frame_count=2, .frame_capacity=2, .interleaved=true};
+    OrpheusBuffer out = {.data=output, .format=ORPHEUS_FORMAT_F32,
+        .channels=2, .frame_capacity=1, .interleaved=true};
+    const OrpheusBuffer* inputs[] = {&in};
+    OrpheusBuffer* outputs[] = {&out};
+    OrpheusProcessContext ctx = {.inputs=inputs, .outputs=outputs,
+        .input_count=1, .output_count=1, .frame_count=2};
+    CHECK(api->process(&state, &ctx) == ORPHEUS_OK);
+    CHECK(memcmp(input, output, sizeof(output)) == 0);
+    out.frame_capacity = 0;
+    CHECK(api->process(&state, &ctx) == ORPHEUS_ERR_INVALID_ARG);
+    CHECK(api->destroy(&state) == ORPHEUS_OK);
+    return 0;
+}
+
 int main(void) {
+    CHECK(test_integer_decimation() == 0);
     CHECK(test_src(3, 13, 416, 48000.0) == 0);
     CHECK(test_src(13, 3, 96, 144000.0/13.0) == 0);
     CHECK(test_src(160, 147, 147, 44100.0) == 0);
