@@ -38,6 +38,8 @@ class ResolvedPort:
     block_size: int
     block_size_explicit: bool = False
     timing: str = "sync"
+    layout: str | None = None
+    frame_size: int | None = None
 
 
 @dataclass
@@ -214,6 +216,7 @@ def _resolve_port_signature(
         block_size=int(block_size),
         block_size_explicit=block_size_explicit,
         timing=timing,
+        layout=port_manifest.get("layout"),
     )
 
 
@@ -618,6 +621,20 @@ class GraphCompiler:
                     continue
                 resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, nt)
 
+        connected_inputs = {str(conn.to_ref) for conn in graph.connections}
+        for node in graph.nodes.values():
+            comp = self.registry.get(node.component)
+            for group in comp.manifest.get("input_alternatives", []):
+                if any(
+                    f"{node.id}:{port}" not in resolved_ports
+                    or resolved_ports[f"{node.id}:{port}"].direction != "input"
+                    for port in group
+                ):
+                    raise CompileError(f"节点 {node.id}：输入互斥组包含未知输入 {group}")
+                count = sum(f"{node.id}:{port}" in connected_inputs for port in group)
+                if count != 1:
+                    raise CompileError(f"节点 {node.id}：输入互斥组 {group} 必须且只能连接一个输入")
+
         # 同Task默认端口跟随上游速率；显式速率约束保持不变。
         rate_inputs: dict[str, list[Connection]] = {key: [] for key in graph.nodes}
         for conn in graph.connections:
@@ -831,6 +848,9 @@ class GraphCompiler:
             return frames
 
         in_frames = _compute_in_frames()
+        input_sources = {
+            str(conn.to_ref): str(conn.from_ref) for conn in graph.connections
+        }
 
         # 未显式声明 block_size 的输出端口继承本节点输入块长，
         # 并在拓扑序上迭代传播，直到链路上所有直通端口块长收敛。
@@ -854,22 +874,38 @@ class GraphCompiler:
                     else processing_quanta[incoming[0].from_ref.node_id] if incoming
                     else nt.block_size
                 )
+                payload_sizes = ([node_in_frames] if sizes and scheduling.get("merge") else sizes) or [
+                    resolved_ports[str(conn.from_ref)].block_size for conn in incoming
+                ]
                 for pm in expanded_ports[node_id]:
-                    if pm["direction"] != "output":
-                        continue
                     key = f"{node_id}:{pm['id']}"
                     rp = resolved_ports[key]
                     bs_expr = pm.get("block_size")
+                    if pm["direction"] == "input":
+                        source_key = input_sources.get(key)
+                        if source_key is None or not (
+                            isinstance(bs_expr, str) and "in:block_size" in bs_expr
+                        ):
+                            continue
+                        payload_size = resolved_ports[source_key].block_size
+                    else:
+                        if (isinstance(bs_expr, str) and "in:block_size" in bs_expr
+                                and len(set(payload_sizes)) > 1):
+                            raise CompileError(
+                                f"节点 {node_id}：输入数据长度 {payload_sizes} 不一致，"
+                                "无法唯一确定输出 in:block_size；请显式声明输出长度"
+                            )
+                        payload_size = payload_sizes[0] if payload_sizes else node_in_frames
                     if isinstance(bs_expr, str) and "in:block_size" in bs_expr:
-                        # rate-change component (e.g. downrate): out block = in block x factor,
-                        # auto-discovered from input, not the global task block_size.
-                        resolved_bs = _resolve_value(
-                            bs_expr.replace("in:block_size", str(node_in_frames)), node, nt,
-                            exact=True)
+                        resolved_bs = (
+                            payload_size if bs_expr == "in:block_size" else _resolve_value(
+                                bs_expr.replace("in:block_size", str(payload_size)), node, nt,
+                                exact=True)
+                        )
                         if (resolved_bs is None or resolved_bs <= 0
                                 or Fraction(resolved_bs).denominator != 1):
                             raise CompileError(
-                                f"节点 {node_id}：输出块长必须为正整数（{bs_expr}，输入{node_in_frames}帧）；"
+                                f"节点 {node_id}：端口块长必须为正整数（{bs_expr}，输入{payload_size}帧）；"
                                 "请先用downrate积累到转换比例所需的完整批次"
                             )
                         if resolved_bs is not None and int(resolved_bs) != rp.block_size:
@@ -892,6 +928,39 @@ class GraphCompiler:
         # Converged: validate that no node merges two different block sizes.
         in_frames = _compute_in_frames(strict=True)
 
+        for node_id in execution_order:
+            node = graph.nodes[node_id]
+            for pm in expanded_ports[node_id]:
+                key = f"{node_id}:{pm['id']}"
+                port = resolved_ports[key]
+                if ("layout" in pm or "frame_size" in pm) and port.type == "audio":
+                    raise CompileError(f"节点 {node_id}：layout/frame_size 仅用于非音频数据端口")
+                if "frame_size" not in pm:
+                    continue
+                if pm["direction"] == "input" and key not in connected_inputs:
+                    continue
+                size_expr = pm["frame_size"]
+                value = _resolve_value(size_expr, node, node_task(node), exact=True)
+                if value is None and isinstance(size_expr, str) and size_expr.startswith("param:"):
+                    comp = self.registry.get(node.component)
+                    value = next((p.get("default") for p in comp.manifest.get("parameters", [])
+                                  if p["id"] == size_expr[6:]), None)
+                try:
+                    size = Fraction(value)
+                except (TypeError, ValueError, ZeroDivisionError) as exc:
+                    raise CompileError(
+                        f"节点 {node_id} 端口 {pm['id']}：无法求值帧结构 {pm['frame_size']}"
+                    ) from exc
+                if size == 0:
+                    size = port.block_size
+                if (size <= 0 or size.denominator != 1
+                        or port.block_size % int(size)):
+                    raise CompileError(
+                        f"节点 {node_id} 端口 {pm['id']}：帧结构 {size} 必须为整除"
+                        f"数据长度 {port.block_size} 的正整数"
+                    )
+                resolved_ports[key] = replace(port, frame_size=int(size))
+
         for conn in graph.connections:
             source = resolved_ports[str(conn.from_ref)]
             target = resolved_ports[str(conn.to_ref)]
@@ -899,6 +968,14 @@ class GraphCompiler:
                 raise CompileError(
                     f"数据形状不匹配：{conn.from_ref} 长度 {source.block_size} → "
                     f"{conn.to_ref} 长度 {target.block_size}；不进行隐式填充或广播"
+                )
+            if source.type != "audio" and (
+                source.layout != target.layout or source.frame_size != target.frame_size
+            ):
+                raise CompileError(
+                    f"数据布局/帧结构不匹配：{conn.from_ref} "
+                    f"({source.layout}, {source.frame_size}) → {conn.to_ref} "
+                    f"({target.layout}, {target.frame_size})；不进行隐式转换"
                 )
 
         node_rates: dict[str, Fraction] = {}
@@ -1123,6 +1200,8 @@ class GraphCompiler:
                 "sample_format": from_port.sample_format,
                 "channels": from_port.channels,
                 "frame_count": frame_count,
+                **({"layout": from_port.layout} if from_port.layout is not None else {}),
+                **({"frame_size": from_port.frame_size} if from_port.frame_size is not None else {}),
                 **({"rate_bridge": True} if merging else {}),
                 **({
                     "task_bridge": True,

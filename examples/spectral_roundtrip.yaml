@@ -1,0 +1,52 @@
+version: "0.1.0"
+metadata:
+  name: 频域数据闭环
+  description: 3×256点FFT与IFFT经非音频半复数谱端口连接，再以128帧移重叠相加。矩形分析窗显式归一化0.5，输出相对输入延迟128帧；不是外部模型的算法对拍。
+sample_rate: 48000
+block_size: 384
+tasks:
+  - id: default
+    name: 频域批次
+    sample_rate: 48000
+    block_size: 384
+graph:
+  nodes:
+    - id: source
+      component: orpheus.builtin.signal_gen
+      params:
+        channels: 2
+        sample_rate: 48000
+        frequency: 1000.0
+        amplitude: 0.2
+      position: {x: 0, y: 120}
+    - id: frames
+      component: orpheus.builtin.circular_buffer
+      params: {channels: 2, frame_size: 256, hop_size: 128, num_frames: 3}
+      position: {x: 240, y: 120}
+    - id: fft
+      component: orpheus.builtin.rfft
+      params: {channels: 2, fft_size: 256, output_mode: halfcomplex}
+      position: {x: 480, y: 120}
+    - id: inverse
+      component: orpheus.builtin.ifft
+      params: {channels: 2, fft_size: 256}
+      position: {x: 720, y: 120}
+    - id: ola
+      component: orpheus.builtin.overlap_add
+      params: {channels: 2, frame_size: 256, hop_size: 128, num_frames: 3}
+      position: {x: 960, y: 120}
+    - id: normalize
+      component: orpheus.builtin.gain
+      params: {channels: 2, gain_db: -6.020599913279624, smoothing_ms: 0.0}
+      position: {x: 1200, y: 120}
+    - id: sink
+      component: orpheus.builtin.wav_out
+      params: {channels: 2, file_path: outputs/spectral_roundtrip.wav, sample_rate: 48000}
+      position: {x: 1440, y: 120}
+  connections:
+    - {from: "source:out", to: "frames:in"}
+    - {from: "frames:out", to: "fft:in"}
+    - {from: "fft:spectrum", to: "inverse:spectrum"}
+    - {from: "inverse:out", to: "ola:in"}
+    - {from: "ola:out", to: "normalize:in"}
+    - {from: "normalize:out", to: "sink:in"}

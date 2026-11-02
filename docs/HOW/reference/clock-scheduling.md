@@ -180,3 +180,43 @@ ports:
 分数采样率时间线与非法连线拒绝；动态DLL和生成工程各自的全局/Task入口共四种入口，
 运行后逐项比较非零结果与帧索引。
 这验证框架数据链路，不代表外部模型的占位算法已经实现。
+
+### 首批频域闭环：FFT / IFFT / Overlap-Add
+
+- 扩展`rfft`：保留旧音频`out`和halfcomplex/magnitude/power模式；新增
+  `spectrum`数据输出，始终为未归一化halfcomplex。非法批次不再静默退化为单帧。
+- 扩展`ifft`：`fft_size=0`保留自动单帧；显式设置4～1024的二次幂即可逐帧处理
+  完整批次，例如768槽明确表示3×256而非768点FFT。新增`spectrum`输入与旧`in`
+  互斥，输出含1/N归一化。遍历依据buffer实际长度，不使用ctx.frame_count。
+- 新增`overlap_add`：接收`frame_size*num_frames`的时域展开帧，按`hop_size`
+  顺序累加，输出`hop_size*num_frames`的连续样本，跨批次保留尾部；reset清零。
+  帧移须不大于帧长。不使用`scheduling.split`，不改变上游交付周期，也不隐藏
+  分析/合成窗及归一化。`window`的repeat系数乘法可显式放在分析端或合成端。
+- 频谱数据端口声明`layout: halfcomplex`与`frame_size`，编译器同时校验payload
+  长度、布局和分帧；输入尺寸继承不再依赖处理量子。声明规则见
+  [组件模型](../03-component-model.md#数据布局分帧与互斥输入)。
+
+[可运行示例](../../../examples/spectral_roundtrip.yaml)使用矩形分析窗（不乘窗口）：
+`circular_buffer → rfft.spectrum → ifft.spectrum → overlap_add → gain(0.5)`。
+256点、128帧移时重叠倍率为2，0.5由显式gain实现。组合的启动延迟为128帧，
+不是每批384帧；欲取完整尾部须继续输入零，当前EOS不会自动刷新所有算法状态。
+OLA本身只将输入帧原点的首hop样本输出，没有另加一帧延迟。
+
+验收：
+
+- `tests/spectral_pipeline_smoke.c`以独立DFT核对DC、Nyquist、虚部符号和各批次/通道
+  的打包位置；验证3×256逆变换、与处理量子不同长的实际buffer、非法批次/容量拒绝、
+  OLA跨调用尾部及reset。prepare预计算/分配，process无分配及IO。
+- `orpheus_core/tests/test_spectral_pipeline.py`验证1帧6通道、3帧8通道、旧音频接口和
+  旧自动点数配置；动态/生成的全局与Task四入口WAV逐字节一致。重建误差不超过
+  2个int16量化单位，覆盖非零独立通道、128帧启动延迟和补零尾部；时间线步长
+  分别为128/384，不按频点数量推进。
+  测试私有的spectral_gate以128/384音频帧为处理量子，传递256/768槽频谱并检查
+  绝对帧索引；因此也实测了IFFT输入payload与config/ctx量子不等长的完整执行链，
+  不仅是编译shape断言或一次孤立的组件调用。
+
+对研究FDP边界的核对：全速叶子为6通道256→256→128；低速叶子为8通道
+768→768→384，同一实例顺序处理3个hop。上述标准能力覆盖这些**形状和节拍**需求。
+本批未替换研究库中的占位叶子，也未改变其TODO/完成标记；原129个复数bin与halfcomplex
+仍须显式编解码，合成窗与平台FFT归一化仍须按源码索引对拍。不能由通用闭环通过
+推导整个FDP或外部模型已经数值等价，亦不解除其他算法、状态和参考对拍门禁。

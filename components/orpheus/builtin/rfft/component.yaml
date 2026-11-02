@@ -1,9 +1,9 @@
 id: orpheus.builtin.rfft
 name: 实数FFT
 category: 高级/频域
-description: 实数FFT（半复数格式输出），默认 FFT 点数=块长。可设置 fft_size 将输入块拆分为多帧处理，并选择输出为 magnitude/power。
-version: 1.0.0
-abi_version: 1
+description: 实数FFT，支持独立FFT点数和多帧批次。spectrum为未归一化的半复数计算数据；旧音频out仍由output_mode选择半复数/幅度/功率。
+version: 1.1.0
+abi_version: 5
 package_type: source
 state_type: RfftState
 sources:
@@ -21,6 +21,15 @@ ports:
     type: audio
     sample_format: f32
     channels: param:channels
+  - id: spectrum
+    description: 每N槽半复数谱，hc[0]=Re(0)，hc[N/2]=Re(N/2)，hc[k]=Re(k)，hc[N-k]=Im(k)；批次帧顺排、通道交织。不受output_mode影响，不是Re/Im交织布局。
+    direction: output
+    type: bulk
+    sample_format: f32
+    channels: param:channels
+    block_size: in:block_size
+    layout: halfcomplex
+    frame_size: param:fft_size
 parameters:
   - id: channels
     name: 通道数

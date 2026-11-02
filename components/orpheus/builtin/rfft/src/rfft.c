@@ -6,16 +6,6 @@
 
 #define PI_F 3.14159265358979f
 
-static float read_float(const OrpheusConfig* config, const char* id, float fallback) {
-    for (uint32_t i = 0; i < config->param_count; ++i) {
-        if (config->param_ids[i] && strcmp(config->param_ids[i], id) == 0) {
-            if (config->param_values[i].type == ORPHEUS_VALUE_FLOAT) return config->param_values[i].value.f32;
-            if (config->param_values[i].type == ORPHEUS_VALUE_INT) return (float)config->param_values[i].value.i32;
-        }
-    }
-    return fallback;
-}
-
 static const char* read_string(const OrpheusConfig* config, const char* id, const char* fallback) {
     for (uint32_t i = 0; i < config->param_count; ++i) {
         if (config->param_ids[i] && strcmp(config->param_ids[i], id) == 0 &&
@@ -89,12 +79,15 @@ static const OrpheusPort rfft_ports[] = {
       .is_variable = true, .channels_param = "channels" },
     { .id = "out", .direction = ORPHEUS_PORT_OUTPUT, .type = ORPHEUS_PORT_AUDIO,
       .sample_format = ORPHEUS_FORMAT_F32, .channels = 0, .sample_rate = 0, .block_size = 0,
+      .is_variable = true, .channels_param = "channels" },
+    { .id = "spectrum", .direction = ORPHEUS_PORT_OUTPUT, .type = ORPHEUS_PORT_BULK,
+      .sample_format = ORPHEUS_FORMAT_F32,
       .is_variable = true, .channels_param = "channels" }
 };
 
 static const OrpheusComponentDescriptor rfft_descriptor = {
-    .id = "orpheus.builtin.rfft", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = rfft_ports, .port_count = 2, .params = rfft_params, .param_count = 3,
+    .id = "orpheus.builtin.rfft", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = rfft_ports, .port_count = 3, .params = rfft_params, .param_count = 3,
     .state_size = sizeof(RfftState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
 };
@@ -116,14 +109,24 @@ static int rfft_destroy(void* state) { (void)state; return ORPHEUS_OK; }
 
 static int rfft_prepare(void* state, const OrpheusConfig* config) {
     RfftState* s = (RfftState*)state;
+    if (!s || !config) return ORPHEUS_ERR_INVALID_ARG;
     s->channels = config->channels > 0 ? config->channels : 2;
-    s->frameSize = (uint32_t)read_float(config, "fft_size", 0.0f);
+    s->frameSize = 0;
+    for (uint32_t i = 0; i < config->param_count; ++i) {
+        if (config->param_ids[i] && strcmp(config->param_ids[i], "fft_size") == 0) {
+            if (config->param_values[i].type != ORPHEUS_VALUE_INT ||
+                config->param_values[i].value.i32 < 0)
+                return ORPHEUS_ERR_INVALID_ARG;
+            s->frameSize = (uint32_t)config->param_values[i].value.i32;
+        }
+    }
     if (s->frameSize == 0) s->frameSize = config->block_size > 0 ? config->block_size : 256;
     s->fftSize = s->frameSize;
 
     /* 验证 2 的幂且在范围内 */
     uint32_t n = s->fftSize;
-    if (n < 4 || n > RFFT_MAX_SIZE || (n & (n - 1)) != 0) {
+    if (s->channels > 32 || n < 4 || n > RFFT_MAX_SIZE || (n & (n - 1)) != 0 ||
+        (config->block_size && config->block_size % n != 0)) {
         return ORPHEUS_ERR_INVALID_ARG;
     }
 
@@ -131,6 +134,8 @@ static int rfft_prepare(void* state, const OrpheusConfig* config) {
     s->outputMode = 0;
     if (mode_str && strcmp(mode_str, "magnitude") == 0) s->outputMode = 1;
     else if (mode_str && strcmp(mode_str, "power") == 0) s->outputMode = 2;
+    else if (!mode_str || strcmp(mode_str, "halfcomplex") != 0)
+        return ORPHEUS_ERR_INVALID_ARG;
 
     /* 预计算 twiddle 因子: W[k] = exp(-2*pi*i*k/N) */
     for (uint32_t k = 0; k < n / 2; ++k) {
@@ -147,68 +152,71 @@ static int rfft_reset(void* state) { (void)state; return ORPHEUS_OK; }
 
 static int rfft_process(void* state, const OrpheusProcessContext* ctx) {
     RfftState* s = (RfftState*)state;
+    if (!s || !ctx || !ctx->inputs || !ctx->outputs ||
+        ctx->input_count < 1 || ctx->output_count < 1)
+        return ORPHEUS_ERR_INVALID_ARG;
     const OrpheusBuffer* in = ctx->inputs[0];
     OrpheusBuffer* out = ctx->outputs[0];
-    if (in == NULL || out == NULL) return ORPHEUS_ERR_INVALID_ARG;
+    OrpheusBuffer* spectrum = ctx->output_count > 1 ? ctx->outputs[1] : NULL;
+    if (!in || (!out && !spectrum)) return ORPHEUS_ERR_INVALID_ARG;
 
     uint32_t n = s->fftSize;
     uint32_t ch = s->channels;
-    uint32_t frameSize = s->frameSize;
     uint32_t mode = s->outputMode;
     const float* in_data = (const float*)in->data;
-    float* out_data = (float*)out->data;
-    uint32_t frames = ctx->frame_count;
-
-    if (frameSize == 0 || frameSize > RFFT_MAX_SIZE) frameSize = n;
-    uint32_t num_frames = 1;
-    if (frameSize != frames) {
-        if (frameSize > 0 && (frames % frameSize) == 0) {
-            num_frames = frames / frameSize;
-        } else {
-            /* 块长不是 frame_size 整数倍时退化为单帧处理整个块 */
-            frameSize = frames;
-            num_frames = 1;
-        }
+    uint32_t frames = in->frame_count;
+    if (n < 4 || n > RFFT_MAX_SIZE || (n & (n - 1)) != 0 ||
+        frames == 0 || frames % n != 0 || !in_data ||
+        in->format != ORPHEUS_FORMAT_F32 || !in->interleaved ||
+        in->channels != ch || in->frame_capacity < frames)
+        return ORPHEUS_ERR_INVALID_ARG;
+    for (uint32_t i = 0; i < ctx->output_count; ++i) {
+        OrpheusBuffer* buffer = ctx->outputs[i];
+        if (buffer && (!buffer->data || buffer->format != ORPHEUS_FORMAT_F32 ||
+            !buffer->interleaved || buffer->channels != ch || buffer->frame_capacity < frames))
+            return ORPHEUS_ERR_INVALID_ARG;
     }
 
-    for (uint32_t frame = 0; frame < num_frames; ++frame) {
-        uint32_t in_offset = frame * frameSize;
-        uint32_t out_offset = frame * frameSize;
+    for (uint32_t frame = 0; frame < frames; frame += n) {
         for (uint32_t c = 0; c < ch; ++c) {
             /* 复制实数输入到暂存，虚部清零 */
             for (uint32_t k = 0; k < n; ++k) {
-                s->scratchR[k] = in_data[(in_offset + k) * ch + c];
+                s->scratchR[k] = in_data[(frame + k) * ch + c];
                 s->scratchI[k] = 0.0f;
             }
 
             /* 正向 FFT */
             fft_forward(s->scratchR, s->scratchI, n, s->twiddleCos, s->twiddleSin);
 
-            float* dst = out_data + out_offset * ch + c;
-            if (mode == 0) {
-                /* 半复数格式 */
-                dst[0 * ch] = s->scratchR[0];
-                for (uint32_t k = 1; k < n / 2; ++k) {
-                    dst[k * ch] = s->scratchR[k];
-                }
-                dst[(n / 2) * ch] = s->scratchR[n / 2];
-                for (uint32_t k = 1; k < n / 2; ++k) {
-                    dst[(n - k) * ch] = s->scratchI[k];
-                }
-            } else {
-                /* magnitude / power：输出非冗余 bin 的对称展开，便于后续 spectral_reduce */
-                for (uint32_t k = 0; k < n; ++k) {
-                    uint32_t idx = k <= n / 2 ? k : n - k;
-                    float r = s->scratchR[idx];
-                    float im = (idx == 0 || idx == n / 2) ? 0.0f : s->scratchI[idx];
-                    float v = r * r + im * im;
-                    if (mode == 1) v = sqrtf(v);
-                    dst[k * ch] = v;
+            for (uint32_t slot = 0; slot < 2; ++slot) {
+                OrpheusBuffer* buffer = slot == 0 ? out : spectrum;
+                if (!buffer) continue;
+                float* dst = (float*)buffer->data + (size_t)frame * ch + c;
+                if (slot == 1 || mode == 0) {
+                    dst[0] = s->scratchR[0];
+                    for (uint32_t k = 1; k < n / 2; ++k) {
+                        dst[k * ch] = s->scratchR[k];
+                    }
+                    dst[(n / 2) * ch] = s->scratchR[n / 2];
+                    for (uint32_t k = 1; k < n / 2; ++k) {
+                        dst[(n - k) * ch] = s->scratchI[k];
+                    }
+                } else {
+                    /* 旧幅度/功率输出对称展开；计算数据端口始终保留复数信息。 */
+                    for (uint32_t k = 0; k < n; ++k) {
+                        uint32_t idx = k <= n / 2 ? k : n - k;
+                        float r = s->scratchR[idx];
+                        float im = (idx == 0 || idx == n / 2) ? 0.0f : s->scratchI[idx];
+                        float v = r * r + im * im;
+                        if (mode == 1) v = sqrtf(v);
+                        dst[k * ch] = v;
+                    }
                 }
             }
         }
     }
-    out->frame_count = frames;
+    if (out) out->frame_count = frames;
+    if (spectrum) spectrum->frame_count = frames;
     return ORPHEUS_OK;
 }
 

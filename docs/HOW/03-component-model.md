@@ -91,6 +91,37 @@ parameters:
 执行细则见[非音频计算数据](reference/clock-scheduling.md#非音频计算数据2026-11)，
 参数链路见[控制链路](reference/control-links.md)。
 
+### 数据布局、分帧与互斥输入
+
+非音频端口可声明`layout`和`frame_size`。例如半复数频谱每N槽打包一帧：
+
+```yaml
+input_alternatives:
+  - [in, spectrum]
+ports:
+  - {id: in, direction: input, type: audio, channels: "param:channels"}
+  - id: spectrum
+    direction: input
+    type: bulk
+    channels: param:channels
+    block_size: in:block_size
+    layout: halfcomplex
+    frame_size: param:fft_size
+```
+
+- `layout`是明确的数据布局标识；`frame_size`是数组内部的分帧长度，不是时间量子。
+  帧长须为整除数组长度的正整数，声明为0时表示整个数组为一帧。参数引用允许使用
+  manifest默认值。相连两端的布局和分帧声明必须完全相同，不能仅因总元素数相同
+  就把3×256当成6×128，也不能把半复数当作Re/Im交织复数；框架不隐式适配。
+- 输入端口的`block_size: in:block_size`继承**该输入所连源的payload长度**。
+  输出端口使用此表达式时，取同步音频输入长度（音频merge取合流量子），没有音频时取
+  同步数据输入长度；多个数据输入长度不同则必须显式写输出尺寸，不能任取第一条边。
+  未显式声明尺寸的音频输出仍继承处理时间量子，原行为不变。
+- `input_alternatives`每组必须且只能接入一个输入；未知成员或同时接入/全部悬空在
+  编译期报错。实现仍须检查NULL及互斥关系；零谱不是“未连接”。
+- 这些字段属于编译期接口契约，plan保留数据buffer的布局和帧长；没有新增ABI字段、
+  运行模式、隐式参数写回或跨Task传输机制。复合图最终仍按映射后叶子端口检查。
+
 验收采用`test_data_ports.py`中的真实C组件：无数据输入时使用参数，参数控制链
 下一轮生效；接入数据后按声明覆盖，零值仍有效，参数本身保持独立。
 这两种混合场景与纯数据场景均验证动态/生成的全局和Task四种入口。

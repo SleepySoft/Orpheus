@@ -1,32 +1,51 @@
 id: orpheus.builtin.ifft
 name: 实数IFFT
 category: 高级/频域
-description: 实数IFFT（半复数格式输入），FFT点数=块长，输出实数时域信号
-version: 1.0.0
-abi_version: 1
+description: 实数IFFT，支持独立FFT点数和多帧批次，含1/N归一化。优先使用半复数spectrum数据输入；旧音频in保留，二者必须且只能连接一个。
+version: 1.1.0
+abi_version: 5
 package_type: source
 state_type: IfftState
 sources:
   - src/ifft.c
 headers:
   - include/orpheus_ifft.h
+input_alternatives:
+  - [in, spectrum]
 ports:
   - id: in
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
+  - id: spectrum
+    description: 每N槽半复数谱；批次帧顺排、通道交织。与旧音频in互斥；NULL才表示未连接，已连接的零谱仍为有效输入。
+    direction: input
+    type: bulk
+    sample_format: f32
+    channels: param:channels
+    block_size: in:block_size
+    layout: halfcomplex
+    frame_size: param:fft_size
   - id: out
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
+    block_size: in:block_size
 parameters:
   - id: channels
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true
+  - id: fft_size
+    name: FFT点数（0为单帧自动）
+    type: int
+    default: 0
+    range: [0, 1024]
     update_policy: restart_required
     affects_signature: true
 memory:

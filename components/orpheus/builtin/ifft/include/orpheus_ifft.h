@@ -15,6 +15,7 @@ typedef struct {
     float scratchR[IFFT_MAX_SIZE];
     float scratchI[IFFT_MAX_SIZE];
     uint32_t fftSize;
+    uint32_t twiddleSize;
     uint32_t channels;
 } IfftState;
 

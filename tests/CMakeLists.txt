@@ -25,6 +25,26 @@ if(NOT WIN32)
 endif()
 add_test(NAME audio_adapters_smoke COMMAND audio_adapters_smoke)
 
+add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
+foreach(component rfft ifft overlap_add)
+    set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})
+    add_library(spectral_test_${component} OBJECT ${component_dir}/src/${component}.c)
+    target_include_directories(spectral_test_${component} PRIVATE
+        ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${component_dir}/include)
+    target_compile_definitions(spectral_test_${component} PRIVATE
+        ORPHEUS_BUILDING_COMPONENT ORPHEUS_ENTRY_NAME=spectral_test_${component})
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(spectral_test_${component} PRIVATE -Wall -Wextra -Werror)
+    endif()
+    target_include_directories(spectral_pipeline_smoke PRIVATE ${component_dir}/include)
+    target_sources(spectral_pipeline_smoke PRIVATE $<TARGET_OBJECTS:spectral_test_${component}>)
+endforeach()
+target_include_directories(spectral_pipeline_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
+if(NOT WIN32)
+    target_link_libraries(spectral_pipeline_smoke PRIVATE m)
+endif()
+add_test(NAME spectral_pipeline_smoke COMMAND spectral_pipeline_smoke)
+
 add_executable(placeholder_smoke
     placeholder_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/placeholder/src/placeholder.c

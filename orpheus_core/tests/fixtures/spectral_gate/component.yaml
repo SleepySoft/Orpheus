@@ -1,0 +1,31 @@
+id: orpheus.test.spectral_gate
+name: 频谱时间量子验收
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: SpectralGateState
+sources: [src/spectral_gate.c]
+headers: [include/spectral_gate.h]
+ports:
+  - {id: clock, direction: input, type: audio, channels: "param:channels"}
+  - id: spectrum
+    direction: input
+    type: bulk
+    channels: param:channels
+    block_size: param:fft_size*param:num_frames
+    layout: halfcomplex
+    frame_size: param:fft_size
+  - id: out
+    direction: output
+    type: bulk
+    channels: param:channels
+    block_size: param:fft_size*param:num_frames
+    layout: halfcomplex
+    frame_size: param:fft_size
+parameters:
+  - {id: channels, type: int, default: 2, update_policy: restart_required, affects_signature: true}
+  - {id: fft_size, type: int, default: 256, update_policy: restart_required, affects_signature: true}
+  - {id: num_frames, type: int, default: 1, update_policy: restart_required, affects_signature: true}
+execution:
+  realtime_safe: true
+  supports_inplace: false

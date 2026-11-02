@@ -128,6 +128,7 @@ def test_parameter_behavior_cannot_be_declared_on_data_ports(field, value):
 @pytest.mark.parametrize("field,value", [
     ("timing", "latest"), ("sample_format", "f32"),
     ("channels", 2), ("block_size", 129),
+    ("layout", "halfcomplex"), ("frame_size", 256),
 ])
 def test_data_buffer_behavior_cannot_be_declared_on_parameters(field, value):
     manifest = {
