@@ -78,6 +78,16 @@ int main(void) {
         CHECK(actual.value.i32 == -1);
         value.type = ORPHEUS_VALUE_INT;
     }
+    value.value.i32 = 5;
+    CHECK(iface->set_parameter(instance, "delay_samples", &value) == ORPHEUS_OK);
+    CHECK(iface->reset(instance) == ORPHEUS_OK);
+    CHECK(iface->get_parameter(instance, "delay_samples", &actual) == ORPHEUS_OK);
+    CHECK(actual.value.i32 == 5);
+    context.frame_count = in.frame_count = 7;
+    CHECK(iface->process(instance, &context) == ORPHEUS_OK);
+    for (unsigned n = 0; n < 7; ++n)
+        for (unsigned c = 0; c < 3; ++c)
+            CHECK(output[n*3+c] == (n < 5 ? 0.0f : input[(n-5)*3+c]));
     CHECK(iface->destroy(instance) == ORPHEUS_OK);
     DelayLineState invalid = {0};
     values[3].value.i32 = 17;
