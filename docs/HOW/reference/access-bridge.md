@@ -70,6 +70,17 @@ typedef struct OrpheusBridgeBackend {
 - read/write/BULK/CUSTOM 均继续使用 §18 消息信封，不增加第二套操作协议；
 - `map` 是元数据，不向远程暴露进程地址。`base_ptr/offset` 只允许 inproc/debugger adapter 本地查看。
 
+### 标量写入与组件调用边界
+
+动态 Runtime 与生成代码的控制面采用相同规则：
+SETTING 数值标量只有显式声明 `ORPHEUS_SLOT_DIRECT_WRITE`、类型匹配且不是
+`restart_required` 时才直写注册存储，其余写入交给组件 `set_parameter`，
+保留类型/范围检查、派生状态更新和重启拒绝。按名称、ID及二进制 CALL
+共用这一边界，不得将参数调用偷偷降级为任意内存写入。
+PROBE/STATE 保持只读，BULK 必须使用独立批量接口，不能用标量写入绕过。
+生成端二进制字符串写入要求消息体内有 NUL 终止符，且长度不超过注册槽容量；
+不再通过补终止符直接覆盖状态，字符串同样经过组件调用与错误响应。
+
 ## 4. Bridge 系统服务
 
 数据点 ID 仍直接作为 §18 `route_id`。Bridge 自身服务使用保留的系统路由空间，例如 `CUSTOM/module=0xFF`：
