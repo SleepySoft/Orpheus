@@ -78,11 +78,13 @@
     },
     "ports": {
       "type": "array",
+      "description": "计算数据端口，通过 process 的 inputs/outputs 交换 buffer；不使用参数槽的更新策略",
       "items": {
         "type": "object",
         "required": ["id", "direction", "type"],
         "properties": {
           "id": { "type": "string" },
+          "description": { "type": "string", "description": "数据含义、布局、单位及与参数共存时的优先级/未连接行为" },
           "direction": { "type": "string", "enum": ["input", "output"] },
           "type": { "type": "string", "enum": ["audio", "control", "bulk", "debug"] },
           "timing": {
@@ -98,17 +100,33 @@
           "count": { "type": ["integer", "string"], "description": "Variable pin count expression, e.g. param:channels; port is replicated as <id>0..<id>N-1" },
           "is_variable": { "type": "boolean" },
           "channels_param": { "type": "string" },
-          "maps_to": { "type": "string", "description": "Composite implementation boundary target: direct_child:port" }
-        }
+          "maps_to": { "type": "string", "description": "Composite implementation boundary target: direct_child:port" },
+          "bindable": false,
+          "control_source": false,
+          "update_policy": false,
+          "bulk_slot": false
+        },
+        "allOf": [
+          {
+            "if": { "required": ["timing"] },
+            "then": { "properties": { "direction": { "const": "input" } } }
+          },
+          {
+            "if": { "properties": { "timing": { "const": "latest" } }, "required": ["timing"] },
+            "then": { "properties": { "type": { "enum": ["control", "bulk", "debug"] } } }
+          }
+        ]
       }
     },
     "parameters": {
       "type": "array",
+      "description": "组件持有的参数/可寻址状态；控制连接按 bindable/control_source/shape/update_policy 校验，不作为计算数据 buffer",
       "items": {
         "type": "object",
         "required": ["id", "type"],
         "properties": {
           "id": { "type": "string" },
+          "description": { "type": "string", "description": "参数用途、生效策略及与同功能数据输入共存时的仲裁规则" },
           "name": { "type": "string" },
           "type": { "type": "string", "enum": ["float", "int", "bool", "string"] },
           "count": { "type": "integer", "minimum": 1, "description": "固定长度数组数据点；count > 1 时使用 BULK form 传输。" },
@@ -144,7 +162,11 @@
           },
           "bulk_slot": { "type": "string", "description": "kind=bulk 控制端点映射到的运行期 bulk_slots id；缺省同参数 id" },
           "direction": { "type": "string", "enum": ["input", "output"], "description": "Composite public parameter direction" },
-          "maps_to": { "type": "string", "description": "Composite public parameter target: direct_child:param" }
+          "maps_to": { "type": "string", "description": "Composite public parameter target: direct_child:param" },
+          "timing": false,
+          "sample_format": false,
+          "channels": false,
+          "block_size": false
         }
       }
     },

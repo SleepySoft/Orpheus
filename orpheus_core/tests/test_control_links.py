@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from jsonschema import ValidationError
 
 from orpheus_core import schemas
 from orpheus_core.compiler import CompileError, GraphCompiler
@@ -109,6 +110,54 @@ def test_manifest_schema_accepts_control_fields():
     bad["parameters"][0]["bindable"] = "yes"  # 类型错误
     with pytest.raises(Exception):
         schemas.validate(bad, schema)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("bindable", True), ("control_source", True),
+    ("update_policy", "block_boundary"), ("bulk_slot", "values"),
+])
+def test_parameter_behavior_cannot_be_declared_on_data_ports(field, value):
+    manifest = {
+        "id": "test.interface", "version": "1.0.0", "abi_version": 5,
+        "ports": [{"id": "data", "direction": "input", "type": "bulk", field: value}],
+    }
+    with pytest.raises(ValidationError):
+        schemas.validate(manifest, schemas.load_component_manifest_schema())
+
+
+@pytest.mark.parametrize("field,value", [
+    ("timing", "latest"), ("sample_format", "f32"),
+    ("channels", 2), ("block_size", 129),
+])
+def test_data_buffer_behavior_cannot_be_declared_on_parameters(field, value):
+    manifest = {
+        "id": "test.interface", "version": "1.0.0", "abi_version": 5,
+        "parameters": [{"id": "value", "type": "float", field: value}],
+    }
+    with pytest.raises(ValidationError):
+        schemas.validate(manifest, schemas.load_component_manifest_schema())
+
+
+def test_timing_declaration_matches_input_contract():
+    schema = schemas.load_component_manifest_schema()
+    for direction, port_type, timing in (
+        ("output", "bulk", "latest"), ("output", "bulk", "sync"), ("input", "audio", "latest"),
+    ):
+        manifest = {
+            "id": "test.interface", "version": "1.0.0", "abi_version": 5,
+            "ports": [{"id": "data", "direction": direction,
+                       "type": port_type, "timing": timing}],
+        }
+        with pytest.raises(ValidationError):
+            schemas.validate(manifest, schema)
+
+
+def test_builtin_manifests_keep_data_and_parameter_declarations_separate():
+    schema = schemas.load_component_manifest_schema()
+    paths = sorted((ROOT / "components").rglob("component.yaml"))
+    assert paths
+    for path in paths:
+        schemas.validate(yaml.safe_load(path.read_text(encoding="utf-8")), schema)
 
 
 def test_project_schema_accepts_control_connections():

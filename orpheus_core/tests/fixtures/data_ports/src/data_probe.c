@@ -2,10 +2,12 @@
 
 #include <string.h>
 
-static const OrpheusParameter mode_parameter = {
-    .id = "mode",
-    .type = ORPHEUS_VALUE_INT,
-    .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED
+static const OrpheusParameter parameters[] = {
+    {.id="mode", .name="运算", .type=ORPHEUS_VALUE_INT,
+     .default_value={.type=ORPHEUS_VALUE_INT, .value.i32=0},
+     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED},
+    {.id="fallback", .name="缺省加数", .type=ORPHEUS_VALUE_FLOAT,
+     .update_policy=ORPHEUS_UPDATE_IMMEDIATE, .readback=true, .persistent=true}
 };
 
 static const OrpheusPort ports[] = {
@@ -31,8 +33,8 @@ static const OrpheusComponentDescriptor descriptor = {
     .abi_version = ORPHEUS_ABI_VERSION,
     .ports = ports,
     .port_count = sizeof(ports) / sizeof(ports[0]),
-    .params = &mode_parameter,
-    .param_count = 1,
+    .params = parameters,
+    .param_count = sizeof(parameters) / sizeof(parameters[0]),
     .state_size = sizeof(DataProbeState),
     .realtime_safe = true
 };
@@ -60,6 +62,10 @@ static int prepare(void* state, const OrpheusConfig* config) {
             if (config->param_values[i].type != ORPHEUS_VALUE_INT)
                 return ORPHEUS_ERR_INVALID_ARG;
             ((DataProbeState*)state)->mode = config->param_values[i].value.i32;
+        } else if (strcmp(config->param_ids[i], "fallback") == 0) {
+            if (config->param_values[i].type != ORPHEUS_VALUE_FLOAT)
+                return ORPHEUS_ERR_INVALID_ARG;
+            ((DataProbeState*)state)->fallback = config->param_values[i].value.f32;
         }
     }
     return ORPHEUS_OK;
@@ -96,6 +102,8 @@ static int process(void* opaque, const OrpheusProcessContext* ctx) {
         if (scalar) {
             result += ((const float*)scalar->data)[0];
             state->metrics[6] = (float)scalar->frame_count;
+        } else {
+            result += state->fallback;
         }
     }
     if (ctx->outputs[0]) {
@@ -108,11 +116,17 @@ static int process(void* opaque, const OrpheusProcessContext* ctx) {
     state->metrics[1] = (float)ctx->frame_count;
     state->metrics[2] = (float)ctx->frame_index;
     state->metrics[3] = (float)ctx->valid_frames;
+    state->metrics[7] = state->fallback;
     if (call <= 24) state->metrics[7 + call] = result;
     return ORPHEUS_OK;
 }
 
 static int set_parameter(void* opaque, const char* key, const OrpheusValue* value) {
+    if (strcmp(key, "fallback") == 0) {
+        if (value->type != ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
+        ((DataProbeState*)opaque)->fallback = value->value.f32;
+        return ORPHEUS_OK;
+    }
     if (strcmp(key, "mode") != 0) return ORPHEUS_ERR_NOT_FOUND;
     if (value->type != ORPHEUS_VALUE_INT) return ORPHEUS_ERR_INVALID_ARG;
     ((DataProbeState*)opaque)->mode = value->value.i32;
@@ -120,6 +134,11 @@ static int set_parameter(void* opaque, const char* key, const OrpheusValue* valu
 }
 
 static int get_parameter(void* opaque, const char* key, OrpheusValue* value) {
+    if (strcmp(key, "fallback") == 0) {
+        value->type = ORPHEUS_VALUE_FLOAT;
+        value->value.f32 = ((DataProbeState*)opaque)->fallback;
+        return ORPHEUS_OK;
+    }
     if (strcmp(key, "mode") != 0) return ORPHEUS_ERR_NOT_FOUND;
     value->type = ORPHEUS_VALUE_INT;
     value->value.i32 = ((DataProbeState*)opaque)->mode;
@@ -128,6 +147,10 @@ static int get_parameter(void* opaque, const char* key, OrpheusValue* value) {
 
 static int register_slots(void* opaque, const OrpheusRegistry* registry) {
     DataProbeState* state = (DataProbeState*)opaque;
+    ORPHEUS_REG_SLOT(registry, state, fallback, ORPHEUS_SLOT_SETTING, "fallback", "缺省加数",
+                    ORPHEUS_VALUE_FLOAT, .update_policy=ORPHEUS_UPDATE_IMMEDIATE,
+                    .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT |
+                           ORPHEUS_SLOT_DIRECT_WRITE);
     ORPHEUS_REG_ARRAY(registry, state, metrics, 32, ORPHEUS_SLOT_BULK, "metrics", "验收记录",
                      ORPHEUS_VALUE_FLOAT, .flags=ORPHEUS_SLOT_READBACK);
     return ORPHEUS_OK;

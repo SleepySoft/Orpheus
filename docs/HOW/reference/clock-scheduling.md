@@ -131,6 +131,8 @@ ABI v5将`OrpheusConfig.sample_rate`和`OrpheusProcessContext.sample_rate`改为
 `control` / `bulk` / `debug` **端口**承载算法中间结果，不是参数控制连接，也不是
 可寻址的 BULK 参数槽。例如129点复数谱、功率向量、互谱矩阵和单个判定标志，
 可以在同一次调用中共同作为输入，不需要填充为等长PCM。
+与参数接口混合使用时，必须声明覆盖/备用/合成规则，不能让连线暗中改变参数含义；
+见[组件模型：混合交互](../03-component-model.md#混合交互的使用边界)。
 
 ### 数据尺寸与时间线分离
 

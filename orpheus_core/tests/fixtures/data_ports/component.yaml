@@ -10,12 +10,29 @@ ports:
   - {id: audio, direction: input, type: audio, channels: 1}
   - {id: vector, direction: input, type: bulk, channels: 2, block_size: 129}
   - {id: scalar, direction: input, type: control, channels: 1, block_size: 1}
-  - {id: held, direction: input, type: control, channels: 1, block_size: 1, timing: latest}
+  - id: held
+    direction: input
+    type: control
+    channels: 1
+    block_size: 1
+    timing: latest
+    description: 已连接的scalar或held数据优先；均未连接时使用fallback参数。已连接但尚未产出时的零是有效数据。
   - {id: out, direction: output, type: audio, channels: 1}
   - {id: vector_out, direction: output, type: bulk, channels: 2, block_size: 129}
   - {id: scalar_out, direction: output, type: control, channels: 1, block_size: 1}
 parameters:
   - {id: mode, name: 运算, type: int, default: 0, update_policy: restart_required}
+  - id: fallback
+    name: 缺省加数
+    type: float
+    default: 0
+    readback: true
+    persistent: true
+    kind: setting
+    bindable: true
+    control_source: true
+    update_policy: immediate
+    description: 仅在scalar和held均未连接时参与计算；数据端口不会写回或修改该参数。
   - {id: metrics, name: 验收记录, type: float, count: 32, readback: true, kind: bulk}
 execution:
   realtime_safe: true

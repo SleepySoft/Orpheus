@@ -14,7 +14,8 @@ import yaml
 from orpheus_core.compiler import CompileError, GraphCompiler
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.project import (
-    Connection, Graph, Node, PortRef, Project, ProjectLoader, Task, project_to_dict,
+    Connection, ControlConnection, Graph, Node, PortRef, Project, ProjectLoader, Task,
+    project_to_dict,
 )
 from orpheus_core.registry import Registry
 from orpheus_core.subgraph import flatten_project
@@ -260,11 +261,22 @@ def test_composite_data_ports_survive_load_save_and_flatten(compiler, tmp_path):
     assert (vector["type"], vector["frame_count"], vector["channels"]) == ("bulk", 129, 2)
 
 
-@pytest.mark.parametrize("latest", [False, True])
-def test_data_ports_dynamic_generated_values_and_timeline(compiler, tmp_path, latest):
+@pytest.mark.parametrize("case", ["sync", "latest", "parameter_fallback", "data_overrides_parameter"])
+def test_data_ports_dynamic_generated_values_and_timeline(compiler, tmp_path, case):
     from test_generated_double_bank import _build, _run
 
+    latest = case in {"latest", "data_overrides_parameter"}
     project = data_project(latest=latest)
+    hybrid = case in {"parameter_fallback", "data_overrides_parameter"}
+    if hybrid:
+        project.graph.nodes["producer"].params["fallback"] = 10.0
+        project.graph.nodes["consumer"].params["fallback"] = 3.0
+        project.control_connections = [
+            ControlConnection(PortRef("producer", "fallback"), PortRef("consumer", "fallback")),
+        ]
+    if case == "parameter_fallback":
+        project.graph.connections = [conn for conn in project.graph.connections
+                                     if str(conn.to_ref) != "consumer:scalar"]
     project.graph.nodes["fanout"] = Node(
         id="fanout", component="orpheus.test.data_probe", params={"mode": 1},
     )
@@ -345,10 +357,13 @@ def test_data_ports_dynamic_generated_values_and_timeline(compiler, tmp_path, la
         assert all(row == rows[0] for row in rows)
         metrics = rows[0]
         assert len(metrics) == 32
-        assert metrics[:7] == [7, 128, 768, 128, 129, 2, 1]
+        fallback_only = case == "parameter_fallback" and node == "consumer"
+        assert metrics[:7] == [7, 128, 768, 128, 129, 2, 0 if fallback_only else 1]
+        assert metrics[7] == (10 if hybrid and node == "consumer" else 0)
         expected = [
             33153 + 258 * call
-            + (10 * (call // 3) if latest and node == "consumer" else 10 * call)
+            + ((3 if call == 1 else 10) if fallback_only
+               else 10 * (call // 3) if latest and node == "consumer" else 10 * call)
             for call in range(1, 8)
         ]
         assert metrics[8:15] == expected
