@@ -2,7 +2,7 @@ id: orpheus.builtin.gain
 name: 增益
 category: 基础/增益与混音
 order: 1
-version: 1.0.0
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: GainState
@@ -44,6 +44,31 @@ parameters:
     range: [0.0, 1000.0]
     unit: ms
     update_policy: restart_required
+  - id: gain_mode
+    name: 增益模式（0=dB，1=线性）
+    type: int
+    default: 0
+    range: [0, 1]
+    update_policy: restart_required
+  - id: gain_linear
+    name: 线性目标增益
+    type: float
+    default: 1.0
+    update_policy: smoothed
+    bindable: true
+    description: 仅在线性模式生效；允许零和负数，每帧计算一次并同步应用到所有通道
+  - id: linear_b0
+    name: 线性控制平滑分子
+    type: float
+    default: 1.0
+    update_policy: restart_required
+  - id: linear_a1
+    name: 线性控制平滑反馈系数
+    type: float
+    default: 0.0
+    range: [-1.0, 1.0]
+    update_policy: restart_required
+    description: 线性模式按y=b0×目标+z、z=-a1×y递推；要求-1<a1<1。b0=1且a1=0时直接相乘，不平滑
 memory:
   state_size: 0
   scratch_size: 0

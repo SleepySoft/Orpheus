@@ -16,6 +16,11 @@ typedef struct {
     float smoothing_coeff;
     float smoothing_ms;      /* 调音参数（注册槽，restart_required） */
     uint32_t channels;
+    int32_t gain_mode;
+    float linear_value;
+    float linear_b0;
+    float linear_a1;
+    float linear_state;
 } GainState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);
