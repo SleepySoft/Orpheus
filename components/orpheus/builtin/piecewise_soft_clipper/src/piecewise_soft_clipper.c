@@ -126,7 +126,7 @@ static int process_state(void* state, const OrpheusProcessContext* context) {
     xmax = clipper->param_set == 1 ? clipper->xmax : clipper->xmax_low;
     p2 = clipper->param_set == 1 ? clipper->p2 : clipper->p2_low;
     for (channel = 0; channel < clipper->channels; ++channel) {
-        float peak = 0.0f;
+        float peak = context->frame_count > 0 ? fabsf(input_data[channel]) : 0.0f;
         for (frame = 0; frame < context->frame_count; ++frame) {
             size_t index = (size_t)frame * clipper->channels + channel;
             float sample = input_data[index];

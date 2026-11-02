@@ -1,6 +1,7 @@
 #include "orpheus_piecewise_soft_clipper.h"
 
 #include <math.h>
+#include <string.h>
 
 static int close_to(float actual, float expected) {
     return fabsf(actual - expected) <= 1.0e-6f;
@@ -43,6 +44,34 @@ int main(void) {
     {
         OrpheusValue invalid = {.type=ORPHEUS_VALUE_INT, .value.i32=2};
         if (interface->set_parameter(state_ptr, "param_set", &invalid) != ORPHEUS_ERR_INVALID_ARG) return 10;
+    }
+    {
+        OrpheusValue low = {.type=ORPHEUS_VALUE_INT, .value.i32=0};
+        OrpheusValue bypass = {.type=ORPHEUS_VALUE_BOOL, .value.b=true};
+        state.xmin_low = 2.0f;
+        state.xmax_low = 4.0f;
+        state.p2_low = 0.25f;
+        input_data[0] = 3.0f;
+        input_data[1] = -8.0f;
+        input_data[2] = 2.0f;
+        input_data[3] = -0.0f;
+        if (interface->set_parameter(state_ptr, "param_set", &low) != ORPHEUS_OK) return 11;
+        if (interface->process(state_ptr, &context) != ORPHEUS_OK) return 12;
+        if (!close_to(output_data[0], 2.75f) || !close_to(output_data[1], -3.0f)) return 13;
+        if (state.active_mask != 3 || !signbit(output_data[3])) return 14;
+        if (interface->reset(state_ptr) != ORPHEUS_OK || state.active_mask != 0) return 15;
+        if (state.param_set != 0 || state.p2_low != 0.25f) return 16;
+        input_data[0] = NAN;
+        input_data[1] = 3.0f;
+        input_data[2] = 8.0f;
+        input_data[3] = NAN;
+        if (interface->process(state_ptr, &context) != ORPHEUS_OK || state.active_mask != 2) return 17;
+        if (interface->set_parameter(state_ptr, "disabled", &bypass) != ORPHEUS_OK) return 18;
+        if (interface->process(state_ptr, &context) != ORPHEUS_OK) return 19;
+        if (memcmp(input_data, output_data, sizeof(input_data)) != 0 || state.active_mask != 0) return 20;
+        if (interface->reset(state_ptr) != ORPHEUS_OK || !state.disabled) return 21;
+        if (interface->process(state_ptr, &context) != ORPHEUS_OK) return 22;
+        if (memcmp(input_data, output_data, sizeof(input_data)) != 0) return 23;
     }
     return 0;
 }
