@@ -85,6 +85,12 @@
           "id": { "type": "string" },
           "direction": { "type": "string", "enum": ["input", "output"] },
           "type": { "type": "string", "enum": ["audio", "control", "bulk", "debug"] },
+          "timing": {
+            "type": "string",
+            "enum": ["sync", "latest"],
+            "default": "sync",
+            "description": "输入交付语义：sync 参与调度周期约束；latest 仅限同 Task 非音频输入，读取最近结果，不驱动执行周期；尚未产出时为零"
+          },
           "sample_format": { "type": "string", "enum": ["f32", "i16", "i24", "i32"] },
           "channels": { "type": ["integer", "string"] },
           "sample_rate": { "type": ["integer", "string"] },

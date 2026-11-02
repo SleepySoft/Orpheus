@@ -1,0 +1,21 @@
+id: orpheus.test.data_probe
+name: 数据链路验收探针
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: DataProbeState
+sources: [src/data_probe.c]
+headers: [include/data_probe.h]
+ports:
+  - {id: audio, direction: input, type: audio, channels: 1}
+  - {id: vector, direction: input, type: bulk, channels: 2, block_size: 129}
+  - {id: scalar, direction: input, type: control, channels: 1, block_size: 1}
+  - {id: held, direction: input, type: control, channels: 1, block_size: 1, timing: latest}
+  - {id: out, direction: output, type: audio, channels: 1}
+  - {id: vector_out, direction: output, type: bulk, channels: 2, block_size: 129}
+  - {id: scalar_out, direction: output, type: control, channels: 1, block_size: 1}
+parameters:
+  - {id: mode, name: 运算, type: int, default: 0, update_policy: restart_required}
+  - {id: metrics, name: 验收记录, type: float, count: 32, readback: true, kind: bulk}
+execution:
+  realtime_safe: true

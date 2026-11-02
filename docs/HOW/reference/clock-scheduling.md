@@ -125,3 +125,56 @@ ABI v5将`OrpheusConfig.sample_rate`和`OrpheusProcessContext.sample_rate`改为
 
 重叠窗口不是连续PCM流，不得通过加gain绕过限制直接接入普通rate_sync合流；
 需要先显式恢复连续样本语义。当前不自动补偿FIR群延迟或其它路径延迟，调用方应按功能保留这些延迟。
+
+## 非音频计算数据（2026-11）
+
+`control` / `bulk` / `debug` **端口**承载算法中间结果，不是参数控制连接，也不是
+可寻址的 BULK 参数槽。例如129点复数谱、功率向量、互谱矩阵和单个判定标志，
+可以在同一次调用中共同作为输入，不需要填充为等长PCM。
+
+### 数据尺寸与时间线分离
+
+- 非音频端口当前支持 `sample_format: f32`；其它格式在编译期显式拒绝，不能静默
+  以float解释整数内存。端口 `channels × block_size` 表达元素数量，缺省为1×1；
+  复数/矩阵的具体轴和布局由组件接口契约声明。
+- 连线两端类型、格式、channels和block_size必须匹配，不做隐式广播、填充或转换。
+  非音频端口的sample_rate不作为数组连线匹配条件，也不定义独立采样率，统一随驱动
+  时间线传播；数组长度不参与时钟周期计算。
+- 音频输入决定节点处理量子；只有同步数据输入时，沿首个同步源继承处理量子及
+  精确时间线。没有同步输入时使用所属Task节拍。全部同步输入的交付周期必须一致。
+- `config.block_size` / `ctx.frame_count` 仍是处理时间量子；数据的元素数必须从
+  对应 `OrpheusBuffer.frame_count × channels` 读取，不能用ctx.frame_count遍历数组。
+  `frame_index`继续按时间线步长推进，不按频点/矩阵元素数推进。
+
+### 同步输入与读取最新值
+
+输入端口新增 `timing`，缺省为 `sync`：
+
+```yaml
+ports:
+  - {id: spectrum, direction: input, type: bulk, channels: 2, block_size: 129}
+  - {id: decay, direction: input, type: control, channels: 1, block_size: 1, timing: latest}
+```
+
+- `sync`：参与节点交付周期的推导与校验；上游到期后，本轮下游可直接消费新结果。
+- `latest`：仅用于同Task非音频输入，不驱动或减慢节点执行；复用生产者最近一次
+  写入的数据，首次产出前为零。同一tick生产者到期时，拓扑序保证先生产、后消费，
+  因而当轮即可看见更新，没有参数控制链的一块延迟。
+- latest边仍参与拓扑排序与环检测；不支持借latest构造隐式反馈。循环状态需要显式建模。
+  它表示最近一次写入，不为组件的“部分写入/未发布”行为提供额外事务保证；
+  需要快照时，组件必须显式发布完整数据。
+- 这些边使用现有按端口绑定、零初始化且持续保留的F32缓冲；动态Runtime与生成的
+  全局/Task入口共享同一plan调度。plan额外记录buffer的`type/timing`和节点的
+  `input_port_timings`，供接口追溯。
+
+当前只支持同Task数据计算；跨Task/线程/Runtime必须有显式数据快照或事务桥，
+直接连线会编译失败。音频rate_sync/async_bridge及其PCM FIFO不能冒充数据事务桥。
+复合组件边界映射到实际叶子端口，执行时序以叶子声明为准；公开接口应保持一致。
+
+### 验收证据
+
+`orpheus_core/tests/test_data_ports.py`使用非占位C组件验证129×2数组和标量的同轮计算、
+每三块更新的慢结果保持、初值零、同tick更新可见、扇出、悬空输出、复合组件保存/展开、
+分数采样率时间线与非法连线拒绝；动态DLL和生成工程各自的全局/Task入口共四种入口，
+运行后逐项比较非零结果与帧索引。
+这验证框架数据链路，不代表外部模型的占位算法已经实现。

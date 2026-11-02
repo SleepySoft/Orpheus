@@ -37,6 +37,7 @@ class ResolvedPort:
     sample_rate: Fraction
     block_size: int
     block_size_explicit: bool = False
+    timing: str = "sync"
 
 
 @dataclass
@@ -165,8 +166,15 @@ def _resolve_port_signature(
     direction = port_manifest["direction"]
     port_type = port_manifest.get("type", "audio")
     sample_format = port_manifest.get("sample_format", "f32")
+    timing = port_manifest.get("timing", "sync")
+    if timing not in ("sync", "latest"):
+        raise CompileError(f"节点 {node.id} 端口 {port_manifest['id']}：未知输入时序 {timing}")
+    if timing == "latest" and (direction != "input" or port_type == "audio"):
+        raise CompileError(f"节点 {node.id}：latest 仅适用于非音频输入端口")
+    if port_type != "audio" and sample_format != "f32":
+        raise CompileError(f"节点 {node.id}：非音频数据端口当前仅支持 f32，实际为 {sample_format}")
 
-    channels_expr = port_manifest.get("channels", task.block_size)
+    channels_expr = port_manifest.get("channels", task.block_size if port_type == "audio" else 1)
     channels = _resolve_value(channels_expr, node, task)
     if channels is None:
         # 尝试从参数默认值读取
@@ -179,16 +187,21 @@ def _resolve_port_signature(
     if channels is None:
         raise CompileError(f"cannot resolve channels for {node.id}:{port_manifest['id']}")
 
-    sample_rate_expr = port_manifest.get("sample_rate", "task:sample_rate")
+    sample_rate_expr = (
+        port_manifest.get("sample_rate", "task:sample_rate")
+        if port_type == "audio" else "task:sample_rate"
+    )
     sample_rate = _resolve_value(sample_rate_expr, node, task, exact=True)
     if sample_rate is None:
         sample_rate = task.sample_rate
 
-    block_size_expr = port_manifest.get("block_size", "task:block_size")
+    block_size_expr = port_manifest.get("block_size", "task:block_size" if port_type == "audio" else 1)
     block_size = _resolve_value(block_size_expr, node, task)
     block_size_explicit = port_manifest.get("block_size") is not None
     if block_size is None:
         block_size = task.block_size
+    if int(channels) <= 0 or int(block_size) <= 0:
+        raise CompileError(f"节点 {node.id} 端口 {port_manifest['id']}：通道数与数据长度必须为正整数")
 
     return ResolvedPort(
         node_id=node.id,
@@ -200,6 +213,7 @@ def _resolve_port_signature(
         sample_rate=Fraction(sample_rate),
         block_size=int(block_size),
         block_size_explicit=block_size_explicit,
+        timing=timing,
     )
 
 
@@ -607,7 +621,8 @@ class GraphCompiler:
         # 同Task默认端口跟随上游速率；显式速率约束保持不变。
         rate_inputs: dict[str, list[Connection]] = {key: [] for key in graph.nodes}
         for conn in graph.connections:
-            if conn.to_ref.node_id in rate_inputs:
+            target_port = resolved_ports.get(str(conn.to_ref))
+            if conn.to_ref.node_id in rate_inputs and target_port and target_port.timing != "latest":
                 rate_inputs[conn.to_ref.node_id].append(conn)
         for _ in range(len(graph.nodes) + 1):
             changed = False
@@ -625,6 +640,9 @@ class GraphCompiler:
                     if str(conn.from_ref) in resolved_ports
                     and resolved_ports[str(conn.from_ref)].type == "audio"
                 }
+                first_source = resolved_ports.get(str(incoming[0].from_ref))
+                if not rates and first_source is not None:
+                    rates = {first_source.sample_rate}
                 if len(rates) != 1:
                     continue
                 input_rate = next(iter(rates))
@@ -633,10 +651,8 @@ class GraphCompiler:
                 for pm in expanded_ports[node.id]:
                     key = f"{node.id}:{pm['id']}"
                     rp = resolved_ports[key]
-                    if rp.type != "audio":
-                        continue
                     expr = pm.get("sample_rate")
-                    if expr is None:
+                    if rp.type != "audio" or expr is None:
                         rate = input_rate
                     elif isinstance(expr, str) and "in:sample_rate" in expr:
                         rate = _resolve_value(
@@ -702,13 +718,18 @@ class GraphCompiler:
                 raise CompileError(
                     f"channels mismatch: {from_key} ({from_port.channels}) -> {to_key} ({to_port.channels})"
                 )
-            if from_port.sample_rate != to_port.sample_rate:
+            if from_port.type == "audio" and from_port.sample_rate != to_port.sample_rate:
                 raise CompileError(
                     f"sample rate mismatch: {from_key} ({from_port.sample_rate}) -> {to_key} ({to_port.sample_rate})"
                 )
             from_task = node_task(graph.nodes[conn.from_ref.node_id]).id
             to_task = node_task(graph.nodes[conn.to_ref.node_id]).id
             if from_task != to_task:
+                if from_port.type != "audio":
+                    raise CompileError(
+                        f"非音频数据连接不能直接跨 Task：{from_key} → {to_key}；"
+                        "请使用显式数据快照/事务桥，latest 不提供跨线程同步"
+                    )
                 to_comp = self.registry.get(graph.nodes[conn.to_ref.node_id].component)
                 scheduling = (to_comp.manifest.get("scheduling") or {}) if to_comp else {}
                 if not (scheduling.get("async_bridge") or scheduling.get("merge")):
@@ -739,7 +760,7 @@ class GraphCompiler:
 
         # 3.5 Rate divisor propagation (multi-rate scheduling)
         node_divisor = self._propagate_rate_divisors(
-            graph, expanded_ports, execution_order, node_task
+            graph, expanded_ports, execution_order, node_task, rate_inputs
         )
 
         # 4. Build execution plan
@@ -777,26 +798,36 @@ class GraphCompiler:
         ]
         plan.sport_bindings = sport_bindings
 
-        # per-node processing quantum: the producer buffer's frame count
-        # (differs from task block size in rate-shifted domains)
+        # 数据端口的 block_size 是数组长度，不参与音频处理量子的推导。
         def _compute_in_frames(strict: bool = False) -> dict[str, int]:
             frames: dict[str, int] = {}
-            for conn in graph.connections:
-                to_node = conn.to_ref.node_id
-                bs = resolved_ports[str(conn.from_ref)].block_size
-                comp = self.registry.get(graph.nodes[to_node].component)
-                merging = bool(comp and (comp.manifest.get("scheduling") or {}).get("merge"))
-                if merging:
-                    # 多速率异步合流：本节点接受多个不同块长输入，向下游暴露公倍数块。
-                    prev = frames.get(to_node)
-                    frames[to_node] = math.lcm(prev, bs) if prev else bs
-                else:
-                    if strict and to_node in frames and frames[to_node] != bs:
+            processing: dict[str, int] = {}
+            for node_id in execution_order:
+                node = graph.nodes[node_id]
+                comp = self.registry.get(node.component)
+                scheduling = (comp.manifest.get("scheduling") or {}) if comp else {}
+                incoming = rate_inputs[node_id]
+                sizes = [
+                    resolved_ports[str(conn.from_ref)].block_size
+                    for conn in incoming
+                    if resolved_ports[str(conn.from_ref)].type == "audio"
+                ]
+                if sizes:
+                    if strict and len(set(sizes)) > 1 and not scheduling.get("merge"):
                         raise CompileError(
-                            f"block size mismatch at node {to_node}: inputs differ "
-                            f"({frames[to_node]} vs {bs})"
+                            f"block size mismatch at node {node_id}: inputs differ {sizes}"
                         )
-                    frames[to_node] = bs
+                    quantum = math.lcm(*sizes) if scheduling.get("merge") else sizes[0]
+                elif incoming:
+                    quantum = processing[incoming[0].from_ref.node_id]
+                else:
+                    quantum = node_task(node).block_size
+                frames[node_id] = quantum
+                outputs = [p for p in expanded_ports[node_id] if p["direction"] == "output"]
+                processing[node_id] = (
+                    resolved_ports[f"{node_id}:{outputs[0]['id']}"].block_size
+                    if scheduling.get("split") and outputs else quantum
+                )
             return frames
 
         in_frames = _compute_in_frames()
@@ -806,18 +837,22 @@ class GraphCompiler:
         # 这样 gain/mixer/channel_router/window 等组件无需在每个端口手动声明 block_size。
         for _ in range(len(execution_order) + 1):
             changed = False
+            processing_quanta: dict[str, int] = {}
             for node_id in execution_order:
                 node = graph.nodes[node_id]
                 nt = node_task(node)
-                source_sizes = [
-                    resolved_ports[str(conn.from_ref)].block_size
-                    for conn in rate_inputs[node_id]
+                incoming = rate_inputs[node_id]
+                sizes = [
+                    resolved_ports[str(conn.from_ref)].block_size for conn in incoming
+                    if resolved_ports[str(conn.from_ref)].type == "audio"
                 ]
                 comp = self.registry.get(node.component)
-                merging = bool(comp and (comp.manifest.get("scheduling") or {}).get("merge"))
+                scheduling = (comp.manifest.get("scheduling") or {}) if comp else {}
                 node_in_frames = (
-                    math.lcm(*source_sizes) if merging and source_sizes
-                    else source_sizes[-1] if source_sizes else nt.block_size
+                    math.lcm(*sizes) if sizes and scheduling.get("merge")
+                    else sizes[0] if sizes
+                    else processing_quanta[incoming[0].from_ref.node_id] if incoming
+                    else nt.block_size
                 )
                 for pm in expanded_ports[node_id]:
                     if pm["direction"] != "output":
@@ -840,11 +875,16 @@ class GraphCompiler:
                         if resolved_bs is not None and int(resolved_bs) != rp.block_size:
                             resolved_ports[key] = replace(rp, block_size=int(resolved_bs))
                             changed = True
-                    elif rp.block_size_explicit:
+                    elif rp.block_size_explicit or rp.type != "audio":
                         continue
                     elif rp.block_size != node_in_frames:
                         resolved_ports[key] = replace(rp, block_size=node_in_frames)
                         changed = True
+                outputs = [p for p in expanded_ports[node_id] if p["direction"] == "output"]
+                processing_quanta[node_id] = (
+                    resolved_ports[f"{node_id}:{outputs[0]['id']}"].block_size
+                    if scheduling.get("split") and outputs else node_in_frames
+                )
             if not changed:
                 break
             in_frames = _compute_in_frames()
@@ -852,17 +892,37 @@ class GraphCompiler:
         # Converged: validate that no node merges two different block sizes.
         in_frames = _compute_in_frames(strict=True)
 
-        for node in graph.nodes.values():
+        for conn in graph.connections:
+            source = resolved_ports[str(conn.from_ref)]
+            target = resolved_ports[str(conn.to_ref)]
+            if source.type != "audio" and source.block_size != target.block_size:
+                raise CompileError(
+                    f"数据形状不匹配：{conn.from_ref} 长度 {source.block_size} → "
+                    f"{conn.to_ref} 长度 {target.block_size}；不进行隐式填充或广播"
+                )
+
+        node_rates: dict[str, Fraction] = {}
+        for node_id in execution_order:
+            node = graph.nodes[node_id]
             comp = self.registry.get(node.component)
             nt = node_task(node)
             port_manifests = expanded_ports[node.id]
-            # effective sample rate: from any resolved port of this node
-            node_rate = nt.sample_rate
-            for pm in port_manifests:
-                rp = resolved_ports.get(f"{node.id}:{pm['id']}")
-                if rp is not None:
-                    node_rate = rp.sample_rate
-                    break
+            incoming = rate_inputs[node.id]
+            audio_inputs = [
+                resolved_ports[str(conn.from_ref)] for conn in incoming
+                if resolved_ports[str(conn.from_ref)].type == "audio"
+            ]
+            audio_ports = [
+                resolved_ports[f"{node.id}:{pm['id']}"] for pm in port_manifests
+                if pm.get("type", "audio") == "audio"
+            ]
+            if audio_inputs:
+                node_rate = audio_inputs[0].sample_rate
+            elif incoming:
+                node_rate = node_rates[incoming[0].from_ref.node_id]
+            else:
+                node_rate = audio_ports[0].sample_rate if audio_ports else Fraction(nt.sample_rate)
+            node_rates[node.id] = node_rate
             out_ports = [p for p in port_manifests if p["direction"] == "output"]
             # 每个节点的速率域调度量子（block_size）：源=其 Task 块长，下游=输入超级块长。
             # 显式落盘到 plan，运行/生成两路按其自身值取 config.block_size，
@@ -903,20 +963,17 @@ class GraphCompiler:
                     p["id"]: resolved_ports[f"{node.id}:{p['id']}"].channels
                     for p in out_ports
                 },
+                "input_port_timings": {
+                    p["id"]: resolved_ports[f"{node.id}:{p['id']}"].timing
+                    for p in port_manifests if p["direction"] == "input"
+                },
             }
 
         # 4.5 静态调度表：每个节点的触发间隔统一折算为图采样率帧数
         #     I_n = frames_n × 图速率 / 节点流速率（整除不了立即报错，不静默掩盖），
         #     主步长 tick = 所有 I_n 的 GCD，节点周期 period_n = I_n / tick。
         def _node_stream_rate(node_id: str) -> Fraction:
-            """节点量子 frames 所在的流速率：有输入取首个输入端口速率，源节点取首个端口。"""
-            pms = expanded_ports[node_id]
-            inputs = [p for p in pms if p["direction"] == "input"]
-            chosen = inputs[0] if inputs else (pms[0] if pms else None)
-            if chosen is None:
-                return Fraction(plan.sample_rate)
-            rp = resolved_ports.get(f"{node_id}:{chosen['id']}")
-            return rp.sample_rate if rp is not None else Fraction(plan.sample_rate)
+            return node_rates[node_id]
 
         intervals: dict[str, int] = {}
         output_intervals: dict[str, Fraction] = {}
@@ -1029,6 +1086,10 @@ class GraphCompiler:
             to_node_id = conn.to_ref.node_id
             to_comp = self.registry.get(graph.nodes[to_node_id].component)
             merging = bool(to_comp and (to_comp.manifest.get("scheduling") or {}).get("merge"))
+            if merging and from_port.type != "audio":
+                raise CompileError(
+                    f"非音频数据连接不能使用音频批次合流：{conn.from_ref} → {conn.to_ref}"
+                )
             from_task = node_task(graph.nodes[conn.from_ref.node_id]).id
             to_task = node_task(graph.nodes[to_node_id]).id
             task_bridge = from_task != to_task
@@ -1057,6 +1118,8 @@ class GraphCompiler:
             plan.buffers[key] = {
                 "from": str(conn.from_ref),
                 "to": str(conn.to_ref),
+                "type": from_port.type,
+                "timing": resolved_ports[str(conn.to_ref)].timing,
                 "sample_format": from_port.sample_format,
                 "channels": from_port.channels,
                 "frame_count": frame_count,
@@ -1438,6 +1501,7 @@ class GraphCompiler:
         expanded_ports: dict[str, list[dict[str, Any]]],
         execution_order: list[str],
         node_task,
+        rate_inputs: dict[str, list[Connection]],
     ) -> dict[str, int]:
         """Propagate rate divisors along edges.
 
@@ -1449,7 +1513,7 @@ class GraphCompiler:
         node_divisor: dict[str, int] = {}
         for node_id in execution_order:
             node = graph.nodes[node_id]
-            incoming = [c for c in graph.connections if c.to_ref.node_id == node_id]
+            incoming = rate_inputs[node_id]
             up = {port_divisor[str(c.from_ref)] for c in incoming}
             comp = self.registry.get(node.component)
             merging = bool(comp and (comp.manifest.get("scheduling") or {}).get("merge"))

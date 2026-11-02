@@ -23,6 +23,13 @@ class CodeGenerator:
     def _component_target_name(self, component_id: str) -> str:
         return component_id.replace(".", "_")
 
+    def _component_headers(self, component_id: str) -> list[str]:
+        info = self.registry.get(component_id)
+        headers = info.manifest.get("headers") if info else None
+        if headers:
+            return [str(header).replace("\\", "/").removeprefix("include/") for header in headers]
+        return [f'orpheus_{component_id.replace("orpheus.builtin.", "")}.h']
+
     def _sanitized_node_id(self, node_id: str) -> str:
         # 节点 id 可能来自用户/子组件展开（如 "fx__g"、"my.node"），
         # 必须清洗成合法 C 标识符，否则生成代码编译失败。
@@ -593,12 +600,8 @@ class CodeGenerator:
 
         # Include component headers
         for cid in component_ids:
-            comp_target = self._component_target_name(cid)
-            header_name = f"orpheus_{comp_target.replace('orpheus_builtin_', '')}.h"
-            # Simplified header name mapping
-            short = cid.replace("orpheus.builtin.", "")
-            header_name = f"orpheus_{short}.h"
-            lines.append(f'#include "{header_name}"')
+            for header_name in self._component_headers(cid):
+                lines.append(f'#include "{header_name}"')
         if any(self._state_type(nid, plan) for nid in plan.execution_order):
             lines.append('#include "orpheus_arena.h"')
         lines.append('#include "orpheus_control.h"')
@@ -2378,7 +2381,8 @@ class CodeGenerator:
             ' * flatten 只决定执行拓扑；此处按模块递归嵌套，叶子状态按执行序排列。 */',
         ]
         for cid in sorted({plan.node_configs[n]["component"] for n in plan.execution_order}):
-            arena_lines.append(f'#include "orpheus_{cid.replace("orpheus.builtin.", "")}.h"')
+            for header_name in self._component_headers(cid):
+                arena_lines.append(f'#include "{header_name}"')
         arena_lines.append('')
         for path in reversed(ordered_paths):
             if not path:
