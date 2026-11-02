@@ -113,7 +113,9 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
 
     /* 稳态直通：位置已落在整数输入上且无过渡，整帧拷贝 */
     float pos = s->select_pos;
+    if (s->ramp_step >= 32.0f) pos = target;
     if (pos == target) {
+        s->select_pos = pos;
         uint32_t a = (uint32_t)(pos + 0.5f);
         const OrpheusBuffer* inA = (a < ctx->input_count) ? ctx->inputs[a] : NULL;
         if (inA) memcpy(out_data, inA->data, (size_t)frames * ch * sizeof(float));
