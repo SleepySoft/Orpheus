@@ -242,6 +242,14 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             return result;
         }
 
+        result = prepare_instance(*inst, cfg);
+        if (result != ORPHEUS_OK) {
+            std::cerr << "[Runtime] prepare failed for node " << node_id
+                      << " (" << cfg.component << "): " << result << std::endl;
+            return result;
+        }
+
+        // 槽维度和初值可能由 prepare 决定，注册与影子初始化必须在其后。
         // v2 主动注册：组件把槽（地址/类型/说明）注册进实例槽表。
         // 旧 DLL（abi_version=1）或未实现 register_slots 的组件走 v1 回调路径。
         if (desc->abi_version >= 2 && iface->register_slots) {
@@ -281,14 +289,13 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
                 return static_cast<OrpheusSlotId>(idx);
             };
             reg.update = nullptr;
-            iface->register_slots(inst->state, &reg);
-        }
-
-        result = prepare_instance(*inst, cfg);
-        if (result != ORPHEUS_OK) {
-            std::cerr << "[Runtime] prepare failed for node " << node_id
-                      << " (" << cfg.component << "): " << result << std::endl;
-            return result;
+            result = iface->register_slots(inst->state, &reg);
+            if (result != ORPHEUS_OK) {
+                std::cerr << "[Runtime] register_slots failed for node " << node_id
+                          << ": " << result << std::endl;
+                iface->destroy(inst->state);
+                return result;
+            }
         }
 
         instances_[node_id] = std::move(inst);

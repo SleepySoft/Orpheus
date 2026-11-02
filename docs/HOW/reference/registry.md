@@ -181,6 +181,11 @@ typedef struct {
 int (*register_slots)(void* state, const OrpheusRegistry* reg);
 ```
 
+初始化顺序为 `create → prepare → register_slots`，动态 Runtime 与生成代码一致。
+槽的有效数量可能依赖通道/块长配置，BULK 影子必须从 prepare 后的实际初值复制；
+提前注册会使动态维度为零，或让第一次部分写入把未更新项覆盖成零。
+prepare/注册失败均报告错误，不进入处理循环。
+
 ### 5.2 一行注册宏
 
 ```c
@@ -378,7 +383,7 @@ OrpheusResult orpheus_slot_write(OrpheusRuntime* rt, OrpheusSlotId id,
 
 ### 修正（推论与实际的差异）
 
-1. **生成路径当前不调用 `register_slots`**（已解决）：生成 main 曾只跑 create/prepare/process/destroy；现已在 create 后调用占位注册器（流程对等，DSP 输出不变）。
+1. **生成路径当前不调用 `register_slots`**（已解决）：生成 main 曾只跑 create/prepare/process/destroy；现调用正式注册器，且在 prepare 成功后注册以获得有效维度和初值。
 2. **两种嵌套是两种代码形态**：图级复合（UI `sub:`）被完全摊平成"多个实例成员"（`g_arena` 里的独立成员）；组件内部子块保留在"单个状态结构体内部"。统一机制成立（类型拼接 + 注册），但不宜表述为"一棵内存树"。
 3. **`g_arena` 是实例粒度（plan 级）拼接**；运行期 SlotMap 是类型级偏移表。两者并存：生成期布局在实例，运行期寻址在类型。
 4. **节点 id 必须清洗为合法 C 标识符**：实测节点名含 `.`（`my.gain`）会生成非法代码；`_sanitized_node_id` 改为正则替换所有非标识符字符（`my.gain → my_gain`）。

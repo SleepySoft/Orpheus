@@ -16,6 +16,7 @@ typedef struct {
     uint32_t max_delay;
     uint32_t write_pos;
     uint32_t capacity;
+    int32_t delay_samples;
     float delays_samples[DELAY_LINE_MAX_CHANNELS];
 } DelayLineState;
 

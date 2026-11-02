@@ -1164,16 +1164,20 @@ class CodeGenerator:
                 f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);'
             )
             lines.append(f'    g_created_nodes = {node_index + 1};')
-            lines.append(f'    if (g_iface_{s}->register_slots) {{')
-            lines.append(f'        g_reg.ctx = g_state_{s};')
-            lines.append(f'        orpheus_control_set_reg_node("{node_id}", g_state_{s}, g_iface_{s});')
-            lines.append(f'        g_iface_{s}->register_slots(g_state_{s}, &g_reg);')
-            lines.append('    }')
             lines.append(f'    rc = g_iface_{s}->prepare(g_state_{s}, &config);')
             lines.append(
                 f'    if (rc != ORPHEUS_OK) return orpheus_graph_init_fail("prepare", '
                 f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);'
             )
+            lines.append(f'    if (g_iface_{s}->register_slots) {{')
+            lines.append(f'        g_reg.ctx = g_state_{s};')
+            lines.append(f'        orpheus_control_set_reg_node("{node_id}", g_state_{s}, g_iface_{s});')
+            lines.append(f'        rc = g_iface_{s}->register_slots(g_state_{s}, &g_reg);')
+            lines.append(
+                f'        if (rc != ORPHEUS_OK) return orpheus_graph_init_fail("register_slots", '
+                f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);'
+            )
+            lines.append('    }')
         for nid in embed_in_nodes:
             s = self._sanitized_node_id(nid)
             cfg = plan.node_configs[nid]

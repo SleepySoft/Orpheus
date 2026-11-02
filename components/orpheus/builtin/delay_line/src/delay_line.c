@@ -27,7 +27,13 @@ static const OrpheusParameter dl_params[] = {
     { .id = "delays_samples", .name = "每通道延迟样本数", .type = ORPHEUS_VALUE_STRING,
       .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "0,0" },
       .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
-      .readback = false, .persistent = false }
+      .readback = false, .persistent = false },
+    { .id = "delay_samples", .name = "公共延迟样本数（-1使用逐通道配置）",
+      .type = ORPHEUS_VALUE_INT,
+      .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = -1 },
+      .min_i32 = -1, .max_i32 = DELAY_LINE_MAX_DELAY,
+      .update_policy = ORPHEUS_UPDATE_IMMEDIATE,
+      .readback = true, .persistent = true }
 };
 
 static const OrpheusPort dl_ports[] = {
@@ -40,8 +46,8 @@ static const OrpheusPort dl_ports[] = {
 };
 
 static const OrpheusComponentDescriptor dl_descriptor = {
-    .id = "orpheus.builtin.delay_line", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = dl_ports, .port_count = 2, .params = dl_params, .param_count = 3,
+    .id = "orpheus.builtin.delay_line", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = dl_ports, .port_count = 2, .params = dl_params, .param_count = 4,
     .state_size = sizeof(DelayLineState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
 };
@@ -74,6 +80,15 @@ static int dl_prepare(void* state, const OrpheusConfig* config) {
     if (max_delay < 1) max_delay = 1;
     if (max_delay > DELAY_LINE_MAX_DELAY) max_delay = DELAY_LINE_MAX_DELAY;
     s->max_delay = (uint32_t)max_delay;
+    s->delay_samples = -1;
+    for (uint32_t i = 0; i < config->param_count; ++i) {
+        if (config->param_ids[i] && strcmp(config->param_ids[i], "delay_samples") == 0) {
+            const OrpheusValue* value = &config->param_values[i];
+            if (value->type != ORPHEUS_VALUE_INT || value->value.i32 < -1 ||
+                value->value.i32 > max_delay) return ORPHEUS_ERR_INVALID_ARG;
+            s->delay_samples = value->value.i32;
+        }
+    }
 
     /* 默认每通道延迟为 0 */
     for (uint32_t c = 0; c < DELAY_LINE_MAX_CHANNELS; ++c) s->delays_samples[c] = 0.0f;
@@ -131,7 +146,8 @@ static int dl_process(void* state, const OrpheusProcessContext* ctx) {
             s->buffer[s->write_pos + c] = x;
 
             /* 读取延迟样本：当前写位置往回推 delay 个样本 */
-            uint32_t delay = (uint32_t)(s->delays_samples[c] + 0.5f);
+            uint32_t delay = s->delay_samples >= 0 ? (uint32_t)s->delay_samples
+                : (uint32_t)(s->delays_samples[c] + 0.5f);
             uint32_t read_idx = (s->write_pos + s->capacity - delay * ch) % s->capacity;
             out_data[n * ch + c] = s->buffer[read_idx + c];
         }
@@ -143,12 +159,23 @@ static int dl_process(void* state, const OrpheusProcessContext* ctx) {
 }
 
 static int dl_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {
-    (void)state; (void)param_id; (void)value;
+    DelayLineState* s = (DelayLineState*)state;
+    if (!s || !param_id || !value) return ORPHEUS_ERR_INVALID_ARG;
+    if (strcmp(param_id, "delay_samples") == 0) {
+        if (value->type != ORPHEUS_VALUE_INT || value->value.i32 < -1 ||
+            value->value.i32 > (int32_t)s->max_delay) return ORPHEUS_ERR_INVALID_ARG;
+        s->delay_samples = value->value.i32;
+        return ORPHEUS_OK;
+    }
     return ORPHEUS_ERR_UNSUPPORTED;
 }
 
 static int dl_get_parameter(void* state, const char* param_id, OrpheusValue* value) {
     DelayLineState* s = (DelayLineState*)state;
+    if (!s || !param_id || !value) return ORPHEUS_ERR_INVALID_ARG;
+    if (strcmp(param_id, "delay_samples") == 0) {
+        value->type = ORPHEUS_VALUE_INT; value->value.i32 = s->delay_samples; return ORPHEUS_OK;
+    }
     if (strcmp(param_id, "channels") == 0) {
         value->type = ORPHEUS_VALUE_INT; value->value.i32 = (int32_t)s->channels; return ORPHEUS_OK;
     }
@@ -177,6 +204,10 @@ static int dl_register_slots(void* state, const OrpheusRegistry* reg) {
     ORPHEUS_REG_SLOT(reg, s, max_delay, ORPHEUS_SLOT_SETTING, "max_delay_samples", "最大延迟样本数",
                      ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=DELAY_LINE_MAX_DELAY,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, delay_samples, ORPHEUS_SLOT_SETTING, "delay_samples", "公共延迟样本数",
+                     ORPHEUS_VALUE_INT, .min_i32=-1, .max_i32=DELAY_LINE_MAX_DELAY,
+                     .update_policy=ORPHEUS_UPDATE_IMMEDIATE,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     return ORPHEUS_OK;
 }

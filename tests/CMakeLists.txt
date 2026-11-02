@@ -25,6 +25,17 @@ if(NOT WIN32)
 endif()
 add_test(NAME audio_adapters_smoke COMMAND audio_adapters_smoke)
 
+add_executable(integer_delay_smoke integer_delay_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delay_line/src/delay_line.c)
+target_include_directories(integer_delay_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delay_line/include)
+target_compile_definitions(integer_delay_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME integer_delay_smoke COMMAND integer_delay_smoke)
+
+add_executable(integer_delay_runner integer_delay_runner.cpp)
+target_link_libraries(integer_delay_runner PRIVATE orpheus_runtime_lib)
+
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
     set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})

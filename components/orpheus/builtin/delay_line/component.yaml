@@ -1,8 +1,8 @@
 id: orpheus.builtin.delay_line
 name: 多通道独立延迟线
 category: 高级/滤波器组
-description: 每通道独立延迟样本数，支持 BULK 写入每通道延迟
-version: 1.0.0
+description: 每通道独立延迟，支持BULK向量或运行期公共整数样本延迟；切换保留历史
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: DelayLineState
@@ -42,6 +42,14 @@ parameters:
     widget: text
     kind: bulk
     update_policy: restart_required
+  - id: delay_samples
+    name: 公共延迟样本数（-1使用逐通道配置）
+    type: int
+    default: -1
+    range: [-1, 192000]
+    update_policy: immediate
+    bindable: true
+    description: 非负整数统一控制所有通道，不能超过本实例max_delay_samples；-1恢复逐通道BULK配置，不清空历史
 bulk_slots:
   - id: delays_samples
     name: 每通道延迟样本数
