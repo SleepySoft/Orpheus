@@ -263,6 +263,16 @@ reset恢复冷启动而保留配置，块边界修改alpha保留历史，
 四入口覆盖65/387项归约和128通道单项边界，见`tests/bulk_sum_smoke.c`、
 `orpheus_core/tests/test_bulk_sum.py`。
 
+`frame_energy`把交错f32音频固定窗口归约为一个同步f32 BULK标量：
+先逐帧按通道声明顺序累加平方，再按帧顺序累加（总和初值负零）。
+平方及各次加法分别舍入，不能改为逐通道归约后相加；不平均、转dB、广播或跨调用累计。
+channels支持1..128，frames支持1..65536，窗口形状独立于调用节拍，不改变时钟。
+输出可直接接同Task数据计算，不借用下一块的参数控制链；NULL输出仍检查输入。
+零处理量不写，配置/缓冲/重叠错误在写输出前拒绝；支持外部分配state block。
+与既有电平检测和音频谱归约职责不同，不改变后两者行为。
+原生边界与单/双/64通道四入口测试见`tests/frame_energy_smoke.c`、
+`orpheus_core/tests/test_frame_energy.py`，原生另覆盖128通道。
+
 `bulk_one_pole`提供同shape逐元素一阶指数平滑：
 `y=(1-alpha)*x+alpha*y_prev`，两次乘法各自舍入；可选择先对输入取绝对值。
 每项历史独立、跨调用保留；可选i32标量`update`为零时保持全部历史，未连接则每次更新。
