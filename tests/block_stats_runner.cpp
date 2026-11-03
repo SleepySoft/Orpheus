@@ -12,6 +12,7 @@ int main(int argc,char** argv) {
     CHECK(argc>=3 && orpheus_generated_init(48000,32)==ORPHEUS_OK);
     int first=2; const char* mode=argv[1];
 #define GET(n,k,v) orpheus_control_get_value(n,k,v)
+#define SET(n,k,v) orpheus_control_set_value(n,k,v)
 #define READ(n,k,v,c) orpheus_control_get_bulk(n,k,v,c)
 #define PROCESS() (strcmp(mode,"task")==0 ? orpheus_generated_process_task_default(0) : orpheus_generated_process(32))
 #else
@@ -20,11 +21,24 @@ int main(int argc,char** argv) {
     CHECK(runtime.load_plan(orpheus::Plan::load_from_file(argv[1]),argv[2])==ORPHEUS_OK);
     int first=4; const char* mode=argv[3];
 #define GET(n,k,v) runtime.get_parameter(n,k,v)
+#define SET(n,k,v) runtime.set_parameter(n,k,v)
 #define READ(n,k,v,c) runtime.get_bulk(n,k,v,c)
 #define PROCESS() (strcmp(mode,"task")==0 ? runtime.process_task("default",0) : runtime.process_block(32))
 #endif
+    int tracking=!strcmp(argv[first],"--track");
+    if (tracking) ++first;
     FILE* stream=fopen("block_stats.bin","wb"); CHECK(stream);
     for (unsigned block=0;block<6;++block) {
+        if (tracking) for (int i=first;i<argc;++i) {
+            char node[128]; snprintf(node,sizeof(node),"%s_track",argv[i]);
+            OrpheusValue value={ORPHEUS_VALUE_FLOAT,{0}};
+            value.value.f32=block==3 ? -1.f : block==1 ? 1.f : 0.f;
+            CHECK(SET(node,"mode",value)==ORPHEUS_OK);
+            value.value.f32=(float)(block*2);
+            CHECK(SET(node,"volume_db",value)==ORPHEUS_OK);
+            value.value.f32=block==5 ? 1.f : .5f;
+            CHECK(SET(node,"trigger",value)==ORPHEUS_OK);
+        }
         CHECK(PROCESS()==ORPHEUS_OK);
         for (int i=first;i<argc;++i) {
             const char* keys[]={"rms_db","peak_db"};
@@ -34,6 +48,17 @@ int main(int argc,char** argv) {
                 CHECK(fwrite(&value.value.f32,4,1,stream)==1);
                 char consumer[128]; snprintf(consumer,sizeof(consumer),"%s_%s",argv[i],k==0 ? "rms" : "peak");
                 float metrics[32];
+                CHECK(READ(consumer,"metrics",metrics,32)==ORPHEUS_OK);
+                CHECK(metrics[0]==block+1 && metrics[1]==32 && metrics[6]==1);
+                CHECK(!memcmp(&metrics[8+block],&value.value.f32,4));
+            }
+            if (tracking) for (unsigned k=0;k<2;++k) {
+                char node[128],consumer[128];
+                snprintf(node,sizeof(node),"%s_track",argv[i]);
+                snprintf(consumer,sizeof(consumer),"%s_%s",argv[i],k==0 ? "level" : "envelope");
+                OrpheusValue value={ORPHEUS_VALUE_FLOAT,{0}}; float metrics[32];
+                CHECK(GET(node,k==0 ? "level_db_spl" : "envelope_db",&value)==ORPHEUS_OK);
+                CHECK(fwrite(&value.value.f32,4,1,stream)==1);
                 CHECK(READ(consumer,"metrics",metrics,32)==ORPHEUS_OK);
                 CHECK(metrics[0]==block+1 && metrics[1]==32 && metrics[6]==1);
                 CHECK(!memcmp(&metrics[8+block],&value.value.f32,4));

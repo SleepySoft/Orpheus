@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).parent / "fixtures/data_ports"
 
 
-def verify_block_stats(tmp_path, cases, reference=None):
+def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_reference=None):
     from test_generated_double_bank import _build
     frames, width = 192, max(cases.values())
     samples = [[((n*113+c*911) % 50001)-25000 for c in range(width)] for n in range(frames)]
@@ -37,6 +37,13 @@ def verify_block_stats(tmp_path, cases, reference=None):
         for port in ("rms", "peak"):
             nodes[name+"_"+port] = Node(id=name+"_"+port, component="orpheus.test.data_probe", params={"mode": 1})
             edges.append(Connection(from_ref=PortRef(name, port+"0"), to_ref=PortRef(name+"_"+port, "scalar")))
+        if trackers is not None:
+            nodes[name+"_track"] = Node(id=name+"_track", component="orpheus.builtin.level_tracker", params=trackers[name])
+            for port in ("rms", "peak"):
+                edges.append(Connection(from_ref=PortRef(name, port+"0"), to_ref=PortRef(name+"_track", port)))
+            for port in ("level", "envelope"):
+                nodes[name+"_"+port] = Node(id=name+"_"+port, component="orpheus.test.data_probe", params={"mode": 1})
+                edges.append(Connection(from_ref=PortRef(name+"_track", port), to_ref=PortRef(name+"_"+port, "scalar")))
     project = Project(metadata={"name": "块级双dB非音频统计"}, tasks={"default": Task(id="default", sample_rate=48000, block_size=32)})
     project.graph = Graph(nodes=nodes, connections=edges)
     registry = Registry(); registry.add_search_path(ROOT / "components"); registry.scan()
@@ -64,6 +71,8 @@ def verify_block_stats(tmp_path, cases, reference=None):
                      'WINDOWS_EXPORT_ALL_SYMBOLS ON RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components" '
                      'LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components")\n')
     components = ("level_detect", "channel_router", "wav_in", "wav_out")
+    if trackers is not None:
+        components += ("level_tracker",)
     result = subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", "block_stats_runner",
                              *["orpheus_builtin_"+c for c in components]], capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout+result.stderr
@@ -73,27 +82,58 @@ def verify_block_stats(tmp_path, cases, reference=None):
         for library in (ROOT / "build/components").glob("*orpheus_builtin_"+component+".*"):
             if library.suffix in (".dll", ".so", ".dylib"):
                 shutil.copy2(library, libraries / library.name)
-    expected = []
+    expected, states = [], {}
     for block in range(6):
         chunk = samples[block*32:(block+1)*32]
         for name, channels in cases.items():
             rows = [[f32(v/32768) for v in row[:channels]] for row in chunk]
             if reference is not None:
-                expected += reference(rows)
-                continue
-            powers = []
-            for c in range(channels):
-                power = f32(rows[0][c]*rows[0][c])
-                for row in rows[1:]:
-                    power = f32(power+f32(row[c]*row[c]))
-                powers.append(f32(power/32))
-            epsilon = f32(2.22044605e-16)
-            expected += [f32(f32(math.log10(f32(max(powers)+epsilon)))*10),
-                         f32(f32(math.log10(f32(max(abs(v) for row in rows for v in row)+epsilon)))*20)]
+                rms, peak = reference(rows)
+            else:
+                powers = []
+                for c in range(channels):
+                    power = f32(rows[0][c]*rows[0][c])
+                    for row in rows[1:]:
+                        power = f32(power+f32(row[c]*row[c]))
+                    powers.append(f32(power/32))
+                epsilon = f32(2.22044605e-16)
+                rms, peak = [f32(f32(math.log10(f32(max(powers)+epsilon)))*10),
+                             f32(f32(math.log10(f32(max(abs(v) for row in rows for v in row)+epsilon)))*20)]
+            expected += [rms, peak]
+            if trackers is not None:
+                if tracker_reference is not None:
+                    expected += tracker_reference(name, trackers[name], block, rms, peak)
+                    continue
+                p = {k: f32(v) for k, v in trackers[name].items()}
+                envelope, count, holding = states.get(name, (-abs(p["min_db"]), 0, True))
+                level = 0.0
+                if block != 3:
+                    value = peak if block == 1 else rms
+                    delta = f32(envelope-value)
+                    if delta <= 0:
+                        envelope, count, holding = value, 0, True
+                    else:
+                        coefficient = p["slow_decay_db"]
+                        if delta >= p["hold_margin_db"]:
+                            count += 1
+                            if count > p["hold_calls"]:
+                                holding = False
+                        else:
+                            count = 0
+                        if not holding:
+                            coefficient = p["fast_decay_db"]
+                        if (1.0 if block == 5 else .5) > p["trigger_threshold"]:
+                            coefficient = f32(p["fast_multiplier"]*p["fast_decay_db"])
+                        envelope = f32(envelope+coefficient)
+                    envelope = min(p["max_db"], max(p["min_db"], envelope))
+                    level = max(0.0, f32(f32(envelope+p["prediction_db_spl"])+block*2))
+                states[name] = envelope, count, holding
+                expected += [level, envelope]
     baseline = None
     for mode in ("global", "task"):
-        commands = [[str(ROOT / "build/tests/block_stats_runner.exe"), str(plan_path), str(libraries), mode, *cases],
-                    [str(generated / "build/block_stats_test.exe"), mode, *cases]]
+        selected = (["--track"] if trackers is not None else [])+list(cases)
+        commands = [[str(ROOT / "build/tests/block_stats_runner.exe"), str(plan_path), str(libraries), mode, *selected],
+                    [str(generated / "build/block_stats_test.exe"), mode, *selected]]
         for command in commands:
             result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, encoding="utf-8")
             assert result.returncode == 0, result.stdout+result.stderr

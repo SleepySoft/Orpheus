@@ -211,6 +211,16 @@ endif()
 add_test(NAME block_stats_smoke COMMAND block_stats_smoke)
 add_executable(block_stats_runner block_stats_runner.cpp)
 target_link_libraries(block_stats_runner PRIVATE orpheus_runtime_lib)
+add_executable(level_tracker_smoke level_tracker_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/level_tracker/src/level_tracker.c)
+target_include_directories(level_tracker_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/level_tracker/include)
+target_compile_definitions(level_tracker_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(level_tracker_smoke PRIVATE m)
+endif()
+add_test(NAME level_tracker_smoke COMMAND level_tracker_smoke)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
