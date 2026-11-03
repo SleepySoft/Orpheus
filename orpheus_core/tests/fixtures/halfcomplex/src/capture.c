@@ -59,6 +59,14 @@ static int process(void* state,const OrpheusProcessContext* context) {
         decoded->channels!=s->channels || packed->channels!=s->channels ||
         decoded->frame_count!=s->decoded_frames || packed->frame_count!=s->packed_frames)
         return ORPHEUS_ERR_INVALID_ARG;
+    const OrpheusBuffer* tick=context->input_count>3 ? context->inputs[3] : NULL;
+    if (tick) {
+        int32_t value=0;
+        if (!tick->data || tick->format!=ORPHEUS_FORMAT_I32 || tick->channels!=1 ||
+            tick->frame_count!=1 || tick->frame_capacity<1 || !tick->interleaved) return ORPHEUS_ERR_INVALID_ARG;
+        memcpy(&value,tick->data,4);
+        if (value!=1) return ORPHEUS_ERR_INVALID_ARG;
+    }
     memcpy(s->decoded_values,decoded->data,s->decoded_frames*s->channels*sizeof(float));
     memcpy(s->packed_values,packed->data,s->packed_frames*s->channels*sizeof(float));
     ++s->calls; s->quantum=(int32_t)context->frame_count;

@@ -20,11 +20,13 @@ static const OrpheusPort ports[] = {
     {.id="spectrum",.direction=ORPHEUS_PORT_INPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_F32,
      .is_variable=true,.channels_param="channels"},
     {.id="out",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_F32,
-     .is_variable=true,.channels_param="channels"}
+     .is_variable=true,.channels_param="channels"},
+    {.id="tick",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_I32,
+     .channels=1}
 };
 static const OrpheusComponentDescriptor descriptor={
     .id="orpheus.builtin.halfcomplex_decode",.version="1.0.0",.abi_version=ORPHEUS_ABI_VERSION,
-    .ports=ports,.port_count=3,.params=params,.param_count=5,
+    .ports=ports,.port_count=4,.params=params,.param_count=5,
     .state_size=sizeof(HalfcomplexDecodeState),.alignment=8,.realtime_safe=true,.supports_inplace=false
 };
 static const OrpheusComponentDescriptor* get_descriptor(void) { return &descriptor; }
@@ -74,6 +76,10 @@ static int get_parameter(void* state,const char* key,OrpheusValue* value) {
     }
     return ORPHEUS_ERR_INVALID_ARG;
 }
+static bool overlap(const void* a,size_t a_bytes,const void* b,size_t b_bytes) {
+    uintptr_t x=(uintptr_t)a,y=(uintptr_t)b;
+    return (x>=y && x-y<b_bytes) || (y>=x && y-x<a_bytes);
+}
 static int process(void* state,const OrpheusProcessContext* context) {
     if (!state || !context || !context->inputs || !context->outputs ||
         context->input_count<1 || context->output_count<1) return ORPHEUS_ERR_INVALID_ARG;
@@ -82,37 +88,46 @@ static int process(void* state,const OrpheusProcessContext* context) {
     const OrpheusBuffer* spectrum=context->input_count>1 ? context->inputs[1] : NULL;
     const OrpheusBuffer* in=audio ? audio : spectrum;
     OrpheusBuffer* out=context->outputs[0];
+    OrpheusBuffer* tick=context->output_count>1 ? context->outputs[1] : NULL;
     if (!in || (audio && spectrum)) return ORPHEUS_ERR_INVALID_ARG;
     if (!context->frame_count) return ORPHEUS_OK;
     const uint32_t input_frames=s->fft_size*s->batches,output_frames=s->bins*2*s->batches;
     if (!s->channels || !in->data || in->format!=ORPHEUS_FORMAT_F32 || !in->interleaved ||
         in->channels!=s->channels || in->frame_count!=input_frames || in->frame_capacity<input_frames)
         return ORPHEUS_ERR_INVALID_ARG;
-    if (!out) return ORPHEUS_OK;
-    if (!out->data || out->format!=ORPHEUS_FORMAT_F32 || !out->interleaved ||
-        out->channels!=s->channels || out->frame_capacity<output_frames) return ORPHEUS_ERR_INVALID_ARG;
     const size_t input_bytes=(size_t)input_frames*s->channels*sizeof(float);
     const size_t output_bytes=(size_t)output_frames*s->channels*sizeof(float);
-    uintptr_t source=(uintptr_t)in->data,destination=(uintptr_t)out->data;
-    if ((destination>=source && destination-source<input_bytes) ||
-        (source>=destination && source-destination<output_bytes)) return ORPHEUS_ERR_INVALID_ARG;
-    const unsigned char* input=(const unsigned char*)in->data;
-    unsigned char* output=(unsigned char*)out->data;
-    const uint32_t zero=0;
-    for (unsigned h=0;h<s->batches;++h) for (unsigned bin=0;bin<s->bins;++bin) {
-        unsigned k=s->first_bin+bin;
-        for (unsigned c=0;c<s->channels;++c) {
-            size_t target=((size_t)h*s->bins*2+bin*2)*s->channels+c;
-            size_t real=((size_t)h*s->fft_size+k)*s->channels+c;
-            memcpy(output+target*4,input+real*4,4);
-            if (k==0 || k==s->fft_size/2) memcpy(output+(target+s->channels)*4,&zero,4);
-            else {
-                size_t imaginary=((size_t)h*s->fft_size+s->fft_size-k)*s->channels+c;
-                memcpy(output+(target+s->channels)*4,input+imaginary*4,4);
+    if (out && (!out->data || out->format!=ORPHEUS_FORMAT_F32 || !out->interleaved ||
+        out->channels!=s->channels || out->frame_capacity<output_frames ||
+        overlap(in->data,input_bytes,out->data,output_bytes))) return ORPHEUS_ERR_INVALID_ARG;
+    if (tick && (!tick->data || tick->format!=ORPHEUS_FORMAT_I32 || !tick->interleaved ||
+        tick->channels!=1 || tick->frame_capacity<1 ||
+        overlap(in->data,input_bytes,tick->data,4) ||
+        (out && overlap(out->data,output_bytes,tick->data,4)))) return ORPHEUS_ERR_INVALID_ARG;
+    if (out) {
+        const unsigned char* input=(const unsigned char*)in->data;
+        unsigned char* output=(unsigned char*)out->data;
+        const uint32_t zero=0;
+        for (unsigned h=0;h<s->batches;++h) for (unsigned bin=0;bin<s->bins;++bin) {
+            unsigned k=s->first_bin+bin;
+            for (unsigned c=0;c<s->channels;++c) {
+                size_t target=((size_t)h*s->bins*2+bin*2)*s->channels+c;
+                size_t real=((size_t)h*s->fft_size+k)*s->channels+c;
+                memcpy(output+target*4,input+real*4,4);
+                if (k==0 || k==s->fft_size/2) memcpy(output+(target+s->channels)*4,&zero,4);
+                else {
+                    size_t imaginary=((size_t)h*s->fft_size+s->fft_size-k)*s->channels+c;
+                    memcpy(output+(target+s->channels)*4,input+imaginary*4,4);
+                }
             }
         }
+        out->frame_count=output_frames;
     }
-    out->frame_count=output_frames;
+    if (tick) {
+        const int32_t completed=1;
+        memcpy(tick->data,&completed,4);
+        tick->frame_count=1;
+    }
     return ORPHEUS_OK;
 }
 static const OrpheusComponentInterface interface={

@@ -28,7 +28,7 @@ def build_project(cases, batches):
         edges.append(Connection(PortRef.parse(a), PortRef.parse(b)))
 
     for name, config in cases.items():
-        p = {k: v for k, v in config.items() if k != "typed"}
+        p = {k: v for k, v in config.items() if k not in ("typed", "tick")}
         common = {k: p[k] for k in ("channels", "fft_size", "batches", "bins")}
         nodes[name+"_route"] = Node(id=name+"_route", component="orpheus.builtin.channel_router",
                                     params={"channels_in": width, "channels_out": p["channels"],
@@ -47,6 +47,8 @@ def build_project(cases, batches):
         edge(spectrum, name+":"+("spectrum" if typed else "in"))
         edge(spectrum, name+"_capture:"+("spectrum" if typed else "packed"))
         edge(name+":out", name+"_capture:values")
+        if config.get("tick"):
+            edge(name+":tick", name+"_capture:tick")
     project = Project(metadata={"name": "半复数布局桥接"}, tasks={
         "default": Task(id="default", sample_rate=48000, block_size=128*batches)})
     project.graph = Graph(nodes=nodes, connections=edges)
@@ -134,7 +136,7 @@ def verify_halfcomplex_decode(tmp_path, cases, batches):
 @pytest.mark.parametrize("batches", [1, 3])
 def test_halfcomplex_decode_four_entries(tmp_path, batches):
     cases = {name: {"channels": channels, "fft_size": 256, "batches": batches,
-                    "first_bin": first, "bins": bins, "typed": typed}
+                    "first_bin": first, "bins": bins, "typed": typed, "tick": name=="band"}
              for name, channels, first, bins, typed in
              (("full", 2, 0, 129, False), ("hf", 10, 0, 129, False),
               ("typed", 2, 0, 129, True), ("band", 2, 5, 30, True))}

@@ -11,6 +11,7 @@ ports:
   - {id: values, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*2*param:batches"}
   - {id: packed, direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches"}
   - {id: spectrum, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", layout: halfcomplex, frame_size: "param:fft_size"}
+  - {id: tick, direction: input, type: bulk, sample_format: i32, channels: 1, block_size: 1, optional: true}
 parameters:
   - {id: channels, type: int, default: 2, update_policy: restart_required, affects_signature: true}
   - {id: fft_size, type: int, default: 256, update_policy: restart_required, affects_signature: true}

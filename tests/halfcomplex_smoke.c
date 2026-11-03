@@ -72,6 +72,38 @@ int main(void) {
         values[0].value.i32=65537; CHECK(api->prepare(&state,&config)==ORPHEUS_ERR_INVALID_ARG);
     }
     HalfcomplexDecodeState external;
+    {
+        HalfcomplexDecodeState decoded={0};
+        config.param_count=0;CHECK(api->prepare(&decoded,&config)==ORPHEUS_OK);
+        uint32_t packed[512]={0},unpacked[516],saved[516];int32_t flag=73;
+        OrpheusBuffer source={.data=packed,.channels=2,.frame_count=256,.frame_capacity=256,.format=ORPHEUS_FORMAT_F32,.interleaved=true};
+        OrpheusBuffer result={.data=unpacked,.channels=2,.frame_count=7,.frame_capacity=258,.format=ORPHEUS_FORMAT_F32,.interleaved=true};
+        OrpheusBuffer tick={.data=&flag,.channels=1,.frame_count=9,.frame_capacity=1,.format=ORPHEUS_FORMAT_I32,.interleaved=true};
+        const OrpheusBuffer* sources[]={&source,NULL};OrpheusBuffer* targets[]={&result,&tick};
+        OrpheusProcessContext call={.inputs=sources,.outputs=targets,.input_count=2,.output_count=2,.frame_count=128};
+        memset(unpacked,0x55,sizeof(unpacked));memcpy(saved,unpacked,sizeof(saved));
+        call.frame_count=0;
+        CHECK(api->process(&decoded,&call)==ORPHEUS_OK && flag==73 && tick.frame_count==9 && result.frame_count==7 && !memcmp(saved,unpacked,sizeof(saved)));
+        call.frame_count=128;
+        for (unsigned fault=0;fault<8;++fault) {
+            tick.format=ORPHEUS_FORMAT_I32;tick.channels=1;tick.frame_capacity=1;tick.interleaved=true;tick.data=&flag;result.frame_capacity=258;
+            if (fault==0) tick.format=ORPHEUS_FORMAT_F32;
+            if (fault==1) tick.channels=2;
+            if (fault==2) tick.frame_capacity=0;
+            if (fault==3) tick.interleaved=false;
+            if (fault==4) tick.data=packed+1;
+            if (fault==5) tick.data=unpacked+515;
+            if (fault==6) result.frame_capacity=0;
+            if (fault==7) tick.data=NULL;
+            CHECK(api->process(&decoded,&call)==ORPHEUS_ERR_INVALID_ARG && flag==73 && tick.frame_count==9 && result.frame_count==7 && !memcmp(saved,unpacked,sizeof(saved)));
+        }
+        tick.data=&flag;result.frame_capacity=258;
+        CHECK(api->process(&decoded,&call)==ORPHEUS_OK && flag==1 && tick.frame_count==1 && result.frame_count==258);
+        targets[0]=NULL;flag=73;
+        CHECK(api->process(&decoded,&call)==ORPHEUS_OK && flag==1);
+        targets[1]=NULL;
+        CHECK(api->process(&decoded,&call)==ORPHEUS_OK);
+    }
     memset(&external,0xff,sizeof(external));
     config.state_block=&external; config.param_count=0;
     void* state=NULL;
