@@ -254,6 +254,14 @@ reset恢复冷启动而保留配置，块边界修改alpha保留历史，
 两种顺序不可互相重排；切换顺序不清历史，reset保留配置。原生及四入口测试见
 `tests/trapezoid_ratio_smoke.c`和`orpheus_core/tests/test_trapezoid_ratio.py`。
 
+`bulk_subtract`对同shape的两份f32 BULK逐点执行`a-b`，支持独立通道与行数，
+不以数据行数改变宿主时间量子。两个输入均必需，允许输入共享存储；
+悬空输出可跳过计算，但仍校验输入。输出禁止与任一输入重叠，
+全部校验通过才写，不截断NaN/Inf、负零或次正规数。
+它使`(a-b)*z`中的系数减法先独立舍入，不能偷换成`a*z-b*z`。
+原生边界与四入口测试见`tests/bulk_subtract_smoke.c`、
+`orpheus_core/tests/test_bulk_subtract.py`。
+
 `delta_hold`消费f32逐批向量，按严格增量阈值触发，再按批次计数保持，
 输出真正的i32标志，不通过浮点边或参数调用伪装整数数据。
 触发批次清计数，后续仅在上一状态为1且counter<hold_ticks时保持并递增，
