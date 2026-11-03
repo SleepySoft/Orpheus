@@ -32,6 +32,12 @@ typedef struct {
     float    target[SLC_MM_MAX_ELEM];  /* 插值后的目标矩阵 */
     float    active[SLC_MM_MAX_ELEM];  /* IIR 渐变后的当前矩阵 */
     int32_t  targetDirty;              /* target 需要重算 */
+    int32_t  execution_mode;
+    int32_t  sequence;
+    int32_t  last_sequence;
+    bool     initialized;
+    float    activeCoeff;
+    float    requested_gains[SLC_MM_MAX_ELEM];
 } SlcMatrixMulState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);

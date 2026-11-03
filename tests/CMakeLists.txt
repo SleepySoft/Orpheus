@@ -187,6 +187,18 @@ if(NOT WIN32)
     target_link_libraries(explicit_fade_smoke PRIVATE m)
 endif()
 add_test(NAME explicit_fade_smoke COMMAND explicit_fade_smoke)
+add_executable(sequence_matrix_smoke sequence_matrix_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/slc_matrix_mul/src/slc_matrix_mul.c)
+target_include_directories(sequence_matrix_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/slc_matrix_mul/include)
+target_compile_definitions(sequence_matrix_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(sequence_matrix_smoke PRIVATE m)
+endif()
+add_test(NAME sequence_matrix_smoke COMMAND sequence_matrix_smoke)
+add_executable(sequence_matrix_runner sequence_matrix_runner.cpp)
+target_link_libraries(sequence_matrix_runner PRIVATE orpheus_runtime_lib)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)

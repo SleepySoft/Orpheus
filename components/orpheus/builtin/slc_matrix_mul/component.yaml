@@ -1,8 +1,8 @@
 id: orpheus.builtin.slc_matrix_mul
 name: N表插值斜坡混音矩阵
 category: 高级/矩阵与混音
-description: N 表插值 + 一阶 IIR 斜坡 + 矩阵乘一体化；out[rows] = active(rows*cols) * in[cols]，active 由 N 张增益表按 interp_index 插值后经 IIR 渐变
-version: 1.0.0
+description: N表插值请求，或奇偶序列锁存目标的一阶IIR渐变矩阵
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: SlcMatrixMulState
@@ -78,6 +78,16 @@ parameters:
     default: 0
     range: [0, 1]
     update_policy: immediate
+  - {id: execution_mode, name: 执行模式（0插值请求，1序列接收目标）, type: int, default: 0, range: [0, 1], update_policy: restart_required}
+  - {id: requested_gains, name: 待接收目标矩阵, type: string, default: "", kind: bulk, shape: ["param:rows", "param:cols"], widget: text, update_policy: restart_required}
+  - {id: sequence, name: 目标请求序列（奇数冻结）, type: int, default: 0, range: [-2147483648, 2147483647], persistent: true, readback: true, update_policy: block_boundary}
+bulk_slots:
+  - {id: requested_gains, name: 待接收目标矩阵, type: float, count: 1024, shape: ["param:rows", "param:cols"], double_bank: true}
+  - {id: active_gains, name: 实际当前矩阵, type: float, count: 1024, shape: ["param:rows", "param:cols"], double_bank: true}
+  - {id: accepted_targets, name: 已接收目标矩阵, type: float, count: 1024, shape: ["param:rows", "param:cols"], double_bank: true}
+probes:
+  - {id: last_sequence, name: 已处理序列, type: int}
+  - {id: initialized, name: 包络已初始化, type: bool}
 memory:
   state_size: 0
   scratch_size: 0
