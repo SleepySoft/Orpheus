@@ -1,0 +1,83 @@
+id: orpheus.builtin.iir
+name: 任意阶直接型IIR
+category: 高级/滤波器
+description: 归一化直接型II转置IIR，保持多项式阶数与状态递推，不转为双二阶级联
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: IirState
+sources:
+  - src/iir.c
+headers:
+  - include/orpheus_iir.h
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 64]
+    update_policy: restart_required
+    affects_signature: true
+  - id: order
+    name: 多项式阶数
+    type: int
+    default: 1
+    range: [1, 16]
+    update_policy: restart_required
+  - id: coefs_mode
+    name: 系数模式
+    type: string
+    default: shared
+    widget: select
+    options: [shared, per_channel]
+    update_policy: restart_required
+    affects_signature: true
+  - id: coefs
+    name: 系数（b0至bN，然后a1至aN，a0固定1）
+    type: string
+    default: "1,0,0"
+    widget: text
+    kind: bulk
+    update_policy: restart_required
+  - id: processing_enabled
+    name: 处理使能（0输出正零并冻结历史）
+    type: int
+    default: 1
+    range: [0, 1]
+    update_policy: immediate
+    bindable: true
+    control_source: true
+    readback: true
+    persistent: true
+bulk_slots:
+  - id: coefs
+    name: IIR共享系数
+    type: float
+    count: 33
+    double_bank: true
+  - id: coefs_per_channel
+    name: IIR每通道系数
+    type: float
+    count: 2112
+    shape: [param:channels, 33]
+    double_bank: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true

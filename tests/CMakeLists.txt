@@ -72,6 +72,17 @@ add_test(NAME iir_freeze_smoke COMMAND iir_freeze_smoke)
 add_executable(filter_freeze_runner filter_freeze_runner.cpp)
 target_link_libraries(filter_freeze_runner PRIVATE orpheus_runtime_lib)
 
+add_executable(direct_iir_smoke direct_iir_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir/src/iir.c)
+target_include_directories(direct_iir_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir/include)
+target_compile_definitions(direct_iir_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME direct_iir_smoke COMMAND direct_iir_smoke)
+
+add_executable(iir_coefs_runner iir_coefs_runner.cpp)
+target_link_libraries(iir_coefs_runner PRIVATE orpheus_runtime_lib)
+
 add_executable(linear_gain_smoke linear_gain_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain/src/gain.c)
 target_include_directories(linear_gain_smoke PRIVATE

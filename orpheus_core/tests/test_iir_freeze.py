@@ -42,7 +42,8 @@ def iir_reference(samples, params):
     return expected
 
 
-def verify_iir_freeze_cases(tmp_path, cases):
+def verify_iir_freeze_cases(tmp_path, cases, *, component="orpheus.builtin.iir_bank",
+                            reference=iir_reference, bulk_stride=80, coefficient_updates=False):
     from test_generated_double_bank import _build
 
     frames, width = sum(BLOCKS)*32, max(params["channels"] for params in cases.values())
@@ -63,7 +64,7 @@ def verify_iir_freeze_cases(tmp_path, cases):
             id=name + "_route", component="orpheus.builtin.channel_router",
             params={"channels_in": width, "channels_out": count,
                     "indices": ",".join(map(str, range(count)))})
-        nodes[name] = Node(id=name, component="orpheus.builtin.iir_bank", params=params)
+        nodes[name] = Node(id=name, component=component, params=params)
         nodes[name + "_out"] = Node(id=name + "_out", component="orpheus.builtin.wav_out",
                                    params={"channels": count, "file_path": name + ".wav"})
         for left, right in (("source", name + "_route"), (name + "_route", name),
@@ -78,32 +79,40 @@ def verify_iir_freeze_cases(tmp_path, cases):
     for name, params in cases.items():
         if params.get("coefs_mode") == "per_channel":
             slot = next(e for e in plan.id_map if e["node"] == name and e["key"] == "coefs_per_channel")
-            assert slot["count"] == params["channels"]*16*5
+            assert slot["count"] == params["channels"]*bulk_stride
     path = tmp_path / "plan.json"
     path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
     generated = tmp_path / "generated"
     CodeGenerator(registry, ROOT).generate(plan, generated)
-    (generated / "src/freeze_test.c").write_bytes((ROOT / "tests/filter_freeze_runner.cpp").read_bytes())
+    runner = "iir_coefs_runner" if coefficient_updates else "filter_freeze_runner"
+    (generated / "src/freeze_test.c").write_bytes((ROOT / "tests" / (runner + ".cpp")).read_bytes())
     with (generated / "CMakeLists.txt").open("a", encoding="utf-8") as stream:
         stream.write("\nadd_executable(freeze_test src/freeze_test.c)\n"
                      "target_compile_definitions(freeze_test PRIVATE ORPHEUS_TEST_GENERATED)\n"
                      "target_link_libraries(freeze_test PRIVATE orpheus_graph)\n")
     result = subprocess.run(
-        ["cmake", "--build", str(ROOT / "build"), "--target", "orpheus_builtin_iir_bank",
+        ["cmake", "--build", str(ROOT / "build"), "--target", component.replace(".", "_"),
          "orpheus_builtin_channel_router", "orpheus_builtin_wav_in", "orpheus_builtin_wav_out",
-         "filter_freeze_runner"],
+         runner],
         capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
     _build(generated, tmp_path)
     args = []
-    for name in cases:
-        entry = next(e for e in plan.id_map if e["node"] == name and e["key"] == "processing_enabled")
-        assert entry["kind"] == "RTC" and entry["form"] == "SCALAR"
-        args += [name, str(entry["id"])]
+    for name, params in cases.items():
+        if coefficient_updates:
+            key = "coefs_per_channel" if params.get("coefs_mode") == "per_channel" else "coefs"
+            entry = next(e for e in plan.id_map if e["node"] == name and e["key"] == key)
+            assert entry["form"] == "BULK" and entry["count"] == (
+                params["channels"] if key == "coefs_per_channel" else 1)*bulk_stride
+            args += [name, str(entry["id"]), key, str(entry["count"])]
+        else:
+            entry = next(e for e in plan.id_map if e["node"] == name and e["key"] == "processing_enabled")
+            assert entry["kind"] == "RTC" and entry["form"] == "SCALAR"
+            args += [name, str(entry["id"])]
     references = {}
     for mode in ("global", "task"):
         commands = [
-            [str(ROOT / "build/tests/filter_freeze_runner.exe"), str(path),
+            [str(ROOT / "build/tests" / (runner + ".exe")), str(path),
              str(ROOT / "build/components"), mode, *args],
             [str(generated / "build/freeze_test.exe"), mode, *args],
         ]
@@ -118,7 +127,7 @@ def verify_iir_freeze_cases(tmp_path, cases):
                 with wave.open(str(output), "rb") as stream:
                     assert (stream.getnframes(), stream.getnchannels()) == (frames, count)
                     actual = struct.unpack(f"<{frames*count}h", stream.readframes(frames))
-                expected = iir_reference(samples, params)
+                expected = reference(samples, params)
                 assert max(abs(a-b) for a, b in zip(actual, expected)) <= 1, (mode, name)
 
 
