@@ -3,7 +3,7 @@
 #include "orpheus_abi.h"
 typedef struct {
     float packed_values[8192],decoded_values[8192];
-    uint32_t channels,elements,mode;
+    uint32_t channels,elements,mode,complex_mode;
     int32_t calls,quantum;
     bool owns_memory;
 } ArrayPairState;

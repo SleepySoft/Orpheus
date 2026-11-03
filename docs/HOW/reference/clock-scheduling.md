@@ -192,6 +192,16 @@ float32减法；不夹到0～1，不叠加平滑，不用乘加改写减法。�
 `orpheus_core/tests/test_complementary_coefficients.py`验证129/387元素按128/384
 帧节拍同轮计算、非单位total及动态/生成全局与Task四入口逐位一致。
 
+`complex_gain_split`接受Re/Im交织BULK及同通道的实增益BULK，
+先计算`reverb=gain*x`并保留float32舍入，再计算`impulse=x-reverb`。
+这不是`(1-gain)*x`，也不能融合乘减；组件显式保留乘积舍入。
+同一增益分别作用于实/虚部；不夹增益、不增加平滑或历史。
+`elements`是所有批次合计的复数点数，复数payload为`elements*2`行，
+增益为`elements`行，上游交付周期不变。两输出可各自悬空，
+全部输出先校验再写，输出不得与输入/另一输出重叠。
+`tests/complex_gain_split_smoke.c`验证IEEE特殊值、舍入顺序和错误拒绝；
+`orpheus_core/tests/test_complex_gain_split.py`以129/387点和多通道数据验证四入口逐位一致。
+
 `orpheus_core/tests/test_data_ports.py`使用非占位C组件验证129×2数组和标量的同轮计算、
 每三块更新的慢结果保持、初值零、同tick更新可见、扇出、悬空输出、复合组件保存/展开、
 分数采样率时间线与非法连线拒绝；动态DLL和生成工程各自的全局/Task入口共四种入口，

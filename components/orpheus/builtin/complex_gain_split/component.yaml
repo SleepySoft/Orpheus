@@ -1,0 +1,26 @@
+id: orpheus.builtin.complex_gain_split
+name: 复数增益与互补分流
+category: 基础/计算数据
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: ComplexGainSplitState
+description: >-
+  每个复数点先以实数gain分别乘Re/Im得到reverb，再以原Re/Im减去已舍入乘积得到impulse。
+  保留两步float32运算，不改写为(1-gain)*x、不融合乘减；不裁剪gain、不附加平滑/历史。
+  复数布局索引=(点*2+实虚分量)*channels+通道，gain索引=点*channels+通道。
+  elements包含本次交付的所有批次，不是时间量子；所有端口为同步BULK。
+  IEEE特殊值按原生乘法/减法传播。两输出可分别悬空；先验证全部输出再写，
+  禁止输出与任一输入或另一输出重叠。无持久算法状态、无运行期分配。
+sources: [src/complex_gain_split.c]
+headers: [include/orpheus_complex_gain_split.h]
+ports:
+  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements*2"}
+  - {id: gain, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+  - {id: impulse, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements*2"}
+  - {id: reverb, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements*2"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: elements, name: 每通道复数点数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+memory: {state_size: 16, scratch_size: 0, alignment: 8}
+execution: {realtime_safe: true, supports_inplace: false}

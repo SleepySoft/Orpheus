@@ -1,0 +1,63 @@
+"""同Task数组算子的共享四入口采集驱动。"""
+from dataclasses import asdict
+import json
+from pathlib import Path
+import shutil
+import subprocess
+
+from orpheus_core.generator import CodeGenerator
+
+ROOT = Path(__file__).resolve().parents[2]
+FIXTURE = Path(__file__).parent / "fixtures/array_pair"
+
+
+def execute_array_graph(tmp_path, registry, plan, captures):
+    from test_generated_double_bank import _build
+    step = plan.schedule["tick"]
+    generated = tmp_path / "generated"
+    CodeGenerator(registry, ROOT).generate(plan, generated)
+    (generated / "src/array_test.c").write_bytes((ROOT / "tests/halfcomplex_runner.cpp").read_bytes())
+    with (generated / "CMakeLists.txt").open("a", encoding="utf-8") as file:
+        file.write("\nadd_executable(array_test src/array_test.c)\n"
+                   "target_compile_definitions(array_test PRIVATE ORPHEUS_TEST_GENERATED)\n"
+                   "target_link_libraries(array_test PRIVATE orpheus_graph)\n"
+                   f'add_library(array_pair_dynamic SHARED "{(FIXTURE / "src/array_pair.c").as_posix()}")\n'
+                   f'target_include_directories(array_pair_dynamic PRIVATE "{(FIXTURE / "include").as_posix()}")\n'
+                   "target_compile_definitions(array_pair_dynamic PRIVATE ORPHEUS_BUILDING_COMPONENT)\n"
+                   'set_target_properties(array_pair_dynamic PROPERTIES PREFIX "lib" OUTPUT_NAME "orpheus_test_array_pair" '
+                   'WINDOWS_EXPORT_ALL_SYMBOLS ON RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components" '
+                   'LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components")\n')
+    components = sorted({cfg["component"] for cfg in plan.node_configs.values()
+                         if cfg["component"].startswith("orpheus.builtin.")})
+    result = subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", "halfcomplex_runner",
+                             *[component.replace(".", "_") for component in components]],
+                            capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stdout+result.stderr
+    _build(generated, tmp_path)
+    libraries = generated / "build/components"
+    for component in components:
+        for library in (ROOT / "build/components").glob("*"+component.replace(".", "_")+".*"):
+            if library.suffix in (".dll", ".so", ".dylib"):
+                shutil.copy2(library, libraries / library.name)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
+    args = [value for node, (a, b) in captures.items()
+            for value in (node, str(a), str(b), str(plan.node_configs[node]["frames"]))]
+    baseline = None
+    expected_size = sum(a+b for a, b in captures.values())*4*3
+    for mode in ("global", "task"):
+        for command in ([str(ROOT / "build/tests/halfcomplex_runner.exe"), str(plan_path), str(libraries), mode, str(step), *args],
+                        [str(generated / "build/array_test.exe"), mode, str(step), *args]):
+            result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, encoding="utf-8")
+            assert result.returncode == 0, result.stdout+result.stderr
+            data = (tmp_path / "halfcomplex.bin").read_bytes()
+            if baseline is None: baseline = data
+            assert data == baseline and len(data)==expected_size
+    records = {node: [] for node in captures}
+    cursor = 0
+    for block in range(3):
+        for node, (a, b) in captures.items():
+            packed = baseline[cursor:cursor+a*4]; cursor += a*4
+            decoded = baseline[cursor:cursor+b*4]; cursor += b*4
+            records[node].append((packed,decoded))
+    return records
