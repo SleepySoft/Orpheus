@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 #define IIR_BANK_MAX_STAGES    16
-#define IIR_BANK_MAX_CHANNELS  32
+#define IIR_BANK_MAX_CHANNELS  64
 
 /* 每通道每级保存状态（z1/z2） */
 typedef struct {

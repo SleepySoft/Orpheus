@@ -3,7 +3,7 @@
 
 #include "orpheus_abi.h"
 
-#define CR_MAX_CH 32
+#define CR_MAX_CH 64
 
 typedef struct {
     uint32_t channels_in;

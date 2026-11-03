@@ -73,7 +73,7 @@ static int parse_stage_counts(const char* text, IirBankState* s) {
 static const OrpheusParameter ib_params[] = {
     { .id = "channels", .name = "Channels", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
-      .min_i32 = 1, .max_i32 = 32,
+      .min_i32 = 1, .max_i32 = IIR_BANK_MAX_CHANNELS,
       .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true, .affects_signature = true },
     { .id = "num_stages", .name = "Num Stages", .type = ORPHEUS_VALUE_INT,
@@ -109,7 +109,7 @@ static const OrpheusPort ib_ports[] = {
 };
 
 static const OrpheusComponentDescriptor ib_descriptor = {
-    .id = "orpheus.builtin.iir_bank", .version = "1.4.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .id = "orpheus.builtin.iir_bank", .version = "1.5.0", .abi_version = ORPHEUS_ABI_VERSION,
     .ports = ib_ports, .port_count = 2, .params = ib_params, .param_count = 6,
     .state_size = sizeof(IirBankState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
@@ -336,7 +336,7 @@ static int ib_register_slots(void* state, const OrpheusRegistry* reg) {
     }
 
     ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
-                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=IIR_BANK_MAX_CHANNELS,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);

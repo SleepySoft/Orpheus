@@ -40,7 +40,7 @@ static const OrpheusParameter wav_in_params[] = {
         .type = ORPHEUS_VALUE_INT,
         .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
         .min_i32 = 1,
-        .max_i32 = 32,
+        .max_i32 = 64,
         .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
         .readback = true,
         .persistent = true,
@@ -64,7 +64,7 @@ static const OrpheusPort wav_in_ports[] = {
 
 static const OrpheusComponentDescriptor wav_in_descriptor = {
     .id = "orpheus.builtin.wav_in",
-    .version = "1.0.1",
+    .version = "1.1.0",
     .abi_version = ORPHEUS_ABI_VERSION,
     .ports = wav_in_ports,
     .port_count = 1,
@@ -211,6 +211,7 @@ static int wav_in_destroy(void* state) {
 static int wav_in_prepare(void* state, const OrpheusConfig* config) {
     WavInState* s = (WavInState*)state;
     s->channels = config->channels > 0 ? config->channels : 2;
+    if (s->channels > 64) return ORPHEUS_ERR_INVALID_ARG;
     s->position = 0;
 
     const char* path = NULL;
@@ -290,7 +291,7 @@ static int wav_in_register_slots(void* state, const OrpheusRegistry* reg) {
                      ORPHEUS_VALUE_STRING, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
-                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=64,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);

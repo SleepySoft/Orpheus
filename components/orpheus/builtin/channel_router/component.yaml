@@ -2,7 +2,7 @@ id: orpheus.builtin.channel_router
 name: 通道索引路由
 category: 基础/路由
 description: 按索引表将输入通道映射到输出通道，支持补零/静音（indices 为 0-based 逗号分隔，越界或 -1 置零）
-version: 1.0.0
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: ChannelRouterState
@@ -26,14 +26,14 @@ parameters:
     name: 输入通道数
     type: int
     default: 2
-    range: [1, 32]
+    range: [1, 64]
     update_policy: restart_required
     affects_signature: true
   - id: channels_out
     name: 输出通道数
     type: int
     default: 2
-    range: [1, 32]
+    range: [1, 64]
     update_policy: restart_required
     affects_signature: true
   - id: indices

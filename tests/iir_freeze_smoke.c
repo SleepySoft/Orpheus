@@ -51,6 +51,32 @@ static int check_stage_counts(const OrpheusComponentInterface* api) {
     return 0;
 }
 
+static int check_wide_channels(const OrpheusComponentInterface* api) {
+    IirBankState state = {0};
+    const char* keys[] = {"num_stages", "coefs_mode"};
+    OrpheusValue values[] = {
+        {.type = ORPHEUS_VALUE_INT, .value.i32 = 1},
+        {.type = ORPHEUS_VALUE_STRING, .value.str = "per_channel"}
+    };
+    OrpheusConfig config = {.channels = 64, .param_count = 2, .param_ids = keys, .param_values = values};
+    CHECK(api->prepare(&state, &config) == ORPHEUS_OK);
+    float input[64], output[64];
+    for (unsigned c = 0; c < 64; ++c) {
+        input[c] = (float)(c+1);
+        output[c] = NAN;
+        state.coefs[c][0] = (float)(c+1)/64;
+    }
+    OrpheusBuffer in = {.data = input}, out = {.data = output};
+    const OrpheusBuffer* inputs[] = {&in};
+    OrpheusBuffer* outputs[] = {&out};
+    OrpheusProcessContext context = {.inputs = inputs, .outputs = outputs, .frame_count = 1};
+    CHECK(api->process(&state, &context) == ORPHEUS_OK);
+    for (unsigned c = 0; c < 64; ++c) CHECK(output[c] == (float)((c+1)*(c+1))/64);
+    config.channels = 65;
+    CHECK(api->prepare(&state, &config) == ORPHEUS_ERR_INVALID_ARG);
+    return 0;
+}
+
 int main(void) {
     const OrpheusComponentInterface* api = orpheus_get_interface();
     IirBankState state = {0};
@@ -103,5 +129,6 @@ int main(void) {
     CHECK(api->prepare(&state, &config) == ORPHEUS_OK && state.processing_enabled == 0);
     disabled.value.i32 = -1;
     CHECK(api->prepare(&state, &config) == ORPHEUS_ERR_INVALID_ARG);
-    return check_stage_counts(api);
+    CHECK(check_stage_counts(api) == 0);
+    return check_wide_channels(api);
 }

@@ -2,7 +2,7 @@ id: orpheus.builtin.wav_out
 name: WAV 文件输出
 category: 基础/文件
 order: 2
-version: 1.0.0
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: WavOutState
@@ -28,7 +28,7 @@ parameters:
     name: 通道数
     type: int
     default: 2
-    range: [1, 32]
+    range: [1, 64]
     update_policy: restart_required
     affects_signature: true
   - id: sample_rate

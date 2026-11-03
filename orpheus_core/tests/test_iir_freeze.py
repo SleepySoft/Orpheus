@@ -75,6 +75,10 @@ def verify_iir_freeze_cases(tmp_path, cases):
     registry.scan()
     plan = GraphCompiler(registry).compile(project)
     assert not plan.warnings
+    for name, params in cases.items():
+        if params.get("coefs_mode") == "per_channel":
+            slot = next(e for e in plan.id_map if e["node"] == name and e["key"] == "coefs_per_channel")
+            assert slot["count"] == params["channels"]*16*5
     path = tmp_path / "plan.json"
     path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
     generated = tmp_path / "generated"

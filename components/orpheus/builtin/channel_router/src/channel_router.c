@@ -25,11 +25,11 @@ static const char* read_str(const OrpheusConfig* config, const char* id, const c
 static const OrpheusParameter cr_params[] = {
     { .id = "channels_in", .name = "Input Channels", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
-      .min_i32 = 1, .max_i32 = 32, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+      .min_i32 = 1, .max_i32 = CR_MAX_CH, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true, .affects_signature = true },
     { .id = "channels_out", .name = "Output Channels", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
-      .min_i32 = 1, .max_i32 = 32, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+      .min_i32 = 1, .max_i32 = CR_MAX_CH, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true, .affects_signature = true },
     { .id = "indices", .name = "Indices", .type = ORPHEUS_VALUE_STRING,
       .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "0,1" },
@@ -47,7 +47,7 @@ static const OrpheusPort cr_ports[] = {
 };
 
 static const OrpheusComponentDescriptor cr_descriptor = {
-    .id = "orpheus.builtin.channel_router", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .id = "orpheus.builtin.channel_router", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
     .ports = cr_ports, .port_count = 2, .params = cr_params, .param_count = 3,
     .state_size = sizeof(ChannelRouterState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
@@ -69,8 +69,8 @@ static int cr_prepare(void* state, const OrpheusConfig* config) {
     ChannelRouterState* s = (ChannelRouterState*)state;
     s->channels_in = read_uint(config, "channels_in", 2);
     s->channels_out = read_uint(config, "channels_out", 2);
-    if (s->channels_in > CR_MAX_CH) s->channels_in = CR_MAX_CH;
-    if (s->channels_out > CR_MAX_CH) s->channels_out = CR_MAX_CH;
+    if (s->channels_in < 1 || s->channels_in > CR_MAX_CH ||
+        s->channels_out < 1 || s->channels_out > CR_MAX_CH) return ORPHEUS_ERR_INVALID_ARG;
 
     /* 默认 identity */
     for (uint32_t o = 0; o < CR_MAX_CH; ++o) {
@@ -111,8 +111,8 @@ static int cr_process(void* state, const OrpheusProcessContext* ctx) {
     uint32_t frames = ctx->frame_count;
     uint32_t cin = in->channels;
     uint32_t cout = out->channels;
-    if (cin > CR_MAX_CH) cin = CR_MAX_CH;
-    if (cout > CR_MAX_CH) cout = CR_MAX_CH;
+    if (cin < 1 || cin > CR_MAX_CH || cout < 1 || cout > CR_MAX_CH)
+        return ORPHEUS_ERR_INVALID_ARG;
     const float* in_data = (const float*)in->data;
     float* out_data = (float*)out->data;
     for (uint32_t n = 0; n < frames; ++n) {
@@ -145,12 +145,12 @@ static int cr_get_parameter(void* state, const char* param_id, OrpheusValue* val
 static int cr_register_slots(void* state, const OrpheusRegistry* reg) {
     ChannelRouterState* s = (ChannelRouterState*)state;
     ORPHEUS_REG_SLOT(reg, s, channels_in, ORPHEUS_SLOT_SETTING, "channels_in", "输入通道数",
-                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=CR_MAX_CH,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);
     ORPHEUS_REG_SLOT(reg, s, channels_out, ORPHEUS_SLOT_SETTING, "channels_out", "输出通道数",
-                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=CR_MAX_CH,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);

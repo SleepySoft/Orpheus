@@ -157,6 +157,13 @@ CSV系数仍按每通道 `num_stages × 5` 的固定跨度排列，较短通道�
 运行期BULK仍是原有每通道 `IIR_BANK_MAX_STAGES × 5` 的固定物理跨度，
 本配置不改变BULK容量或地址。reset清全部历史，保留每通道级数配置。
 
+`iir_bank`、`channel_router`及`wav_in/out`支持1..64音频通道；
+这不是所有组件通道上限的全局变更，其它组件仍按各自manifest校验。
+IIR每通道BULK槽物理上限为5120个float，但有效形状为
+`[channels,16,5]`，不能把未实例化的通道容量当作可写数据。
+高位通道与低位通道使用同一递推和路由规则；默认双通道行为不变。
+超出64通道的直接C配置拒绝，不静默截断为64通道。
+
 ## C ABI 边界
 
 - Runtime 通过 descriptor、ports、parameters 和 process 访问组件。
