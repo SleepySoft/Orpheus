@@ -286,6 +286,16 @@ quantity=0为功率（factor=10），1为幅值（20）。epsilon只用于正向
 原生边界及正反向单项、多通道向量、128通道四入口见`tests/bulk_db_smoke.c`、
 `orpheus_core/tests/test_bulk_db.py`。
 
+`bulk_scale`将f32向量乘一个显式标量。gain为f32，integer_gain为i32，
+通过input_alternatives约束必须且只能连接一个；整数先按C显式转换为f32再乘。
+这不是非零布尔选择器：整数2会加倍，零因子仍执行乘法，保留NaN*0与有符号零。
+两个标量输入均声明latest，分频生产者不触发时保留最近数据，不改变向量消费节拍；
+同次触发仍依数据拓扑顺序读取，不借用块末参数控制链引入额外延迟。
+支持1..128通道、1..65536元素，输入必需，悬空输出仍检查向量及所选标量；
+错误或重叠在写输出前拒绝，不在实时路径分配内存。
+原生覆盖类型/互斥/零乘法/整数精度转换及外部state block，四入口覆盖两种因子、
+多通道向量与128通道，见`tests/bulk_scale_smoke.c`、`orpheus_core/tests/test_bulk_scale.py`。
+
 `bulk_one_pole`提供同shape逐元素一阶指数平滑：
 `y=(1-alpha)*x+alpha*y_prev`，两次乘法各自舍入；可选择先对输入取绝对值。
 每项历史独立、跨调用保留；可选i32标量`update`为零时保持全部历史，未连接则每次更新。

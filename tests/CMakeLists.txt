@@ -329,6 +329,14 @@ target_include_directories(bulk_sum_smoke PRIVATE
 target_compile_definitions(bulk_sum_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_sum_smoke COMMAND bulk_sum_smoke)
 
+add_executable(bulk_scale_smoke bulk_scale_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_scale/src/bulk_scale.c)
+target_include_directories(bulk_scale_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_scale/include)
+target_compile_definitions(bulk_scale_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME bulk_scale_smoke COMMAND bulk_scale_smoke)
+
 add_executable(bulk_db_smoke bulk_db_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_db/src/bulk_db.c)
 target_include_directories(bulk_db_smoke PRIVATE

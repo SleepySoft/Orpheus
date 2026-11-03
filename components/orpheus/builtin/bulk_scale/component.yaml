@@ -1,0 +1,26 @@
+id: orpheus.builtin.bulk_scale
+name: 数据标量乘法
+category: 基础/计算数据
+description: >-
+  同shape实数向量乘一个显式标量。gain为f32，integer_gain为i32，二者必须且只能连接一个。
+  整数先按C转换为f32再相乘，不按非零判真，不把零因子改成置零选择器；
+  保留NaN*0和有符号零语义。标量输入明确使用latest，生产者未触发时保留最新数据，
+  同次触发仍按数据依赖顺序消费；不是块末参数控制链，不增加一块延迟。
+  不广播输出、不保存算法历史；NULL输出仍校验输入，零处理量不写。
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: BulkScaleState
+sources: [src/bulk_scale.c]
+headers: [include/orpheus_bulk_scale.h]
+input_alternatives: [[gain, integer_gain]]
+ports:
+  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+  - {id: gain, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, timing: latest}
+  - {id: integer_gain, direction: input, type: bulk, sample_format: i32, channels: 1, block_size: 1, timing: latest}
+  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  - {id: elements, name: 每通道元素数, type: int, default: 1, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}
