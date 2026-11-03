@@ -26,9 +26,16 @@ int main(int argc,char** argv) {
 #define PROCESS() (!strcmp(mode,"task") ? runtime.process_task("default",0) : runtime.process_block(quantum))
 #endif
     CHECK((argc-first)%4==0);
+    unsigned blocks=3;
+    const char* configured_blocks=getenv("ORPHEUS_TEST_BLOCKS");
+    if (configured_blocks) {
+        char* end=NULL;unsigned long parsed=strtoul(configured_blocks,&end,10);
+        CHECK(end!=configured_blocks && *end=='\0' && parsed>=1 && parsed<=100000);
+        blocks=(unsigned)parsed;
+    }
     FILE* file=fopen("halfcomplex.bin","wb"); CHECK(file);
     float values[8192];
-    for (unsigned block=0;block<3;++block) {
+    for (unsigned block=0;block<blocks;++block) {
         CHECK(PROCESS()==ORPHEUS_OK);
         for (int i=first;i<argc;i+=4) {
             OrpheusValue value={ORPHEUS_VALUE_INT,{0}};

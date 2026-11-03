@@ -1,6 +1,7 @@
 """同Task数组算子的共享四入口采集驱动。"""
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -10,8 +11,9 @@ from orpheus_core.generator import CodeGenerator
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def execute_array_graph(tmp_path, registry, plan, captures):
+def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3):
     from test_generated_double_bank import _build
+    assert isinstance(blocks,int) and 1<=blocks<=100000
     step = plan.schedule["tick"]
     generated = tmp_path / "generated"
     CodeGenerator(registry, ROOT).generate(plan, generated)
@@ -49,18 +51,19 @@ def execute_array_graph(tmp_path, registry, plan, captures):
     args = [value for node, (a, b) in captures.items()
             for value in (node, str(a), str(b), str(plan.node_configs[node]["frames"]))]
     baseline = None
-    expected_size = sum(a+b for a, b in captures.values())*4*3
+    expected_size = sum(a+b for a, b in captures.values())*4*blocks
     for mode in ("global", "task"):
         for command in ([str(ROOT / "build/tests/halfcomplex_runner.exe"), str(plan_path), str(libraries), mode, str(step), *args],
                         [str(generated / "build/array_test.exe"), mode, str(step), *args]):
-            result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, encoding="utf-8")
+            result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, encoding="utf-8",
+                                    env={**os.environ,"ORPHEUS_TEST_BLOCKS":str(blocks)})
             assert result.returncode == 0, result.stdout+result.stderr
             data = (tmp_path / "halfcomplex.bin").read_bytes()
             if baseline is None: baseline = data
             assert data == baseline and len(data)==expected_size
     records = {node: [] for node in captures}
     cursor = 0
-    for block in range(3):
+    for block in range(blocks):
         for node, (a, b) in captures.items():
             packed = baseline[cursor:cursor+a*4]; cursor += a*4
             decoded = baseline[cursor:cursor+b*4]; cursor += b*4

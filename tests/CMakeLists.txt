@@ -275,6 +275,13 @@ target_include_directories(dual_trapezoid_smooth_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/dual_trapezoid_smooth/include)
 target_compile_definitions(dual_trapezoid_smooth_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME dual_trapezoid_smooth_smoke COMMAND dual_trapezoid_smooth_smoke)
+add_executable(bulk_ring_delay_smoke bulk_ring_delay_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_ring_delay/src/bulk_ring_delay.c)
+target_include_directories(bulk_ring_delay_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_ring_delay/include)
+target_compile_definitions(bulk_ring_delay_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME bulk_ring_delay_smoke COMMAND bulk_ring_delay_smoke)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
