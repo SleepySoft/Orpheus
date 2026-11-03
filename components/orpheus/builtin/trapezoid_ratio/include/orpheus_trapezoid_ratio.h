@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 typedef struct {
-    uint32_t channels,bins,batches;
+    uint32_t channels,bins,batches,division_mode;
     float alpha,epsilon;
     float* history;
     bool owns_memory;

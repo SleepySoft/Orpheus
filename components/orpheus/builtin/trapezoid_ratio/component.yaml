@@ -1,6 +1,6 @@
 id: orpheus.builtin.trapezoid_ratio
 name: 双路梯形平滑比值
-version: 1.0.0
+version: 1.1.0
 abi_version: 5
 package_type: source
 state_type: TrapezoidRatioState
@@ -16,4 +16,5 @@ parameters:
   - {id: batches, name: 顺序批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
   - {id: alpha, name: 历史系数, type: float, default: 0.9, range: [0.0, 1.0], update_policy: block_boundary}
   - {id: epsilon, name: 分母加数, type: float, default: 2.22044605e-16, update_policy: block_boundary}
+  - {id: division_mode, name: 比值顺序（0直接除法/1先倒数再乘）, type: int, default: 0, range: [0, 1], update_policy: block_boundary}
 execution: {realtime_safe: true, supports_inplace: false}

@@ -249,7 +249,9 @@ reset恢复冷启动而保留配置，块边界修改alpha保留历史，
 与双速PSD算子“同一输入、不同系数”的语义不同；不作额外限幅、开方或能量归约。
 参数修改保留历史，reset恢复正零历史；悬空输出仍推进两路历史。
 `alpha`须为有限[0,1]，`epsilon`须有限非负；epsilon=0时保留正常IEEE除零语义。
-分母加数在平滑之后加入，不以倒数再乘法重排直接除法。原生及四入口测试见
+分母加数在平滑之后加入；`division_mode=0`（默认）保留直接除法，
+`division_mode=1`则先将`1/(denominator_y+epsilon)`舍入为f32，再乘`numerator_y`。
+两种顺序不可互相重排；切换顺序不清历史，reset保留配置。原生及四入口测试见
 `tests/trapezoid_ratio_smoke.c`和`orpheus_core/tests/test_trapezoid_ratio.py`。
 
 `delta_hold`消费f32逐批向量，按严格增量阈值触发，再按批次计数保持，

@@ -9,22 +9,29 @@ int main(void) {
     OrpheusValue values[]={{.type=ORPHEUS_VALUE_INT,.value.i32=2},{.type=ORPHEUS_VALUE_INT,.value.i32=3},{.type=ORPHEUS_VALUE_INT,.value.i32=2}};
     OrpheusConfig config={.sample_rate=48000,.block_size=1,.param_ids=ids,.param_values=values,.param_count=3};
     CHECK(api->prepare(&state,&config)==ORPHEUS_OK);
+    CHECK(state.division_mode==0 && api->get_descriptor()->param_count==6);
     float input[2][12],output[12],want[12],previous[2][6]={{0}},last[2][6]={{0}};
     OrpheusBuffer buffers[2];
     for(unsigned p=0;p<2;++p) buffers[p]=(OrpheusBuffer){.data=input[p],.channels=2,.frame_count=6,.frame_capacity=6,.format=ORPHEUS_FORMAT_F32,.interleaved=true};
     OrpheusBuffer out={.data=output,.channels=2,.frame_capacity=6,.format=ORPHEUS_FORMAT_F32,.interleaved=true};
     const OrpheusBuffer* inputs[]={buffers,buffers+1};OrpheusBuffer* outputs[]={&out};
     OrpheusProcessContext context={.inputs=inputs,.outputs=outputs,.input_count=2,.output_count=1,.frame_count=1};
-    for(unsigned call=0;call<9;++call) {
-        float alpha=call<3 ? 0.7f : call<6 ? 0.0f : 1.0f,epsilon=call<6 ? 0.001f : 0.0f;
+    bool order_difference=false;
+    for(unsigned call=0;call<18;++call) {
+        unsigned phase=call%9,mode=call/9;
+        OrpheusValue order={.type=ORPHEUS_VALUE_INT,.value.i32=mode},readback;
+        CHECK(api->set_parameter(&state,"division_mode",&order)==ORPHEUS_OK);
+        CHECK(api->get_parameter(&state,"division_mode",&readback)==ORPHEUS_OK &&
+              readback.type==ORPHEUS_VALUE_INT && readback.value.i32==(int32_t)mode);
+        float alpha=phase<3 ? 0.7f : phase<6 ? 0.0f : 1.0f,epsilon=phase<6 ? 0.001f : 0.0f;
         OrpheusValue value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=alpha};
         CHECK(api->set_parameter(&state,"alpha",&value)==ORPHEUS_OK);
         value.value.f32=epsilon;CHECK(api->set_parameter(&state,"epsilon",&value)==ORPHEUS_OK);
-        if(call==5) {
+        if(phase==5) {
             CHECK(api->reset(&state)==ORPHEUS_OK);memset(previous,0,sizeof(previous));memset(last,0,sizeof(last));
         }
         for(unsigned p=0;p<2;++p) for(unsigned i=0;i<12;++i) input[p][i]=((int)(i*7+call*3+p*11)%23-11)*0.125f;
-        if(call==8) {
+        if(phase==8) {
             const uint32_t bits[]={0,0x80000000u,0x7f800000u,0xff800000u,0x7fc12345u,0x7f812345u};
             for(unsigned p=0;p<2;++p) for(unsigned i=0;i<12;++i) memcpy(input[p]+i,&bits[(i+p)%6],4);
         }
@@ -40,21 +47,34 @@ int main(void) {
                 volatile float feed=(current+previous[p][i])*factor,feedback=last[p][i]*alpha;
                 smoothed[p]=feed+feedback;previous[p][i]=current;last[p][i]=smoothed[p];
             }
-            volatile float denominator=smoothed[1]+epsilon;want[h*6+i]=smoothed[0]/denominator;
+            volatile float denominator=smoothed[1]+epsilon,reciprocal=1.0f/denominator;
+            float direct=smoothed[0]/denominator,indirect=reciprocal*smoothed[0];
+            if(isfinite(direct) && isfinite(indirect) && memcmp(&direct,&indirect,4)) order_difference=true;
+            want[h*6+i]=mode ? indirect : direct;
         }
-        outputs[0]=call==2 ? NULL : &out;CHECK(api->process(&state,&context)==ORPHEUS_OK);
+        outputs[0]=phase==2 ? NULL : &out;CHECK(api->process(&state,&context)==ORPHEUS_OK);
         if(outputs[0]) CHECK(out.frame_count==6 && !memcmp(output,want,sizeof(output)));
         for(unsigned p=0;p<2;++p) {
             CHECK(!memcmp(state.history+p*12,previous[p],sizeof(previous[p])));
             CHECK(!memcmp(state.history+p*12+6,last[p],sizeof(last[p])));
         }
+        CHECK(order_difference);
         outputs[0]=&out;
     }
     OrpheusValue value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=NAN};
     CHECK(api->set_parameter(&state,"alpha",&value)==ORPHEUS_ERR_INVALID_ARG);
     value.value.f32=-1;CHECK(api->set_parameter(&state,"epsilon",&value)==ORPHEUS_ERR_INVALID_ARG);
+    CHECK(api->set_parameter(&state,"division_mode",&value)==ORPHEUS_ERR_INVALID_ARG);
+    value.type=ORPHEUS_VALUE_INT;value.value.i32=-1;
+    CHECK(api->set_parameter(&state,"division_mode",&value)==ORPHEUS_ERR_INVALID_ARG);
+    value.value.i32=2;CHECK(api->set_parameter(&state,"division_mode",&value)==ORPHEUS_ERR_INVALID_ARG);
     TrapezoidRatioState saved=state;values[1].value.i32=0;
     CHECK(api->prepare(&state,&config)==ORPHEUS_ERR_INVALID_ARG && !memcmp(&saved,&state,sizeof(state)));
+    const char* mode_id="division_mode";
+    OrpheusConfig mode_config={.param_ids=&mode_id,.param_values=&value,.param_count=1};
+    CHECK(api->prepare(&state,&mode_config)==ORPHEUS_ERR_INVALID_ARG && !memcmp(&saved,&state,sizeof(state)));
+    value.value.i32=1;CHECK(api->prepare(&state,&mode_config)==ORPHEUS_OK && state.division_mode==1);
+    CHECK(api->reset(&state)==ORPHEUS_OK && state.division_mode==1);
     CHECK(api->destroy(&state)==ORPHEUS_OK);
     void* allocated=NULL;config.state_block=&state;
     CHECK(api->create(&allocated,&config)==ORPHEUS_OK && allocated==&state && !state.owns_memory);

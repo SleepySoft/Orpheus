@@ -11,7 +11,7 @@ ROOT=Path(__file__).resolve().parents[2]
 FIXTURES=Path(__file__).parent/"fixtures"
 
 
-def verify_trapezoid_ratio(tmp_path,*,channels=1,bins=129,batches=1,alpha=0.9,epsilon=2.22044605e-16,step=128,reference=None):
+def verify_trapezoid_ratio(tmp_path,*,channels=1,bins=129,batches=1,alpha=0.9,epsilon=2.22044605e-16,step=128,division_mode=0,reference=None):
     registry=Registry([ROOT/"components"]);registry.scan()
     for fixture in ("array_pair","tensor_pair_capture"):registry.add_manifest(FIXTURES/fixture/"component.yaml")
     elements=bins*batches;count=channels*elements
@@ -19,7 +19,7 @@ def verify_trapezoid_ratio(tmp_path,*,channels=1,bins=129,batches=1,alpha=0.9,ep
         "source":Node(id="source",component="orpheus.test.array_pair",params={"channels":channels,"elements":elements,"mode":0,"complex_mode":1}),
         "power":Node(id="power",component="orpheus.builtin.complex_power",params={"channels":channels,"bins":bins,"batches":batches}),
         "ratio":Node(id="ratio",component="orpheus.builtin.trapezoid_ratio",
-                     params={"channels":channels,"bins":bins,"batches":batches,"alpha":alpha,"epsilon":epsilon})}
+                     params={"channels":channels,"bins":bins,"batches":batches,"alpha":alpha,"epsilon":epsilon,"division_mode":division_mode})}
     for name in ("inputs","result"):
         nodes[name]=Node(id=name,component="orpheus.test.tensor_pair_capture",
             params={"channels_a":channels,"channels_b":channels,"frames_a":elements,"frames_b":elements})
@@ -46,11 +46,13 @@ def verify_trapezoid_ratio(tmp_path,*,channels=1,bins=129,batches=1,alpha=0.9,ep
                     current=values[p][h*points+i]
                     value=f32(f32(f32(current+previous[p][i])*factor)+f32(last[p][i]*alpha))
                     previous[p][i]=current;last[p][i]=value;smoothed.append(value)
-                expected.append(f32(smoothed[0]/f32(smoothed[1]+epsilon)))
+                denominator=f32(smoothed[1]+epsilon)
+                expected.append(f32(f32(1/denominator)*smoothed[0]) if division_mode else f32(smoothed[0]/denominator))
         assert actual==struct.pack(f"<{count}f",*expected);different|=actual!=a
     assert different
 
 
 @pytest.mark.parametrize("channels,bins,batches,alpha,step",[(1,129,1,0.9,128),(1,129,3,0.8,384),(3,5,2,0.5,32)])
-def test_trapezoid_ratio_four_entries(tmp_path,channels,bins,batches,alpha,step):
-    verify_trapezoid_ratio(tmp_path,channels=channels,bins=bins,batches=batches,alpha=alpha,step=step)
+@pytest.mark.parametrize("division_mode",[0,1])
+def test_trapezoid_ratio_four_entries(tmp_path,channels,bins,batches,alpha,step,division_mode):
+    verify_trapezoid_ratio(tmp_path,channels=channels,bins=bins,batches=batches,alpha=alpha,step=step,division_mode=division_mode)
