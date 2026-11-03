@@ -5,10 +5,10 @@
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "断言失败：%s:%d\n", __FILE__, __LINE__); return 1; } } while (0)
 
-static OrpheusSlotInfo slots[7];
+static OrpheusSlotInfo slots[8];
 static OrpheusSlotId capture_slot(void* ctx, const OrpheusSlotInfo* slot) {
     unsigned* count = (unsigned*)ctx;
-    if (*count < 7) slots[*count] = *slot;
+    if (*count < 8) slots[*count] = *slot;
     return (*count)++;
 }
 
@@ -41,7 +41,7 @@ int main(void) {
     CHECK(strcmp(slots[4].key, "gain_linear") == 0 &&
           !(slots[4].flags & ORPHEUS_SLOT_DIRECT_WRITE));
     const OrpheusComponentDescriptor* descriptor = iface->get_descriptor();
-    CHECK(descriptor->param_count == 7 && strcmp(descriptor->params[0].id, "gain_db") == 0 &&
+    CHECK(descriptor->param_count == 8 && strcmp(descriptor->params[0].id, "gain_db") == 0 &&
           strcmp(descriptor->params[1].id, "channels") == 0 &&
           strcmp(descriptor->params[2].id, "smoothing_ms") == 0);
     for (unsigned step = 0; step < 5; ++step) {
@@ -95,5 +95,38 @@ int main(void) {
     CHECK(iface->reset(&state) == ORPHEUS_OK);
     CHECK(iface->get_parameter(&state, "gain_db", &actual) == ORPHEUS_OK && actual.value.f32 == 0.0f);
     CHECK(iface->get_parameter(&state, "gain_mode", &actual) == ORPHEUS_OK && actual.value.i32 == 0);
+    const char* channel_ids[] = {"gain_mode", "gains"};
+    OrpheusValue channel_values[] = {
+        {.type=ORPHEUS_VALUE_INT, .value.i32=2},
+        {.type=ORPHEUS_VALUE_STRING, .value.str="0, -0.5, 2"},
+    };
+    config.param_ids = channel_ids; config.param_values = channel_values; config.param_count = 2;
+    CHECK(iface->prepare(&state, &config) == ORPHEUS_OK);
+    slot_count = 0;
+    CHECK(iface->register_slots(&state, &registry) == ORPHEUS_OK && slot_count == 8);
+    CHECK(slots[7].kind == ORPHEUS_SLOT_BULK && slots[7].count == 3 &&
+          slots[7].type == ORPHEUS_VALUE_FLOAT && slots[7].size == sizeof(float) &&
+          slots[7].offset == offsetof(GainState, per_channel_gains) &&
+          (slots[7].flags & ORPHEUS_SLOT_DOUBLE_BUFFERED));
+    const float gains[] = {0.0f, -0.5f, 2.0f};
+    for (unsigned i = 0; i < 21; ++i) input[i] = special[i % 7];
+    CHECK(iface->process(&state, &context) == ORPHEUS_OK);
+    for (unsigned i = 0; i < 21; ++i) {
+        float expected = input[i]*gains[i % 3];
+        CHECK(isnan(expected) ? isnan(output[i]) : !memcmp(&expected, &output[i], sizeof(float)));
+    }
+    CHECK(iface->reset(&state) == ORPHEUS_OK &&
+          !memcmp(state.per_channel_gains, gains, sizeof(gains)));
+    CHECK(iface->set_parameter(&state, "gain_linear", &actual) == ORPHEUS_ERR_UNSUPPORTED);
+    const char* invalid[] = {"1,2", "1,2,3,4", "1,2,nan", "1,2,inf", "1,2,3junk", "1,,2", "1,2,3,"};
+    for (unsigned i = 0; i < sizeof(invalid)/sizeof(invalid[0]); ++i) {
+        channel_values[1].value.str = invalid[i];
+        CHECK(iface->prepare(&state, &config) == ORPHEUS_ERR_INVALID_ARG);
+    }
+    channel_values[1].value.str = "";
+    CHECK(iface->prepare(&state, &config) == ORPHEUS_OK);
+    for (unsigned i = 0; i < 3; ++i) CHECK(state.per_channel_gains[i] == 1.0f);
+    config.channels = 33;
+    CHECK(iface->prepare(&state, &config) == ORPHEUS_ERR_INVALID_ARG);
     return 0;
 }

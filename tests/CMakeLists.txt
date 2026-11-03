@@ -124,6 +124,9 @@ target_link_libraries(exponential_gain_runner PRIVATE orpheus_runtime_lib)
 add_executable(linear_gain_runner linear_gain_runner.cpp)
 target_link_libraries(linear_gain_runner PRIVATE orpheus_runtime_lib)
 
+add_executable(channel_gain_runner channel_gain_runner.cpp)
+target_link_libraries(channel_gain_runner PRIVATE orpheus_runtime_lib)
+
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
     set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})

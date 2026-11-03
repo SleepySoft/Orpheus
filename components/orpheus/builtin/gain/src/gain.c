@@ -1,6 +1,7 @@
 #include "orpheus_gain.h"
 
 #include <math.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -47,9 +48,9 @@ static const OrpheusParameter gain_params[] = {
         .persistent = true,
         .affects_signature = false
     },
-    { .id = "gain_mode", .name = "增益模式（0=dB，1=线性）", .type = ORPHEUS_VALUE_INT,
+    { .id = "gain_mode", .name = "增益模式（0=dB，1=共享线性，2=逐通道线性）", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 0 },
-      .min_i32 = 0, .max_i32 = 1, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+      .min_i32 = 0, .max_i32 = 2, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true },
     { .id = "gain_linear", .name = "线性目标增益", .type = ORPHEUS_VALUE_FLOAT,
       .default_value = { .type = ORPHEUS_VALUE_FLOAT, .value.f32 = 1.0f },
@@ -60,6 +61,9 @@ static const OrpheusParameter gain_params[] = {
     { .id = "linear_a1", .name = "线性控制平滑反馈系数", .type = ORPHEUS_VALUE_FLOAT,
       .default_value = { .type = ORPHEUS_VALUE_FLOAT, .value.f32 = 0.0f },
       .min_f32 = -1.0f, .max_f32 = 1.0f,
+      .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED, .readback = true, .persistent = true },
+    { .id = "gains", .name = "逐通道线性增益", .type = ORPHEUS_VALUE_STRING,
+      .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "" },
       .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED, .readback = true, .persistent = true }
 };
 
@@ -90,12 +94,12 @@ static const OrpheusPort gain_ports[] = {
 
 static const OrpheusComponentDescriptor gain_descriptor = {
     .id = "orpheus.builtin.gain",
-    .version = "1.1.0",
+    .version = "1.2.0",
     .abi_version = ORPHEUS_ABI_VERSION,
     .ports = gain_ports,
     .port_count = 2,
     .params = gain_params,
-    .param_count = 7,
+    .param_count = 8,
     .state_size = sizeof(GainState),
     .scratch_size = 0,
     .alignment = 8,
@@ -127,8 +131,11 @@ static int gain_destroy(void* state) {
 }
 
 static int gain_prepare(void* state, const OrpheusConfig* config) {
+    if (!state || !config) return ORPHEUS_ERR_INVALID_ARG;
     GainState* s = (GainState*)state;
     s->channels = config->channels > 0 ? config->channels : 2;
+    if (s->channels > 32) return ORPHEUS_ERR_INVALID_ARG;
+    const char* channel_gains = "";
 
     /* 初始参数：gain_db 与 smoothing_ms 都从 prepare 配置读取 */
     float gain_db = 0.0f;
@@ -144,8 +151,12 @@ static int gain_prepare(void* state, const OrpheusConfig* config) {
         const OrpheusValue* value = &config->param_values[i];
         if (strcmp(id, "gain_mode") == 0) {
             if (value->type != ORPHEUS_VALUE_INT || value->value.i32 < 0 ||
-                value->value.i32 > 1) return ORPHEUS_ERR_INVALID_ARG;
+                value->value.i32 > 2) return ORPHEUS_ERR_INVALID_ARG;
             s->gain_mode = value->value.i32;
+        } else if (strcmp(id, "gains") == 0) {
+            if (value->type != ORPHEUS_VALUE_STRING || !value->value.str)
+                return ORPHEUS_ERR_INVALID_ARG;
+            channel_gains = value->value.str;
         } else if (strcmp(id, "gain_linear") == 0 || strcmp(id, "linear_b0") == 0 ||
                    strcmp(id, "linear_a1") == 0) {
             if (value->type != ORPHEUS_VALUE_FLOAT || !isfinite(value->value.f32))
@@ -153,6 +164,21 @@ static int gain_prepare(void* state, const OrpheusConfig* config) {
             if (strcmp(id, "gain_linear") == 0) s->linear_value = value->value.f32;
             else if (strcmp(id, "linear_b0") == 0) s->linear_b0 = value->value.f32;
             else s->linear_a1 = value->value.f32;
+        }
+        if (*channel_gains && s->gain_mode != 2) return ORPHEUS_ERR_INVALID_ARG;
+        if (*channel_gains) {
+            const char* cursor = channel_gains;
+            for (uint32_t c = 0; c < s->channels; ++c) {
+                char* end;
+                float gain = strtof(cursor, &end);
+                if (end == cursor || !isfinite(gain)) return ORPHEUS_ERR_INVALID_ARG;
+                while (isspace((unsigned char)*end)) ++end;
+                if (c+1 < s->channels ? *end != ',' : *end != '\0') return ORPHEUS_ERR_INVALID_ARG;
+                s->per_channel_gains[c] = gain;
+                cursor = c+1 < s->channels ? end+1 : end;
+            }
+        } else {
+            for (uint32_t c = 0; c < s->channels; ++c) s->per_channel_gains[c] = 1.0f;
         }
         if (strcmp(config->param_ids[i], "gain_db") == 0 &&
             config->param_values[i].type == ORPHEUS_VALUE_FLOAT) {
@@ -182,6 +208,7 @@ static int gain_prepare(void* state, const OrpheusConfig* config) {
 
 static int gain_reset(void* state) {
     GainState* s = (GainState*)state;
+    if (s->gain_mode == 2) return ORPHEUS_OK;
     if (s->gain_mode == 1) {
         s->linear_state = 0.0f;
         s->gain_linear = 0.0f;
@@ -207,6 +234,13 @@ static int gain_process(void* state, const OrpheusProcessContext* ctx) {
     float* in_data = (float*)in->data;
     float* out_data = (float*)out->data;
 
+    if (s->gain_mode == 2) {
+        for (uint32_t n = 0; n < frames; ++n)
+            for (uint32_t c = 0; c < ch; ++c)
+                out_data[n*ch+c] = in_data[n*ch+c]*s->per_channel_gains[c];
+        out->frame_count = frames;
+        return ORPHEUS_OK;
+    }
     if (s->gain_mode == 1) {
         for (uint32_t n = 0; n < frames; ++n) {
             float gain = s->linear_value;
@@ -300,7 +334,7 @@ static int gain_register_slots(void* state, const OrpheusRegistry* reg) {
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);
     ORPHEUS_REG_SLOT(reg, s, gain_mode, ORPHEUS_SLOT_SETTING, "gain_mode", "增益模式",
-                     ORPHEUS_VALUE_INT, .min_i32=0, .max_i32=1,
+                     ORPHEUS_VALUE_INT, .min_i32=0, .max_i32=2,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, linear_value, ORPHEUS_SLOT_SETTING, "gain_linear", "线性目标增益",
@@ -313,6 +347,14 @@ static int gain_register_slots(void* state, const OrpheusRegistry* reg) {
                      ORPHEUS_VALUE_FLOAT, .min_f32=-1.0f, .max_f32=1.0f,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    if (s->gain_mode == 2) {
+        OrpheusSlotInfo slot = {
+            .kind=ORPHEUS_SLOT_BULK, .key="gains", .name="逐通道线性增益",
+            .type=ORPHEUS_VALUE_FLOAT, .offset=offsetof(GainState, per_channel_gains),
+            .size=sizeof(float), .count=s->channels, .flags=ORPHEUS_SLOT_DOUBLE_BUFFERED
+        };
+        reg->add(reg->ctx, &slot);
+    }
     return ORPHEUS_OK;
 }
 

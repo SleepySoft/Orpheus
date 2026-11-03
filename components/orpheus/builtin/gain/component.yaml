@@ -2,7 +2,7 @@ id: orpheus.builtin.gain
 name: 增益
 category: 基础/增益与混音
 order: 1
-version: 1.1.0
+version: 1.2.0
 abi_version: 1
 package_type: source
 state_type: GainState
@@ -45,10 +45,10 @@ parameters:
     unit: ms
     update_policy: restart_required
   - id: gain_mode
-    name: 增益模式（0=dB，1=线性）
+    name: 增益模式（0=dB，1=共享线性，2=逐通道线性）
     type: int
     default: 0
-    range: [0, 1]
+    range: [0, 2]
     update_policy: restart_required
   - id: gain_linear
     name: 线性目标增益
@@ -69,6 +69,21 @@ parameters:
     range: [-1.0, 1.0]
     update_policy: restart_required
     description: 线性模式按y=b0×目标+z、z=-a1×y递推；要求-1<a1<1。b0=1且a1=0时直接相乘，不平滑
+  - id: gains
+    name: 逐通道线性增益
+    type: string
+    default: ""
+    kind: bulk
+    shape: [param:channels]
+    update_policy: restart_required
+    description: 模式2使用；空CSV为全1，非空严格要求channels个有限值。运行期用同名浮点BULK整组写入，不进行dB转换或平滑
+bulk_slots:
+  - id: gains
+    name: 逐通道线性增益
+    type: float
+    count: 32
+    shape: [param:channels]
+    double_bank: true
 memory:
   state_size: 0
   scratch_size: 0

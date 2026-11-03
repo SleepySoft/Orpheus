@@ -21,6 +21,7 @@ typedef struct {
     float linear_b0;
     float linear_a1;
     float linear_state;
+    float per_channel_gains[32];
 } GainState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);
