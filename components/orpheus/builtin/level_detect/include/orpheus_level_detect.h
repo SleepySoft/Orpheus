@@ -16,6 +16,10 @@ typedef struct {
     float env[32];
     float level;         /* 探针：各通道包络最大值 */
     uint32_t channels;
+    int32_t execution_mode;
+    float db_epsilon;
+    float rms_db;
+    float peak_db;
 } LevelDetectState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);

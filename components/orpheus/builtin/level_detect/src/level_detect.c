@@ -42,7 +42,17 @@ static const OrpheusParameter ld_params[] = {
     { .id = "level", .name = "电平", .type = ORPHEUS_VALUE_FLOAT,
       .default_value = { .type = ORPHEUS_VALUE_FLOAT, .value.f32 = 0.0f },
       .update_policy = ORPHEUS_UPDATE_IMMEDIATE,
-      .readback = true, .persistent = false, .affects_signature = false }
+      .readback = true, .persistent = false, .affects_signature = false },
+    {.id="execution_mode",.name="执行模式（0平滑包络，1块级双dB统计）",.type=ORPHEUS_VALUE_INT,
+     .default_value={.type=ORPHEUS_VALUE_INT,.value.i32=0},.min_i32=0,.max_i32=1,
+     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,.affects_signature=true,.readback=true},
+    {.id="db_epsilon",.name="dB统计正偏置",.type=ORPHEUS_VALUE_FLOAT,
+     .default_value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=2.22044605e-16f},
+     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,.readback=true},
+    {.id="rms_db",.name="最大通道均方dB",.type=ORPHEUS_VALUE_FLOAT,
+     .update_policy=ORPHEUS_UPDATE_IMMEDIATE,.readback=true},
+    {.id="peak_db",.name="全块峰值dB",.type=ORPHEUS_VALUE_FLOAT,
+     .update_policy=ORPHEUS_UPDATE_IMMEDIATE,.readback=true}
 };
 
 static const OrpheusPort ld_ports[] = {
@@ -51,12 +61,16 @@ static const OrpheusPort ld_ports[] = {
       .is_variable = true, .channels_param = "channels" },
     { .id = "out", .direction = ORPHEUS_PORT_OUTPUT, .type = ORPHEUS_PORT_AUDIO,
       .sample_format = ORPHEUS_FORMAT_F32, .channels = 0, .sample_rate = 0, .block_size = 0,
-      .is_variable = true, .channels_param = "channels" }
+      .is_variable = true, .channels_param = "channels" },
+    {.id="rms",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_CONTROL,
+     .sample_format=ORPHEUS_FORMAT_F32,.channels=1,.block_size=1},
+    {.id="peak",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_CONTROL,
+     .sample_format=ORPHEUS_FORMAT_F32,.channels=1,.block_size=1}
 };
 
 static const OrpheusComponentDescriptor ld_descriptor = {
-    .id = "orpheus.builtin.level_detect", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = ld_ports, .port_count = 2, .params = ld_params, .param_count = 5,
+    .id = "orpheus.builtin.level_detect", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = ld_ports, .port_count = 4, .params = ld_params, .param_count = sizeof(ld_params)/sizeof(ld_params[0]),
     .state_size = sizeof(LevelDetectState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = true
 };
@@ -74,7 +88,36 @@ static int ld_create(void** state, const OrpheusConfig* config) {
 static int ld_destroy(void* state) { (void)state; return ORPHEUS_OK; }
 
 static int ld_prepare(void* state, const OrpheusConfig* config) {
+    if (!state || !config || (config->param_count && (!config->param_ids || !config->param_values)))
+        return ORPHEUS_ERR_INVALID_ARG;
     LevelDetectState* s = (LevelDetectState*)state;
+    s->execution_mode=0;
+    for (unsigned i=0;i<config->param_count;++i) if (config->param_ids[i] && strcmp(config->param_ids[i],"execution_mode")==0) {
+        if (config->param_values[i].type!=ORPHEUS_VALUE_INT || config->param_values[i].value.i32<0 ||
+            config->param_values[i].value.i32>1) return ORPHEUS_ERR_INVALID_ARG;
+        s->execution_mode=config->param_values[i].value.i32;
+    }
+    if (s->execution_mode==1) {
+        int32_t channels=(int32_t)config->channels;
+        s->db_epsilon=2.22044605e-16f;
+        for (unsigned i=0;i<config->param_count;++i) {
+            if (!config->param_ids[i]) continue;
+            const OrpheusValue* value=&config->param_values[i];
+            if (strcmp(config->param_ids[i],"channels")==0) {
+                if (value->type!=ORPHEUS_VALUE_INT) return ORPHEUS_ERR_INVALID_ARG;
+                channels=value->value.i32;
+            }
+            if (strcmp(config->param_ids[i],"db_epsilon")==0) {
+                if (value->type!=ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
+                s->db_epsilon=value->value.f32;
+            }
+        }
+        if (channels<1 || channels>32 || !isfinite(s->db_epsilon) || s->db_epsilon<=0) return ORPHEUS_ERR_INVALID_ARG;
+        s->channels=(unsigned)channels;
+        s->rms_db=log10f(s->db_epsilon)*10; s->peak_db=log10f(s->db_epsilon)*20;
+        s->level=s->rms_db;
+        return ORPHEUS_OK;
+    }
     s->channels = config->channels > 0 ? config->channels : 2;
     s->mode = (int32_t)read_float(config, "mode", 0.0f);
     s->attack_ms = read_float(config, "attack_ms", 10.0f);
@@ -88,13 +131,65 @@ static int ld_prepare(void* state, const OrpheusConfig* config) {
 
 static int ld_reset(void* state) {
     LevelDetectState* s = (LevelDetectState*)state;
+    if (s->execution_mode==1) {
+        s->rms_db=log10f(s->db_epsilon)*10; s->peak_db=log10f(s->db_epsilon)*20;
+        s->level=s->rms_db; return ORPHEUS_OK;
+    }
     memset(s->env, 0, sizeof(s->env));
     s->level = 0.0f;
     return ORPHEUS_OK;
 }
 
+static int process_statistics(LevelDetectState* s,const OrpheusProcessContext* ctx) {
+    if (!ctx || ctx->input_count<1 || !ctx->inputs || !ctx->inputs[0] ||
+        (ctx->output_count && !ctx->outputs)) return ORPHEUS_ERR_INVALID_ARG;
+    const OrpheusBuffer* input=ctx->inputs[0];
+    const unsigned frames=ctx->frame_count,channels=s->channels;
+    if (channels<1 || channels>32 || input->channels!=channels || input->format!=ORPHEUS_FORMAT_F32 ||
+        input->frame_capacity<frames || (frames && !input->data) || !isfinite(s->db_epsilon) || s->db_epsilon<=0)
+        return ORPHEUS_ERR_INVALID_ARG;
+    for (unsigned i=0;i<ctx->output_count && i<3;++i) if (ctx->outputs[i]) {
+        OrpheusBuffer* out=ctx->outputs[i];
+        if (out->format!=ORPHEUS_FORMAT_F32 || out->channels!=(i==0 ? channels : 1) ||
+            out->frame_capacity<(i==0 ? frames : 1) || (frames && !out->data)) return ORPHEUS_ERR_INVALID_ARG;
+    }
+    if (!frames) return ORPHEUS_OK;
+    const float* values=(const float*)input->data;
+    float powers[32],peaks[32];
+    for (unsigned c=0;c<channels;++c) {
+        float power=values[c]*values[c],peak=fabsf(values[c]);
+        for (unsigned n=1;n<frames;++n) {
+            float value=values[n*channels+c];
+            power+=value*value;
+            float magnitude=fabsf(value);
+            if (peak<magnitude) peak=magnitude;
+        }
+        powers[c]=power/(float)frames; peaks[c]=peak;
+    }
+    float power=powers[0],peak=peaks[0];
+    for (unsigned c=1;c<channels;++c) {
+        if (power<powers[c]) power=powers[c];
+        if (peak<peaks[c]) peak=peaks[c];
+    }
+    s->rms_db=log10f(power+s->db_epsilon)*10;
+    s->peak_db=log10f(peak+s->db_epsilon)*20;
+    s->level=s->rms_db;
+    for (unsigned i=0;i<ctx->output_count && i<3;++i) if (ctx->outputs[i]) {
+        OrpheusBuffer* out=ctx->outputs[i];
+        if (i==0) {
+            if (out->data!=input->data) memcpy(out->data,input->data,frames*channels*sizeof(float));
+            out->frame_count=frames;
+        } else {
+            ((float*)out->data)[0]=i==1 ? s->rms_db : s->peak_db;
+            out->frame_count=1;
+        }
+    }
+    return ORPHEUS_OK;
+}
+
 static int ld_process(void* state, const OrpheusProcessContext* ctx) {
     LevelDetectState* s = (LevelDetectState*)state;
+    if (s->execution_mode==1) return process_statistics(s,ctx);
     const OrpheusBuffer* in = ctx->inputs[0];
     OrpheusBuffer* out = ctx->outputs[0];
     if (in == NULL || out == NULL) return ORPHEUS_ERR_INVALID_ARG;
@@ -139,6 +234,7 @@ static int ld_process(void* state, const OrpheusProcessContext* ctx) {
 
 static int ld_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {
     LevelDetectState* s = (LevelDetectState*)state;
+    if (s->execution_mode==1) return ORPHEUS_ERR_INVALID_ARG;
     if (strcmp(param_id, "attack_ms") == 0) {
         if (value->type != ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
         s->attack_ms = value->value.f32;
@@ -154,6 +250,11 @@ static int ld_set_parameter(void* state, const char* param_id, const OrpheusValu
 
 static int ld_get_parameter(void* state, const char* param_id, OrpheusValue* value) {
     LevelDetectState* s = (LevelDetectState*)state;
+    if (strcmp(param_id,"rms_db")==0 || strcmp(param_id,"peak_db")==0) {
+        value->type=ORPHEUS_VALUE_FLOAT;
+        value->value.f32=strcmp(param_id,"rms_db")==0 ? s->rms_db : s->peak_db;
+        return ORPHEUS_OK;
+    }
     if (strcmp(param_id, "level") == 0) {
         value->type = ORPHEUS_VALUE_FLOAT;
         value->value.f32 = s->level;
@@ -174,6 +275,10 @@ static int ld_get_parameter(void* state, const char* param_id, OrpheusValue* val
 
 static int ld_register_slots(void* state, const OrpheusRegistry* reg) {
     LevelDetectState* s = (LevelDetectState*)state;
+    ORPHEUS_REG_SLOT(reg,s,rms_db,ORPHEUS_SLOT_PROBE,"rms_db","最大通道均方dB",ORPHEUS_VALUE_FLOAT,
+                    .flags=ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg,s,peak_db,ORPHEUS_SLOT_PROBE,"peak_db","全块峰值dB",ORPHEUS_VALUE_FLOAT,
+                    .flags=ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, mode, ORPHEUS_SLOT_SETTING, "mode", "模式",
                      ORPHEUS_VALUE_INT, .min_i32=0, .max_i32=1,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
@@ -181,11 +286,13 @@ static int ld_register_slots(void* state, const OrpheusRegistry* reg) {
     ORPHEUS_REG_SLOT(reg, s, attack_ms, ORPHEUS_SLOT_SETTING, "attack_ms", "启动时间",
                      ORPHEUS_VALUE_FLOAT, .min_f32=0.1f, .max_f32=1000.0f, .unit="ms",
                      .update_policy=ORPHEUS_UPDATE_SMOOTHED,
-                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_DIRECT_WRITE);
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            (s->execution_mode==0 ? ORPHEUS_SLOT_DIRECT_WRITE : 0));
     ORPHEUS_REG_SLOT(reg, s, release_ms, ORPHEUS_SLOT_SETTING, "release_ms", "释放时间",
                      ORPHEUS_VALUE_FLOAT, .min_f32=1.0f, .max_f32=5000.0f, .unit="ms",
                      .update_policy=ORPHEUS_UPDATE_SMOOTHED,
-                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_DIRECT_WRITE);
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
+                            (s->execution_mode==0 ? ORPHEUS_SLOT_DIRECT_WRITE : 0));
     ORPHEUS_REG_SLOT(reg, s, level, ORPHEUS_SLOT_PROBE, "level", "电平",
                      ORPHEUS_VALUE_FLOAT, .flags=ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",

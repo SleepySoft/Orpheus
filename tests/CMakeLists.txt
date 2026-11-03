@@ -199,6 +199,18 @@ endif()
 add_test(NAME sequence_matrix_smoke COMMAND sequence_matrix_smoke)
 add_executable(sequence_matrix_runner sequence_matrix_runner.cpp)
 target_link_libraries(sequence_matrix_runner PRIVATE orpheus_runtime_lib)
+add_executable(block_stats_smoke block_stats_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/level_detect/src/level_detect.c)
+target_include_directories(block_stats_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/level_detect/include)
+target_compile_definitions(block_stats_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(block_stats_smoke PRIVATE m)
+endif()
+add_test(NAME block_stats_smoke COMMAND block_stats_smoke)
+add_executable(block_stats_runner block_stats_runner.cpp)
+target_link_libraries(block_stats_runner PRIVATE orpheus_runtime_lib)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)

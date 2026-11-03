@@ -2,8 +2,13 @@ id: orpheus.builtin.level_detect
 name: 电平检测
 category: 基础/监控
 order: 5
-description: 峰值/RMS 包络检测（attack/release 平滑），电平经探针 readback 上报，音频直通
-version: 1.0.0
+description: >-
+  execution_mode=0保持原平滑峰值/RMS包络；execution_mode=1无平滑，按通道从首样本起顺序累加均方，
+  按通道声明顺序以小于比较归约，输出10log10(最大通道均方+db_epsilon)及20log10(全块峰值+db_epsilon)。
+  默认正偏置为2.22044605e-16（float32存储），不是噪声门；不做sqrt或全通道平均，保留NaN位置语义。
+  rms0/peak0为1×1控制数据端口，经普通同步连接可供同周期下游读取；参数控制连接仍有一块延迟。
+  level在统计模式别名rms_db；音频out可不接，已接时逐字节直通。零帧不推进，reset恢复静音dB值。
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: LevelDetectState
@@ -22,6 +27,8 @@ ports:
     type: audio
     sample_format: f32
     channels: param:channels
+  - {id: rms, direction: output, type: control, sample_format: f32, channels: 1, block_size: 1, count: "param:execution_mode"}
+  - {id: peak, direction: output, type: control, sample_format: f32, channels: 1, block_size: 1, count: "param:execution_mode"}
 parameters:
   - id: mode
     name: 模式
@@ -57,6 +64,10 @@ parameters:
     readback: true
     update_policy: immediate
     control_source: true  # 控制连接源（可读探针）
+  - {id: execution_mode, name: 执行模式（0平滑包络，1块级双dB统计）, type: int, default: 0, range: [0, 1], update_policy: restart_required, affects_signature: true}
+  - {id: db_epsilon, name: dB统计正偏置, type: float, default: 2.22044605e-16, update_policy: restart_required}
+  - {id: rms_db, name: 最大通道均方dB, type: float, default: 0.0, readback: true, control_source: true, update_policy: immediate}
+  - {id: peak_db, name: 全块峰值dB, type: float, default: 0.0, readback: true, control_source: true, update_policy: immediate}
 memory:
   state_size: 0
   scratch_size: 0
