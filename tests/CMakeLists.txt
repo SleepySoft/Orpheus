@@ -289,6 +289,13 @@ target_include_directories(delta_hold_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delta_hold/include)
 target_compile_definitions(delta_hold_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME delta_hold_smoke COMMAND delta_hold_smoke)
+add_executable(trapezoid_ratio_smoke trapezoid_ratio_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/trapezoid_ratio/src/trapezoid_ratio.c)
+target_include_directories(trapezoid_ratio_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/trapezoid_ratio/include)
+target_compile_definitions(trapezoid_ratio_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME trapezoid_ratio_smoke COMMAND trapezoid_ratio_smoke)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)

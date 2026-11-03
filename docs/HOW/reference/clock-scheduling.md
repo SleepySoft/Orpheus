@@ -234,6 +234,15 @@ reset恢复冷启动而保留配置，块边界修改alpha保留历史，
 通用算子的多圈取模是额外能力，不代表可忽略原调用的合法定义域；
 来源验收须区分“原调用加契约shim”与厂商机器码或硬件仿真。
 
+`trapezoid_ratio`将两份独立f32向量分别按
+`y=(x+x_prev)*((1-alpha)*0.5)+y_prev*alpha`平滑，再计算
+`numerator_y/(denominator_y+epsilon)`。每点/通道保存四组历史，顺序批次共享各自历史，
+与双速PSD算子“同一输入、不同系数”的语义不同；不作额外限幅、开方或能量归约。
+参数修改保留历史，reset恢复正零历史；悬空输出仍推进两路历史。
+`alpha`须为有限[0,1]，`epsilon`须有限非负；epsilon=0时保留正常IEEE除零语义。
+分母加数在平滑之后加入，不以倒数再乘法重排直接除法。原生及四入口测试见
+`tests/trapezoid_ratio_smoke.c`和`orpheus_core/tests/test_trapezoid_ratio.py`。
+
 `delta_hold`消费f32逐批向量，按严格增量阈值触发，再按批次计数保持，
 输出真正的i32标志，不通过浮点边或参数调用伪装整数数据。
 触发批次清计数，后续仅在上一状态为1且counter<hold_ticks时保持并递增，

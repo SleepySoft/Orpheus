@@ -1,0 +1,19 @@
+id: orpheus.builtin.trapezoid_ratio
+name: 双路梯形平滑比值
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: TrapezoidRatioState
+sources: [src/trapezoid_ratio.c]
+headers: [include/orpheus_trapezoid_ratio.h]
+ports:
+  - {id: numerator, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins * param:batches"}
+  - {id: denominator, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins * param:batches"}
+  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins * param:batches"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: bins, name: 每批向量行数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  - {id: batches, name: 顺序批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: alpha, name: 历史系数, type: float, default: 0.9, range: [0.0, 1.0], update_policy: block_boundary}
+  - {id: epsilon, name: 分母加数, type: float, default: 2.22044605e-16, update_policy: block_boundary}
+execution: {realtime_safe: true, supports_inplace: false}
