@@ -1,0 +1,31 @@
+id: orpheus.builtin.bulk_guarded_slew
+name: 数据方向保持与阈值限速
+category: 基础/计算数据
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: BulkGuardedSlewState
+description: >-
+  每个元素每次交付推进一次，独立保存前输出、前delta和前change，不沿数组行递推。
+  delta=in-previous，正向change=min(attack,delta)，否则max(decay,delta)。
+  前后delta乘积大于零时保留前change作为候选slew，否则为零；
+  bound非零且候选slew为零时改用正负slow限速。
+  abs(delta)<=threshold且abs(slew)<abs(change)时采用slew，再previous+=change。
+  bound为可选f32单项全元素标记，不连接视为零；不是时钟，不隐式转换整数标记。
+  initial在首次有效调用惰性读取；reset清三份历史并恢复未初始化态，动态参数不清历史。
+  NULL输出仍推进，零处理量不推进；全部缓冲区先校验，错误不写不推进，禁止输入输出重叠。
+sources: [src/bulk_guarded_slew.c]
+headers: [include/orpheus_bulk_guarded_slew.h]
+ports:
+  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+  - {id: bound, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, optional: true}
+  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  - {id: elements, name: 每通道元素数, type: int, default: 1, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  - {id: attack, name: 每次正向最大变化, type: float, default: 1.0, update_policy: block_boundary}
+  - {id: decay, name: 每次负向最小变化, type: float, default: -1.0, update_policy: block_boundary}
+  - {id: threshold, name: 方向保持阈值, type: float, default: 0.0, update_policy: block_boundary}
+  - {id: slow, name: 边界慢速率幅值, type: float, default: 0.0, update_policy: block_boundary}
+  - {id: initial, name: 初始输出, type: float, default: 0.0, update_policy: block_boundary}
+execution: {realtime_safe: true, supports_inplace: false}

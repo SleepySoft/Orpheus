@@ -337,6 +337,17 @@ target_include_directories(bulk_one_pole_smoke PRIVATE
 target_compile_definitions(bulk_one_pole_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_one_pole_smoke COMMAND bulk_one_pole_smoke)
 
+add_executable(bulk_guarded_slew_smoke bulk_guarded_slew_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_guarded_slew/src/bulk_guarded_slew.c)
+target_include_directories(bulk_guarded_slew_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_guarded_slew/include)
+target_compile_definitions(bulk_guarded_slew_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(bulk_guarded_slew_smoke PRIVATE m)
+endif()
+add_test(NAME bulk_guarded_slew_smoke COMMAND bulk_guarded_slew_smoke)
+
 add_executable(bulk_subtract_smoke bulk_subtract_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_subtract/src/bulk_subtract.c)
 target_include_directories(bulk_subtract_smoke PRIVATE
