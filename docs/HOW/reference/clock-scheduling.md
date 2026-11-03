@@ -191,6 +191,20 @@ ports:
 
 ### 首批频域闭环：FFT / IFFT / Overlap-Add
 
+布局不相同时使用显式桥接，不重复FFT：`halfcomplex_decode`接受旧音频类型的`in`
+或带`layout: halfcomplex`、`frame_size: fft_size`的数据`spectrum`，两者必须且只能接一个。
+它把每批N槽的`hc[k]=Re(k)`、`hc[N-k]=Im(k)`转换为无布局标签的兼容BULK，
+选择从`first_bin`开始的`bins`个非负频点；精确索引为
+`((batch*bins+bin)*2+part)*channels+channel`，part=0/1分别为实/虚部。
+DC/Nyquist虚部写正零，其余位型逐字节保留，无共轭、缩放、窗函数或量化。
+`fft_size`允许2～65536的偶数，不要求二次幂；所有批次共享一次交付。
+例如256槽变258槽、三批768槽变774槽，仍沿上游128/384帧移交付，
+不是新增音频时长。输出只兼容明确采用该交织规则的无标签算法接口，
+不能假定任意无标签BULK都具有相同布局。该桥不替代频域算法核。
+`tests/halfcomplex_smoke.c`验证特殊IEEE位型、选带、边界及非法输入拒绝；
+`orpheus_core/tests/test_halfcomplex_decode.py`逐位核对动态/生成的全局与Task四入口，
+覆盖双通道、十通道、单/三批次、两种输入及选带，并断言原交付周期不变。
+
 - 扩展`rfft`：保留旧音频`out`和halfcomplex/magnitude/power模式；新增
   `spectrum`数据输出，始终为未归一化halfcomplex。非法批次不再静默退化为单帧。
 - 扩展`ifft`：`fft_size=0`保留自动单帧；显式设置4～1024的二次幂即可逐帧处理

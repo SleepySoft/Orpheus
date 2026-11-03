@@ -1,0 +1,26 @@
+id: orpheus.test.halfcomplex_capture
+name: 半复数桥接验收采集
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: HalfcomplexCapture
+sources: [src/capture.c]
+headers: [include/capture.h]
+input_alternatives: [[packed, spectrum]]
+ports:
+  - {id: values, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*2*param:batches"}
+  - {id: packed, direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches"}
+  - {id: spectrum, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", layout: halfcomplex, frame_size: "param:fft_size"}
+parameters:
+  - {id: channels, type: int, default: 2, update_policy: restart_required, affects_signature: true}
+  - {id: fft_size, type: int, default: 256, update_policy: restart_required, affects_signature: true}
+  - {id: batches, type: int, default: 1, update_policy: restart_required, affects_signature: true}
+  - {id: bins, type: int, default: 129, update_policy: restart_required, affects_signature: true}
+  - {id: packed_values, type: string, default: "", kind: bulk, shape: ["param:fft_size*param:batches", "param:channels"], readback: true}
+  - {id: decoded_values, type: string, default: "", kind: bulk, shape: ["param:bins*2*param:batches", "param:channels"], readback: true}
+  - {id: calls, type: int, default: 0, readback: true}
+  - {id: quantum, type: int, default: 0, readback: true}
+bulk_slots:
+  - {id: packed_values, name: 原始槽位, type: float, count: 8192, shape: ["param:fft_size*param:batches", "param:channels"]}
+  - {id: decoded_values, name: 解包槽位, type: float, count: 8192, shape: ["param:bins*2*param:batches", "param:channels"]}
+execution: {realtime_safe: true, supports_inplace: false}

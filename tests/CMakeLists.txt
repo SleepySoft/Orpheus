@@ -231,6 +231,15 @@ if(NOT WIN32)
     target_link_libraries(gain_observer_smoke PRIVATE m)
 endif()
 add_test(NAME gain_observer_smoke COMMAND gain_observer_smoke)
+add_executable(halfcomplex_smoke halfcomplex_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_decode/src/halfcomplex_decode.c)
+target_include_directories(halfcomplex_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_decode/include)
+target_compile_definitions(halfcomplex_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME halfcomplex_smoke COMMAND halfcomplex_smoke)
+add_executable(halfcomplex_runner halfcomplex_runner.cpp)
+target_link_libraries(halfcomplex_runner PRIVATE orpheus_runtime_lib)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
