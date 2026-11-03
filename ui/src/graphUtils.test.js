@@ -8,10 +8,30 @@ import {
   docToViews,
   isControlHandle,
   resolveShape,
+  resolvePorts,
   shapeEquals,
   shapeText,
+  subCatalogEntry,
   viewsToDoc,
 } from './graphUtils';
+
+describe('显式可选数据端口', () => {
+  const component = {
+    ports: [{ id: 'value', direction: 'output', type: 'control', channels: 1, block_size: 1,
+      count: 'param:enabled', optional: true }],
+    parameters: [{ id: 'enabled', type: 'int', default: 0 }],
+  };
+  test('默认关闭不生成引脚，启用后保持标量元数据', () => {
+    expect(resolvePorts(component, {})).toEqual([]);
+    expect(resolvePorts(component, { enabled: 0 })).toEqual([]);
+    const [port] = resolvePorts(component, { enabled: 1 });
+    expect(port).toMatchObject({ id: 'value0', type: 'control', channels: 1, block_size: 1 });
+  });
+  test('复合组件目录保留非音频端口类型与尺寸', () => {
+    const port = { id: 'level', direction: 'output', type: 'control', channels: 1, block_size: 1 };
+    expect(subCatalogEntry({ id: 'test', ports: [port] }).ports).toEqual([port]);
+  });
+});
 
 // 最小组件目录：gain（bindable gain_db）/ level_detect（control_source level）/ matrix（shape 表达式）
 const catalog = [

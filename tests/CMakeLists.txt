@@ -221,6 +221,16 @@ if(NOT WIN32)
     target_link_libraries(level_tracker_smoke PRIVATE m)
 endif()
 add_test(NAME level_tracker_smoke COMMAND level_tracker_smoke)
+add_executable(gain_observer_smoke gain_observer_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain_ramper/src/gain_ramper.c)
+target_include_directories(gain_observer_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain_ramper/include)
+target_compile_definitions(gain_observer_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(gain_observer_smoke PRIVATE m)
+endif()
+add_test(NAME gain_observer_smoke COMMAND gain_observer_smoke)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)

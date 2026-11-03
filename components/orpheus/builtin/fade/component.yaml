@@ -27,6 +27,7 @@ ports:
     sample_format: f32
     channels: param:channels
     count: param:execution_mode
+    optional: true
 parameters:
   - id: fade
     name: 衰减

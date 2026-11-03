@@ -1,8 +1,11 @@
 id: orpheus.builtin.gain_ramper
 name: 多通道增益斜坡器
 category: 高级/滤波器组
-description: 块级dB请求、显式逐样本递推或帧内幂次包络，通道映射与旁路/静音
-version: 1.3.0
+description: >-
+  块级dB请求、显式逐样本递推或帧内幂次包络，通道映射与旁路/静音。
+  gain_output=1时gain0为所选gain_channel的块末已应用线性增益（1×1控制数据）；
+  旁路为1、模式2静音为0，非该组首样本增益或目标值。默认关闭，不改变旧音频与BULK接口。
+version: 1.4.0
 abi_version: 1
 package_type: source
 state_type: GainRamperState
@@ -21,6 +24,7 @@ ports:
     type: audio
     sample_format: f32
     channels: param:channels
+  - {id: gain, direction: output, type: control, sample_format: f32, channels: 1, block_size: 1, count: "param:gain_output", optional: true}
 parameters:
   - id: gain_db
     name: 目标增益
@@ -61,6 +65,8 @@ parameters:
   - {id: coefficients, name: 各组逐样本乘数, type: string, default: "", kind: bulk, shape: ["param:num_rampers"], widget: text, update_policy: restart_required}
   - {id: remaining_blocks, name: 各组剩余块数, type: string, default: "", kind: bulk, shape: ["param:num_rampers"], range: [-2147483648, 2147483647], widget: text, update_policy: restart_required}
   - {id: freeze, name: 冻结显式包络, type: bool, default: false, persistent: true, readback: true, update_policy: block_boundary}
+  - {id: gain_output, name: 输出块末通道增益, type: int, default: 0, range: [0, 1], update_policy: restart_required, affects_signature: true}
+  - {id: gain_channel, name: 观测通道（从0起）, type: int, default: 0, range: [0, 63], update_policy: restart_required}
 bulk_slots:
   - {id: current_gains, name: 各组当前线性增益, type: float, count: 32, shape: ["param:num_rampers"], double_bank: true}
   - {id: target_gains, name: 各组目标线性增益, type: float, count: 32, shape: ["param:num_rampers"], double_bank: true}

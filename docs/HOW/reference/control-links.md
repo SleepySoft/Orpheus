@@ -15,6 +15,16 @@
 明确声明，不存在自动仲裁。声明字段及使用边界见
 [组件模型：混合交互](../03-component-model.md#混合交互的使用边界)。
 
+计算数据端口可用 `count: param:<开关>` 配合 `optional: true` 显式声明可选端口组：
+数量为0时编译器和UI都省略，数量为1时仍按可变引脚规则命名为`<id>0`。
+负数始终报错；未声明`optional: true`的普通端口数量仍须至少为1。
+例如`gain_ramper.gain_output=1`启用`gain0`，输出所选`gain_channel`的**块末已应用线性增益**，
+默认关闭，原音频/BULK行为不变；`level_detect.execution_mode=1`启用双dB标量端口。
+`level_tracker.volume_gain`明确接收线性增益并转dB，`volume`明确接收dB；
+两种数据输入同时连接时拒绝，单一数据输入优先于`volume_db`参数回退，
+不能把线性值当成dB，也不能用块末参数链冒充这条同块数据依赖。
+复合组件目录保留端口类型/尺寸，不把这些标量端口降格为音频端口。
+
 `delay_line` 提供一个明确的标量/BULK 共存例子：旧 `delays_samples` 是逐通道
 BULK 向量，新增整数 `delay_samples` 是公共样本延迟。其默认值 `-1` 保持逐通道
 行为；非负值覆盖所有通道，但不修改或丢弃向量，回到 `-1` 即恢复向量控制。

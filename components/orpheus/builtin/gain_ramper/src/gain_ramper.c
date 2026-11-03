@@ -121,7 +121,13 @@ static const OrpheusParameter gr_params[] = {
     ENVELOPE_PARAMETER("remaining_blocks","各组剩余块数"),
     {.id="freeze",.name="冻结显式包络",.type=ORPHEUS_VALUE_BOOL,
      .default_value={.type=ORPHEUS_VALUE_BOOL,.value.b=false},
-     .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY,.readback=true,.persistent=true}
+     .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY,.readback=true,.persistent=true},
+    {.id="gain_output",.name="输出块末通道增益",.type=ORPHEUS_VALUE_INT,
+     .default_value={.type=ORPHEUS_VALUE_INT,.value.i32=0},.min_i32=0,.max_i32=1,
+     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,.affects_signature=true},
+    {.id="gain_channel",.name="观测通道（从0起）",.type=ORPHEUS_VALUE_INT,
+     .default_value={.type=ORPHEUS_VALUE_INT,.value.i32=0},.min_i32=0,.max_i32=63,
+     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED}
 };
 #undef ENVELOPE_PARAMETER
 
@@ -131,12 +137,14 @@ static const OrpheusPort gr_ports[] = {
       .is_variable = true, .channels_param = "channels" },
     { .id = "out", .direction = ORPHEUS_PORT_OUTPUT, .type = ORPHEUS_PORT_AUDIO,
       .sample_format = ORPHEUS_FORMAT_F32, .channels = 0, .sample_rate = 0, .block_size = 0,
-      .is_variable = true, .channels_param = "channels" }
+      .is_variable = true, .channels_param = "channels" },
+    {.id="gain",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_CONTROL,
+     .sample_format=ORPHEUS_FORMAT_F32,.channels=1,.block_size=1}
 };
 
 static const OrpheusComponentDescriptor gr_descriptor = {
-    .id = "orpheus.builtin.gain_ramper", .version = "1.3.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = gr_ports, .port_count = 2, .params = gr_params, .param_count = sizeof(gr_params)/sizeof(gr_params[0]),
+    .id = "orpheus.builtin.gain_ramper", .version = "1.4.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = gr_ports, .port_count = 3, .params = gr_params, .param_count = sizeof(gr_params)/sizeof(gr_params[0]),
     .state_size = sizeof(GainRamperState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = true
 };
@@ -160,8 +168,14 @@ static int gr_prepare(void* state, const OrpheusConfig* config) {
     if (!state || !config || (config->param_count && (!config->param_ids || !config->param_values)))
         return ORPHEUS_ERR_INVALID_ARG;
     GainRamperState* s = (GainRamperState*)state;
-    s->execution_mode=0; s->freeze=false;
+    s->execution_mode=0; s->freeze=false; s->gain_output=0; s->gain_channel=0;
     for (unsigned i=0;i<config->param_count;++i) {
+        if (config->param_ids[i] && (!strcmp(config->param_ids[i],"gain_output") || !strcmp(config->param_ids[i],"gain_channel"))) {
+            const OrpheusValue* value=&config->param_values[i];
+            if (value->type!=ORPHEUS_VALUE_INT) return ORPHEUS_ERR_INVALID_ARG;
+            if (!strcmp(config->param_ids[i],"gain_output")) s->gain_output=value->value.i32;
+            else s->gain_channel=value->value.i32;
+        }
         if (config->param_ids[i] && strcmp(config->param_ids[i],"execution_mode")==0) {
             const OrpheusValue* value=&config->param_values[i];
             if (value->type!=ORPHEUS_VALUE_INT || value->value.i32<0 || value->value.i32>2)
@@ -169,6 +183,8 @@ static int gr_prepare(void* state, const OrpheusConfig* config) {
             s->execution_mode=value->value.i32;
         }
     }
+    if (s->gain_output<0 || s->gain_output>1 || s->gain_channel<0 || s->gain_channel>=GR_MAX_CHANNELS)
+        return ORPHEUS_ERR_INVALID_ARG;
     if (s->execution_mode>0) {
         for (unsigned i=0;i<config->param_count;++i) {
             for (unsigned j=0;j<sizeof(gr_params)/sizeof(gr_params[0]);++j) {
@@ -185,6 +201,7 @@ static int gr_prepare(void* state, const OrpheusConfig* config) {
         if (channels<1 || channels>GR_MAX_CHANNELS || rampers<1 || rampers>GR_MAX_RAMPERS)
             return ORPHEUS_ERR_INVALID_ARG;
         s->channels=(unsigned)channels; s->numRampers=(unsigned)rampers;
+        if (s->gain_output && (unsigned)s->gain_channel>=s->channels) return ORPHEUS_ERR_INVALID_ARG;
         if (orpheus_parse_gain_array(read_string(config,"chan_map",""),s->chanMap,s->channels,true,s->execution_mode==2 ? -2 : -1,rampers-1)!=ORPHEUS_OK ||
             orpheus_parse_gain_array(read_string(config,"current_gains",""),s->current_gains,s->numRampers,false,0,0)!=ORPHEUS_OK ||
             orpheus_parse_gain_array(read_string(config,"target_gains",""),s->target_gains,s->numRampers,false,0,0)!=ORPHEUS_OK ||
@@ -195,6 +212,7 @@ static int gr_prepare(void* state, const OrpheusConfig* config) {
         return ORPHEUS_OK;
     }
     s->channels   = config->channels > 0 ? config->channels : 2;
+    if (s->gain_output && (unsigned)s->gain_channel>=s->channels) return ORPHEUS_ERR_INVALID_ARG;
     s->numRampers = (uint32_t)read_int(config, "num_rampers", 1);
     if (s->numRampers < 1) s->numRampers = 1;
     if (s->numRampers > GR_MAX_RAMPERS) s->numRampers = GR_MAX_RAMPERS;
@@ -281,7 +299,7 @@ static int process_explicit(GainRamperState* s,const OrpheusProcessContext* ctx)
     output->frame_count=frames; return ORPHEUS_OK;
 }
 
-static int gr_process(void* state, const OrpheusProcessContext* ctx) {
+static int process_audio(void* state, const OrpheusProcessContext* ctx) {
     if (!state || !ctx || ctx->input_count<1 || ctx->output_count<1 || !ctx->inputs || !ctx->outputs)
         return ORPHEUS_ERR_INVALID_ARG;
     GainRamperState* s = (GainRamperState*)state;
@@ -325,6 +343,24 @@ static int gr_process(void* state, const OrpheusProcessContext* ctx) {
 }
 
 /* ---- 参数 ---- */
+
+static int gr_process(void* state,const OrpheusProcessContext* ctx) {
+    if (!state || !ctx || (ctx->output_count && !ctx->outputs)) return ORPHEUS_ERR_INVALID_ARG;
+    GainRamperState* s=(GainRamperState*)state;
+    OrpheusBuffer* observed=ctx->output_count>1 ? ctx->outputs[1] : NULL;
+    if (s->gain_output && (s->gain_channel<0 || (unsigned)s->gain_channel>=s->channels ||
+        (observed && (observed->format!=ORPHEUS_FORMAT_F32 || observed->channels!=1 ||
+                      observed->frame_capacity<1 || (ctx->frame_count && !observed->data)))))
+        return ORPHEUS_ERR_INVALID_ARG;
+    int result=process_audio(state,ctx);
+    if (result==ORPHEUS_OK && ctx->frame_count && s->gain_output && observed) {
+        int32_t group=s->chanMap[s->gain_channel];
+        float gain=group==-2 && s->execution_mode==2 ? 0 : group<0 ? 1 :
+                   s->execution_mode>0 ? s->current_gains[group] : s->rampers[group].currentGain;
+        ((float*)observed->data)[0]=gain; observed->frame_count=1;
+    }
+    return result;
+}
 
 static int gr_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {
     if (!state || !param_id || !value) return ORPHEUS_ERR_INVALID_ARG;

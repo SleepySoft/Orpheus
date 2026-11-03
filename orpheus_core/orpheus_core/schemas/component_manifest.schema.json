@@ -110,6 +110,7 @@
           "layout": { "type": "string", "minLength": 1, "description": "非音频数据布局标识；连接两端须完全相同，不隐式转换" },
           "frame_size": { "type": ["integer", "string"], "minimum": 0, "description": "非音频数组内部的分帧长度；须整除 block_size，0 表示整个数组为一帧；连接两端须相同" },
           "count": { "type": ["integer", "string"], "description": "Variable pin count expression, e.g. param:channels; port is replicated as <id>0..<id>N-1" },
+          "optional": { "type": "boolean", "default": false, "description": "显式允许count=0时省略整个端口组；负数仍无效。不是未连接输入的运行期默认值。" },
           "is_variable": { "type": "boolean" },
           "channels_param": { "type": "string" },
           "maps_to": { "type": "string", "description": "Composite implementation boundary target: direct_child:port" },

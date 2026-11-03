@@ -17,7 +17,8 @@
     X(trigger,"无输入时快速触发",0.0f) \
     X(trigger_threshold,"快速触发阈值",0.0f) \
     X(fast_multiplier,"快速触发衰减倍数",1.0f) \
-    X(mode,"模式（负数冻结，0均方，正数峰值）",0.0f)
+    X(mode,"模式（负数冻结，0均方，正数峰值）",0.0f) \
+    X(volume_epsilon,"线性音量转dB正偏置",2.22044605e-16f)
 
 static float* parameter(LevelTrackerState* state,const char* key) {
 #define FIND(member,name,value) if (!strcmp(key,#member)) return &state->member;
@@ -30,7 +31,7 @@ static int validate(const LevelTrackerState* state) {
 #define FINITE(member,name,value) if (!isfinite(state->member)) return ORPHEUS_ERR_INVALID_ARG;
     PARAMETERS(FINITE)
 #undef FINITE
-    if (state->min_db>state->max_db || state->hold_calls<0 || state->hold_margin_db<0)
+    if (state->min_db>state->max_db || state->hold_calls<0 || state->hold_margin_db<0 || state->volume_epsilon<=0)
         return ORPHEUS_ERR_INVALID_ARG;
     return ORPHEUS_OK;
 }
@@ -52,12 +53,13 @@ static const OrpheusPort ports[] = {
                       .sample_format=ORPHEUS_FORMAT_F32,.channels=1,.block_size=1}
     PORT("rms",ORPHEUS_PORT_INPUT), PORT("peak",ORPHEUS_PORT_INPUT),
     PORT("volume",ORPHEUS_PORT_INPUT), PORT("trigger",ORPHEUS_PORT_INPUT),
+    PORT("volume_gain",ORPHEUS_PORT_INPUT),
     PORT("level",ORPHEUS_PORT_OUTPUT), PORT("envelope",ORPHEUS_PORT_OUTPUT)
 #undef PORT
 };
 static const OrpheusComponentDescriptor descriptor = {
-    .id="orpheus.builtin.level_tracker",.version="1.0.0",.abi_version=ORPHEUS_ABI_VERSION,
-    .ports=ports,.port_count=6,.params=params,.param_count=sizeof(params)/sizeof(params[0]),
+    .id="orpheus.builtin.level_tracker",.version="1.1.0",.abi_version=ORPHEUS_ABI_VERSION,
+    .ports=ports,.port_count=7,.params=params,.param_count=sizeof(params)/sizeof(params[0]),
     .state_size=sizeof(LevelTrackerState),.alignment=8,.realtime_safe=true
 };
 
@@ -110,14 +112,18 @@ static int tracker_process(void* state,const OrpheusProcessContext* context) {
     if (!state || !context || (context->input_count && !context->inputs) ||
         (context->output_count && !context->outputs)) return ORPHEUS_ERR_INVALID_ARG;
     LevelTrackerState* s=(LevelTrackerState*)state;
-    for (unsigned i=0;i<context->input_count && i<4;++i)
+    for (unsigned i=0;i<context->input_count && i<5;++i)
         if (!scalar_valid(context->inputs[i],context->frame_count)) return ORPHEUS_ERR_INVALID_ARG;
     for (unsigned i=0;i<context->output_count && i<2;++i)
         if (!scalar_valid(context->outputs[i],context->frame_count)) return ORPHEUS_ERR_INVALID_ARG;
+    if (context->input_count>4 && context->inputs[4] && context->inputs[2])
+        return ORPHEUS_ERR_INVALID_ARG;
     if (!context->frame_count) return ORPHEUS_OK;
     float values[]={s->rms_db,s->peak_db,s->volume_db,s->trigger};
     for (unsigned i=0;i<context->input_count && i<4;++i)
         if (context->inputs[i]) values[i]=((const float*)context->inputs[i]->data)[0];
+    if (context->input_count>4 && context->inputs[4])
+        values[2]=log10f(((const float*)context->inputs[4]->data)[0]+s->volume_epsilon)*20;
     if (!s->initialized) { s->initialized=true; s->envelope_db=-fabsf(s->min_db); }
     s->level_db_spl=0;
     if (s->mode>=0) {

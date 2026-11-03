@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from orpheus_core.compiler import CompileError, GraphCompiler
-from orpheus_core.project import Connection, Graph, Node, PortRef, Project
+from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import Registry
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -152,3 +152,26 @@ def test_unknown_variable_pin_rejected(compiler):
     )
     with pytest.raises(CompileError, match="unknown source port"):
         compiler.compile(project)
+
+
+@pytest.mark.parametrize("component", ["level_detect", "fade", "gain_ramper"])
+def test_optional_ports_preserve_default_graphs(compiler, component):
+    project = make_project({
+        "source": Node(id="source", component="orpheus.builtin.signal_gen", params={"channels": 2}),
+        "node": Node(id="node", component="orpheus.builtin."+component, params={"channels": 2}),
+        "out": Node(id="out", component="orpheus.builtin.probe_rms", params={"channels": 2}),
+    }, [conn("source:out", "node:in"), conn("node:out", "out:in")])
+    plan = compiler.compile(project)
+    assert plan.node_configs["node"]["input_ports"] == ["in"]
+    assert plan.node_configs["node"]["output_ports"] == ["out"]
+
+
+@pytest.mark.parametrize("optional,count", [(False, 0), (False, -1), (True, -1)])
+def test_invalid_port_counts_still_rejected(compiler, optional, count):
+    from orpheus_core.compiler import _expand_port_manifests
+    import copy
+    info = copy.deepcopy(compiler.registry.get("orpheus.builtin.level_detect"))
+    info.manifest["ports"] = [{"id": "test", "count": count, "optional": optional}]
+    node = Node(id="node", component=info.id)
+    with pytest.raises(CompileError, match="invalid port count"):
+        _expand_port_manifests(node, info, Task(id="default", sample_rate=48000, block_size=32))

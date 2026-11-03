@@ -27,8 +27,8 @@ ports:
     type: audio
     sample_format: f32
     channels: param:channels
-  - {id: rms, direction: output, type: control, sample_format: f32, channels: 1, block_size: 1, count: "param:execution_mode"}
-  - {id: peak, direction: output, type: control, sample_format: f32, channels: 1, block_size: 1, count: "param:execution_mode"}
+  - {id: rms, direction: output, type: control, sample_format: f32, channels: 1, block_size: 1, count: "param:execution_mode", optional: true}
+  - {id: peak, direction: output, type: control, sample_format: f32, channels: 1, block_size: 1, count: "param:execution_mode", optional: true}
 parameters:
   - id: mode
     name: 模式

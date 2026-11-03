@@ -25,7 +25,7 @@ int main(void) {
     float input=-10,output=0;
     OrpheusBuffer scalar={.data=&input,.channels=1,.frame_capacity=1,.format=ORPHEUS_FORMAT_F32};
     OrpheusBuffer scalar_out={.data=&output,.channels=1,.frame_capacity=1,.format=ORPHEUS_FORMAT_F32};
-    const OrpheusBuffer* inputs[]={&scalar,NULL,NULL,NULL}; OrpheusBuffer* outputs[]={&scalar_out};
+    const OrpheusBuffer* inputs[]={&scalar,NULL,NULL,NULL,NULL}; OrpheusBuffer* outputs[]={&scalar_out};
     context.inputs=inputs; context.input_count=4; context.outputs=outputs; context.output_count=1;
     CHECK(iface->process(&state,&context)==ORPHEUS_OK && state.envelope_db==-10 && output==90 && scalar_out.frame_count==1);
     float volume=-7,trigger=0;
@@ -36,6 +36,13 @@ int main(void) {
     CHECK(iface->process(&state,&context)==ORPHEUS_OK && state.envelope_db==-10.5f && output==82.5f);
     state.mode=1; state.peak_db=-5;
     CHECK(iface->process(&state,&context)==ORPHEUS_OK && state.envelope_db==-5 && output==88);
+    state.mode=0; state.volume_db=9; volume=.04f;
+    inputs[2]=NULL; inputs[4]=&volume_in; context.input_count=5;
+    CHECK(iface->process(&state,&context)==ORPHEUS_OK &&
+          output==fmaxf(0,(state.envelope_db+state.prediction_db_spl)+log10f(volume+state.volume_epsilon)*20));
+    LevelTrackerState unit_snapshot=state; inputs[2]=&volume_in;
+    CHECK(iface->process(&state,&context)==ORPHEUS_ERR_INVALID_ARG && !memcmp(&unit_snapshot,&state,sizeof(state)));
+    inputs[2]=&volume_in; inputs[4]=NULL; context.input_count=4;
     state.mode=0; state.envelope_db=-10; state.rms_db=-40;
     state.hold_count=16777216; state.hold_calls=16777216; state.holding=true;
     context.input_count=0; context.inputs=NULL; state.trigger=0;

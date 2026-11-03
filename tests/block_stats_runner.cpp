@@ -25,7 +25,8 @@ int main(int argc,char** argv) {
 #define READ(n,k,v,c) runtime.get_bulk(n,k,v,c)
 #define PROCESS() (strcmp(mode,"task")==0 ? runtime.process_task("default",0) : runtime.process_block(32))
 #endif
-    int tracking=!strcmp(argv[first],"--track");
+    int volume=!strcmp(argv[first],"--volume");
+    int tracking=volume || !strcmp(argv[first],"--track");
     if (tracking) ++first;
     FILE* stream=fopen("block_stats.bin","wb"); CHECK(stream);
     for (unsigned block=0;block<6;++block) {
@@ -62,6 +63,15 @@ int main(int argc,char** argv) {
                 CHECK(READ(consumer,"metrics",metrics,32)==ORPHEUS_OK);
                 CHECK(metrics[0]==block+1 && metrics[1]==32 && metrics[6]==1);
                 CHECK(!memcmp(&metrics[8+block],&value.value.f32,4));
+            }
+            if (volume) {
+                char gain[128],consumer[128];
+                snprintf(gain,sizeof(gain),"%s_gain",argv[i]);
+                snprintf(consumer,sizeof(consumer),"%s_observed",argv[i]);
+                float current,metrics[32];
+                CHECK(READ(gain,"current_gains",&current,1)==ORPHEUS_OK);
+                CHECK(READ(consumer,"metrics",metrics,32)==ORPHEUS_OK);
+                CHECK(metrics[0]==block+1 && metrics[6]==1 && !memcmp(&metrics[8+block],&current,4));
             }
         }
     }

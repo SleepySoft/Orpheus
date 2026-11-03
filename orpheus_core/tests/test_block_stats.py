@@ -18,7 +18,8 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).parent / "fixtures/data_ports"
 
 
-def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_reference=None):
+def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_reference=None,
+                       volume_gains=None, gain_reference=None):
     from test_generated_double_bank import _build
     frames, width = 192, max(cases.values())
     samples = [[((n*113+c*911) % 50001)-25000 for c in range(width)] for n in range(frames)]
@@ -44,6 +45,16 @@ def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_r
             for port in ("level", "envelope"):
                 nodes[name+"_"+port] = Node(id=name+"_"+port, component="orpheus.test.data_probe", params={"mode": 1})
                 edges.append(Connection(from_ref=PortRef(name+"_track", port), to_ref=PortRef(name+"_"+port, "scalar")))
+        if volume_gains is not None:
+            nodes[name+"_gain"] = Node(id=name+"_gain", component="orpheus.builtin.gain_ramper", params=volume_gains[name])
+            nodes[name+"_gain_out"] = Node(id=name+"_gain_out", component="orpheus.builtin.wav_out",
+                                           params={"channels": channels, "file_path": name+"_gain.wav"})
+            nodes[name+"_observed"] = Node(id=name+"_observed", component="orpheus.test.data_probe", params={"mode": 1})
+            for a, x, b, y in ((name+"_route", "out", name+"_gain", "in"),
+                               (name+"_gain", "out", name+"_gain_out", "in"),
+                               (name+"_gain", "gain0", name+"_track", "volume_gain"),
+                               (name+"_gain", "gain0", name+"_observed", "scalar")):
+                edges.append(Connection(from_ref=PortRef(a, x), to_ref=PortRef(b, y)))
     project = Project(metadata={"name": "块级双dB非音频统计"}, tasks={"default": Task(id="default", sample_rate=48000, block_size=32)})
     project.graph = Graph(nodes=nodes, connections=edges)
     registry = Registry(); registry.add_search_path(ROOT / "components"); registry.scan()
@@ -73,6 +84,8 @@ def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_r
     components = ("level_detect", "channel_router", "wav_in", "wav_out")
     if trackers is not None:
         components += ("level_tracker",)
+    if volume_gains is not None:
+        components += ("gain_ramper",)
     result = subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", "block_stats_runner",
                              *["orpheus_builtin_"+c for c in components]], capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout+result.stderr
@@ -82,7 +95,7 @@ def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_r
         for library in (ROOT / "build/components").glob("*orpheus_builtin_"+component+".*"):
             if library.suffix in (".dll", ".so", ".dylib"):
                 shutil.copy2(library, libraries / library.name)
-    expected, states = [], {}
+    expected, states, gain_states, gain_audio = [], {}, {}, {name: [] for name in cases}
     for block in range(6):
         chunk = samples[block*32:(block+1)*32]
         for name, channels in cases.items():
@@ -100,9 +113,32 @@ def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_r
                 rms, peak = [f32(f32(math.log10(f32(max(powers)+epsilon)))*10),
                              f32(f32(math.log10(f32(max(abs(v) for row in rows for v in row)+epsilon)))*20)]
             expected += [rms, peak]
+            linear_gain = None
+            if volume_gains is not None:
+                g = volume_gains[name]
+                if gain_reference is not None:
+                    linear_gain, audio = gain_reference(name, rows, g, block)
+                else:
+                    current, remaining = gain_states.get(name, (f32(float(g["current_gains"])), int(g["remaining_blocks"])))
+                    coefficient = 1.0
+                    if not g.get("freeze", False):
+                        if remaining == 0:
+                            current = f32(float(g["target_gains"]))
+                        else:
+                            coefficient = f32(float(g["coefficients"])); remaining -= 1
+                    audio = []
+                    for row in rows:
+                        current = f32(current*coefficient)
+                        audio.extend(f32(v*current) for v in row)
+                    gain_states[name] = current, remaining
+                    linear_gain = current
+                gain_audio[name] += [int(max(-1, min(1, v))*32767) for v in audio]
             if trackers is not None:
                 if tracker_reference is not None:
-                    expected += tracker_reference(name, trackers[name], block, rms, peak)
+                    if volume_gains is None:
+                        expected += tracker_reference(name, trackers[name], block, rms, peak)
+                    else:
+                        expected += tracker_reference(name, trackers[name], block, rms, peak, linear_gain)
                     continue
                 p = {k: f32(v) for k, v in trackers[name].items()}
                 envelope, count, holding = states.get(name, (-abs(p["min_db"]), 0, True))
@@ -126,12 +162,13 @@ def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_r
                             coefficient = f32(p["fast_multiplier"]*p["fast_decay_db"])
                         envelope = f32(envelope+coefficient)
                     envelope = min(p["max_db"], max(p["min_db"], envelope))
-                    level = max(0.0, f32(f32(envelope+p["prediction_db_spl"])+block*2))
+                    volume_db = block*2 if linear_gain is None else f32(f32(math.log10(f32(linear_gain+f32(2.22044605e-16))))*20)
+                    level = max(0.0, f32(f32(envelope+p["prediction_db_spl"])+volume_db))
                 states[name] = envelope, count, holding
                 expected += [level, envelope]
     baseline = None
     for mode in ("global", "task"):
-        selected = (["--track"] if trackers is not None else [])+list(cases)
+        selected = (["--volume"] if volume_gains is not None else ["--track"] if trackers is not None else [])+list(cases)
         commands = [[str(ROOT / "build/tests/block_stats_runner.exe"), str(plan_path), str(libraries), mode, *selected],
                     [str(generated / "build/block_stats_test.exe"), mode, *selected]]
         for command in commands:
@@ -151,6 +188,10 @@ def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_r
                     actual_pcm = struct.unpack(f"<{frames*channels}h", stream.readframes(frames))
                 expected_pcm = [int(f32(v/32768)*32767) for row in samples for v in row[:channels]]
                 assert actual_pcm == tuple(expected_pcm)
+                if volume_gains is not None:
+                    with wave.open(str(tmp_path / (name+"_gain.wav")), "rb") as stream:
+                        actual_pcm = struct.unpack(f"<{frames*channels}h", stream.readframes(frames))
+                    assert actual_pcm == tuple(gain_audio[name])
 
 
 def test_block_stats_four_entries(tmp_path):

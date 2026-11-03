@@ -80,7 +80,9 @@ export function resolvePorts(component, params) {
   const ports = [];
   for (const p of component?.ports || []) {
     if (p.count !== undefined) {
-      const n = Math.max(1, parseInt(resolveExprValue(p.count, params, component), 10) || 1);
+      const countValue = parseInt(resolveExprValue(p.count, params, component), 10);
+      if (p.optional === true && countValue === 0) continue;
+      const n = Math.max(1, countValue || 1);
       for (let i = 0; i < n; i++) {
         const { count, ...rest } = p;
         ports.push({ ...rest, id: `${p.id}${i}` });
@@ -99,7 +101,7 @@ export function subCatalogEntry(sub) {
     name: sub.name || sub.id,
     description: sub.description || '',
     version: '',
-    ports: (sub.ports || []).map((p) => ({ id: p.id, direction: p.direction, type: 'audio' })),
+    ports: (sub.ports || []).map((p) => ({ ...p, type: p.type || 'audio' })),
     parameters: (sub.public_parameters || []).map((p) => ({
       ...p,
       ...(p.direction === 'input'

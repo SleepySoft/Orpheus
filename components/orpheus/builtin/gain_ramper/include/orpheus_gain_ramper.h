@@ -33,6 +33,7 @@ typedef struct {
     float      target_gains[GR_MAX_RAMPERS];
     float      coefficients[GR_MAX_RAMPERS];
     int32_t    remaining_blocks[GR_MAX_RAMPERS];
+    int32_t    gain_output, gain_channel;
 } GainRamperState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);

@@ -1,16 +1,17 @@
 id: orpheus.builtin.level_tracker
 name: dB保持衰减跟踪
 category: 分析/电平
-version: 1.0.0
+version: 1.1.0
 abi_version: 4
 description: >-
-  RMS/峰值dB输入的保持衰减包络及声压级预测。四个1×1控制输入按RMS、峰值、音量补偿、快速触发排列；
+  RMS/峰值dB输入的保持衰减包络及声压级预测。前四个1×1控制输入按RMS、峰值、音量dB补偿、快速触发排列；
   已连接输入优先于对应参数，普通同步数据边同周期消费；未连接时使用显式参数。
   每个非空process调用更新一次，hold_calls按调用计数（双精度累积），衰减增量不乘音频帧数。
   mode负数冻结包络/计数并输出0，0选RMS，正数选峰值；冷启动包络为-abs(min_db)。
   上升立即跟随并恢复保持；下降差值达到hold_margin_db时累积计数，严格大于hold_calls后进入快衰减；
   差值不足仅清计数、不重新激活保持。trigger严格大于阈值时使用fast_multiplier×fast_decay_db。
   包络依次fmax下限/fmin上限，声压级为max(0,(包络+预测偏置)+音量补偿)，保留浮点运算顺序。
+  第五输入volume_gain为可选线性音量，显式按20log10(gain+volume_epsilon)转换；与volume输入同时接入时拒绝，避免单位歧义。
   零帧不推进，未连输出允许NULL；reset恢复冷启动而保留配置。只提供通用状态机，不代替请求生产、调音或初始化事务。
 sources: [src/level_tracker.c]
 includes: [include]
@@ -19,6 +20,7 @@ ports:
   - {id: peak, direction: input, type: control, sample_format: f32, channels: 1, block_size: 1}
   - {id: volume, direction: input, type: control, sample_format: f32, channels: 1, block_size: 1}
   - {id: trigger, direction: input, type: control, sample_format: f32, channels: 1, block_size: 1}
+  - {id: volume_gain, direction: input, type: control, sample_format: f32, channels: 1, block_size: 1}
   - {id: level, direction: output, type: control, sample_format: f32, channels: 1, block_size: 1}
   - {id: envelope, direction: output, type: control, sample_format: f32, channels: 1, block_size: 1}
 parameters:
@@ -36,6 +38,7 @@ parameters:
   - {id: trigger_threshold, name: 快速触发阈值, type: float, default: 0.0, update_policy: block_boundary}
   - {id: fast_multiplier, name: 快速触发衰减倍数, type: float, default: 1.0, update_policy: block_boundary}
   - {id: mode, name: 模式（负数冻结，0均方，正数峰值）, type: float, default: 0.0, update_policy: block_boundary}
+  - {id: volume_epsilon, name: 线性音量转dB正偏置, type: float, default: 2.22044605e-16, update_policy: block_boundary}
   - {id: level_db_spl, name: 声压级输出, type: float, default: 0.0, readback: true, control_source: true, update_policy: immediate}
   - {id: envelope_db, name: 当前包络, type: float, default: 0.0, readback: true, control_source: true, update_policy: immediate}
   - {id: holding, name: 保持状态, type: bool, default: true, readback: true, control_source: true, update_policy: immediate}

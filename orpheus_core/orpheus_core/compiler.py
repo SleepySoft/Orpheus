@@ -150,6 +150,8 @@ def _expand_port_manifests(
             raise CompileError(
                 f"cannot resolve port count for {node.id}:{pm['id']} ({count_expr!r})"
             ) from exc
+        if count == 0 and pm.get("optional") is True:
+            continue
         if count < 1:
             raise CompileError(f"invalid port count {count} for {node.id}:{pm['id']}")
         for i in range(count):
