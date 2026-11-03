@@ -30,7 +30,7 @@ static const OrpheusParameter params[] = {
       .readback = true, .persistent = true, .affects_signature = true },
     { .id = "channels", .name = "Channels", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
-      .min_i32 = 1, .max_i32 = 32, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+      .min_i32 = 1, .max_i32 = 64, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true, .affects_signature = true },
     { .id = "select", .name = "Select", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 1 },
@@ -55,7 +55,7 @@ static const OrpheusPort ports[] = {
 };
 
 static const OrpheusComponentDescriptor desc = {
-    "orpheus.builtin.n_way_mux", "1.1.0", ORPHEUS_ABI_VERSION,
+    "orpheus.builtin.n_way_mux", "1.2.0", ORPHEUS_ABI_VERSION,
     ports, 2, params, 5, sizeof(NWayMuxState), 0, 8, 0, true, false
 };
 
@@ -75,6 +75,7 @@ static uint32_t clamp_select(int sel, uint32_t inputs) {
 
 static int prepare(void* state, const OrpheusConfig* config) {
     NWayMuxState* s = (NWayMuxState*)state;
+    if (config->channels > 64) return ORPHEUS_ERR_INVALID_ARG;
     s->channels = (uint32_t)(config->channels > 0 ? config->channels : 2);
     s->inputs = (uint32_t)read_int(config, "inputs", 2);
     if (s->inputs < 1) s->inputs = 1;
@@ -83,6 +84,7 @@ static int prepare(void* state, const OrpheusConfig* config) {
     s->select = clamp_select(
         select_index >= 0 ? select_index + 1 : read_int(config, "select", 1),
         s->inputs);
+    s->select_index = (int32_t)s->select - 1;
     s->select_pos = (float)(s->select - 1);
     /* ramp_ms 线性淡化时长（0 = 立即切换）；步长覆盖最大跳变（32 路）所需 */
     float ramp_ms = read_float(config, "ramp_ms", 20.0f);
@@ -156,12 +158,14 @@ static int set_param(void* state, const char* id, const OrpheusValue* v) {
         if (v->type != ORPHEUS_VALUE_FLOAT && v->type != ORPHEUS_VALUE_INT) return ORPHEUS_ERR_INVALID_ARG;
         int sel = (v->type == ORPHEUS_VALUE_INT) ? (int)v->value.i32 : (int)(v->value.f32 + 0.5f);
         s->select = clamp_select(sel, s->inputs > 0 ? s->inputs : 1);
+        s->select_index = (int32_t)s->select - 1;
         return ORPHEUS_OK;
     }
     if (strcmp(id, "select_index") == 0) {
         if (v->type != ORPHEUS_VALUE_FLOAT && v->type != ORPHEUS_VALUE_INT) return ORPHEUS_ERR_INVALID_ARG;
         int index = (v->type == ORPHEUS_VALUE_INT) ? (int)v->value.i32 : (int)(v->value.f32 + 0.5f);
         s->select = clamp_select(index + 1, s->inputs > 0 ? s->inputs : 1);
+        s->select_index = (int32_t)s->select - 1;
         return ORPHEUS_OK;
     }
     return ORPHEUS_ERR_NOT_FOUND;
@@ -182,12 +186,16 @@ static int register_slots(void* state, const OrpheusRegistry* reg) {
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);
     ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
-                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=64,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);
     ORPHEUS_REG_SLOT(reg, s, select, ORPHEUS_SLOT_SETTING, "select", "选择输入",
                      ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
+                     .update_policy=ORPHEUS_UPDATE_SMOOTHED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, select_index, ORPHEUS_SLOT_SETTING, "select_index", "选择输入索引",
+                     ORPHEUS_VALUE_INT, .min_i32=-1, .max_i32=31,
                      .update_policy=ORPHEUS_UPDATE_SMOOTHED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg, s, select_pos, ORPHEUS_SLOT_READBACK, "select_pos",

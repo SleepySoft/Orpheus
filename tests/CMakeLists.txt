@@ -72,6 +72,9 @@ add_test(NAME iir_freeze_smoke COMMAND iir_freeze_smoke)
 add_executable(filter_freeze_runner filter_freeze_runner.cpp)
 target_link_libraries(filter_freeze_runner PRIVATE orpheus_runtime_lib)
 
+add_executable(mux_gate_runner mux_gate_runner.cpp)
+target_link_libraries(mux_gate_runner PRIVATE orpheus_runtime_lib)
+
 add_executable(direct_iir_smoke direct_iir_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir/src/iir.c)
 target_include_directories(direct_iir_smoke PRIVATE

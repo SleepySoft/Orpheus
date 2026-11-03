@@ -11,6 +11,7 @@ typedef struct {
     uint32_t channels;
     uint32_t inputs;         /* input pin count (restart_required, affects_signature) */
     uint32_t select;         /* target input, 1-based: 1 = in0 ... N = in(N-1) */
+    int32_t select_index;
     float select_pos;        /* current 0-based position, linearly ramped toward select-1 */
     float ramp_step;         /* per-sample position step derived from ramp_ms */
 } NWayMuxState;
