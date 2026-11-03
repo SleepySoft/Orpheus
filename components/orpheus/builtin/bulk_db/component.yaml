@@ -1,0 +1,26 @@
+id: orpheus.builtin.bulk_db
+name: 数据dB桥接
+category: 基础/计算数据
+description: >-
+  同shape实数数据的功率/幅值dB换算。mode=0计算log10f(x+epsilon)*factor；
+  mode=1计算expf((x*2.30258512F)/factor)，不改写为powf。
+  quantity=0取factor=10（功率），1取20（幅值）。epsilon只用于正向换算。
+  不取绝对值、钳位或隐藏NaN/Inf；加法、乘法与除法各自舍入。
+  不广播、不保存历史、不改变节拍；NULL输出仍检查输入，零处理量不写。
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: BulkDbState
+sources: [src/bulk_db.c]
+headers: [include/orpheus_bulk_db.h]
+ports:
+  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  - {id: elements, name: 每通道元素数, type: int, default: 1, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  - {id: mode, name: 换算方向（0线性到dB，1dB到线性）, type: int, default: 0, range: [0, 1], update_policy: block_boundary}
+  - {id: quantity, name: 物理量（0功率，1幅值）, type: int, default: 0, range: [0, 1], update_policy: block_boundary}
+  - {id: epsilon, name: 正向对数的非负偏置, type: float, default: 2.22044605e-16, update_policy: block_boundary}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}

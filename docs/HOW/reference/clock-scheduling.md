@@ -276,6 +276,16 @@ channels支持1..128，frames支持1..65536，窗口形状独立于调用节拍�
 原生边界与单/双/64通道四入口测试见`tests/frame_energy_smoke.c`、
 `orpheus_core/tests/test_frame_energy.py`，原生另覆盖128通道。
 
+`bulk_db`是同shape实数数据的显式功率/幅值dB桥，不借用音频端口或参数控制链。
+mode=0按`log10f(x+epsilon)*factor`换算，mode=1按`expf((x*2.30258512F)/factor)`还原；
+quantity=0为功率（factor=10），1为幅值（20）。epsilon只用于正向换算，必须有限非负。
+加法、乘法、除法分别舍入，不改写为powf，不取绝对值或钳位NaN/Inf；
+零偏置下零输入产生负无穷，负输入保留对数的NaN语义。
+1..128通道、1..65536元素，模式/物理量/偏置可块边界更新，无历史、不广播、不改变节拍。
+输入必需，NULL输出仍校验，非法配置/缓冲/重叠在写输出前拒绝。
+原生边界及正反向单项、多通道向量、128通道四入口见`tests/bulk_db_smoke.c`、
+`orpheus_core/tests/test_bulk_db.py`。
+
 `bulk_one_pole`提供同shape逐元素一阶指数平滑：
 `y=(1-alpha)*x+alpha*y_prev`，两次乘法各自舍入；可选择先对输入取绝对值。
 每项历史独立、跨调用保留；可选i32标量`update`为零时保持全部历史，未连接则每次更新。

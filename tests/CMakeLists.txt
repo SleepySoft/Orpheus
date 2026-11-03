@@ -329,6 +329,17 @@ target_include_directories(bulk_sum_smoke PRIVATE
 target_compile_definitions(bulk_sum_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_sum_smoke COMMAND bulk_sum_smoke)
 
+add_executable(bulk_db_smoke bulk_db_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_db/src/bulk_db.c)
+target_include_directories(bulk_db_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_db/include)
+target_compile_definitions(bulk_db_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(bulk_db_smoke PRIVATE m)
+endif()
+add_test(NAME bulk_db_smoke COMMAND bulk_db_smoke)
+
 add_executable(frame_energy_smoke frame_energy_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/frame_energy/src/frame_energy.c)
 target_include_directories(frame_energy_smoke PRIVATE
