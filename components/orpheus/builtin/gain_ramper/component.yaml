@@ -1,8 +1,8 @@
 id: orpheus.builtin.gain_ramper
 name: 多通道增益斜坡器
 category: 高级/滤波器组
-description: 块级dB请求或显式逐样本乘法包络，通道映射与无运算旁路
-version: 1.1.0
+description: 块级dB请求、显式逐样本递推或帧内幂次包络，通道映射与旁路/静音
+version: 1.2.0
 abi_version: 1
 package_type: source
 state_type: GainRamperState
@@ -55,11 +55,11 @@ parameters:
     default: ""
     widget: text
     update_policy: restart_required
-  - {id: execution_mode, name: 执行模式（0块级请求，1显式逐样本）, type: int, default: 0, range: [0, 1], update_policy: restart_required}
+  - {id: execution_mode, name: 执行模式（0块级请求，1逐样本递推，2帧内幂次）, type: int, default: 0, range: [0, 2], update_policy: restart_required}
   - {id: current_gains, name: 各组当前线性增益, type: string, default: "", kind: bulk, shape: ["param:num_rampers"], widget: text, update_policy: restart_required}
   - {id: target_gains, name: 各组目标线性增益, type: string, default: "", kind: bulk, shape: ["param:num_rampers"], widget: text, update_policy: restart_required}
   - {id: coefficients, name: 各组逐样本乘数, type: string, default: "", kind: bulk, shape: ["param:num_rampers"], widget: text, update_policy: restart_required}
-  - {id: remaining_blocks, name: 各组剩余块数, type: string, default: "", kind: bulk, shape: ["param:num_rampers"], range: [0, 2147483647], widget: text, update_policy: restart_required}
+  - {id: remaining_blocks, name: 各组剩余块数, type: string, default: "", kind: bulk, shape: ["param:num_rampers"], range: [-2147483648, 2147483647], widget: text, update_policy: restart_required}
   - {id: freeze, name: 冻结显式包络, type: bool, default: false, persistent: true, readback: true, update_policy: block_boundary}
 bulk_slots:
   - {id: current_gains, name: 各组当前线性增益, type: float, count: 32, shape: ["param:num_rampers"], double_bank: true}

@@ -111,8 +111,8 @@ static const OrpheusParameter gr_params[] = {
       .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "" },
       .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true },
-    {.id="execution_mode",.name="执行模式（0块级请求，1显式逐样本）",.type=ORPHEUS_VALUE_INT,
-     .default_value={.type=ORPHEUS_VALUE_INT,.value.i32=0},.min_i32=0,.max_i32=1,
+    {.id="execution_mode",.name="执行模式（0块级请求，1逐样本递推，2帧内幂次）",.type=ORPHEUS_VALUE_INT,
+     .default_value={.type=ORPHEUS_VALUE_INT,.value.i32=0},.min_i32=0,.max_i32=2,
      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,.readback=true,.persistent=true},
     ENVELOPE_PARAMETER("current_gains","各组当前线性增益"),
     ENVELOPE_PARAMETER("target_gains","各组目标线性增益"),
@@ -134,7 +134,7 @@ static const OrpheusPort gr_ports[] = {
 };
 
 static const OrpheusComponentDescriptor gr_descriptor = {
-    .id = "orpheus.builtin.gain_ramper", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .id = "orpheus.builtin.gain_ramper", .version = "1.2.0", .abi_version = ORPHEUS_ABI_VERSION,
     .ports = gr_ports, .port_count = 2, .params = gr_params, .param_count = sizeof(gr_params)/sizeof(gr_params[0]),
     .state_size = sizeof(GainRamperState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = true
@@ -192,12 +192,12 @@ static int gr_prepare(void* state, const OrpheusConfig* config) {
     for (unsigned i=0;i<config->param_count;++i) {
         if (config->param_ids[i] && strcmp(config->param_ids[i],"execution_mode")==0) {
             const OrpheusValue* value=&config->param_values[i];
-            if (value->type!=ORPHEUS_VALUE_INT || value->value.i32<0 || value->value.i32>1)
+            if (value->type!=ORPHEUS_VALUE_INT || value->value.i32<0 || value->value.i32>2)
                 return ORPHEUS_ERR_INVALID_ARG;
             s->execution_mode=value->value.i32;
         }
     }
-    if (s->execution_mode==1) {
+    if (s->execution_mode>0) {
         for (unsigned i=0;i<config->param_count;++i) {
             for (unsigned j=0;j<sizeof(gr_params)/sizeof(gr_params[0]);++j) {
                 if (!config->param_ids[i] || strcmp(config->param_ids[i],gr_params[j].id)!=0) continue;
@@ -213,11 +213,12 @@ static int gr_prepare(void* state, const OrpheusConfig* config) {
         if (channels<1 || channels>GR_MAX_CHANNELS || rampers<1 || rampers>GR_MAX_RAMPERS)
             return ORPHEUS_ERR_INVALID_ARG;
         s->channels=(unsigned)channels; s->numRampers=(unsigned)rampers;
-        if (parse_explicit_array(read_string(config,"chan_map",""),s->chanMap,s->channels,true,-1,rampers-1)!=ORPHEUS_OK ||
+        if (parse_explicit_array(read_string(config,"chan_map",""),s->chanMap,s->channels,true,s->execution_mode==2 ? -2 : -1,rampers-1)!=ORPHEUS_OK ||
             parse_explicit_array(read_string(config,"current_gains",""),s->current_gains,s->numRampers,false,0,0)!=ORPHEUS_OK ||
             parse_explicit_array(read_string(config,"target_gains",""),s->target_gains,s->numRampers,false,0,0)!=ORPHEUS_OK ||
             parse_explicit_array(read_string(config,"coefficients",""),s->coefficients,s->numRampers,false,0,0)!=ORPHEUS_OK ||
-            parse_explicit_array(read_string(config,"remaining_blocks",""),s->remaining_blocks,s->numRampers,true,0,INT32_MAX)!=ORPHEUS_OK)
+            parse_explicit_array(read_string(config,"remaining_blocks",""),s->remaining_blocks,s->numRampers,true,
+                                 s->execution_mode==2 ? INT32_MIN : 0,INT32_MAX)!=ORPHEUS_OK)
             return ORPHEUS_ERR_INVALID_ARG;
         return ORPHEUS_OK;
     }
@@ -246,7 +247,7 @@ static int gr_prepare(void* state, const OrpheusConfig* config) {
 
 static int gr_reset(void* state) {
     GainRamperState* s = (GainRamperState*)state;
-    if (s->execution_mode==1) return ORPHEUS_OK;
+    if (s->execution_mode>0) return ORPHEUS_OK;
     float targetLin = db_to_linear(s->gain_db);
     for (uint32_t i = 0; i < s->numRampers; ++i) {
         s->rampers[i].currentGain = targetLin;
@@ -268,26 +269,37 @@ static int process_explicit(GainRamperState* s,const OrpheusProcessContext* ctx)
     for (unsigned r=0;r<s->numRampers;++r)
         if (!isfinite(s->current_gains[r]) || s->current_gains[r]<0 ||
             !isfinite(s->target_gains[r]) || s->target_gains[r]<0 ||
-            !isfinite(s->coefficients[r]) || s->coefficients[r]<0 || s->remaining_blocks[r]<0)
+            !isfinite(s->coefficients[r]) || s->coefficients[r]<0 ||
+            (s->execution_mode==1 && s->remaining_blocks[r]<0))
             return ORPHEUS_ERR_INVALID_ARG;
     for (unsigned c=0;c<channels;++c)
-        if (s->chanMap[c]<-1 || s->chanMap[c]>=(int32_t)s->numRampers) return ORPHEUS_ERR_INVALID_ARG;
+        if (s->chanMap[c]<(s->execution_mode==2 ? -2 : -1) || s->chanMap[c]>=(int32_t)s->numRampers)
+            return ORPHEUS_ERR_INVALID_ARG;
     if (!frames) { output->frame_count=0; return ORPHEUS_OK; }
-    float gains[GR_MAX_RAMPERS],coefficients[GR_MAX_RAMPERS];
+    float gains[GR_MAX_RAMPERS],starts[GR_MAX_RAMPERS],coefficients[GR_MAX_RAMPERS];
     for (unsigned r=0;r<s->numRampers;++r) {
         gains[r]=s->current_gains[r]; coefficients[r]=1;
         if (!s->freeze) {
             if (!s->remaining_blocks[r]) gains[r]=s->target_gains[r];
-            else { coefficients[r]=s->coefficients[r]; --s->remaining_blocks[r]; }
+            else {
+                coefficients[r]=s->coefficients[r];
+                if (s->remaining_blocks[r]>INT32_MIN) --s->remaining_blocks[r];
+            }
         }
+        starts[r]=gains[r];
     }
     const float* source=(const float*)input->data;
     float* destination=(float*)output->data;
     for (unsigned n=0;n<frames;++n) {
-        for (unsigned r=0;r<s->numRampers;++r) gains[r]*=coefficients[r];
+        for (unsigned r=0;r<s->numRampers;++r) {
+            if (s->execution_mode==2)
+                gains[r]=starts[r]*(coefficients[r]==1 ? 1 : powf(coefficients[r],(float)(n+1)));
+            else gains[r]*=coefficients[r];
+        }
         for (unsigned c=0;c<channels;++c) {
             int32_t r=s->chanMap[c];
-            if (r<0) {
+            if (r==-2) destination[n*channels+c]=0;
+            else if (r<0) {
                 if (destination!=source) memcpy(&destination[n*channels+c],&source[n*channels+c],sizeof(float));
             }
             else destination[n*channels+c]=source[n*channels+c]*gains[r];
@@ -301,7 +313,7 @@ static int gr_process(void* state, const OrpheusProcessContext* ctx) {
     if (!state || !ctx || ctx->input_count<1 || ctx->output_count<1 || !ctx->inputs || !ctx->outputs)
         return ORPHEUS_ERR_INVALID_ARG;
     GainRamperState* s = (GainRamperState*)state;
-    if (s->execution_mode==1) return process_explicit(s,ctx);
+    if (s->execution_mode>0) return process_explicit(s,ctx);
     const OrpheusBuffer* in = ctx->inputs[0];
     OrpheusBuffer* out = ctx->outputs[0];
     if (in == NULL || out == NULL) return ORPHEUS_ERR_INVALID_ARG;
@@ -346,12 +358,12 @@ static int gr_set_parameter(void* state, const char* param_id, const OrpheusValu
     if (!state || !param_id || !value) return ORPHEUS_ERR_INVALID_ARG;
     GainRamperState* s = (GainRamperState*)state;
     if (strcmp(param_id,"freeze")==0) {
-        if (s->execution_mode!=1) return ORPHEUS_ERR_UNSUPPORTED;
+        if (s->execution_mode==0) return ORPHEUS_ERR_UNSUPPORTED;
         if (value->type!=ORPHEUS_VALUE_BOOL) return ORPHEUS_ERR_INVALID_ARG;
         s->freeze=value->value.b; return ORPHEUS_OK;
     }
     if (strcmp(param_id, "gain_db") == 0) {
-        if (s->execution_mode==1) return ORPHEUS_ERR_UNSUPPORTED;
+        if (s->execution_mode>0) return ORPHEUS_ERR_UNSUPPORTED;
         if (value->type != ORPHEUS_VALUE_FLOAT && value->type != ORPHEUS_VALUE_INT)
             return ORPHEUS_ERR_INVALID_ARG;
         s->gain_db = (value->type == ORPHEUS_VALUE_FLOAT) ? value->value.f32 : (float)value->value.i32;
@@ -409,7 +421,7 @@ static int gr_register_slots(void* state, const OrpheusRegistry* reg) {
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg,s,execution_mode,ORPHEUS_SLOT_SETTING,"execution_mode","执行模式",ORPHEUS_VALUE_INT,
-                    .min_i32=0,.max_i32=1,.update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                    .min_i32=0,.max_i32=2,.update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     ORPHEUS_REG_SLOT(reg,s,freeze,ORPHEUS_SLOT_SETTING,"freeze","冻结显式包络",ORPHEUS_VALUE_BOOL,
                     .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY,.flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);

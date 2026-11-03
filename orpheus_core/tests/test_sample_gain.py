@@ -1,6 +1,7 @@
 """显式逐样本分组包络：整数BULK计数、跨块吸附、冻结与四入口。"""
 from dataclasses import asdict
 import json
+import math
 from pathlib import Path
 import struct
 import subprocess
@@ -39,12 +40,14 @@ def reference_block(samples, params, state):
             else:
                 state["remaining_blocks"][r] -= 1
                 coefficients[r] = state["coefficients"][r]
+    starts = list(gains)
     output = []
-    for row in samples:
-        gains = [f32(g*c) for g, c in zip(gains, coefficients)]
+    for n, row in enumerate(samples):
+        gains = ([f32(g*f32(math.pow(c, n+1))) for g, c in zip(starts, coefficients)]
+                 if params["execution_mode"] == 2 else [f32(g*c) for g, c in zip(gains, coefficients)])
         for c, sample in enumerate(row):
             x = f32(sample/32768)
-            y = x if mapping[c] < 0 else f32(x*gains[mapping[c]])
+            y = 0. if mapping[c] == -2 else x if mapping[c] < 0 else f32(x*gains[mapping[c]])
             output.append(int(max(-1, min(1, y))*32767))
     state["current_gains"] = gains
     return output
@@ -141,4 +144,5 @@ def test_sample_gain_four_entries(tmp_path):
         "mapped": {"channels": 7, "execution_mode": 1, "num_rampers": 3, "chan_map": "0,1,-1,0,2,-1,2"},
         "wide": {"channels": 32, "execution_mode": 1, "num_rampers": 32, "chan_map": ",".join(map(str, range(32)))},
         "unused": {"channels": 3, "execution_mode": 1, "num_rampers": 4, "chan_map": "-1,-1,-1"},
+        "power": {"channels": 7, "execution_mode": 2, "num_rampers": 4, "chan_map": "0,1,-1,2,-2,0,2"},
     })

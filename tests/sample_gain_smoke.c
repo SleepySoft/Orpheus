@@ -48,6 +48,20 @@ int main(void) {
     CHECK(iface->process(&state,&context)==ORPHEUS_ERR_INVALID_ARG && !memcmp(expected,output,sizeof(expected)));
     params[7].value.str="-1,0,0";
     CHECK(iface->prepare(&state,&config)==ORPHEUS_ERR_INVALID_ARG);
+    params[0].value.i32=2; params[3].value.str="0,1,-1,-2";
+    params[4].value.str=".8,.5,.75"; params[7].value.str="1,0,-2147483648";
+    CHECK(iface->prepare(&state,&config)==ORPHEUS_OK && state.execution_mode==2);
+    for (unsigned n=0;n<4;++n) {
+        float frame_gains[]={.8f*powf(1.01f,(float)(n+1)),.3f,.75f*powf(.99f,(float)(n+1))};
+        for (unsigned c=0;c<4;++c) {
+            unsigned i=n*4+c;
+            if (c==3) expected[i]=0;
+            else if (c==2) memcpy(&expected[i],&input[i],4);
+            else expected[i]=input[i]*frame_gains[c];
+        }
+    }
+    CHECK(iface->process(&state,&context)==ORPHEUS_OK && !memcmp(output,expected,sizeof(output)));
+    CHECK(state.current_gains[2]==.75f*powf(.99f,4) && state.remaining_blocks[2]==INT32_MIN);
     params[7].value.str="2147483647,0,0";
     CHECK(iface->prepare(&state,&config)==ORPHEUS_OK && state.remaining_blocks[0]==INT32_MAX);
     CHECK(iface->process(&state,&context)==ORPHEUS_OK && state.remaining_blocks[0]==INT32_MAX-1);
