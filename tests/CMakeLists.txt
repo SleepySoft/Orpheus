@@ -165,6 +165,18 @@ endif()
 add_test(NAME feedback_limiter_smoke COMMAND feedback_limiter_smoke)
 add_executable(feedback_limiter_runner feedback_limiter_runner.cpp)
 target_link_libraries(feedback_limiter_runner PRIVATE orpheus_runtime_lib)
+add_executable(sample_gain_smoke sample_gain_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain_ramper/src/gain_ramper.c)
+target_include_directories(sample_gain_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain_ramper/include)
+target_compile_definitions(sample_gain_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(sample_gain_smoke PRIVATE m)
+endif()
+add_test(NAME sample_gain_smoke COMMAND sample_gain_smoke)
+add_executable(sample_gain_runner sample_gain_runner.cpp)
+target_link_libraries(sample_gain_runner PRIVATE orpheus_runtime_lib)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)

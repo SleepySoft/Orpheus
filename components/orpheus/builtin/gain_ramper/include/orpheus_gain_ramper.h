@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define GR_MAX_RAMPERS  8
+#define GR_MAX_RAMPERS  32
 #define GR_MAX_CHANNELS 32
 #define GR_SILENT_GAIN  5.0118723e-7f   /* -126 dB，与 Rgainx rgain_SILENT_GAIN 一致 */
 
@@ -27,6 +27,12 @@ typedef struct {
     uint32_t   numRampers;
     float      sampleRate;
     uint32_t   blockSize;
+    int32_t    execution_mode;
+    bool       freeze;
+    float      current_gains[GR_MAX_RAMPERS];
+    float      target_gains[GR_MAX_RAMPERS];
+    float      coefficients[GR_MAX_RAMPERS];
+    int32_t    remaining_blocks[GR_MAX_RAMPERS];
 } GainRamperState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);
