@@ -211,6 +211,17 @@ float32减法；不夹到0～1，不叠加平滑，不用乘加改写减法。�
 `orpheus_core/tests/test_complex_power.py`核对功率及能量数值和四入口逐字节一致，
 通过独立尺寸的张量采集器捕获每份结果，不以数组长度冒充时间量子。
 
+`dual_trapezoid_smooth`提供同一实向量的两组独立梯形递推，
+严格计算`(x+x_prev)*((1-alpha)*0.5)+y_prev*alpha`，不是普通EMA或改写的IIR算式。
+每点每通道保存历史，批次按时间顺序推进同一组状态并跨process保留，
+这与`complex_power`的各批独立归约不同。初始历史为正零；
+reset恢复冷启动而保留配置，块边界修改alpha保留历史，
+悬空输出仍更新其状态，零处理量不推进，无效输出不部分更新状态。
+历史只在prepare分配，输入/输出及两输出间禁止重叠。
+`orpheus_core/tests/test_dual_trapezoid_smooth.py`验证单/三批与多通道四入口逐位一致；
+原生测试另覆盖跨块、动态系数、边界系数、特殊位型、reset与输出校验。
+现有音频PSD会重新FFT并使用不同递推，普通IIR的重排也改变浮点舍入，因此不借它们冒充该数据算子。
+
 `orpheus_core/tests/test_data_ports.py`使用非占位C组件验证129×2数组和标量的同轮计算、
 每三块更新的慢结果保持、初值零、同tick更新可见、扇出、悬空输出、复合组件保存/展开、
 分数采样率时间线与非法连线拒绝；动态DLL和生成工程各自的全局/Task入口共四种入口，

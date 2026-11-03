@@ -1,0 +1,29 @@
+id: orpheus.builtin.dual_trapezoid_smooth
+name: 双速梯形向量平滑
+category: 基础/计算数据
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: DualTrapezoidSmoothState
+description: >-
+  同一实向量的两组独立梯形递推：y=(x+x_prev)*((1-alpha)*0.5)+y_prev*alpha。
+  保留加法和两次乘法的float32舍入，不融合乘加，不改写为普通指数平均。
+  输入布局为(批次*bins+点)*channels+通道；各点各通道独立保存历史。
+  batches按时间顺序连续推进同一组历史，不是独立滤波器；状态跨process保留。
+  冷启动和reset的输入/输出历史为正零；修改alpha不清历史。
+  fast/slow各自允许悬空但仍推进状态；零处理量不推进；先校验全部再更新。
+  输入/输出及输出间禁止重叠；仅prepare分配历史，process不分配。
+sources: [src/dual_trapezoid_smooth.c]
+headers: [include/orpheus_dual_trapezoid_smooth.h]
+ports:
+  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*param:batches"}
+  - {id: fast, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*param:batches"}
+  - {id: slow, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*param:batches"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: bins, name: 每批向量点数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  - {id: batches, name: 顺序批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: fast_alpha, name: 第一递推历史系数, type: float, default: 0.5, range: [0.0, 1.0], update_policy: block_boundary}
+  - {id: slow_alpha, name: 第二递推历史系数, type: float, default: 0.95, range: [0.0, 1.0], update_policy: block_boundary}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {realtime_safe: true, supports_inplace: false}
