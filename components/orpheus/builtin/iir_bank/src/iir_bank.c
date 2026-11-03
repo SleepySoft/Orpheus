@@ -60,7 +60,11 @@ static const OrpheusParameter ib_params[] = {
     { .id = "coefs", .name = "IIR Coefficients", .type = ORPHEUS_VALUE_STRING,
       .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "1,0,0,0,0" },
       .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
-      .readback = false, .persistent = false }
+      .readback = false, .persistent = false },
+    { .id = "processing_enabled", .name = "处理使能", .type = ORPHEUS_VALUE_INT,
+      .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 1 },
+      .min_i32 = 0, .max_i32 = 1, .update_policy = ORPHEUS_UPDATE_IMMEDIATE,
+      .readback = true, .persistent = true }
 };
 
 static const OrpheusPort ib_ports[] = {
@@ -73,8 +77,8 @@ static const OrpheusPort ib_ports[] = {
 };
 
 static const OrpheusComponentDescriptor ib_descriptor = {
-    .id = "orpheus.builtin.iir_bank", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = ib_ports, .port_count = 2, .params = ib_params, .param_count = 4,
+    .id = "orpheus.builtin.iir_bank", .version = "1.3.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = ib_ports, .port_count = 2, .params = ib_params, .param_count = 5,
     .state_size = sizeof(IirBankState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
 };
@@ -97,6 +101,15 @@ static int ib_destroy(void* state) { (void)state; return ORPHEUS_OK; }
 
 static int ib_prepare(void* state, const OrpheusConfig* config) {
     IirBankState* s = (IirBankState*)state;
+    s->processing_enabled = 1;
+    for (uint32_t i = 0; i < config->param_count; ++i) {
+        if (config->param_ids[i] && strcmp(config->param_ids[i], "processing_enabled") == 0) {
+            const OrpheusValue* value = &config->param_values[i];
+            if (value->type != ORPHEUS_VALUE_INT || value->value.i32 < 0 || value->value.i32 > 1)
+                return ORPHEUS_ERR_INVALID_ARG;
+            s->processing_enabled = value->value.i32;
+        }
+    }
     s->channels  = config->channels > 0 ? (uint32_t)config->channels : 2U;
     s->numStages = (uint32_t)read_int(config, "num_stages", 4);
     if (s->numStages < 1) s->numStages = 1;
@@ -163,7 +176,13 @@ static int ib_process(void* state, const OrpheusProcessContext* ctx) {
     IirBankState* s = (IirBankState*)state;
     const OrpheusBuffer* in = ctx->inputs[0];
     OrpheusBuffer* out = ctx->outputs[0];
-    if (in == NULL || out == NULL) return ORPHEUS_ERR_INVALID_ARG;
+    if (out == NULL || out->data == NULL) return ORPHEUS_ERR_INVALID_ARG;
+    if (!s->processing_enabled) {
+        memset(out->data, 0, (size_t)ctx->frame_count * s->channels * sizeof(float));
+        out->frame_count = ctx->frame_count;
+        return ORPHEUS_OK;
+    }
+    if (in == NULL || in->data == NULL) return ORPHEUS_ERR_INVALID_ARG;
 
     uint32_t frames = ctx->frame_count;
     uint32_t ch = s->channels;
@@ -220,12 +239,21 @@ static int ib_process(void* state, const OrpheusProcessContext* ctx) {
 /* ---- 参数 ---- */
 
 static int ib_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {
-    (void)state; (void)param_id; (void)value;
-    return ORPHEUS_ERR_UNSUPPORTED;  /* 全部 restart_required */
+    if (!state || !param_id || !value) return ORPHEUS_ERR_INVALID_ARG;
+    if (strcmp(param_id, "processing_enabled") == 0) {
+        if (value->type != ORPHEUS_VALUE_INT || value->value.i32 < 0 || value->value.i32 > 1)
+            return ORPHEUS_ERR_INVALID_ARG;
+        ((IirBankState*)state)->processing_enabled = value->value.i32;
+        return ORPHEUS_OK;
+    }
+    return ORPHEUS_ERR_UNSUPPORTED;
 }
 
 static int ib_get_parameter(void* state, const char* param_id, OrpheusValue* value) {
     IirBankState* s = (IirBankState*)state;
+    if (strcmp(param_id, "processing_enabled") == 0) {
+        value->type = ORPHEUS_VALUE_INT; value->value.i32 = s->processing_enabled; return ORPHEUS_OK;
+    }
     if (strcmp(param_id, "channels") == 0) {
         value->type = ORPHEUS_VALUE_INT; value->value.i32 = (int32_t)s->channels; return ORPHEUS_OK;
     }
@@ -281,6 +309,10 @@ static int ib_register_slots(void* state, const OrpheusRegistry* reg) {
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK |
                             ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, processing_enabled, ORPHEUS_SLOT_SETTING, "processing_enabled", "处理使能",
+                     ORPHEUS_VALUE_INT, .min_i32=0, .max_i32=1,
+                     .update_policy=ORPHEUS_UPDATE_IMMEDIATE,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     return ORPHEUS_OK;
 }
 

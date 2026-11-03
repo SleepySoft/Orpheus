@@ -2,7 +2,7 @@ id: orpheus.builtin.iir_bank
 name: N级IIR滤波器组
 category: 高级/滤波器组
 description: 可配置级数的级联 DF2T 双二阶 IIR 滤波器组，系数顺序 [b0,b1,b2,a1,a2]
-version: 1.2.0
+version: 1.3.0
 abi_version: 1
 package_type: source
 state_type: IirBankState
@@ -50,6 +50,17 @@ parameters:
     widget: text
     kind: bulk
     update_policy: restart_required
+  - id: processing_enabled
+    name: 处理使能（0输出正零并冻结历史）
+    type: int
+    default: 1
+    range: [0, 1]
+    update_policy: immediate
+    bindable: true
+    control_source: true
+    readback: true
+    persistent: true
+    description: 关闭时不读取输入、不更新滤波状态；重新启用从原状态继续；reset清历史但保留使能和系数
 bulk_slots:
   - id: coefs
     name: IIR共享系数

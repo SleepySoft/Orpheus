@@ -61,6 +61,17 @@ if(NOT WIN32)
 endif()
 add_test(NAME sine_table_smoke COMMAND sine_table_smoke)
 
+add_executable(iir_freeze_smoke iir_freeze_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir_bank/src/iir_bank.c)
+target_include_directories(iir_freeze_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir_bank/include)
+target_compile_definitions(iir_freeze_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME iir_freeze_smoke COMMAND iir_freeze_smoke)
+
+add_executable(filter_freeze_runner filter_freeze_runner.cpp)
+target_link_libraries(filter_freeze_runner PRIVATE orpheus_runtime_lib)
+
 add_executable(linear_gain_smoke linear_gain_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain/src/gain.c)
 target_include_directories(linear_gain_smoke PRIVATE
