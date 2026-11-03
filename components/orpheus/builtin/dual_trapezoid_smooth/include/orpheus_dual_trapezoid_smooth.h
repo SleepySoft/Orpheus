@@ -6,9 +6,9 @@ extern "C" {
 #endif
 typedef struct {
     uint32_t channels,bins,batches;
-    float fast_alpha,slow_alpha;
+    float fast_alpha,slow_alpha,initial;
     float* history;
-    bool owns_memory;
+    bool owns_memory,initialized;
 } DualTrapezoidSmoothState;
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);
 #ifdef __cplusplus

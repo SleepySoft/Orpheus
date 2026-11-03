@@ -12,7 +12,7 @@ FIXTURES = Path(__file__).parent/"fixtures"
 
 
 def verify_dual_trapezoid_smooth(tmp_path,*,channels=1,bins=129,batches=1,step=128,
-                                fast_alpha=0.5,slow_alpha=0.95,reference=None):
+                                fast_alpha=0.5,slow_alpha=0.95,reference=None,initial=None):
     registry = Registry([ROOT/"components"]);registry.scan()
     for name in ("array_pair","tensor_pair_capture"):
         registry.add_manifest(FIXTURES/name/"component.yaml")
@@ -22,6 +22,7 @@ def verify_dual_trapezoid_smooth(tmp_path,*,channels=1,bins=129,batches=1,step=1
         "smooth":Node(id="smooth",component="orpheus.builtin.dual_trapezoid_smooth",
                       params={"channels":channels,"bins":bins,"batches":batches,
                               "fast_alpha":fast_alpha,"slow_alpha":slow_alpha})}
+    if initial is not None:nodes["smooth"].params["initial"]=initial
     pairs=[("source:out","smooth:in")]
     for name in ("fast","slow"):
         nodes[name]=Node(id=name,component="orpheus.test.tensor_pair_capture",
@@ -35,7 +36,8 @@ def verify_dual_trapezoid_smooth(tmp_path,*,channels=1,bins=129,batches=1,step=1
     assert all(b["type"]=="bulk" for b in plan.buffers.values())
     records=execute_array_graph(tmp_path,registry,plan,{"fast":(count,count),"slow":(count,count)})
     f32=lambda value:struct.unpack("<f",struct.pack("<f",value))[0]
-    points=channels*bins;previous=[0.0]*points;history=[[0.0]*points for _ in range(2)]
+    seed=f32(0.0 if initial is None else initial)
+    points=channels*bins;previous=[seed]*points;history=[[seed]*points for _ in range(2)]
     alphas=[f32(fast_alpha),f32(slow_alpha)];factors=[f32(f32(1-alpha)*.5) for alpha in alphas]
     for block in range(3):
         source=records["fast"][block][0]
@@ -59,3 +61,8 @@ def verify_dual_trapezoid_smooth(tmp_path,*,channels=1,bins=129,batches=1,step=1
 @pytest.mark.parametrize("channels,bins,batches,step",[(1,129,1,128),(1,129,3,384),(3,7,2,32)])
 def test_dual_trapezoid_smooth_four_entries(tmp_path,channels,bins,batches,step):
     verify_dual_trapezoid_smooth(tmp_path,channels=channels,bins=bins,batches=batches,step=step)
+
+
+def test_dual_trapezoid_nonzero_initial_four_entries(tmp_path):
+    verify_dual_trapezoid_smooth(tmp_path,channels=3,bins=7,batches=3,step=64,
+        fast_alpha=0.2,slow_alpha=0.8,initial=3.25)

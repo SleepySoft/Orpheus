@@ -1,7 +1,7 @@
 id: orpheus.builtin.dual_trapezoid_smooth
 name: 双速梯形向量平滑
 category: 基础/计算数据
-version: 1.0.0
+version: 1.1.0
 abi_version: 5
 package_type: source
 state_type: DualTrapezoidSmoothState
@@ -10,7 +10,9 @@ description: >-
   保留加法和两次乘法的float32舍入，不融合乘加，不改写为普通指数平均。
   输入布局为(批次*bins+点)*channels+通道；各点各通道独立保存历史。
   batches按时间顺序连续推进同一组历史，不是独立滤波器；状态跨process保留。
-  冷启动和reset的输入/输出历史为正零；修改alpha不清历史。
+  冷启动/reset后的首个有效调用以initial填充输入及两份输出历史，默认正零保持旧行为。
+  initial须有限，可在首个有效调用前更新；初始化后修改initial/alpha均不清历史或跳变。
+  reset清除已初始化标志，保留配置；NULL输出仍完成初始化及递推，错误/零处理量不初始化。
   fast/slow各自允许悬空但仍推进状态；零处理量不推进；先校验全部再更新。
   输入/输出及输出间禁止重叠；仅prepare分配历史，process不分配。
 sources: [src/dual_trapezoid_smooth.c]
@@ -25,5 +27,6 @@ parameters:
   - {id: batches, name: 顺序批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
   - {id: fast_alpha, name: 第一递推历史系数, type: float, default: 0.5, range: [0.0, 1.0], update_policy: block_boundary}
   - {id: slow_alpha, name: 第二递推历史系数, type: float, default: 0.95, range: [0.0, 1.0], update_policy: block_boundary}
+  - {id: initial, name: 初始输入与输出历史, type: float, default: 0.0, update_policy: block_boundary}
 memory: {state_size: 0, scratch_size: 0, alignment: 8}
 execution: {realtime_safe: true, supports_inplace: false}

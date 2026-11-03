@@ -1,4 +1,5 @@
 #include "orpheus_dual_trapezoid_smooth.h"
+#include <float.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,8 +12,11 @@ static const OrpheusParameter params[]={
 #define ALPHA(key,label,initial) \
     {.id=key,.name=label,.type=ORPHEUS_VALUE_FLOAT,.default_value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=initial}, \
      .min_f32=0,.max_f32=1,.update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY}
-    ALPHA("fast_alpha","第一历史系数",0.5f),ALPHA("slow_alpha","第二历史系数",0.95f)
+    ALPHA("fast_alpha","第一历史系数",0.5f),ALPHA("slow_alpha","第二历史系数",0.95f),
 #undef ALPHA
+    {.id="initial",.name="初始输入与输出历史",.type=ORPHEUS_VALUE_FLOAT,
+     .default_value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=0.0f},.min_f32=-FLT_MAX,.max_f32=FLT_MAX,
+     .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY}
 };
 static const OrpheusPort ports[]={
     {.id="in",.direction=ORPHEUS_PORT_INPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_F32,.is_variable=true,.channels_param="channels"},
@@ -20,8 +24,8 @@ static const OrpheusPort ports[]={
     {.id="slow",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_F32,.is_variable=true,.channels_param="channels"}
 };
 static const OrpheusComponentDescriptor descriptor={
-    .id="orpheus.builtin.dual_trapezoid_smooth",.version="1.0.0",.abi_version=ORPHEUS_ABI_VERSION,
-    .ports=ports,.port_count=3,.params=params,.param_count=5,.state_size=sizeof(DualTrapezoidSmoothState),
+    .id="orpheus.builtin.dual_trapezoid_smooth",.version="1.1.0",.abi_version=ORPHEUS_ABI_VERSION,
+    .ports=ports,.port_count=3,.params=params,.param_count=6,.state_size=sizeof(DualTrapezoidSmoothState),
     .alignment=8,.realtime_safe=true,.supports_inplace=false
 };
 static const OrpheusComponentDescriptor* get_descriptor(void) {return &descriptor;}
@@ -50,19 +54,22 @@ static bool alpha_valid(const OrpheusValue* value) {
 static int prepare(void* state,const OrpheusConfig* config) {
     if (!state || !config || (config->param_count && (!config->param_ids || !config->param_values)))
         return ORPHEUS_ERR_INVALID_ARG;
-    uint32_t dimensions[]={1,129,1};float alphas[]={0.5f,0.95f};
+    uint32_t dimensions[]={1,129,1};float alphas[]={0.5f,0.95f},initial=0.0f;
     for (unsigned i=0;i<config->param_count;++i) {
         const char* key=config->param_ids[i];const OrpheusValue* value=&config->param_values[i];
         if (!key) return ORPHEUS_ERR_INVALID_ARG;
-        unsigned p=0;while(p<5 && strcmp(key,params[p].id)) ++p;
-        if (p==5) return ORPHEUS_ERR_INVALID_ARG;
+        unsigned p=0;while(p<6 && strcmp(key,params[p].id)) ++p;
+        if (p==6) return ORPHEUS_ERR_INVALID_ARG;
         if (p<3) {
             if (value->type!=ORPHEUS_VALUE_INT || value->value.i32<1 || value->value.i32>params[p].max_i32)
                 return ORPHEUS_ERR_INVALID_ARG;
             dimensions[p]=(uint32_t)value->value.i32;
-        } else {
+        } else if (p<5) {
             if (!alpha_valid(value)) return ORPHEUS_ERR_INVALID_ARG;
             alphas[p-3]=value->value.f32;
+        } else {
+            if (value->type!=ORPHEUS_VALUE_FLOAT || !isfinite(value->value.f32)) return ORPHEUS_ERR_INVALID_ARG;
+            initial=value->value.f32;
         }
     }
     float* history=(float*)calloc((size_t)dimensions[0]*dimensions[1]*3,sizeof(float));
@@ -70,29 +77,32 @@ static int prepare(void* state,const OrpheusConfig* config) {
     DualTrapezoidSmoothState* s=(DualTrapezoidSmoothState*)state;
     free(s->history);s->history=history;
     s->channels=dimensions[0];s->bins=dimensions[1];s->batches=dimensions[2];
-    s->fast_alpha=alphas[0];s->slow_alpha=alphas[1];
+    s->fast_alpha=alphas[0];s->slow_alpha=alphas[1];s->initial=initial;s->initialized=false;
     return ORPHEUS_OK;
 }
 static int reset(void* state) {
     if (!state) return ORPHEUS_ERR_INVALID_ARG;
     DualTrapezoidSmoothState* s=(DualTrapezoidSmoothState*)state;
     if (s->history) memset(s->history,0,(size_t)s->channels*s->bins*3*sizeof(float));
+    s->initialized=false;
     return ORPHEUS_OK;
 }
 static int set_parameter(void* state,const char* key,const OrpheusValue* value) {
-    if (!state || !key || !alpha_valid(value)) return ORPHEUS_ERR_INVALID_ARG;
+    if (!state || !key || !value || value->type!=ORPHEUS_VALUE_FLOAT || !isfinite(value->value.f32) ||
+        (strcmp(key,"initial") && !alpha_valid(value))) return ORPHEUS_ERR_INVALID_ARG;
     DualTrapezoidSmoothState* s=(DualTrapezoidSmoothState*)state;
     if (!strcmp(key,"fast_alpha")) s->fast_alpha=value->value.f32;
     else if (!strcmp(key,"slow_alpha")) s->slow_alpha=value->value.f32;
+    else if (!strcmp(key,"initial")) s->initial=value->value.f32;
     else return ORPHEUS_ERR_UNSUPPORTED;
     return ORPHEUS_OK;
 }
 static int get_parameter(void* state,const char* key,OrpheusValue* value) {
     if (!state || !key || !value) return ORPHEUS_ERR_INVALID_ARG;
     const DualTrapezoidSmoothState* s=(const DualTrapezoidSmoothState*)state;
-    if (!strcmp(key,"fast_alpha") || !strcmp(key,"slow_alpha")) {
+    if (!strcmp(key,"fast_alpha") || !strcmp(key,"slow_alpha") || !strcmp(key,"initial")) {
         value->type=ORPHEUS_VALUE_FLOAT;
-        value->value.f32=!strcmp(key,"fast_alpha") ? s->fast_alpha : s->slow_alpha;
+        value->value.f32=!strcmp(key,"fast_alpha") ? s->fast_alpha : !strcmp(key,"slow_alpha") ? s->slow_alpha : s->initial;
     } else {
         value->type=ORPHEUS_VALUE_INT;
         if (!strcmp(key,"channels")) value->value.i32=s->channels;
@@ -125,6 +135,10 @@ static int process(void* state,const OrpheusProcessContext* context) {
         if (!valid(out,s->channels,frames,false) || overlap(in->data,out->data,bytes) ||
             (p && context->outputs[0] && overlap(context->outputs[0]->data,out->data,bytes)))
             return ORPHEUS_ERR_INVALID_ARG;
+    }
+    if (!s->initialized) {
+        for (size_t i=0;i<points*3;++i) s->history[i]=s->initial;
+        s->initialized=true;
     }
     const float* input=(const float*)in->data;
     float* previous=s->history;float* histories[]={previous+points,previous+points*2};
