@@ -296,6 +296,22 @@ target_include_directories(trapezoid_ratio_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/trapezoid_ratio/include)
 target_compile_definitions(trapezoid_ratio_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME trapezoid_ratio_smoke COMMAND trapezoid_ratio_smoke)
+foreach(operation interleave deinterleave)
+    add_library(bulk_${operation}_test OBJECT
+        ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_${operation}/src/bulk_${operation}.c)
+    target_include_directories(bulk_${operation}_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+        ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_${operation}/include)
+    if(operation STREQUAL "interleave")
+        target_compile_definitions(bulk_${operation}_test PRIVATE ORPHEUS_BUILDING_COMPONENT ORPHEUS_ENTRY_NAME=native_bulk_join)
+    else()
+        target_compile_definitions(bulk_${operation}_test PRIVATE ORPHEUS_BUILDING_COMPONENT ORPHEUS_ENTRY_NAME=native_bulk_split)
+    endif()
+endforeach()
+add_executable(bulk_channels_smoke bulk_channels_smoke.c
+    $<TARGET_OBJECTS:bulk_interleave_test> $<TARGET_OBJECTS:bulk_deinterleave_test>)
+target_include_directories(bulk_channels_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
+add_test(NAME bulk_channels_smoke COMMAND bulk_channels_smoke)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)

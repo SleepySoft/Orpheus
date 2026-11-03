@@ -1,0 +1,16 @@
+id: orpheus.builtin.bulk_interleave
+name: 计算数据通道交错
+category: 基础/计算数据
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: BulkInterleaveState
+sources: [src/bulk_interleave.c]
+headers: [include/orpheus_bulk_interleave.h]
+ports:
+  - {id: in, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: "param:elements", count: "param:channels"}
+  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: elements, name: 每通道元素数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+execution: {realtime_safe: true, supports_inplace: false}

@@ -234,6 +234,15 @@ reset恢复冷启动而保留配置，块边界修改alpha保留历史，
 通用算子的多圈取模是额外能力，不代表可忽略原调用的合法定义域；
 来源验收须区分“原调用加契约shim”与厂商机器码或硬件仿真。
 
+`bulk_deinterleave`将`elements × channels`的f32计算数据拆为单通道`out0..outN-1`，
+`bulk_interleave`将单通道`in0..inN-1`按索引组合成交错数据；尺寸独立于处理量子。
+它们不是音频端口，不按ctx.frame_count截断129/258/774等数据，也不改变时钟。
+逐元素复制原位型，包含负零、NaN payload和复数布局中的实/虚槽；不解释或转换复数。
+并通道的NULL输入明确补正零，拆通道的NULL输出忽略；无效尺寸/格式/重叠在写输出前拒绝。
+只支持f32，没有把i32端口偷偷当成float使用；原音频交错器行为不变。
+原生测试和四入口通道反序/重复/补零验收见`tests/bulk_channels_smoke.c`、
+`orpheus_core/tests/test_bulk_channels.py`。
+
 `trapezoid_ratio`将两份独立f32向量分别按
 `y=(x+x_prev)*((1-alpha)*0.5)+y_prev*alpha`平滑，再计算
 `numerator_y/(denominator_y+epsilon)`。每点/通道保存四组历史，顺序批次共享各自历史，
