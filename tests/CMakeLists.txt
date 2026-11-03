@@ -329,6 +329,14 @@ target_include_directories(bulk_sum_smoke PRIVATE
 target_compile_definitions(bulk_sum_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_sum_smoke COMMAND bulk_sum_smoke)
 
+add_executable(bulk_one_pole_smoke bulk_one_pole_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_one_pole/src/bulk_one_pole.c)
+target_include_directories(bulk_one_pole_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_one_pole/include)
+target_compile_definitions(bulk_one_pole_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME bulk_one_pole_smoke COMMAND bulk_one_pole_smoke)
+
 add_executable(bulk_subtract_smoke bulk_subtract_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_subtract/src/bulk_subtract.c)
 target_include_directories(bulk_subtract_smoke PRIVATE

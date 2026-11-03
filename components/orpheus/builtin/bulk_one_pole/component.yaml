@@ -1,0 +1,24 @@
+id: orpheus.builtin.bulk_one_pole
+name: 计算数据一阶指数平滑
+category: 基础/计算数据
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: BulkOnePoleState
+description: >-
+  每个元素独立递推y=(1-alpha)*x+alpha*y_prev；两次乘法各自舍入，不融合乘加。
+  absolute_input可先取绝对值。可选i32标量update为零时保持全部历史；未连接则每次调用更新。
+  冷启动/reset为正零，修改alpha或绝对值开关不清历史；NULL输出仍推进。
+  元素数独立于调用量子；输入必需，所有缓冲先校验，禁止输入输出重叠；仅prepare分配历史。
+sources: [src/bulk_one_pole.c]
+headers: [include/orpheus_bulk_one_pole.h]
+ports:
+  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+  - {id: update, direction: input, type: bulk, sample_format: i32, channels: 1, block_size: 1, optional: true}
+  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  - {id: elements, name: 每通道元素数, type: int, default: 1, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  - {id: alpha, name: 历史系数, type: float, default: 0.5, range: [0.0, 1.0], update_policy: block_boundary}
+  - {id: absolute_input, name: 输入先取绝对值, type: bool, default: false, update_policy: block_boundary}
+execution: {realtime_safe: true, supports_inplace: false}

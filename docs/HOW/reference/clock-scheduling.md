@@ -263,6 +263,16 @@ reset恢复冷启动而保留配置，块边界修改alpha保留历史，
 四入口覆盖65/387项归约和128通道单项边界，见`tests/bulk_sum_smoke.c`、
 `orpheus_core/tests/test_bulk_sum.py`。
 
+`bulk_one_pole`提供同shape逐元素一阶指数平滑：
+`y=(1-alpha)*x+alpha*y_prev`，两次乘法各自舍入；可选择先对输入取绝对值。
+每项历史独立、跨调用保留；可选i32标量`update`为零时保持全部历史，未连接则每次更新。
+这不是音频逐样本滤波：数据各行是独立维度，不在一次调用中互相递推，也不改变时钟。
+修改alpha/绝对值开关不清历史，reset恢复正零；NULL输出仍推进，所有尺寸/格式/重叠先校验。
+仅prepare分配历史，失败保留旧配置与历史；支持1..128通道、1..65536元素。
+原生测试覆盖门控/保持、动态参数、reset、NULL输出、错误原子性与边界系数；
+四入口覆盖标量三通道及129/387项向量，见`tests/bulk_one_pole_smoke.c`、
+`orpheus_core/tests/test_bulk_one_pole.py`。
+
 `trapezoid_ratio`将两份独立f32向量分别按
 `y=(x+x_prev)*((1-alpha)*0.5)+y_prev*alpha`平滑，再计算
 `numerator_y/(denominator_y+epsilon)`。每点/通道保存四组历史，顺序批次共享各自历史，
