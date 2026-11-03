@@ -1,8 +1,11 @@
 id: orpheus.builtin.pool_delay
 name: 共享池整数延迟
 category: 高级/滤波器组
-description: 通道按当前延迟前缀和定位共享循环池；变长重解释旧池，不等同于独立通道历史
-version: 1.0.0
+description: >-
+  通道按当前延迟前缀和定位共享循环池；变长重解释旧池，不等同于独立通道历史。
+  enabled默认true保持原行为；false时逐字节输出干声且冻结整个池/游标，重新启用从旧历史继续。
+  reset清池及游标但保留延迟和enabled配置；不是永远运行延迟再选择干声。
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: PoolDelayState
@@ -46,6 +49,14 @@ parameters:
     readback: true
     update_policy: block_boundary
     description: 初始全零；int32数组，逐项0到池容量。允许池地址重叠，不自动整理旧历史
+  - id: enabled
+    name: 启用延迟（停用冻结历史并走干声）
+    type: bool
+    default: true
+    update_policy: block_boundary
+    bindable: true
+    readback: true
+    persistent: true
 bulk_slots:
   - id: delays_i32
     name: 各通道整数延迟

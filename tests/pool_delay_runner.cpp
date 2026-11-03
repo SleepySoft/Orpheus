@@ -16,6 +16,7 @@ int main(int argc, char** argv) {
     int first = 2;
     const char* mode = argv[1];
 #define GET(n, k, v) orpheus_control_get_value(n, k, v)
+#define ENABLE(n, v) orpheus_control_set_value(n, "enabled", v)
 #define WRITE(n, v, c) orpheus_control_write_bulk(n, "delays_i32", v, c)
 #define WRITE_ID(id, v, c) orpheus_control_write_bulk_id(id, v, c)
 #define READ(n, v, c) orpheus_control_get_bulk(n, "delays_i32", v, c)
@@ -27,6 +28,7 @@ int main(int argc, char** argv) {
     int first = 4;
     const char* mode = argv[3];
 #define GET(n, k, v) runtime.get_parameter(n, k, v)
+#define ENABLE(n, v) runtime.set_parameter(n, "enabled", v)
 #define WRITE(n, v, c) runtime.write_bulk(n, "delays_i32", v, c)
 #define WRITE_ID(id, v, c) runtime.write_bulk_id(id, v, c)
 #define READ(n, v, c) runtime.get_bulk(n, "delays_i32", v, c)
@@ -36,6 +38,12 @@ int main(int argc, char** argv) {
     for (unsigned step = 0; step < 6; ++step) {
         for (int i = first; i + 1 < argc; i += 2) {
             const char* node = argv[i];
+            if (strcmp(node, "gated") == 0) {
+                OrpheusValue enabled = {ORPHEUS_VALUE_BOOL, {0}}, actual = {ORPHEUS_VALUE_BOOL, {0}};
+                enabled.value.b = step == 0 || step == 3 || step == 5;
+                CHECK(ENABLE(node, enabled) == ORPHEUS_OK);
+                CHECK(GET(node, "enabled", &actual) == ORPHEUS_OK && actual.value.b == enabled.value.b);
+            }
             uint32_t id = (uint32_t)strtoul(argv[i+1], NULL, 10);
             OrpheusValue channels = {ORPHEUS_VALUE_INT, {0}}, capacity = {ORPHEUS_VALUE_INT, {0}};
             CHECK(GET(node, "channels", &channels) == ORPHEUS_OK);

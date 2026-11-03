@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BLOCKS = [1, 1, 1, 30, 2, 4]
 
 
-def pool_reference(samples, channels, capacity):
+def pool_reference(samples, channels, capacity, gated=False):
     pool, cursor, absolute = [0] * capacity, 0, 0
     result = []
     for step, blocks in enumerate(BLOCKS):
@@ -27,6 +27,10 @@ def pool_reference(samples, channels, capacity):
             [capacity] * channels
         )
         for _ in range(blocks):
+            if gated and step not in (0, 3, 5):
+                result.extend(value for row in samples[absolute:absolute+32] for value in row[:channels])
+                absolute += 32
+                continue
             output, prefix = [[0] * channels for _ in range(32)], 0
             for c, delay in enumerate(vector):
                 old = [pool[(cursor+prefix+n+1) % capacity] for n in range(min(32, delay))]
@@ -117,8 +121,9 @@ def verify_pool_delay_cases(tmp_path, cases):
                     count = params["channels"]
                     assert (stream.getnframes(), stream.getnchannels()) == (frames, count)
                     actual = struct.unpack(f"<{frames*count}h", stream.readframes(frames))
-                expected = [int(value*32767/32768) for value in
-                            pool_reference(samples, count, params["pool_size_samples"])]
+                reference = (pool_reference(samples, count, params["pool_size_samples"], gated=name == "gated") if params.get("enabled", True)
+                             else [value for row in samples for value in row[:count]])
+                expected = [int(value*32767/32768) for value in reference]
                 assert max(abs(a-b) for a, b in zip(actual, expected)) <= 1, (mode, name)
 
 
@@ -128,4 +133,6 @@ def test_pool_delay_four_entries(tmp_path):
         "row2": {"channels": 16, "pool_size_samples": 600},
         "small": {"channels": 4, "pool_size_samples": 11},
         "mono": {"channels": 1, "pool_size_samples": 1},
+        "bypass": {"channels": 22, "pool_size_samples": 512, "enabled": False},
+        "gated": {"channels": 22, "pool_size_samples": 512},
     })
