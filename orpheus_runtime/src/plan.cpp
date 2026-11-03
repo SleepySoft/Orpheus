@@ -89,6 +89,10 @@ Plan Plan::load_from_file(const std::string& path) {
             for (auto oit = och.begin(); oit != och.end(); ++oit) {
                 cfg.output_port_channels[oit.key()] = static_cast<uint32_t>(oit.value().get<int>());
             }
+            auto formats = it.value().value("output_port_sample_formats", json::object());
+            for (auto oit = formats.begin(); oit != formats.end(); ++oit) {
+                cfg.output_port_sample_formats[oit.key()] = oit.value().get<std::string>();
+            }
         }
         cfg.divisor = it.value().value("divisor", 1u);
         cfg.period = it.value().value("period", 0u);

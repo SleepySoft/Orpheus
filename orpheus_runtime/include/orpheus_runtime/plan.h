@@ -18,6 +18,7 @@ struct NodeConfig {
     std::vector<std::string> output_ports;
     std::map<std::string, uint32_t> output_port_block_sizes;
     std::map<std::string, uint32_t> output_port_channels;  // per-output-port resolved block size
+    std::map<std::string, std::string> output_port_sample_formats;
     uint32_t divisor = 1;   // rate divisor: node runs when (block_counter+1) % divisor == 0
     uint32_t period = 0;    // 静态调度周期（主 tick 数）；0 = 回退 divisor（旧 plan）
     uint32_t block_size = 0;  // node rate-domain scheduling quantum (0 = plan fallback)

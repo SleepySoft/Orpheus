@@ -1,0 +1,22 @@
+id: orpheus.test.mixed_pair_capture
+name: 浮点输入与整数结果采集
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: MixedPairCapture
+sources: [src/capture.c]
+headers: [include/mixed_capture.h]
+ports:
+  - {id: a, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:frames"}
+  - {id: b, direction: input, type: bulk, sample_format: i32, channels: "param:channels", block_size: "param:frames"}
+parameters:
+  - {id: channels, type: int, default: 1, affects_signature: true, update_policy: restart_required}
+  - {id: frames, type: int, default: 1, affects_signature: true, update_policy: restart_required}
+  - {id: packed_values, type: string, default: "", kind: bulk, shape: ["param:frames", "param:channels"], readback: true}
+  - {id: decoded_values, type: int, default: 0, kind: bulk, shape: ["param:frames", "param:channels"], readback: true}
+  - {id: calls, type: int, default: 0, readback: true}
+  - {id: quantum, type: int, default: 0, readback: true}
+bulk_slots:
+  - {id: packed_values, name: 浮点输入, type: float, count: 8192, shape: ["param:frames", "param:channels"]}
+  - {id: decoded_values, name: 整数输出, type: int, count: 8192, shape: ["param:frames", "param:channels"]}
+execution: {realtime_safe: true, supports_inplace: false}

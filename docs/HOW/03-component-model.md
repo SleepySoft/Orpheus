@@ -262,6 +262,8 @@ parameters:
 
 1. 数据端口声明id、方向、类型、格式、尺寸、输入timing及布局/未连接行为；
    参数声明id、数值类型、shape、update_policy和控制源/目标能力。
+   非音频数据边支持`sample_format: f32/i32`，两端必须同格式；整数判定值使用真正的
+   `int32_t`缓冲，动态/生成路径及未连接输出均保留其格式，不以浮点或参数槽代替。
 2. `ports.type: control/bulk`不是参数控制连接；`parameters.kind: bulk`也不是计算端口。
    schema拒绝把bindable/control_source/update_policy/bulk_slot放到端口，
    或把timing/sample_format/channels/block_size放到参数定义中。

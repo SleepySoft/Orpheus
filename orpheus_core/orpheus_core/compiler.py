@@ -175,8 +175,8 @@ def _resolve_port_signature(
         raise CompileError(f"节点 {node.id} 端口 {port_manifest['id']}：未知输入时序 {timing}")
     if timing == "latest" and (direction != "input" or port_type == "audio"):
         raise CompileError(f"节点 {node.id}：latest 仅适用于非音频输入端口")
-    if port_type != "audio" and sample_format != "f32":
-        raise CompileError(f"节点 {node.id}：非音频数据端口当前仅支持 f32，实际为 {sample_format}")
+    if port_type != "audio" and sample_format not in ("f32", "i32"):
+        raise CompileError(f"节点 {node.id}：非音频数据端口当前仅支持 f32/i32，实际为 {sample_format}")
 
     channels_expr = port_manifest.get("channels", task.block_size if port_type == "audio" else 1)
     channels = _resolve_value(channels_expr, node, task)
@@ -1040,6 +1040,10 @@ class GraphCompiler:
                 },
                 "output_port_channels": {
                     p["id"]: resolved_ports[f"{node.id}:{p['id']}"].channels
+                    for p in out_ports
+                },
+                "output_port_sample_formats": {
+                    p["id"]: resolved_ports[f"{node.id}:{p['id']}"].sample_format
                     for p in out_ports
                 },
                 "input_port_timings": {

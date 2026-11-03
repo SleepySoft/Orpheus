@@ -173,12 +173,30 @@ def test_data_sample_rate_metadata_does_not_change_timeline(compiler):
     assert plan.schedule["tick"] == 128
 
 
-def test_non_audio_formats_are_not_silently_treated_as_float(compiler):
+def test_non_audio_integer_format_is_preserved(compiler):
     info = compiler.registry.get("orpheus.test.data_probe")
     for port in info.manifest["ports"]:
         if port["type"] != "audio":
             port["sample_format"] = "i32"
-    with pytest.raises(CompileError, match="仅支持 f32"):
+    plan = compiler.compile(data_project())
+    assert all(buf["sample_format"] == "i32"
+               for buf in plan.buffers.values() if buf["type"] != "audio")
+    assert plan.node_configs["consumer"]["output_port_sample_formats"]["scalar_out"] == "i32"
+
+
+def test_unsupported_non_audio_format_is_rejected(compiler):
+    info = compiler.registry.get("orpheus.test.data_probe")
+    for port in info.manifest["ports"]:
+        if port["type"] != "audio":
+            port["sample_format"] = "i16"
+    with pytest.raises(CompileError, match="仅支持 f32/i32"):
+        compiler.compile(data_project())
+
+
+def test_non_audio_integer_float_mismatch_is_rejected(compiler):
+    info = compiler.registry.get("orpheus.test.data_probe")
+    next(port for port in info.manifest["ports"] if port["id"] == "scalar_out")["sample_format"] = "i32"
+    with pytest.raises(CompileError, match="format mismatch"):
         compiler.compile(data_project())
 
 

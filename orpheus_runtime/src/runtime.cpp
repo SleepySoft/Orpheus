@@ -126,8 +126,16 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
     for (const auto& kv : plan_.buffers) {
         const BufferConfig& bc = kv.second;
         auto buf = std::unique_ptr<OrpheusBuffer>(new OrpheusBuffer());
-        buf->data = nullptr; // will point into buffer_memory_
-        buf->format = ORPHEUS_FORMAT_F32;
+        buf->data = nullptr;
+        if (bc.sample_format == "i32" && !bc.rate_bridge && !bc.task_bridge) {
+            buf->format = ORPHEUS_FORMAT_I32;
+        } else if (bc.sample_format.empty() || bc.sample_format == "f32") {
+            buf->format = ORPHEUS_FORMAT_F32;
+        } else {
+            std::cerr << "[Runtime] unsupported buffer format or bridge: "
+                      << bc.id << " (" << bc.sample_format << ")" << std::endl;
+            return ORPHEUS_ERR_UNSUPPORTED;
+        }
         buf->channels = bc.channels;
         buf->frame_capacity = bc.frame_count;
         buf->frame_count = bc.frame_count;
@@ -135,18 +143,27 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         buffers_[bc.id] = std::move(buf);
     }
 
-    // Reserve contiguous memory for all signal buffers
-    size_t total_floats = 0;
+    // 按元素类型分别分配，避免把整数写入float对象。
+    size_t total_floats = 0, total_integers = 0;
     for (const auto& kv : buffers_) {
-        total_floats += kv.second->frame_capacity * kv.second->channels;
+        const size_t count = static_cast<size_t>(kv.second->frame_capacity) * kv.second->channels;
+        if (kv.second->format == ORPHEUS_FORMAT_I32) total_integers += count;
+        else total_floats += count;
     }
     buffer_memory_.resize(total_floats, 0.0f);
+    integer_buffer_memory_.resize(total_integers, 0);
 
-    size_t offset = 0;
+    size_t offset = 0, integer_offset = 0;
     for (const auto& kv : buffers_) {
         OrpheusBuffer* buf = kv.second.get();
-        buf->data = &buffer_memory_[offset];
-        offset += buf->frame_capacity * buf->channels;
+        const size_t count = static_cast<size_t>(buf->frame_capacity) * buf->channels;
+        if (buf->format == ORPHEUS_FORMAT_I32) {
+            buf->data = integer_buffer_memory_.data() + integer_offset;
+            integer_offset += count;
+        } else {
+            buf->data = buffer_memory_.data() + offset;
+            offset += count;
+        }
     }
 
     // Create instances
@@ -467,6 +484,7 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             }
         }
         discard_memory_.clear();
+        integer_discard_memory_.clear();
         discard_memory_.reserve(total_discard);   // 预分配，后续 resize 不再移动
     }
 
@@ -509,15 +527,28 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
                 }
                 size_t n = static_cast<size_t>(channels) * block_size;
                 auto discard = std::unique_ptr<OrpheusBuffer>(new OrpheusBuffer());
-                discard->format = ORPHEUS_FORMAT_F32;
+                auto format_it = cfg.output_port_sample_formats.find(port_id);
+                const std::string format = format_it == cfg.output_port_sample_formats.end() ? "f32" : format_it->second;
+                if (format != "f32" && format != "i32") {
+                    std::cerr << "[Runtime] unsupported output format: " << inst.node_id
+                              << ":" << port_id << " (" << format << ")" << std::endl;
+                    return ORPHEUS_ERR_UNSUPPORTED;
+                }
+                discard->format = format == "i32" ? ORPHEUS_FORMAT_I32 : ORPHEUS_FORMAT_F32;
                 discard->channels = channels;
                 discard->frame_capacity = block_size;
                 discard->frame_count = block_size;
                 discard->interleaved = true;
-                // 已 reserve，resize 仅在预分配包围内扩展，指针稳定
-                discard_memory_.resize(cursor + n, 0.0f);
-                discard->data = discard_memory_.data() + cursor;
-                cursor += n;
+                if (discard->format == ORPHEUS_FORMAT_I32) {
+                    std::unique_ptr<int32_t[]> memory(new int32_t[n]());
+                    discard->data = memory.get();
+                    integer_discard_memory_.push_back(std::move(memory));
+                } else {
+                    // 已reserve，后续resize不移动已绑定的float指针。
+                    discard_memory_.resize(cursor + n, 0.0f);
+                    discard->data = discard_memory_.data() + cursor;
+                    cursor += n;
+                }
                 inst.outputs[i] = discard.get();
                 discard_buffers_.push_back(std::move(discard));
             }

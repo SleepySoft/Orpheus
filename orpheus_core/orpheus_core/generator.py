@@ -66,6 +66,14 @@ class CodeGenerator:
         schedule = getattr(plan, "schedule", None) or {}
         return int(schedule.get("tick", 0) or plan.block_size)
 
+    @staticmethod
+    def _signal_type(sample_format: str) -> tuple[str, str]:
+        if sample_format == "f32":
+            return "float", "ORPHEUS_FORMAT_F32"
+        if sample_format == "i32":
+            return "int32_t", "ORPHEUS_FORMAT_I32"
+        raise ValueError(f"不支持的信号缓冲格式：{sample_format}")
+
     # ------------------------------------------------------------ ID / 模块布局辅助
 
     def _state_type(self, node_id: str, plan: ExecutionPlan) -> str | None:
@@ -794,7 +802,10 @@ class CodeGenerator:
         for buf_id, buf in plan.buffers.items():
             s_buf = buf_id.replace("-", "_").replace(".", "_")
             samples = buf["frame_count"] * buf["channels"]
-            lines.append(f'static float g_buf_{s_buf}[{samples}];')
+            c_type, _ = self._signal_type(buf.get("sample_format", "f32"))
+            if c_type != "float" and (buf.get("rate_bridge") or buf.get("task_bridge")):
+                raise ValueError("音频速率桥/任务桥当前仅支持f32缓冲")
+            lines.append(f'static {c_type} g_buf_{s_buf}[{samples}];')
             lines.append(f'static OrpheusBuffer g_buffer_{s_buf} = {{0}};')
         # rate-bridge staging 缓冲与写游标
         for src, info in bridge_srcs.items():
@@ -877,10 +888,12 @@ class CodeGenerator:
                     "sym": f'{self._sanitized_node_id(node_id)}_{self._sanitized_node_id(port_id)}',
                     "frames": frames,
                     "channels": channels,
+                    "sample_format": cfg.get("output_port_sample_formats", {}).get(port_id, "f32"),
                 })
         for discard in discard_outputs:
+            c_type, _ = self._signal_type(discard["sample_format"])
             lines.append(
-                f'static float g_discard_data_{discard["sym"]}'
+                f'static {c_type} g_discard_data_{discard["sym"]}'
                 f'[{discard["frames"] * discard["channels"]}];'
             )
             lines.append(f'static OrpheusBuffer g_discard_{discard["sym"]} = {{0}};')
@@ -1126,7 +1139,8 @@ class CodeGenerator:
         for buf_id, buf in plan.buffers.items():
             s_buf = buf_id.replace("-", "_").replace(".", "_")
             lines.append(f'    g_buffer_{s_buf}.data = g_buf_{s_buf};')
-            lines.append(f'    g_buffer_{s_buf}.format = ORPHEUS_FORMAT_F32;')
+            _, abi_format = self._signal_type(buf.get("sample_format", "f32"))
+            lines.append(f'    g_buffer_{s_buf}.format = {abi_format};')
             lines.append(f'    g_buffer_{s_buf}.channels = {buf["channels"]};')
             lines.append(f'    g_buffer_{s_buf}.frame_capacity = {buf["frame_count"]};')
             lines.append(f'    g_buffer_{s_buf}.frame_count = {buf["frame_count"]};')
@@ -1141,7 +1155,8 @@ class CodeGenerator:
             lines.append(f'    g_stage_{info["sym"]}.interleaved = 1;')
         for discard in discard_outputs:
             lines.append(f'    g_discard_{discard["sym"]}.data = g_discard_data_{discard["sym"]};')
-            lines.append(f'    g_discard_{discard["sym"]}.format = ORPHEUS_FORMAT_F32;')
+            _, abi_format = self._signal_type(discard["sample_format"])
+            lines.append(f'    g_discard_{discard["sym"]}.format = {abi_format};')
             lines.append(f'    g_discard_{discard["sym"]}.channels = {discard["channels"]};')
             lines.append(f'    g_discard_{discard["sym"]}.frame_capacity = {discard["frames"]};')
             lines.append(f'    g_discard_{discard["sym"]}.frame_count = {discard["frames"]};')

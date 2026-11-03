@@ -122,8 +122,10 @@ private:
     std::map<std::string, std::unique_ptr<Instance>> instances_;
     std::map<std::string, std::unique_ptr<OrpheusBuffer>> buffers_;
     std::vector<float> buffer_memory_;
+    std::vector<int32_t> integer_buffer_memory_;
     std::vector<std::unique_ptr<OrpheusBuffer>> discard_buffers_;
     std::vector<float> discard_memory_;
+    std::vector<std::unique_ptr<int32_t[]>> integer_discard_memory_;
     // rate-bridge：合流（merge）节点输入边的滚动 FIFO。生产者照旧直写 staging
     // （自己的块长），触发后骨架按写游标 memcpy 进桥接 buffer（深度=合流量子），
     // merge 节点在同步点整块读出。staging 内存在 load_plan 分配，process 路径零 malloc。
