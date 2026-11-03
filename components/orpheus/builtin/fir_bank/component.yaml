@@ -1,0 +1,87 @@
+id: orpheus.builtin.fir_bank
+name: 多通道FIR滤波器组
+category: 高级/滤波器
+description: 共享或每通道独立系数、异构有效抽头数、块边界系数更新；暂停输出正零并冻结历史
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: FirBankState
+sources: [src/fir_bank.c]
+headers: [include/orpheus_fir_bank.h]
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 64]
+    update_policy: restart_required
+    affects_signature: true
+  - id: num_taps
+    name: 每通道系数跨度
+    type: int
+    default: 1
+    range: [1, 4096]
+    update_policy: restart_required
+    affects_signature: true
+  - id: taps_per_channel
+    name: 每通道有效抽头数（空为统一跨度）
+    type: string
+    default: ""
+    update_policy: restart_required
+  - id: coefs_mode
+    name: 系数模式
+    type: string
+    default: shared
+    widget: select
+    options: [shared, per_channel]
+    update_policy: restart_required
+    affects_signature: true
+  - id: coefs
+    name: 初始系数（最新样本至最旧样本）
+    type: string
+    default: ""
+    kind: bulk
+    update_policy: restart_required
+  - id: processing_enabled
+    name: 处理使能（0输出正零并冻结历史）
+    type: int
+    default: 1
+    range: [0, 1]
+    update_policy: immediate
+    bindable: true
+    control_source: true
+    readback: true
+    persistent: true
+bulk_slots:
+  - id: coefs
+    name: FIR共享系数
+    type: float
+    count: 4096
+    shape: [param:num_taps]
+    double_bank: true
+  - id: coefs_per_channel
+    name: FIR每通道系数
+    type: float
+    count: 32768
+    shape: [param:channels, param:num_taps]
+    double_bank: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true
