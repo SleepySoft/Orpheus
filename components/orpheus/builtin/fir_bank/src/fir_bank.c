@@ -39,7 +39,7 @@ static const OrpheusPort ports[] = {
 };
 
 static const OrpheusComponentDescriptor descriptor = {
-    .id="orpheus.builtin.fir_bank", .version="1.0.0", .abi_version=ORPHEUS_ABI_VERSION,
+    .id="orpheus.builtin.fir_bank", .version="1.0.1", .abi_version=ORPHEUS_ABI_VERSION,
     .ports=ports, .port_count=2, .params=params, .param_count=6,
     .state_size=sizeof(FirBankState), .alignment=8,
     .realtime_safe=true, .supports_inplace=true
@@ -193,12 +193,13 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
                 }
                 float* history = s->history+(size_t)c*s->num_taps;
                 const float* coefs = s->coefs+(s->coefs_mode ? c*s->num_taps : 0);
-                uint32_t position = s->positions[c], index = position;
+                uint32_t position = s->positions[c];
+                uint32_t index = position+1 == length ? 0 : position+1;
                 history[position] = input[(size_t)f*s->channels+c];
                 float sum = 0.0f;
-                for (uint32_t k = 0; k < length; ++k) {
-                    sum += coefs[k]*history[index];
-                    index = index ? index-1 : length-1;
+                for (uint32_t k = length; k > 0; --k) {
+                    sum += coefs[k-1]*history[index];
+                    index = index+1 == length ? 0 : index+1;
                 }
                 output[(size_t)f*s->channels+c] = sum;
                 s->positions[c] = position+1 == length ? 0 : position+1;

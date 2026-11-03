@@ -66,6 +66,12 @@ int main(void) {
         CHECK(api->prepare(&state, &config) == ORPHEUS_ERR_INVALID_ARG);
     }
     values[3].value.str = "";
+    values[1].value.str = "1e20,-1e20,1"; config.channels = 1;
+    CHECK(api->prepare(&state, &config) == ORPHEUS_OK);
+    float rounding[3] = {1,1,1};
+    in.data = rounding; out.data = rounding; inputs[0] = &in;
+    CHECK(api->process(&state, &context) == ORPHEUS_OK && rounding[2] == 0);
+    values[1].value.str = "";
     values[0].value.i32 = 530; values[2].value.str = "per_channel"; config.channels = 42;
     CHECK(api->prepare(&state, &config) == ORPHEUS_OK);
     CHECK(api->register_slots(&state, &registry) == ORPHEUS_OK && coefficient_slot.count == 22260);
