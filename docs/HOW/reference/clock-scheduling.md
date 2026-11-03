@@ -254,6 +254,15 @@ reset恢复冷启动而保留配置，块边界修改alpha保留历史，
 数据行数独立于调用量子，没有新增时间延迟；原生与四入口测试见
 `tests/bulk_slice_smoke.c`、`orpheus_core/tests/test_bulk_slice.py`，含真实13000槽矩阵。
 
+`bulk_sum`对f32计算数据的每个通道独立有序归约：从第一项初始化，之后逐项加法并舍入为f32。
+输出每通道一项，不广播、不重新FFT、不开方或跨调用累计；单项输入保留原位型。
+支持1..128通道、1..65536元素，输入行数不影响调用节拍。
+这与音频`spectral_reduce`的初始零、音频帧截断及整块广播契约不同，后者行为不变。
+输入必需，NULL输出仍检查输入，缓冲无效或重叠在写输出前拒绝。
+原生测试覆盖能区分加法重排的抵消序列、负零、单项NaN位型及非法配置的原子拒绝；
+四入口覆盖65/387项归约和128通道单项边界，见`tests/bulk_sum_smoke.c`、
+`orpheus_core/tests/test_bulk_sum.py`。
+
 `trapezoid_ratio`将两份独立f32向量分别按
 `y=(x+x_prev)*((1-alpha)*0.5)+y_prev*alpha`平滑，再计算
 `numerator_y/(denominator_y+epsilon)`。每点/通道保存四组历史，顺序批次共享各自历史，
