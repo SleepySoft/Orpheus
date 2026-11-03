@@ -205,6 +205,16 @@ DC/Nyquist虚部写正零，其余位型逐字节保留，无共轭、缩放、�
 `orpheus_core/tests/test_halfcomplex_decode.py`逐位核对动态/生成的全局与Task四入口，
 覆盖双通道、十通道、单/三批次、两种输入及选带，并断言原交付周期不变。
 
+逆向使用`halfcomplex_encode`：完整Re/Im交织BULK转换为旧音频类型`out`
+或带halfcomplex/frame_size标签的`spectrum`，可同时输出。`bins`单独用于静态
+端口尺寸，prepare严格要求`bins=fft_size/2+1`，不缺频点、不隐式补齐。
+DC/Nyquist只保存实部，其输入虚部不参与实频谱打包；一般复数FFT需要保留这些
+分量时不能使用本桥。其余半复数槽位原样复制，不做IFFT或归一化。
+所有输出校验后才写入，禁止输入/输出及两输出间内存重叠。
+`tests/halfcomplex_encode_smoke.c`覆盖特殊位型、N=2/6/16、双输出及错误拒绝；
+`orpheus_core/tests/test_halfcomplex_encode.py`以6/8通道、单/三批次逐位对比
+原HC与decode→encode后的旧/具名输出，动态/生成全局与Task四入口一致。
+
 - 扩展`rfft`：保留旧音频`out`和halfcomplex/magnitude/power模式；新增
   `spectrum`数据输出，始终为未归一化halfcomplex。非法批次不再静默退化为单帧。
 - 扩展`ifft`：`fft_size=0`保留自动单帧；显式设置4～1024的二次幂即可逐帧处理
