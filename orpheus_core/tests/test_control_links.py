@@ -545,8 +545,9 @@ def test_codegen_control_tick_emission(compiler, registry, tmp_path):
     main_c = (tmp_path / "gen" / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
 
     # 两相快照函数 + 块末尾挂载
-    assert "static void control_tick(void)" in main_c
-    assert "control_tick();  /* 控制链路" in main_c
+    assert "static int control_tick(const char* task)" in main_c
+    assert "rc = control_tick(NULL);" in main_c
+    assert 'rc = control_tick("default");' in main_c
     # 标量链：经组件 ABI get/set_parameter，注释带形状标注
     assert "/* lvl.level [标量] -> g.gain_db */" in main_c
     assert 'g_iface_lvl->get_parameter(g_state_lvl, "level", &g_ctl_snap[0])' in main_c

@@ -38,6 +38,19 @@ static size_t align_up(size_t v, size_t a) {
     return (v + a - 1) & ~(a - 1);
 }
 
+static bool bulk_values_valid(const SlotEntry& slot, const void* data, size_t count) {
+    if (count > 0 && data == nullptr) return false;
+    if (slot.type != ORPHEUS_VALUE_INT || (slot.min_i32 == 0 && slot.max_i32 == 0))
+        return true;
+    if (slot.size != sizeof(int32_t)) return false;
+    for (size_t i = 0; i < count; ++i) {
+        int32_t value;
+        std::memcpy(&value, static_cast<const uint8_t*>(data) + i * sizeof(value), sizeof(value));
+        if (value < slot.min_i32 || value > slot.max_i32) return false;
+    }
+    return true;
+}
+
 struct PortRef {
     std::string node_id;
     std::string port_id;
@@ -589,7 +602,14 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
                 st.bulk_target_shadow = shadow->second;
                 st.bulk_target_pending = &pending->second;
             }
-            st.skip = st.bulk_source == nullptr || st.bulk_target_shadow == nullptr;
+            auto dst_instance = instances_.find(cl.dst_node);
+            if (dst_instance != instances_.end()) {
+                auto slot = dst_instance->second->slot_index.find(cl.dst_slot);
+                if (slot != dst_instance->second->slot_index.end())
+                    st.bulk_target_slot = &dst_instance->second->slots[slot->second];
+            }
+            st.skip = st.bulk_source == nullptr || st.bulk_target_shadow == nullptr ||
+                st.bulk_target_slot == nullptr;
         } else if (cl.type == "string") {
             st.str_buf.assign(256, '\0');  // 预分配上限，超长截断
         }
@@ -598,7 +618,8 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
     }
     if (skipped_links > 0) {
         std::cerr << "[Runtime] 控制链路：" << skipped_links
-                  << " 条控制链缺少可执行槽映射，已跳过" << std::endl;
+                  << " 条控制链缺少可执行槽映射，加载失败" << std::endl;
+        return ORPHEUS_ERR_INVALID_ARG;
     }
 
     return 0;
@@ -760,6 +781,7 @@ int Runtime::write_bulk(const std::string& node_id, const std::string& key,
     const SlotEntry& e = inst.slots[si->second];
     if (e.kind != ORPHEUS_SLOT_BULK) return -1;
     if (count > e.count) return -1;                  /* 内部边界：不超过槽容量 */
+    if (!bulk_values_valid(e, data, count)) return ORPHEUS_ERR_INVALID_ARG;
     size_t span = count * e.size;
     if (inst.state == nullptr || e.offset + span > inst.state_size) return -1; /* 上下边界 */
     /* 双 bank：写影子区，process_block 块边界提交到 active（process 读的是 active） */
@@ -1130,12 +1152,12 @@ const OrpheusComponentInterface* Runtime::get_interface(const std::string& node_
     return it->second->interface_;
 }
 
-void Runtime::control_tick() {
-    control_tick_for_task(nullptr);
+int Runtime::control_tick() {
+    return control_tick_for_task(nullptr);
 }
 
-void Runtime::control_tick_for_task(const std::string* task_id) {
-    if (control_links_.empty()) return;
+int Runtime::control_tick_for_task(const std::string* task_id) {
+    if (control_links_.empty()) return ORPHEUS_OK;
     /* 第一相：读 —— 全部源参数 → 快照（经 ABI get_parameter / 槽直读）。
        字符串源拷贝进预分配缓冲，process 路径零分配。 */
     for (auto& l : control_links_) {
@@ -1148,7 +1170,9 @@ void Runtime::control_tick_for_task(const std::string* task_id) {
             l.read_ok = true;
             continue;
         }
-        l.read_ok = get_parameter(l.cfg->src_node, l.cfg->src_param, &l.snapshot) == ORPHEUS_OK;
+        const int result = get_parameter(l.cfg->src_node, l.cfg->src_param, &l.snapshot);
+        l.read_ok = result == ORPHEUS_OK;
+        if (!l.read_ok) return result;
         if (l.read_ok && l.snapshot.type == ORPHEUS_VALUE_STRING && !l.str_buf.empty()) {
             const char* s = l.snapshot.value.str != nullptr ? l.snapshot.value.str : "";
             size_t n = std::strlen(s);
@@ -1165,6 +1189,8 @@ void Runtime::control_tick_for_task(const std::string* task_id) {
             (plan_.node_configs[l.cfg->src_node].task != *task_id ||
              plan_.node_configs[l.cfg->dst_node].task != *task_id)) continue;
         if (l.cfg->transport == "bulk") {
+            if (!bulk_values_valid(*l.bulk_target_slot, l.bulk_snapshot.data(), l.cfg->count))
+                return ORPHEUS_ERR_INVALID_ARG;
             std::memcpy(l.bulk_target_shadow, l.bulk_snapshot.data(), l.bulk_snapshot.size());
             *l.bulk_target_pending = true;
             continue;
@@ -1173,8 +1199,10 @@ void Runtime::control_tick_for_task(const std::string* task_id) {
         if (v.type == ORPHEUS_VALUE_STRING && !l.str_buf.empty()) {
             v.value.str = l.str_buf.data();
         }
-        set_parameter(l.cfg->dst_node, l.cfg->dst_param, v);
+        const int result = set_parameter(l.cfg->dst_node, l.cfg->dst_param, v);
+        if (result != ORPHEUS_OK) return result;
     }
+    return ORPHEUS_OK;
 }
 
 void Runtime::commit_bulk() {
@@ -1326,11 +1354,11 @@ int Runtime::process_block(uint32_t frame_count) {
         plan_.execution_order, nullptr, block_counter_, frame_count,
         timeline_flags_);
     if (result != 0) return result;
-    control_tick();
+    const int control_result = control_tick();
     block_counter_++;
     frame_index_ += advance;
     timeline_flags_ = ORPHEUS_TIMELINE_NONE;
-    return 0;
+    return control_result;
 }
 
 int Runtime::process_task(const std::string& task_id, uint32_t frame_count) {
@@ -1354,11 +1382,11 @@ int Runtime::process_task(const std::string& task_id, uint32_t frame_count) {
         task->execution_order, &task->periods, counter, frame_count,
         timeline_flags, true);
     if (result != 0) return result;
-    control_tick_for_task(&task_id);
+    const int control_result = control_tick_for_task(&task_id);
     counter++;
     frame_index += advance;
     timeline_flags = ORPHEUS_TIMELINE_NONE;
-    return ORPHEUS_OK;
+    return control_result;
 }
 
 OrpheusBuffer* Runtime::get_input_buffer(const std::string& node_id, const std::string& port_id) {

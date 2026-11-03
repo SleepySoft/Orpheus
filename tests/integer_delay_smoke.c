@@ -13,6 +13,64 @@ static OrpheusSlotId check_slot(void* ctx, const OrpheusSlotInfo* slot) {
     return 0;
 }
 
+static int test_integer_vector(const OrpheusComponentInterface* iface) {
+    const char* ids[] = {"channels", "max_delay_samples", "delay_vector_mode", "initial_delays_i32"};
+    OrpheusValue values[] = {
+        {.type=ORPHEUS_VALUE_INT, .value.i32=3},
+        {.type=ORPHEUS_VALUE_INT, .value.i32=16},
+        {.type=ORPHEUS_VALUE_INT, .value.i32=1},
+        {.type=ORPHEUS_VALUE_STRING, .value.str="0,3,16"}
+    };
+    OrpheusConfig config = {.sample_rate=48000, .block_size=7, .param_count=4,
+                           .param_ids=ids, .param_values=values};
+    DelayLineState state = {0};
+    CHECK(iface->prepare(&state, &config) == ORPHEUS_OK);
+    float input[21], output[21], history[512][3] = {{0}};
+    OrpheusBuffer in = {.data=input, .channels=3, .format=ORPHEUS_FORMAT_F32, .frame_capacity=7};
+    OrpheusBuffer out = {.data=output, .channels=3, .format=ORPHEUS_FORMAT_F32, .frame_capacity=7};
+    const OrpheusBuffer* inputs[] = {&in};
+    OrpheusBuffer* outputs[] = {&out};
+    OrpheusProcessContext context = {.inputs=inputs, .outputs=outputs};
+    for (unsigned pass = 0; pass < 2; ++pass) {
+        unsigned cursor = 0;
+        if (pass) {
+            CHECK(iface->reset(&state) == ORPHEUS_OK);
+            CHECK(state.delay_vector_mode == 1 && state.delays_i32[0] == 0 &&
+                  state.delays_i32[1] == 3 && state.delays_i32[2] == 16);
+            memset(history, 0, sizeof(history));
+        }
+        for (unsigned block = 0; block < 64; ++block) {
+            unsigned frames = block % 2 ? 3 : 7;
+            for (unsigned n = 0; n < frames; ++n)
+                for (unsigned c = 0; c < 3; ++c)
+                    history[cursor+n][c] = input[n*3+c] = (float)(cursor+n+1) * (float)(c+1);
+            context.frame_count = in.frame_count = frames;
+            CHECK(iface->process(&state, &context) == ORPHEUS_OK);
+            for (unsigned n = 0; n < frames; ++n)
+                for (unsigned c = 0; c < 3; ++c) {
+                    unsigned d = (unsigned)state.delays_i32[c];
+                    CHECK(output[n*3+c] == (cursor+n >= d ? history[cursor+n-d][c] : 0.0f));
+                }
+            cursor += frames;
+        }
+    }
+    CHECK(iface->destroy(&state) == ORPHEUS_OK);
+    const char* invalid[] = {"1,2", "1,2,3,4", "1.0,2,3", "1,2,17", "1,-1,3",
+                            "1,2,3x", "1,2,", "1,,3", "2147483648,2,3"};
+    for (unsigned i = 0; i < sizeof(invalid)/sizeof(invalid[0]); ++i) {
+        DelayLineState rejected = {0};
+        values[3].value.str = invalid[i];
+        CHECK(iface->prepare(&rejected, &config) == ORPHEUS_ERR_INVALID_ARG);
+        CHECK(rejected.buffer == NULL);
+    }
+    values[3].value.str = "";
+    memset(&state, 0, sizeof(state));
+    CHECK(iface->prepare(&state, &config) == ORPHEUS_OK);
+    CHECK(state.delays_i32[0] == 0 && state.delays_i32[1] == 0 && state.delays_i32[2] == 0);
+    CHECK(iface->destroy(&state) == ORPHEUS_OK);
+    return 0;
+}
+
 int main(void) {
     const OrpheusComponentInterface* iface = orpheus_get_interface();
     const char* ids[] = {"channels", "max_delay_samples", "delays_samples", "delay_samples"};
@@ -98,5 +156,6 @@ int main(void) {
     CHECK(iface->prepare(&invalid, &config) == ORPHEUS_OK);
     CHECK(invalid.delay_samples == -1);
     CHECK(iface->destroy(&invalid) == ORPHEUS_OK);
+    CHECK(test_integer_vector(iface) == 0);
     return 0;
 }

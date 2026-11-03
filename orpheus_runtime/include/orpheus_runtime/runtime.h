@@ -106,7 +106,7 @@ public:
 
     // 控制链路：块边界两相快照（先读全部源、再写全部目标），每图块一次。
     // 读快照在上一个块末完成，故每条链固定 1 块延迟，闭环合法（无代数环）。
-    void control_tick();
+    int control_tick();
 
     // Process entire WAV file: input_path -> output_path.
     int process_wav(const std::string& input_path, const std::string& output_path);
@@ -183,6 +183,7 @@ private:
         const uint8_t* bulk_source = nullptr;
         uint8_t* bulk_target_shadow = nullptr;
         bool* bulk_target_pending = nullptr;
+        const SlotEntry* bulk_target_slot = nullptr;
     };
     std::vector<ControlLinkState> control_links_;
 
@@ -191,7 +192,7 @@ private:
 
     int prepare_instance(Instance& inst, const NodeConfig& cfg);
     void commit_bulk();
-    void control_tick_for_task(const std::string* task_id);
+    int control_tick_for_task(const std::string* task_id);
     int process_nodes(const std::vector<std::string>& execution_order,
                       const std::map<std::string, uint32_t>* periods,
                       uint64_t counter, uint32_t frame_count,

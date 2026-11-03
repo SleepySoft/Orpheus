@@ -18,6 +18,8 @@ typedef struct {
     uint32_t capacity;
     int32_t delay_samples;
     float delays_samples[DELAY_LINE_MAX_CHANNELS];
+    int32_t delay_vector_mode;
+    int32_t delays_i32[DELAY_LINE_MAX_CHANNELS];
 } DelayLineState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);

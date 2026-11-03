@@ -87,6 +87,31 @@ def decode_scalar(type_str: str, payload: bytes):
     return struct.unpack("<f", payload[:4])[0]
 
 
+def encode_bulk(type_str: str, values: list[int | float]) -> bytes:
+    """按声明编码32位BULK元素；整数不接受浮点取整或布尔隐式转换。"""
+    if not values:
+        raise RuntimeError("BULK写入不能为空：空payload在协议中表示读取")
+    if type_str == "int":
+        if any(type(value) is not int or not -(2**31) <= value < 2**31 for value in values):
+            raise RuntimeError("整数BULK元素必须为int32，禁止取整、布尔转换及溢出")
+        return struct.pack(f"<{len(values)}i", *values)
+    if type_str == "float":
+        try:
+            return struct.pack(f"<{len(values)}f", *[float(value) for value in values])
+        except (TypeError, ValueError, OverflowError, struct.error) as exc:
+            raise RuntimeError("浮点BULK元素无法编码为float32") from exc
+    raise RuntimeError(f"BULK暂不支持元素类型：{type_str}")
+
+
+def decode_bulk(type_str: str, payload: bytes) -> list[int | float]:
+    if len(payload) % 4:
+        raise RuntimeError("BULK响应长度不是32位元素的整数倍")
+    if type_str not in ("int", "float"):
+        raise RuntimeError(f"BULK暂不支持元素类型：{type_str}")
+    element = "i" if type_str == "int" else "f"
+    return list(struct.unpack(f"<{len(payload) // 4}{element}", payload))
+
+
 def decode_hello(payload: bytes) -> dict:
     fields = struct.unpack("<6I", payload[:24])
     return dict(zip((

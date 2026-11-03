@@ -36,6 +36,9 @@ add_test(NAME integer_delay_smoke COMMAND integer_delay_smoke)
 add_executable(integer_delay_runner integer_delay_runner.cpp)
 target_link_libraries(integer_delay_runner PRIVATE orpheus_runtime_lib)
 
+add_executable(integer_bulk_runner integer_bulk_runner.cpp)
+target_link_libraries(integer_bulk_runner PRIVATE orpheus_runtime_lib)
+
 add_executable(linear_gain_smoke linear_gain_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain/src/gain.c)
 target_include_directories(linear_gain_smoke PRIVATE

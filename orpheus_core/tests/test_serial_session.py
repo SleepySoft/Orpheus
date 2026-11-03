@@ -28,6 +28,7 @@ from orpheus_core.server.serial_session import SerialSession
 GAIN_ID = 0x00040002
 RMS_ID = 0x20040003
 COEFS_ID = 0x10050008
+INTEGER_BULK_ID = 0x10050009
 ID_MAP = [
     {"id": GAIN_ID, "node": "front__trim", "key": "gain_db", "kind": "RTC",
      "form": "SCALAR", "type": "float", "count": 1, "name": "增益"},
@@ -35,6 +36,8 @@ ID_MAP = [
      "form": "SCALAR", "type": "float", "count": 1, "name": "电平"},
     {"id": COEFS_ID, "node": "front__eq__bq", "key": "bq0.coefs", "kind": "TUNE",
      "form": "BULK", "type": "float", "count": 5, "name": "系数"},
+    {"id": INTEGER_BULK_ID, "node": "delay", "key": "delays_i32", "kind": "TUNE",
+     "form": "BULK", "type": "int", "count": 3, "name": "整数样本延迟"},
 ]
 ID_MAP_HASH = fnv1a64(b"".join(
     struct.pack("<8I", *entry) for entry in wire_map_entries(ID_MAP)
@@ -92,7 +95,7 @@ class FakeDevice:
         self._lock = threading.Lock()
         self.scalars = {GAIN_ID: struct.pack("<f", 0.0)}
         self.probes = {RMS_ID: struct.pack("<f", 0.0)}
-        self.bulks = {COEFS_ID: [1.0, 0.0, 0.0, 0.0, 0.0]}
+        self.bulks = {COEFS_ID: [1.0, 0.0, 0.0, 0.0, 0.0], INTEGER_BULK_ID: [0, 0, 0]}
         self.drop_next = 0  # 丢弃接下来 N 个 CALL（模拟线路丢帧）
         self.response_delay = 0.0
         self.inflight = 0
@@ -153,15 +156,16 @@ class FakeDevice:
             else:
                 resp_payload = self.scalars[route]
         elif route in self.bulks:
+            element = "i" if route == INTEGER_BULK_ID else "f"
             if write:
                 n = len(payload) // 4
-                vals = list(struct.unpack(f"<{n}f", payload))
+                vals = list(struct.unpack(f"<{n}{element}", payload))
                 if n > len(self.bulks[route]):
                     error = True
                 else:
                     self.bulks[route][:n] = vals
             else:
-                resp_payload = struct.pack(f"<{len(self.bulks[route])}f", *self.bulks[route])
+                resp_payload = struct.pack(f"<{len(self.bulks[route])}{element}", *self.bulks[route])
         elif route == RMS_ID:
             if write:
                 error = True
@@ -212,6 +216,58 @@ def test_bulk_write_read(session):
     assert dev.bulks[COEFS_ID] == [1.0, 2.0, 3.0, 4.0, 5.0]
     assert s.read_bulk(node="front__eq__bq", key="bq0.coefs") == [1.0, 2.0, 3.0, 4.0, 5.0]
     assert s.read_bulk(data_id=COEFS_ID) == [1.0, 2.0, 3.0, 4.0, 5.0]
+
+
+def test_integer_bulk_preserves_signed_words_and_exact_integer_values(session):
+    s, dev = session
+    expected = [-(2**31), 2**24 + 1, 2**31 - 1]
+    s.write_bulk("delay", "delays_i32", expected)
+    assert dev.bulks[INTEGER_BULK_ID] == expected
+    for result in (s.read_bulk(data_id=INTEGER_BULK_ID),
+                   s.read_bulk(node="delay", key="delays_i32")):
+        assert result == expected and all(type(value) is int for value in result)
+    s.write_bulk_id(INTEGER_BULK_ID, [17])
+    assert s.read_bulk(data_id=INTEGER_BULK_ID) == [17, *expected[1:]]
+
+
+@pytest.mark.parametrize("values", [[1.5], [1.0], [True], ["1"], [2**31], [-(2**31)-1],
+                                    [], [0, 1, 2, 3]])
+def test_integer_bulk_rejects_invalid_values_without_writing(session, values):
+    s, dev = session
+    before = list(dev.bulks[INTEGER_BULK_ID])
+    with pytest.raises(RuntimeError):
+        s.write_bulk_id(INTEGER_BULK_ID, values)
+    assert dev.bulks[INTEGER_BULK_ID] == before
+
+
+def test_bulk_requires_known_array_type_and_preserves_rest_integer_values(session):
+    from orpheus_core.server.app import RtBulkRequest, RtWriteBulkRequest
+
+    s, _ = session
+    expected = [-(2**31), 2**24 + 1, 2**31 - 1]
+    requests = [
+        RtBulkRequest(node="delay", key="delays_i32", values=expected),
+        RtWriteBulkRequest(id=INTEGER_BULK_ID, values=expected),
+    ]
+    for request in requests:
+        assert request.values == expected and all(type(value) is int for value in request.values)
+        s.write_bulk_id(INTEGER_BULK_ID, request.values)
+        assert s.read_bulk(data_id=INTEGER_BULK_ID) == expected
+    for data_id in (GAIN_ID, 0x12345678):
+        with pytest.raises(RuntimeError):
+            s.write_bulk_id(data_id, [1])
+        with pytest.raises(RuntimeError):
+            s.read_bulk(data_id=data_id)
+
+
+def test_bulk_codec_rejects_malformed_and_unsupported_payloads():
+    with pytest.raises(RuntimeError, match="整数倍"):
+        message.decode_bulk("int", b"\x00\x01\x02")
+    with pytest.raises(RuntimeError, match="不支持"):
+        message.decode_bulk("bool", b"\x00\x00\x00\x00")
+    with pytest.raises(RuntimeError, match="不支持"):
+        message.encode_bulk("string", [1])
+    assert message.decode_bulk("float", struct.pack("<2f", 0.25, -0.5)) == [0.25, -0.5]
 
 
 def test_msg_passthrough_call_id_match(session):

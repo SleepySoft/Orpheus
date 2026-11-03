@@ -406,13 +406,28 @@ class BridgeSession:
         self._check_ok(response, f"READ 0x{data_id:08x}")
         return message.decode_scalar(type_name, response["payload"])
 
-    def write_bulk(self, node: str, key: str, values: list[float]) -> None:
+    def _bulk_entry(self, data_id: int) -> dict[str, Any]:
+        entry = self._by_id.get(data_id)
+        if entry is None:
+            raise RuntimeError(f"BULK ID未登记，不能猜测元素类型：0x{data_id:08x}")
+        if entry.get("form") != "BULK":
+            raise RuntimeError(f"数据项不是BULK：0x{data_id:08x}")
+        if entry.get("type") not in ("int", "float"):
+            raise RuntimeError(f"BULK暂不支持元素类型：{entry.get('type')}")
+        if type(entry.get("count")) is not int or entry["count"] < 1:
+            raise RuntimeError(f"BULK元素数量声明无效：0x{data_id:08x}")
+        return entry
+
+    def write_bulk(self, node: str, key: str, values: list[int | float]) -> None:
         self._require_write_access()
         self.write_bulk_id(self._entry(node, key)["id"], values)
 
-    def write_bulk_id(self, data_id: int, values: list[float]) -> None:
+    def write_bulk_id(self, data_id: int, values: list[int | float]) -> None:
         self._require_write_access()
-        payload = struct.pack(f"<{len(values)}f", *[float(value) for value in values])
+        entry = self._bulk_entry(data_id)
+        if len(values) > entry["count"]:
+            raise RuntimeError(f"BULK写入超过声明容量：{len(values)} > {entry['count']}")
+        payload = message.encode_bulk(entry["type"], values)
         response = self.call(data_id, payload)
         self._check_ok(response, f"WRITE_BULK 0x{data_id:08x}")
 
@@ -421,16 +436,18 @@ class BridgeSession:
         node: str | None = None,
         key: str | None = None,
         data_id: int | None = None,
-    ) -> list[float]:
+    ) -> list[int | float]:
         if data_id is None:
             if node is None or key is None:
                 raise RuntimeError("读取 BULK 需要 data_id 或 node/key")
             data_id = self._entry(node, key)["id"]
+        entry = self._bulk_entry(data_id)
         response = self.call(data_id)
         self._check_ok(response, f"READ_BULK 0x{data_id:08x}")
         payload = response["payload"]
-        count = len(payload) // 4
-        return list(struct.unpack(f"<{count}f", payload[: count * 4]))
+        if len(payload) > entry["count"] * 4:
+            raise RuntimeError(f"BULK响应超过声明容量：0x{data_id:08x}")
+        return message.decode_bulk(entry["type"], payload)
 
     def msg(self, msg_hex: str, call_id: int) -> str:
         self._require_write_access()

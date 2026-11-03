@@ -18,7 +18,7 @@ import yaml
 from fastapi import Body, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictInt
 from starlette.convertors import Convertor, register_url_convertor
 
 from orpheus_core.bridge import (
@@ -136,7 +136,7 @@ class RtParamRequest(BaseModel):
 class RtBulkRequest(BaseModel):
     node: str
     key: str
-    values: list[float]
+    values: list[StrictInt | float]
 
 
 class RtIdRequest(BaseModel):
@@ -150,7 +150,7 @@ class RtWriteRequest(BaseModel):
 
 class RtWriteBulkRequest(BaseModel):
     id: int
-    values: list[float]
+    values: list[StrictInt | float]
 
 
 class RtReadBulkRequest(BaseModel):

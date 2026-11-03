@@ -2,6 +2,8 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <errno.h>
 
 static int32_t read_int(const OrpheusConfig* config, const char* id, int32_t fallback) {
     for (uint32_t i = 0; i < config->param_count; ++i) {
@@ -33,6 +35,18 @@ static const OrpheusParameter dl_params[] = {
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = -1 },
       .min_i32 = -1, .max_i32 = DELAY_LINE_MAX_DELAY,
       .update_policy = ORPHEUS_UPDATE_IMMEDIATE,
+      .readback = true, .persistent = true },
+    { .id = "delay_vector_mode", .name = "逐通道配置类型", .type = ORPHEUS_VALUE_INT,
+      .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 0 },
+      .min_i32 = 0, .max_i32 = 1, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+      .readback = true, .persistent = true },
+    { .id = "initial_delays_i32", .name = "初始整数延迟数组", .type = ORPHEUS_VALUE_STRING,
+      .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "" },
+      .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED },
+    { .id = "delays_i32", .name = "每通道整数延迟样本数", .type = ORPHEUS_VALUE_INT,
+      .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 0 },
+      .min_i32 = 0, .max_i32 = DELAY_LINE_MAX_DELAY,
+      .update_policy = ORPHEUS_UPDATE_BLOCK_BOUNDARY,
       .readback = true, .persistent = true }
 };
 
@@ -46,8 +60,8 @@ static const OrpheusPort dl_ports[] = {
 };
 
 static const OrpheusComponentDescriptor dl_descriptor = {
-    .id = "orpheus.builtin.delay_line", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = dl_ports, .port_count = 2, .params = dl_params, .param_count = 4,
+    .id = "orpheus.builtin.delay_line", .version = "1.2.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = dl_ports, .port_count = 2, .params = dl_params, .param_count = 7,
     .state_size = sizeof(DelayLineState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
 };
@@ -70,6 +84,24 @@ static int dl_destroy(void* state) {
     return ORPHEUS_OK;
 }
 
+static int dl_init_integer_delays(DelayLineState* s, const char* text) {
+    if (!text) return ORPHEUS_ERR_INVALID_ARG;
+    if (!*text) return ORPHEUS_OK;
+    for (uint32_t c = 0; c < s->channels; ++c) {
+        char* end = NULL;
+        errno = 0;
+        long value = strtol(text, &end, 10);
+        if (end == text || errno == ERANGE || value < 0 || value > (long)s->max_delay)
+            return ORPHEUS_ERR_INVALID_ARG;
+        s->delays_i32[c] = (int32_t)value;
+        text = end;
+        while (isspace((unsigned char)*text)) ++text;
+        if (c + 1 == s->channels) return *text ? ORPHEUS_ERR_INVALID_ARG : ORPHEUS_OK;
+        if (*text++ != ',') return ORPHEUS_ERR_INVALID_ARG;
+    }
+    return ORPHEUS_ERR_INVALID_ARG;
+}
+
 static int dl_prepare(void* state, const OrpheusConfig* config) {
     DelayLineState* s = (DelayLineState*)state;
     s->channels = (uint32_t)read_int(config, "channels", 2);
@@ -81,12 +113,26 @@ static int dl_prepare(void* state, const OrpheusConfig* config) {
     if (max_delay > DELAY_LINE_MAX_DELAY) max_delay = DELAY_LINE_MAX_DELAY;
     s->max_delay = (uint32_t)max_delay;
     s->delay_samples = -1;
+    s->delay_vector_mode = 0;
+    memset(s->delays_i32, 0, sizeof(s->delays_i32));
     for (uint32_t i = 0; i < config->param_count; ++i) {
         if (config->param_ids[i] && strcmp(config->param_ids[i], "delay_samples") == 0) {
             const OrpheusValue* value = &config->param_values[i];
             if (value->type != ORPHEUS_VALUE_INT || value->value.i32 < -1 ||
                 value->value.i32 > max_delay) return ORPHEUS_ERR_INVALID_ARG;
             s->delay_samples = value->value.i32;
+        }
+        if (config->param_ids[i] && strcmp(config->param_ids[i], "delay_vector_mode") == 0) {
+            const OrpheusValue* value = &config->param_values[i];
+            if (value->type != ORPHEUS_VALUE_INT || value->value.i32 < 0 ||
+                value->value.i32 > 1) return ORPHEUS_ERR_INVALID_ARG;
+            s->delay_vector_mode = value->value.i32;
+        }
+        if (config->param_ids[i] && strcmp(config->param_ids[i], "initial_delays_i32") == 0) {
+            const OrpheusValue* value = &config->param_values[i];
+            if (value->type != ORPHEUS_VALUE_STRING) return ORPHEUS_ERR_INVALID_ARG;
+            int rc = dl_init_integer_delays(s, value->value.str);
+            if (rc != ORPHEUS_OK) return rc;
         }
     }
 
@@ -147,6 +193,7 @@ static int dl_process(void* state, const OrpheusProcessContext* ctx) {
 
             /* 读取延迟样本：当前写位置往回推 delay 个样本 */
             uint32_t delay = s->delay_samples >= 0 ? (uint32_t)s->delay_samples
+                : s->delay_vector_mode == 1 ? (uint32_t)s->delays_i32[c]
                 : (uint32_t)(s->delays_samples[c] + 0.5f);
             uint32_t read_idx = (s->write_pos + s->capacity - delay * ch) % s->capacity;
             out_data[n * ch + c] = s->buffer[read_idx + c];
@@ -173,6 +220,9 @@ static int dl_set_parameter(void* state, const char* param_id, const OrpheusValu
 static int dl_get_parameter(void* state, const char* param_id, OrpheusValue* value) {
     DelayLineState* s = (DelayLineState*)state;
     if (!s || !param_id || !value) return ORPHEUS_ERR_INVALID_ARG;
+    if (strcmp(param_id, "delay_vector_mode") == 0) {
+        value->type = ORPHEUS_VALUE_INT; value->value.i32 = s->delay_vector_mode; return ORPHEUS_OK;
+    }
     if (strcmp(param_id, "delay_samples") == 0) {
         value->type = ORPHEUS_VALUE_INT; value->value.i32 = s->delay_samples; return ORPHEUS_OK;
     }
@@ -209,6 +259,20 @@ static int dl_register_slots(void* state, const OrpheusRegistry* reg) {
                      ORPHEUS_VALUE_INT, .min_i32=-1, .max_i32=DELAY_LINE_MAX_DELAY,
                      .update_policy=ORPHEUS_UPDATE_IMMEDIATE,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, delay_vector_mode, ORPHEUS_SLOT_SETTING, "delay_vector_mode", "逐通道配置类型",
+                     ORPHEUS_VALUE_INT, .min_i32=0, .max_i32=1,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    OrpheusSlotInfo integer_slot = {
+        .kind = ORPHEUS_SLOT_BULK, .key = "delays_i32", .name = "每通道整数延迟样本数",
+        .type = ORPHEUS_VALUE_INT,
+        .offset = (size_t)((char*)&s->delays_i32[0] - (char*)s),
+        .size = sizeof(int32_t), .count = s->channels,
+        .min_i32 = 0, .max_i32 = (int32_t)s->max_delay,
+        .update_policy = ORPHEUS_UPDATE_BLOCK_BOUNDARY,
+        .flags = ORPHEUS_SLOT_DOUBLE_BUFFERED | ORPHEUS_SLOT_READBACK
+    };
+    reg->add(reg->ctx, &integer_slot);
     return ORPHEUS_OK;
 }
 

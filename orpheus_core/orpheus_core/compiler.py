@@ -1416,6 +1416,21 @@ class GraphCompiler:
                 points.append({**p, "node": nid})
             for bs in (info.manifest.get("bulk_slots", []) if info else []):
                 point = {**bs, "node": nid, "runtime": True}
+                if bs.get("shape"):
+                    task_cfg = next(
+                        (task for task in plan.tasks if task["id"] == cfg["task"]), {}
+                    )
+                    task = Task(
+                        id=cfg["task"],
+                        sample_rate=task_cfg.get("sample_rate", plan.sample_rate),
+                        block_size=task_cfg.get("block_size", plan.block_size),
+                    )
+                    node = Node(id=nid, component=cfg["component"], params=cfg["params"])
+                    shape = self._resolve_param_shape(bs, node, info, task)
+                    count = math.prod(shape)
+                    if count > int(bs["count"]):
+                        raise CompileError(f"节点 {nid} BULK槽 {bs['id']} 形状超出声明容量")
+                    point.update(shape=shape, count=count)
                 if bs["id"] in key_index:
                     points[key_index[bs["id"]]] = point
                 else:

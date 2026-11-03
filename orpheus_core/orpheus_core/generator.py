@@ -969,11 +969,17 @@ class CodeGenerator:
         def _fmt_shape(shape: list) -> str:
             return "标量" if not shape else "×".join(str(int(d)) for d in shape)
 
+        def _control_task_guard(link: dict) -> str:
+            src_task = plan.node_configs[link["src_node"]]["task"]
+            dst_task = plan.node_configs[link["dst_node"]]["task"]
+            if src_task != dst_task:
+                return "task == NULL"
+            return f'task == NULL || strcmp(task, "{self._c_escape(src_task)}") == 0'
+
         if ctl_links:
             lines.append('/* ==== 控制链路（块边界两相快照：先全读、后全写，每链 1 块延迟，')
             lines.append('     顺序无关、闭环合法；与动态路径 Runtime::control_tick 同语义） ==== */')
             lines.append(f'static OrpheusValue g_ctl_snap[{len(ctl_links)}];  /* 控制帧快照 */')
-            lines.append(f'static int g_ctl_ok[{len(ctl_links)}];             /* 源读取成功标志 */')
             for i, link in enumerate(ctl_links):
                 if link.get("transport", "scalar") == "bulk":
                     ctype = {"float": "float", "int": "int32_t", "bool": "uint8_t"}[link["type"]]
@@ -985,9 +991,11 @@ class CodeGenerator:
                         f'static char g_ctl_str{i}[256];  /* string 链快照缓冲（256B 上限，超长截断） */'
                     )
             lines.append('')
-            lines.append('static void control_tick(void) {')
+            lines.append('static int control_tick(const char* task) {')
+            lines.append('    int rc;')
             lines.append('    /* 第一相：读 —— 全部源参数 → 快照（经组件 get_parameter） */')
             for i, link in enumerate(ctl_links):
+                lines.append(f'    if ({_control_task_guard(link)}) {{')
                 desc = (f'{link["src_node"]}.{link["src_param"]} [{_fmt_shape(link["shape"])}]'
                         f' -> {link["dst_node"]}.{link["dst_param"]}')
                 if link.get("transport", "scalar") == "bulk":
@@ -995,22 +1003,25 @@ class CodeGenerator:
                         f'    /* {desc}：BULK 两相快照 */'
                     )
                     lines.append(
-                        f'    g_ctl_ok[{i}] = (orpheus_control_get_bulk('
+                        f'    rc = orpheus_control_get_bulk('
                         f'"{link["src_node"]}", "{link.get("src_slot", link["src_param"])}", '
-                        f'g_ctl_bulk{i}, {int(link["count"])}) == 0);'
+                        f'g_ctl_bulk{i}, {int(link["count"])});'
                     )
+                    lines.append('    if (rc != ORPHEUS_OK) return rc;')
+                    lines.append('    }')
                     continue
                 s_src = self._sanitized_node_id(link["src_node"])
                 lines.append(f'    /* {desc} */')
                 lines.append(
-                    f'    g_ctl_ok[{i}] = (g_iface_{s_src}->get_parameter != NULL &&'
+                    f'    if (g_iface_{s_src}->get_parameter == NULL) return ORPHEUS_ERR_UNSUPPORTED;'
                 )
                 lines.append(
-                    f'        g_iface_{s_src}->get_parameter(g_state_{s_src}, "{link["src_param"]}",'
-                    f' &g_ctl_snap[{i}]) == ORPHEUS_OK);'
+                    f'    rc = g_iface_{s_src}->get_parameter(g_state_{s_src}, "{link["src_param"]}",'
+                    f' &g_ctl_snap[{i}]);'
                 )
+                lines.append('    if (rc != ORPHEUS_OK) return rc;')
                 if link["type"] == "string":
-                    lines.append(f'    if (g_ctl_ok[{i}]) {{  /* 字符串快照拷入静态缓冲（截断 255B + NUL） */')
+                    lines.append('    {  /* 字符串快照拷入静态缓冲（截断 255B + NUL） */')
                     lines.append(f'        const char* p_ = g_ctl_snap[{i}].value.str != NULL')
                     lines.append(f'                         ? g_ctl_snap[{i}].value.str : "";')
                     lines.append('        size_t n_ = strlen(p_);')
@@ -1018,25 +1029,31 @@ class CodeGenerator:
                     lines.append(f'        memcpy(g_ctl_str{i}, p_, n_);')
                     lines.append(f'        g_ctl_str{i}[n_] = \'\\0\';')
                     lines.append('    }')
+                lines.append('    }')
             lines.append('')
             lines.append('    /* 第二相：写 —— 快照 → 全部目标（经组件 set_parameter） */')
             for i, link in enumerate(ctl_links):
+                lines.append(f'    if ({_control_task_guard(link)}) {{')
                 if link.get("transport", "scalar") == "bulk":
                     lines.append(
-                        f'    if (g_ctl_ok[{i}]) (void)orpheus_control_write_bulk('
+                        f'    rc = orpheus_control_write_bulk('
                         f'"{link["dst_node"]}", "{link.get("dst_slot", link["dst_param"])}", '
                         f'g_ctl_bulk{i}, {int(link["count"])});'
                     )
+                    lines.append('    if (rc != ORPHEUS_OK) return rc;')
+                    lines.append('    }')
                     continue
                 s_dst = self._sanitized_node_id(link["dst_node"])
-                lines.append(f'    if (g_ctl_ok[{i}] && g_iface_{s_dst}->set_parameter != NULL) {{')
+                lines.append(f'    if (g_iface_{s_dst}->set_parameter == NULL) return ORPHEUS_ERR_UNSUPPORTED;')
                 if link["type"] == "string":
                     lines.append(f'        g_ctl_snap[{i}].value.str = g_ctl_str{i};')
                 lines.append(
-                    f'        (void)g_iface_{s_dst}->set_parameter(g_state_{s_dst}, "{link["dst_param"]}",'
+                    f'    rc = g_iface_{s_dst}->set_parameter(g_state_{s_dst}, "{link["dst_param"]}",'
                     f' &g_ctl_snap[{i}]);'
                 )
+                lines.append('    if (rc != ORPHEUS_OK) return rc;')
                 lines.append('    }')
+            lines.append('    return ORPHEUS_OK;')
             lines.append('}')
             lines.append("")
 
@@ -1293,11 +1310,11 @@ class CodeGenerator:
             lines.append('    orpheus_platform_io_post_block();')
         if ctl_links:
             lines.append('')
-            lines.append('    control_tick();  /* 控制链路：两相快照（先全读后全写），每图块一次 */')
+            lines.append('    rc = control_tick(NULL);')
         lines.append('    g_block_counter++;')
         lines.append('    g_frame_index += advance;')
         lines.append('    g_timeline_flags = ORPHEUS_TIMELINE_NONE;')
-        lines.append('    return ORPHEUS_OK;')
+        lines.append('    return rc;' if ctl_links else '    return ORPHEUS_OK;')
         lines.append('}')
         lines.append("")
 
@@ -1431,40 +1448,11 @@ class CodeGenerator:
             if task_has_platform_io:
                 lines.append('    orpheus_platform_io_post_block();')
             if task_ctl_links:
-                lines.append('    /* 本 Task 控制链：两相快照。跨 Task 控制链由全局入口调度。 */')
-                for i, link in task_ctl_links:
-                    if link["type"] != "string" and int(link.get("count", 1)) > 1:
-                        continue
-                    s_src = self._sanitized_node_id(link["src_node"])
-                    lines.append(f'    g_ctl_ok[{i}] = (g_iface_{s_src}->get_parameter != NULL &&')
-                    lines.append(
-                        f'        g_iface_{s_src}->get_parameter(g_state_{s_src}, "{link["src_param"]}",'
-                        f' &g_ctl_snap[{i}]) == ORPHEUS_OK);'
-                    )
-                    if link["type"] == "string":
-                        lines.append(f'    if (g_ctl_ok[{i}]) {{')
-                        lines.append(f'        const char* p_ = g_ctl_snap[{i}].value.str != NULL ? g_ctl_snap[{i}].value.str : "";')
-                        lines.append('        size_t n_ = strlen(p_);')
-                        lines.append(f'        if (n_ >= sizeof(g_ctl_str{i})) n_ = sizeof(g_ctl_str{i}) - 1;')
-                        lines.append(f'        memcpy(g_ctl_str{i}, p_, n_);')
-                        lines.append(f'        g_ctl_str{i}[n_] = \'\\0\';')
-                        lines.append('    }')
-                for i, link in task_ctl_links:
-                    if link["type"] != "string" and int(link.get("count", 1)) > 1:
-                        continue
-                    s_dst = self._sanitized_node_id(link["dst_node"])
-                    lines.append(f'    if (g_ctl_ok[{i}] && g_iface_{s_dst}->set_parameter != NULL) {{')
-                    if link["type"] == "string":
-                        lines.append(f'        g_ctl_snap[{i}].value.str = g_ctl_str{i};')
-                    lines.append(
-                        f'        (void)g_iface_{s_dst}->set_parameter(g_state_{s_dst}, "{link["dst_param"]}",'
-                        f' &g_ctl_snap[{i}]);'
-                    )
-                    lines.append('    }')
+                lines.append(f'    rc = control_tick("{self._c_escape(task_id)}");')
             lines.append(f'    g_task_counter_{task_sym}++;')
             lines.append(f'    g_task_frame_index_{task_sym} += advance;')
             lines.append(f'    g_task_timeline_flags_{task_sym} = ORPHEUS_TIMELINE_NONE;')
-            lines.append('    return ORPHEUS_OK;')
+            lines.append('    return rc;' if task_ctl_links else '    return ORPHEUS_OK;')
             lines.append('}')
             if external_trigger:
                 lines.append(f'int orpheus_generated_process_task_{task_sym}(uint32_t frame_count) {{')
@@ -2685,6 +2673,7 @@ class CodeGenerator:
         c.append('    uint32_t count;')
         c.append('    uint32_t flags;')
         c.append('    uint32_t update_policy;')
+        c.append('    int32_t min_i32, max_i32;')
         c.append('    size_t size;')
         c.append('    size_t offset;')
         c.append('    void* state;')
@@ -2723,6 +2712,8 @@ class CodeGenerator:
         c.append('    s->count = info->count;')
         c.append('    s->flags = info->flags;')
         c.append('    s->update_policy = info->update_policy;')
+        c.append('    s->min_i32 = info->min_i32;')
+        c.append('    s->max_i32 = info->max_i32;')
         c.append('    s->iface = g_reg_iface;')
         c.append('    s->size = info->size;')
         c.append('    s->offset = info->offset;')
@@ -2749,6 +2740,15 @@ class CodeGenerator:
         c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
         c.append('    if (!s || s->kind != ORPHEUS_SLOT_BULK) return -1;')
         c.append('    if (count > s->count) return -1;')
+        c.append('    if (count > 0 && !data) return ORPHEUS_ERR_INVALID_ARG;')
+        c.append('    if (s->type == ORPHEUS_VALUE_INT && (s->min_i32 != 0 || s->max_i32 != 0)) {')
+        c.append('        if (s->size != sizeof(int32_t)) return ORPHEUS_ERR_INVALID_ARG;')
+        c.append('        for (size_t i = 0; i < count; ++i) {')
+        c.append('            int32_t value;')
+        c.append('            memcpy(&value, (const uint8_t*)data + i * sizeof(value), sizeof(value));')
+        c.append('            if (value < s->min_i32 || value > s->max_i32) return ORPHEUS_ERR_INVALID_ARG;')
+        c.append('        }')
+        c.append('    }')
         c.append('    size_t span = count * s->size;')
         c.append('    if (s->shadow) {')
         c.append('        memcpy(s->shadow, data, span);')

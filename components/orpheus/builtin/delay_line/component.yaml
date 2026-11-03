@@ -2,7 +2,7 @@ id: orpheus.builtin.delay_line
 name: 多通道独立延迟线
 category: 高级/滤波器组
 description: 每通道独立延迟，支持BULK向量或运行期公共整数样本延迟；切换保留历史
-version: 1.1.0
+version: 1.2.0
 abi_version: 1
 package_type: source
 state_type: DelayLineState
@@ -50,11 +50,42 @@ parameters:
     update_policy: immediate
     bindable: true
     description: 非负整数统一控制所有通道，不能超过本实例max_delay_samples；-1恢复逐通道BULK配置，不清空历史
+  - id: delay_vector_mode
+    name: 逐通道配置类型（0浮点兼容，1整数样本）
+    type: int
+    default: 0
+    range: [0, 1]
+    update_policy: restart_required
+  - id: initial_delays_i32
+    name: 初始整数延迟数组
+    type: string
+    default: ""
+    widget: text
+    update_policy: restart_required
+    description: 空字符串表示全零；否则必须按通道数提供完整整数CSV，仅用于初始化
+  - id: delays_i32
+    name: 每通道整数延迟样本数
+    type: int
+    kind: bulk
+    shape: [param:channels]
+    bulk_slot: delays_i32
+    bindable: true
+    control_source: true
+    readback: true
+    update_policy: block_boundary
+    description: int32数组，逐元素范围0到本实例max_delay_samples；整组校验后在块边界提交，不清空历史
 bulk_slots:
   - id: delays_samples
     name: 每通道延迟样本数
     type: float
     count: 64
+    shape: [param:channels]
+    double_bank: true
+  - id: delays_i32
+    name: 每通道整数延迟样本数
+    type: int
+    count: 64
+    shape: [param:channels]
     double_bank: true
 memory:
   state_size: 0
