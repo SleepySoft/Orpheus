@@ -89,7 +89,9 @@ def verify_iir_freeze_cases(tmp_path, cases):
                      "target_compile_definitions(freeze_test PRIVATE ORPHEUS_TEST_GENERATED)\n"
                      "target_link_libraries(freeze_test PRIVATE orpheus_graph)\n")
     result = subprocess.run(
-        ["cmake", "--build", str(ROOT / "build"), "--target", "orpheus_builtin_iir_bank", "filter_freeze_runner"],
+        ["cmake", "--build", str(ROOT / "build"), "--target", "orpheus_builtin_iir_bank",
+         "orpheus_builtin_channel_router", "orpheus_builtin_wav_in", "orpheus_builtin_wav_out",
+         "filter_freeze_runner"],
         capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
     _build(generated, tmp_path)
