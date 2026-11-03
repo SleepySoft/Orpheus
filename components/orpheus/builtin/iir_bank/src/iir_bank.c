@@ -1,5 +1,7 @@
 #include "orpheus_iir_bank.h"
 
+#include <ctype.h>
+#include <errno.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +42,32 @@ static uint32_t parse_coefs(const char* text, float* out, uint32_t max_count) {
     return count;
 }
 
+static int parse_stage_counts(const char* text, IirBankState* s) {
+    if (!text) return ORPHEUS_ERR_INVALID_ARG;
+    for (uint32_t cc = 0; cc < s->channels; ++cc) s->channelStages[cc] = s->numStages;
+    if (!*text) return ORPHEUS_OK;
+    const char* p = text;
+    for (uint32_t cc = 0; cc < s->channels; ++cc) {
+        while (isspace((unsigned char)*p)) ++p;
+        if (!isdigit((unsigned char)*p)) return ORPHEUS_ERR_INVALID_ARG;
+        char* end = NULL;
+        errno = 0;
+        long count = strtol(p, &end, 10);
+        if (errno == ERANGE || count < 0 || count > (long)s->numStages)
+            return ORPHEUS_ERR_INVALID_ARG;
+        s->channelStages[cc] = (uint32_t)count;
+        p = end;
+        while (isspace((unsigned char)*p)) ++p;
+        if (cc + 1 == s->channels) {
+            if (*p) return ORPHEUS_ERR_INVALID_ARG;
+        } else {
+            if (*p != ',') return ORPHEUS_ERR_INVALID_ARG;
+            ++p;
+        }
+    }
+    return ORPHEUS_OK;
+}
+
 /* ---- 描述符 ---- */
 
 static const OrpheusParameter ib_params[] = {
@@ -64,7 +92,11 @@ static const OrpheusParameter ib_params[] = {
     { .id = "processing_enabled", .name = "处理使能", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 1 },
       .min_i32 = 0, .max_i32 = 1, .update_policy = ORPHEUS_UPDATE_IMMEDIATE,
-      .readback = true, .persistent = true }
+      .readback = true, .persistent = true },
+    { .id = "stages_per_channel", .name = "每通道实际级数", .type = ORPHEUS_VALUE_STRING,
+      .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "" },
+      .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+      .readback = false, .persistent = false }
 };
 
 static const OrpheusPort ib_ports[] = {
@@ -77,8 +109,8 @@ static const OrpheusPort ib_ports[] = {
 };
 
 static const OrpheusComponentDescriptor ib_descriptor = {
-    .id = "orpheus.builtin.iir_bank", .version = "1.3.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = ib_ports, .port_count = 2, .params = ib_params, .param_count = 5,
+    .id = "orpheus.builtin.iir_bank", .version = "1.4.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = ib_ports, .port_count = 2, .params = ib_params, .param_count = 6,
     .state_size = sizeof(IirBankState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
 };
@@ -111,9 +143,18 @@ static int ib_prepare(void* state, const OrpheusConfig* config) {
         }
     }
     s->channels  = config->channels > 0 ? (uint32_t)config->channels : 2U;
+    if (s->channels > IIR_BANK_MAX_CHANNELS) return ORPHEUS_ERR_INVALID_ARG;
     s->numStages = (uint32_t)read_int(config, "num_stages", 4);
     if (s->numStages < 1) s->numStages = 1;
     if (s->numStages > IIR_BANK_MAX_STAGES) s->numStages = IIR_BANK_MAX_STAGES;
+    const char* stage_counts = "";
+    for (uint32_t i = 0; i < config->param_count; ++i) {
+        if (config->param_ids[i] && strcmp(config->param_ids[i], "stages_per_channel") == 0) {
+            if (config->param_values[i].type != ORPHEUS_VALUE_STRING) return ORPHEUS_ERR_INVALID_ARG;
+            stage_counts = config->param_values[i].value.str;
+        }
+    }
+    if (parse_stage_counts(stage_counts, s) != ORPHEUS_OK) return ORPHEUS_ERR_INVALID_ARG;
 
     const char* mode_str = read_string(config, "coefs_mode", "shared");
     s->coefs_mode = (mode_str && strcmp(mode_str, "per_channel") == 0) ? 1U : 0U;
@@ -186,7 +227,6 @@ static int ib_process(void* state, const OrpheusProcessContext* ctx) {
 
     uint32_t frames = ctx->frame_count;
     uint32_t ch = s->channels;
-    uint32_t ns = s->numStages;
     const float* in_data = (const float*)in->data;
     float* out_data = (float*)out->data;
 
@@ -196,7 +236,7 @@ static int ib_process(void* state, const OrpheusProcessContext* ctx) {
         for (uint32_t n = 0; n < frames; ++n) {
             for (uint32_t cc = 0; cc < ch; ++cc) {
                 float x = in_data[n * ch + cc];
-                for (uint32_t i = 0; i < ns; ++i) {
+                for (uint32_t i = 0; i < s->channelStages[cc]; ++i) {
                     float b0 = c[5*i + 0], b1 = c[5*i + 1], b2 = c[5*i + 2];
                     float a1 = c[5*i + 3], a2 = c[5*i + 4];
                     IirChannelState* st = &s->channelStates[cc];
@@ -217,7 +257,7 @@ static int ib_process(void* state, const OrpheusProcessContext* ctx) {
                 const float* c = s->coefs[cc];
                 IirChannelState* st = &s->channelStates[cc];
                 float x = in_data[n * ch + cc];
-                for (uint32_t i = 0; i < ns; ++i) {
+                for (uint32_t i = 0; i < s->channelStages[cc]; ++i) {
                     float b0 = c[5*i + 0], b1 = c[5*i + 1], b2 = c[5*i + 2];
                     float a1 = c[5*i + 3], a2 = c[5*i + 4];
                     float z1 = st->z1[i];

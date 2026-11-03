@@ -19,6 +19,8 @@ def iir_reference(samples, params):
     channels, stages = params["channels"], params["num_stages"]
     flat = [float(v) for v in params["coefs"].split(",")]
     per_channel = params.get("coefs_mode", "shared") == "per_channel"
+    counts = ([int(v) for v in params["stages_per_channel"].split(",")]
+              if params.get("stages_per_channel") else [stages]*channels)
     memory = [[[0.0, 0.0] for _ in range(stages)] for _ in range(channels)]
     expected, cursor = [], 0
     for step, blocks in enumerate(BLOCKS):
@@ -28,7 +30,7 @@ def iir_reference(samples, params):
                     expected.append(0)
                     continue
                 x = samples[n][c] / 32768
-                for stage in range(stages):
+                for stage in range(counts[c]):
                     start = ((c*stages if per_channel else 0)+stage)*5
                     b0, b1, b2, a1, a2 = flat[start:start+5]
                     z1, z2 = memory[c][stage]
@@ -119,4 +121,9 @@ def test_iir_freeze_four_entries(tmp_path):
         "shared": {"channels": 3, "num_stages": 1, "coefs": "0.5,0.25,0,-0.5,0"},
         "separate": {"channels": 2, "num_stages": 2, "coefs_mode": "per_channel",
                      "coefs": "0.5,0.25,0,-0.5,0,1,0,0,0,0,0.25,0.5,0,-0.25,0,0.5,0,0,0,0"},
+        "varying_shared": {"channels": 3, "num_stages": 3, "stages_per_channel": "0,1,3",
+                           "coefs": "0.5,0.25,0,-0.5,0,0.5,0.125,0,-0.25,0,0.25,0.25,0,0,0"},
+        "varying_separate": {"channels": 2, "num_stages": 2, "stages_per_channel": "1,2",
+                             "coefs_mode": "per_channel",
+                             "coefs": "0.5,0.25,0,-0.5,0,nan,nan,nan,nan,nan,0.25,0.5,0,-0.25,0,0.5,0,0,0,0"},
     })
