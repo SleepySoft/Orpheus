@@ -1,0 +1,24 @@
+id: orpheus.test.tensor_pair_capture
+name: 独立尺寸张量对采集
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: TensorPairCapture
+sources: [src/capture.c]
+headers: [include/capture.h]
+ports:
+  - {id: a, direction: input, type: bulk, sample_format: f32, channels: "param:channels_a", block_size: "param:frames_a"}
+  - {id: b, direction: input, type: bulk, sample_format: f32, channels: "param:channels_b", block_size: "param:frames_b"}
+parameters:
+  - {id: channels_a, type: int, default: 1, affects_signature: true, update_policy: restart_required}
+  - {id: channels_b, type: int, default: 1, affects_signature: true, update_policy: restart_required}
+  - {id: frames_a, type: int, default: 258, affects_signature: true, update_policy: restart_required}
+  - {id: frames_b, type: int, default: 129, affects_signature: true, update_policy: restart_required}
+  - {id: packed_values, type: string, default: "", kind: bulk, shape: ["param:frames_a", "param:channels_a"], readback: true}
+  - {id: decoded_values, type: string, default: "", kind: bulk, shape: ["param:frames_b", "param:channels_b"], readback: true}
+  - {id: calls, type: int, default: 0, readback: true}
+  - {id: quantum, type: int, default: 0, readback: true}
+bulk_slots:
+  - {id: packed_values, name: 张量A, type: float, count: 8192, shape: ["param:frames_a", "param:channels_a"]}
+  - {id: decoded_values, name: 张量B, type: float, count: 8192, shape: ["param:frames_b", "param:channels_b"]}
+execution: {realtime_safe: true, supports_inplace: false}

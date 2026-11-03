@@ -1,0 +1,28 @@
+id: orpheus.builtin.complex_power
+name: 复数模平方与分批dB能量
+category: 基础/计算数据
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: ComplexPowerState
+description: >-
+  对Re/Im交织BULK逐点计算re*re+im*im，保留两次乘法舍入；不融合乘加。
+  每批每通道从负零开始按频点顺序累加，energy=log10f(sum+epsilon)*10.0f。
+  不求均值、不除FFT长度、不加频谱倍率、不截断NaN/Inf；epsilon有限且非负。
+  索引=((批次*bins+点)*2+实虚分量)*channels+通道。
+  批次独立归约，不将batches份能量混成一个；数组尺寸不改变时间线。
+  两输出可各自悬空；先验证全部输出再写，禁止输出与输入或另一输出重叠。
+  无持久算法状态、无运行期分配；零处理量不写输出。
+sources: [src/complex_power.c]
+headers: [include/orpheus_complex_power.h]
+ports:
+  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*2*param:batches"}
+  - {id: power, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*param:batches"}
+  - {id: energy, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:batches"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: bins, name: 每批复数点数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  - {id: batches, name: 批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: epsilon, name: 对数偏置, type: float, default: 2.22044605e-16, update_policy: restart_required}
+memory: {state_size: 24, scratch_size: 0, alignment: 8}
+execution: {realtime_safe: true, supports_inplace: false}

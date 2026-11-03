@@ -202,6 +202,15 @@ float32减法；不夹到0～1，不叠加平滑，不用乘加改写减法。�
 `tests/complex_gain_split_smoke.c`验证IEEE特殊值、舍入顺序和错误拒绝；
 `orpheus_core/tests/test_complex_gain_split.py`以129/387点和多通道数据验证四入口逐位一致。
 
+`complex_power`逐点计算`re*re+im*im`，分别保留两次乘法舍入，
+每批每通道从负零开始按频点顺序累加；能量为`log10f(sum+epsilon)*10.0f`。
+它不求均值、不除FFT长度、不加单边谱倍率，也不替代带历史的PSD平滑或冲击检测。
+`power`尺寸为`bins*batches × channels`，`energy`为`batches × channels`，
+三批次必须保留三份独立能量，而不是混成一份。NaN/Inf直接传播，epsilon须有限且非负。
+原生测试覆盖特殊位型、零偏置、顺序归约和输出校验；
+`orpheus_core/tests/test_complex_power.py`核对功率及能量数值和四入口逐字节一致，
+通过独立尺寸的张量采集器捕获每份结果，不以数组长度冒充时间量子。
+
 `orpheus_core/tests/test_data_ports.py`使用非占位C组件验证129×2数组和标量的同轮计算、
 每三块更新的慢结果保持、初值零、同tick更新可见、扇出、悬空输出、复合组件保存/展开、
 分数采样率时间线与非法连线拒绝；动态DLL和生成工程各自的全局/Task入口共四种入口，

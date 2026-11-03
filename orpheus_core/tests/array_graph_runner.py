@@ -8,7 +8,6 @@ import subprocess
 from orpheus_core.generator import CodeGenerator
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = Path(__file__).parent / "fixtures/array_pair"
 
 
 def execute_array_graph(tmp_path, registry, plan, captures):
@@ -20,13 +19,19 @@ def execute_array_graph(tmp_path, registry, plan, captures):
     with (generated / "CMakeLists.txt").open("a", encoding="utf-8") as file:
         file.write("\nadd_executable(array_test src/array_test.c)\n"
                    "target_compile_definitions(array_test PRIVATE ORPHEUS_TEST_GENERATED)\n"
-                   "target_link_libraries(array_test PRIVATE orpheus_graph)\n"
-                   f'add_library(array_pair_dynamic SHARED "{(FIXTURE / "src/array_pair.c").as_posix()}")\n'
-                   f'target_include_directories(array_pair_dynamic PRIVATE "{(FIXTURE / "include").as_posix()}")\n'
-                   "target_compile_definitions(array_pair_dynamic PRIVATE ORPHEUS_BUILDING_COMPONENT)\n"
-                   'set_target_properties(array_pair_dynamic PROPERTIES PREFIX "lib" OUTPUT_NAME "orpheus_test_array_pair" '
-                   'WINDOWS_EXPORT_ALL_SYMBOLS ON RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components" '
-                   'LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components")\n')
+                   "target_link_libraries(array_test PRIVATE orpheus_graph)\n")
+        for component in sorted({cfg["component"] for cfg in plan.node_configs.values()
+                                 if cfg["component"].startswith("orpheus.test.")}):
+            info = registry.get(component)
+            assert info is not None
+            target = component.replace(".", "_")+"_dynamic"
+            sources = " ".join('"'+(info.root_dir / name).as_posix()+'"' for name in info.manifest["sources"])
+            file.write(f"\nadd_library({target} SHARED {sources})\n"
+                       f'target_include_directories({target} PRIVATE "{(info.root_dir / "include").as_posix()}")\n'
+                       f"target_compile_definitions({target} PRIVATE ORPHEUS_BUILDING_COMPONENT)\n"
+                       f'set_target_properties({target} PROPERTIES PREFIX "lib" OUTPUT_NAME "{component.replace(".", "_")}" '
+                       'WINDOWS_EXPORT_ALL_SYMBOLS ON RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components" '
+                       'LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components")\n')
     components = sorted({cfg["component"] for cfg in plan.node_configs.values()
                          if cfg["component"].startswith("orpheus.builtin.")})
     result = subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", "halfcomplex_runner",

@@ -261,6 +261,13 @@ target_include_directories(complex_gain_split_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_gain_split/include)
 target_compile_definitions(complex_gain_split_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME complex_gain_split_smoke COMMAND complex_gain_split_smoke)
+add_executable(complex_power_smoke complex_power_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_power/src/complex_power.c)
+target_include_directories(complex_power_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_power/include)
+target_compile_definitions(complex_power_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME complex_power_smoke COMMAND complex_power_smoke)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
