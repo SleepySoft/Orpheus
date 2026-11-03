@@ -37,7 +37,7 @@ int main(void) {
     OrpheusBuffer ba = {.data=a, .channels=3, .format=ORPHEUS_FORMAT_F32, .frame_capacity=2, .interleaved=true};
     OrpheusBuffer bb = {.data=b, .channels=2, .format=ORPHEUS_FORMAT_F32, .frame_capacity=2, .interleaved=true};
     OrpheusBuffer bo = {.data=output, .channels=6, .format=ORPHEUS_FORMAT_F32, .frame_capacity=2, .interleaved=true};
-    const OrpheusBuffer* inputs[] = {&ba, &bb};
+    const OrpheusBuffer* inputs[] = {&ba, &bb, NULL};
     OrpheusBuffer* outputs[] = {&bo};
     OrpheusProcessContext context = {.inputs=inputs, .outputs=outputs, .input_count=2, .output_count=1, .frame_count=2};
     CHECK(iface->process(instance, &context) == ORPHEUS_OK);
@@ -62,6 +62,23 @@ int main(void) {
     CHECK(iface->process(instance, &context) == ORPHEUS_OK && !signbit(output[5]));
     bo.frame_capacity = 1;
     CHECK(iface->process(instance, &context) == ORPHEUS_ERR_INVALID_ARG);
+    bo.frame_capacity = 2;
+    float base[12];
+    for (unsigned i = 0; i < 12; ++i) memcpy(&base[i], &raw[i%6], 4);
+    OrpheusBuffer base_buffer = {.data=base, .channels=6, .format=ORPHEUS_FORMAT_F32, .frame_capacity=2};
+    inputs[2] = &base_buffer; context.input_count = 3; state.accumulate = true;
+    OrpheusValue enabled = {.type=ORPHEUS_VALUE_BOOL, .value.b=false}, readback;
+    CHECK(iface->set_parameter(instance, "enabled", &enabled) == ORPHEUS_OK);
+    CHECK(iface->get_parameter(instance, "enabled", &readback) == ORPHEUS_OK && !readback.value.b);
+    CHECK(iface->process(instance, &context) == ORPHEUS_OK && !memcmp(output, base, sizeof(base)));
+    CHECK(iface->reset(instance) == ORPHEUS_OK && !state.enabled);
+    enabled.value.b = true;
+    CHECK(iface->set_parameter(instance, "enabled", &enabled) == ORPHEUS_OK);
+    CHECK(iface->process(instance, &context) == ORPHEUS_OK);
+    for (unsigned n = 0; n < 2; ++n) {
+        CHECK(!memcmp(&output[n*6], &base[n*6], 4) && !memcmp(&output[n*6+1], &base[n*6+1], 4));
+        CHECK(!memcmp(&output[n*6+4], &base[n*6+4], 4) && !memcmp(&output[n*6+5], &base[n*6+5], 4));
+    }
     CHECK(iface->destroy(instance) == ORPHEUS_OK);
     const char* bad_indices[] = {"1,2", "1,2,3,4,5,6,7", "1.5,2,3,4,5,6", "1,,3,4,5,6",
         "1,2,3,4,5,6x", "1,2,3,4,5,", "2147483648,2,3,4,5,6"};

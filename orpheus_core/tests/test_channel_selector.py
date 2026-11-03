@@ -36,16 +36,17 @@ def verify_channel_selectors(tmp_path, cases):
     for name, params in cases.items():
         nodes[name] = Node(id=name, component="orpheus.builtin.channel_selector",
                            params={k: v for k, v in params.items() if not k.startswith("_")})
-        for side in ("a", "b"):
+        for side in (("a", "b", "base") if params.get("accumulate") else ("a", "b")):
             if not params.get("_connect_"+side, True):
                 continue
             route = name+"_"+side
-            count = params["channels_"+side]
+            source = "a" if side == "base" else side
+            count = params["channels_out"] if side == "base" else params["channels_"+side]
             nodes[route] = Node(id=route, component="orpheus.builtin.channel_router",
-                                params={"channels_in": widths[side], "channels_out": count,
+                                params={"channels_in": widths[source], "channels_out": count,
                                         "indices": ",".join(map(str, range(count)))})
             edges += [
-                Connection(from_ref=PortRef("source_"+side, "out"), to_ref=PortRef(route, "in")),
+                Connection(from_ref=PortRef("source_"+source, "out"), to_ref=PortRef(route, "in")),
                 Connection(from_ref=PortRef(route, "out"), to_ref=PortRef(name, side)),
             ]
         nodes[name+"_out"] = Node(id=name+"_out", component="orpheus.builtin.wav_out",
@@ -89,21 +90,24 @@ def verify_channel_selectors(tmp_path, cases):
             vector = [(c % 5-2)/4 for c in range(count)] if step == 1 else [0]*count if step == 2 else gains
             for n in range(cursor, cursor+blocks*32):
                 for c, selected in enumerate(indices):
+                    base_value = samples["a"][n][c]/32768 if params.get("accumulate") and params.get("_connect_base", True) else 0
                     index = selected-base
                     total = params["channels_a"]+params["channels_b"]
                     if index >= total and params.get("high_index_policy", 0):
                         index = total-1
-                    if index < 0 or index >= total:
-                        reference.append(0)
+                    if index < 0 or index >= total or (step == 2 and params.get("accumulate")):
+                        reference.append(int(base_value*32767))
                         continue
                     side = "a" if index < params["channels_a"] else "b"
                     if not params.get("_connect_"+side, True):
-                        reference.append(0)
+                        reference.append(int(base_value*32767))
                         continue
                     channel = index if side == "a" else index-params["channels_a"]
                     value = samples[side][n][channel]/32768
                     if params.get("apply_gain", False):
                         value *= vector[c]
+                    if params.get("accumulate"):
+                        value = base_value+value
                     reference.append(int(value*32767))
             cursor += blocks*32
         expected[name] = reference
@@ -137,4 +141,6 @@ def test_channel_selector_four_entries(tmp_path):
                  "indices": ",".join(str(v) for v in ([0, 63, 64, 127, 128, -1, 2147483647, -2147483648]*8))},
         "missing": {"channels_a": 17, "channels_b": 32, "channels_out": 6, "index_base": 1,
                     "indices": "0,1,17,18,49,50", "apply_gain": True, "_connect_b": False},
+        "add": {"channels_a": 17, "channels_b": 1, "channels_out": 22, "index_base": 1,
+                "indices": ",".join(map(str, mapping*2)), "apply_gain": True, "accumulate": True, "_connect_b": False},
     })

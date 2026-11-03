@@ -24,19 +24,27 @@ static const OrpheusParameter params[] = {
      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .readback=true, .persistent=true},
     {.id="gains", .name="初始逐通道线性增益", .type=ORPHEUS_VALUE_STRING,
      .default_value={.type=ORPHEUS_VALUE_STRING, .value.str=""},
-     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .readback=true, .persistent=true}
+     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .readback=true, .persistent=true},
+    {.id="accumulate", .name="叠加到基底输入", .type=ORPHEUS_VALUE_BOOL,
+     .default_value={.type=ORPHEUS_VALUE_BOOL, .value.b=false},
+     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .readback=true, .persistent=true},
+    {.id="enabled", .name="选择分支使能", .type=ORPHEUS_VALUE_BOOL,
+     .default_value={.type=ORPHEUS_VALUE_BOOL, .value.b=true},
+     .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY, .readback=true, .persistent=true}
 };
 static const OrpheusPort ports[] = {
     {.id="a", .direction=ORPHEUS_PORT_INPUT, .type=ORPHEUS_PORT_AUDIO,
      .sample_format=ORPHEUS_FORMAT_F32, .is_variable=true, .channels_param="channels_a"},
     {.id="b", .direction=ORPHEUS_PORT_INPUT, .type=ORPHEUS_PORT_AUDIO,
      .sample_format=ORPHEUS_FORMAT_F32, .is_variable=true, .channels_param="channels_b"},
+    {.id="base", .direction=ORPHEUS_PORT_INPUT, .type=ORPHEUS_PORT_AUDIO,
+     .sample_format=ORPHEUS_FORMAT_F32, .is_variable=true, .channels_param="channels_out"},
     {.id="out", .direction=ORPHEUS_PORT_OUTPUT, .type=ORPHEUS_PORT_AUDIO,
      .sample_format=ORPHEUS_FORMAT_F32, .is_variable=true, .channels_param="channels_out"}
 };
 static const OrpheusComponentDescriptor descriptor = {
-    .id="orpheus.builtin.channel_selector", .version="1.0.0", .abi_version=ORPHEUS_ABI_VERSION,
-    .ports=ports, .port_count=3, .params=params, .param_count=8,
+    .id="orpheus.builtin.channel_selector", .version="1.1.0", .abi_version=ORPHEUS_ABI_VERSION,
+    .ports=ports, .port_count=4, .params=params, .param_count=10,
     .state_size=sizeof(ChannelSelectorState), .alignment=8, .realtime_safe=true, .supports_inplace=false
 };
 static const OrpheusComponentDescriptor* get_descriptor(void) { return &descriptor; }
@@ -86,7 +94,7 @@ static int prepare(void* state, const OrpheusConfig* config) {
     if (!state || !config || (config->param_count && (!config->param_ids || !config->param_values)))
         return ORPHEUS_ERR_INVALID_ARG;
     ChannelSelectorState* s = (ChannelSelectorState*)state;
-    ChannelSelectorState next = {.channels_a=2, .channels_b=2, .channels_out=2, .owns_state=s->owns_state};
+    ChannelSelectorState next = {.channels_a=2, .channels_b=2, .channels_out=2, .owns_state=s->owns_state, .enabled=true};
     const char* indices = "";
     const char* gains = "";
     for (uint32_t i = 0; i < config->param_count; ++i) {
@@ -97,9 +105,11 @@ static int prepare(void* state, const OrpheusConfig* config) {
             if (value->type != ORPHEUS_VALUE_STRING || !value->value.str) return ORPHEUS_ERR_INVALID_ARG;
             if (strcmp(key, "indices") == 0) indices = value->value.str;
             else gains = value->value.str;
-        } else if (strcmp(key, "apply_gain") == 0) {
+        } else if (strcmp(key, "apply_gain") == 0 || strcmp(key, "accumulate") == 0 || strcmp(key, "enabled") == 0) {
             if (value->type != ORPHEUS_VALUE_BOOL) return ORPHEUS_ERR_INVALID_ARG;
-            next.apply_gain = value->value.b;
+            if (strcmp(key, "apply_gain") == 0) next.apply_gain = value->value.b;
+            else if (strcmp(key, "accumulate") == 0) next.accumulate = value->value.b;
+            else next.enabled = value->value.b;
         } else if (strcmp(key, "index_base") == 0 || strcmp(key, "high_index_policy") == 0) {
             if (value->type != ORPHEUS_VALUE_INT || value->value.i32 < 0 || value->value.i32 > 1)
                 return ORPHEUS_ERR_INVALID_ARG;
@@ -130,6 +140,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     ChannelSelectorState* s = (ChannelSelectorState*)state;
     const OrpheusBuffer* a = ctx->inputs[0];
     const OrpheusBuffer* b = ctx->inputs[1];
+    const OrpheusBuffer* base = ctx->input_count > 2 ? ctx->inputs[2] : NULL;
     OrpheusBuffer* out = ctx->outputs[0];
     uint32_t frames = ctx->frame_count;
     if (!s->channels_a || s->channels_a > 64 || !s->channels_b || s->channels_b > 64 ||
@@ -137,6 +148,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         s->high_index_policy < 0 || s->high_index_policy > 1 ||
         (a && (!a->data || a->channels != s->channels_a || a->frame_capacity < frames)) ||
         (b && (!b->data || b->channels != s->channels_b || b->frame_capacity < frames)) ||
+        (base && (!base->data || base->channels != s->channels_out || base->frame_capacity < frames)) ||
         (out && (!out->data || out->channels != s->channels_out || out->frame_capacity < frames)))
         return ORPHEUS_ERR_INVALID_ARG;
     if (!out) return ORPHEUS_OK;
@@ -145,14 +157,21 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     for (uint32_t c = 0; c < s->channels_out; ++c) {
         int64_t index = (int64_t)s->indices[c]-s->index_base;
         if (index >= total && s->high_index_policy) index = total-1;
-        const OrpheusBuffer* input = index < 0 || index >= total ? NULL : index < s->channels_a ? a : b;
+        const OrpheusBuffer* input = !s->enabled || index < 0 || index >= total ? NULL : index < s->channels_a ? a : b;
         uint32_t channel = index < s->channels_a ? (uint32_t)index : (uint32_t)(index-s->channels_a);
         for (uint32_t n = 0; n < frames; ++n) {
             float* output = &destination[n*s->channels_out+c];
-            if (!input) *output = 0.0f;
+            const float* original = s->accumulate && base ? (const float*)base->data+n*s->channels_out+c : NULL;
+            if (!input) {
+                if (original) memcpy(output, original, sizeof(float));
+                else *output = 0.0f;
+            }
             else {
                 const float* sample = (const float*)input->data+n*input->channels+channel;
-                if (s->apply_gain) *output = *sample*s->gains[c];
+                if (s->accumulate) {
+                    float contribution = s->apply_gain ? *sample*s->gains[c] : *sample;
+                    *output = (original ? *original : 0.0f)+contribution;
+                } else if (s->apply_gain) *output = *sample*s->gains[c];
                 else memcpy(output, sample, sizeof(float));
             }
         }
@@ -161,7 +180,12 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     return ORPHEUS_OK;
 }
 static int set_parameter(void* state, const char* key, const OrpheusValue* value) {
-    (void)state; (void)key; (void)value;
+    if (!state || !key || !value) return ORPHEUS_ERR_INVALID_ARG;
+    if (strcmp(key, "enabled") == 0) {
+        if (value->type != ORPHEUS_VALUE_BOOL) return ORPHEUS_ERR_INVALID_ARG;
+        ((ChannelSelectorState*)state)->enabled = value->value.b;
+        return ORPHEUS_OK;
+    }
     return ORPHEUS_ERR_UNSUPPORTED;
 }
 static int get_parameter(void* state, const char* key, OrpheusValue* value) {
@@ -173,8 +197,10 @@ static int get_parameter(void* state, const char* key, OrpheusValue* value) {
     else if (strcmp(key, "channels_out") == 0) value->value.i32 = (int32_t)s->channels_out;
     else if (strcmp(key, "index_base") == 0) value->value.i32 = s->index_base;
     else if (strcmp(key, "high_index_policy") == 0) value->value.i32 = s->high_index_policy;
-    else if (strcmp(key, "apply_gain") == 0) {
-        value->type = ORPHEUS_VALUE_BOOL; value->value.b = s->apply_gain;
+    else if (strcmp(key, "apply_gain") == 0 || strcmp(key, "accumulate") == 0 || strcmp(key, "enabled") == 0) {
+        value->type = ORPHEUS_VALUE_BOOL;
+        value->value.b = strcmp(key, "apply_gain") == 0 ? s->apply_gain :
+            strcmp(key, "accumulate") == 0 ? s->accumulate : s->enabled;
     } else if (strcmp(key, "indices") == 0 || strcmp(key, "gains") == 0) return ORPHEUS_ERR_UNSUPPORTED;
     else return ORPHEUS_ERR_NOT_FOUND;
     return ORPHEUS_OK;
@@ -204,6 +230,12 @@ static int register_slots(void* state, const OrpheusRegistry* reg) {
     ORPHEUS_REG_SLOT(reg, s, apply_gain, ORPHEUS_SLOT_SETTING, "apply_gain", "应用逐通道增益",
         ORPHEUS_VALUE_BOOL, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
         .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, accumulate, ORPHEUS_SLOT_SETTING, "accumulate", "叠加到基底输入",
+        ORPHEUS_VALUE_BOOL, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+        .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, enabled, ORPHEUS_SLOT_SETTING, "enabled", "选择分支使能",
+        ORPHEUS_VALUE_BOOL, .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY,
+        .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_DIRECT_WRITE);
     return ORPHEUS_OK;
 }
 static const OrpheusComponentInterface interface = {
