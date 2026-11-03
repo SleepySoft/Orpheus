@@ -23,6 +23,20 @@ BULK 向量，新增整数 `delay_samples` 是公共样本延迟。其默认值 
 reset 清历史但保留配置。该组件不自动插值或淡化延迟跳变。
 直接参数调用与 `control_connections` 的块末投递仍是不同触发边界，不增加新连线类型。
 
+`delay_line.delay_vector_mode=1` 选择 `delays_i32`（int32 BULK）；默认 `0`
+保留原 float32 `delays_samples`。`initial_delays_i32` 只负责初始化，必须提供
+完整通道数量的整数 CSV，空串表示全零；运行期更新使用 typed BULK，不使用 CSV。
+两个槽的有效元素数均为 `channels`，静态容量不代表可访问长度。
+整数向量必须处于 `[0, max_delay_samples]`；非法写入整组拒绝，不破坏已排队的合法值。
+
+Bridge/REST、动态和生成代码的 BULK 接口均按 ID 元数据的 `type/count` 传递
+float32 或 int32，不再默认所有数组都是 float。动态命令行的 `--rwb/--rgb/--getbulk`
+和生成验证宿主的 `--write-bulk[-id]/--read-bulk[-id]` 同样按槽类型解析和打印。
+整数输入拒绝小数、溢出和垃圾后缀；数量错误、超容量或底层写入拒绝均报告 `ERR`
+并非零退出。允许非空前缀更新，其余元素保持不变；双 bank 仍在下一块开始提交。
+同 Task BULK 控制链在动态/生成的全局及 Task 入口均执行，读取或目标写入失败会
+返回给调用者。失败发生在块末时，已处理音频和时间计数不回滚。
+
 ---
 
 ## 一、现状盘点（决定可行性的关键事实）

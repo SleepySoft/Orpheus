@@ -1531,9 +1531,11 @@ class CodeGenerator:
             '#include <stdio.h>',
             '#include <stdlib.h>',
             '#include <string.h>',
+            '#include <errno.h>',
             '#include "orpheus_graph.h"',
             '#include "orpheus_bridge_generated.h"',
             '#include "orpheus_control.h"',
+            '#include "orpheus_id_map.h"',
             '#ifdef _WIN32',
             '#include <windows.h>',
             '#else',
@@ -1580,6 +1582,75 @@ class CodeGenerator:
         # 静态调度主步长：宿主按 tick 推进（旧 plan 回退 plan.block_size）
         tick = self._schedule_tick(plan)
         plan_tasks = getattr(plan, "tasks", [])
+        lines.extend(r'''
+static const OrpheusIdEntry* orpheus_cli_bulk(uint32_t id, const char* node, const char* key) {
+    size_t count = 0;
+    const OrpheusIdEntry* entries = orpheus_id_map(&count);
+    for (size_t k = 0; k < count; ++k) {
+        const OrpheusIdEntry* entry = &entries[k];
+        if (node ? (strcmp(entry->node, node) || strcmp(entry->key, key)) : entry->id != id)
+            continue;
+        if (entry->form == ORPHEUS_FORM_BULK && entry->count > 0 &&
+            (entry->type == ORPHEUS_VALUE_INT || entry->type == ORPHEUS_VALUE_FLOAT))
+            return entry;
+    }
+    return NULL;
+}
+
+static int orpheus_cli_write_bulk(const OrpheusIdEntry* entry, const char* text,
+                                  int available, char** values, int* consumed) {
+    char* end = NULL;
+    errno = 0;
+    long long n = strtoll(text, &end, 10);
+    if (!entry || errno || end == text || *end || n <= 0 ||
+        n > available || (unsigned long long)n > entry->count ||
+        (unsigned long long)n > SIZE_MAX / sizeof(uint32_t)) return -1;
+    uint32_t* words = (uint32_t*)malloc((size_t)n * sizeof(uint32_t));
+    if (!words) return -1;
+    for (size_t k = 0; k < (size_t)n; ++k) {
+        errno = 0;
+        if (entry->type == ORPHEUS_VALUE_INT) {
+            long long value = strtoll(values[k], &end, 10);
+            if (errno || end == values[k] || *end || value < INT32_MIN || value > INT32_MAX) {
+                free(words); return -1;
+            }
+            int32_t integer = (int32_t)value;
+            memcpy(&words[k], &integer, sizeof(integer));
+        } else {
+            float value = strtof(values[k], &end);
+            if (errno || end == values[k] || *end) { free(words); return -1; }
+            memcpy(&words[k], &value, sizeof(value));
+        }
+    }
+    int rc = orpheus_control_write_bulk_id(entry->id, words, (size_t)n);
+    free(words);
+    *consumed = (int)n;
+    return rc;
+}
+
+static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
+    if (!entry || entry->count > SIZE_MAX / sizeof(uint32_t)) return -1;
+    uint32_t* words = (uint32_t*)malloc((size_t)entry->count * sizeof(uint32_t));
+    if (!words) return -1;
+    int rc = orpheus_control_get_bulk_id(entry->id, words, entry->count);
+    if (rc == ORPHEUS_OK) {
+        if (by_id) printf("BULKVALUE 0x%08X", entry->id);
+        else printf("BULKVALUE %s %s", entry->node, entry->key);
+        for (size_t k = 0; k < entry->count; ++k) {
+            if (entry->type == ORPHEUS_VALUE_INT) {
+                int32_t value; memcpy(&value, &words[k], sizeof(value));
+                printf(" %ld", (long)value);
+            } else {
+                float value; memcpy(&value, &words[k], sizeof(value));
+                printf(" %g", value);
+            }
+        }
+        printf("\n");
+    }
+    free(words);
+    return rc;
+}
+'''.strip().splitlines())
         # hex 工具（--msg 二进制消息 CLI）
         lines.append('static const char* orpheus_hex_digits = "0123456789abcdef";')
         lines.append('static int orpheus_from_hex(const char* hx, uint8_t* out, size_t* out_len) {')
@@ -1667,26 +1738,26 @@ class CodeGenerator:
         if link_nodes:
             lines.append('    int link_stdio = 0;')
         lines.append('    for (int i = start_i; i < argc; ++i) {')
-        lines.append('        if (strcmp(argv[i], "--write-bulk") == 0 && i + 3 < argc) {')
+        lines.append('        if (strcmp(argv[i], "--write-bulk") == 0) {')
+        lines.append('            if (i + 3 >= argc) { fprintf(stderr, "ERR WRITEBULK 参数不足\\n"); rc = -1; goto teardown; }')
         lines.append('            const char* node = argv[i + 1];')
         lines.append('            const char* key = argv[i + 2];')
-        lines.append('            size_t n = (size_t)atoi(argv[i + 3]);')
-        lines.append('            float vals[64]; size_t got = 0;')
-        lines.append('            for (size_t k = 0; k < n && i + 4 + (int)k < argc && got < 64; ++k)')
-        lines.append('                vals[got++] = (float)atof(argv[i + 4 + (int)k]);')
-        lines.append('            i += 3 + (int)n;')
-        lines.append('            int r = orpheus_control_write_bulk(node, key, vals, got);')
+        lines.append('            int consumed = 0;')
+        lines.append('            int r = orpheus_cli_write_bulk(orpheus_cli_bulk(0, node, key),')
+        lines.append('                argv[i + 3], argc - i - 4, argv + i + 4, &consumed);')
         lines.append('            printf("%s WRITEBULK %s %s\\n", r == 0 ? "OK" : "ERR", node, key);')
+        lines.append('            if (r != ORPHEUS_OK) { rc = r; goto teardown; }')
+        lines.append('            i += 3 + consumed;')
         lines.append('            control_mode = 1;')
-        lines.append('        } else if (strcmp(argv[i], "--write-bulk-id") == 0 && i + 3 < argc) {')
+        lines.append('        } else if (strcmp(argv[i], "--write-bulk-id") == 0) {')
+        lines.append('            if (i + 2 >= argc) { fprintf(stderr, "ERR WRITEBULK 参数不足\\n"); rc = -1; goto teardown; }')
         lines.append('            uint32_t id = (uint32_t)strtoul(argv[i + 1], NULL, 0);')
-        lines.append('            size_t n = (size_t)atoi(argv[i + 2]);')
-        lines.append('            float vals[64]; size_t got = 0;')
-        lines.append('            for (size_t k = 0; k < n && i + 3 + (int)k < argc && got < 64; ++k)')
-        lines.append('                vals[got++] = (float)atof(argv[i + 3 + (int)k]);')
-        lines.append('            i += 2 + (int)n;')
-        lines.append('            int r = orpheus_control_write_bulk_id(id, vals, got);')
+        lines.append('            int consumed = 0;')
+        lines.append('            int r = orpheus_cli_write_bulk(orpheus_cli_bulk(id, NULL, NULL),')
+        lines.append('                argv[i + 2], argc - i - 3, argv + i + 3, &consumed);')
         lines.append('            printf("%s WRITEBULK 0x%08X\\n", r == 0 ? "OK" : "ERR", id);')
+        lines.append('            if (r != ORPHEUS_OK) { rc = r; goto teardown; }')
+        lines.append('            i += 2 + consumed;')
         lines.append('            control_mode = 1;')
         lines.append('        } else if (strcmp(argv[i], "--run") == 0 && i + 1 < argc) {')
         lines.append('            run_blocks = atoi(argv[++i]);')
@@ -1816,23 +1887,11 @@ class CodeGenerator:
         lines.append('        }')
         lines.append('        /* 读回：解析时仅记录，处理完再读（块边界提交后才是新值） */')
         lines.append('        if (rb_node) {')
-        lines.append('            size_t n = orpheus_control_bulk_count(rb_node, rb_key);')
-        lines.append('            if (n == 0 || n > 4096) { printf("ERR GETBULK %s %s\\n", rb_node, rb_key); goto teardown; }')
-        lines.append('            float vals[4096];')
-        lines.append('            if (orpheus_control_get_bulk(rb_node, rb_key, vals, n) == 0) {')
-        lines.append('                printf("BULKVALUE %s %s", rb_node, rb_key);')
-        lines.append('                for (size_t k = 0; k < n; ++k) printf(" %g", vals[k]);')
-        lines.append('                printf("\\n");')
-        lines.append('            } else { printf("ERR GETBULK %s %s\\n", rb_node, rb_key); }')
+        lines.append('            rc = orpheus_cli_read_bulk(orpheus_cli_bulk(0, rb_node, rb_key), 0);')
+        lines.append('            if (rc != ORPHEUS_OK) { printf("ERR GETBULK %s %s\\n", rb_node, rb_key); goto teardown; }')
         lines.append('        } else if (rb_by_id) {')
-        lines.append('            size_t n = orpheus_control_bulk_count_id(rb_id);')
-        lines.append('            if (n == 0 || n > 4096) { printf("ERR GETBULK 0x%08X\\n", rb_id); goto teardown; }')
-        lines.append('            float vals[4096];')
-        lines.append('            if (orpheus_control_get_bulk_id(rb_id, vals, n) == 0) {')
-        lines.append('                printf("BULKVALUE 0x%08X", rb_id);')
-        lines.append('                for (size_t k = 0; k < n; ++k) printf(" %g", vals[k]);')
-        lines.append('                printf("\\n");')
-        lines.append('            } else { printf("ERR GETBULK 0x%08X\\n", rb_id); }')
+        lines.append('            rc = orpheus_cli_read_bulk(orpheus_cli_bulk(rb_id, NULL, NULL), 1);')
+        lines.append('            if (rc != ORPHEUS_OK) { printf("ERR GETBULK 0x%08X\\n", rb_id); goto teardown; }')
         lines.append('        }')
         lines.append('        goto teardown;')
         lines.append('    }')
@@ -1843,7 +1902,7 @@ class CodeGenerator:
         lines.append('teardown:')
         lines.append('    // Teardown: destroy instances so sinks flush output (e.g. wav_out).')
         lines.append('    orpheus_generated_teardown();')
-        lines.append('    return 0;')
+        lines.append('    return rc == ORPHEUS_OK ? 0 : 1;')
         lines.append('}')
 
     def _generate_platform_io(self, plan: ExecutionPlan, path: Path) -> None:

@@ -6,6 +6,7 @@
 #include <atomic>
 #include <algorithm>
 #include <chrono>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -162,7 +163,7 @@ int main(int argc, char** argv) {
     bool have_rw = false, have_rr = false, have_rwb = false;
     uint32_t rw_id = 0, rr_id = 0, rwb_id = 0;
     std::string rw_value;
-    std::vector<float> rwb_vals;
+    std::vector<std::string> rwb_vals;
     uint32_t run_blocks = 0;
     bool have_gb = false, have_rgb = false;
     std::string gb_node, gb_key;
@@ -192,11 +193,22 @@ int main(int argc, char** argv) {
         } else if (std::string(argv[i]) == "--rr" && i + 1 < argc) {
             rr_id = (uint32_t)std::strtoul(argv[++i], nullptr, 0);
             have_rr = true;
-        } else if (std::string(argv[i]) == "--rwb" && i + 2 < argc) {
+        } else if (std::string(argv[i]) == "--rwb") {
+            if (i + 2 >= argc) {
+                std::cerr << "ERR RWB 参数不足" << std::endl;
+                return 1;
+            }
             rwb_id = (uint32_t)std::strtoul(argv[++i], nullptr, 0);
-            size_t n = (size_t)std::atoi(argv[++i]);
-            for (size_t k = 0; k < n && i + 1 < argc; ++k) {
-                rwb_vals.push_back((float)std::atof(argv[++i]));
+            char* end = nullptr;
+            errno = 0;
+            const char* text = argv[++i];
+            long long n = std::strtoll(text, &end, 10);
+            if (errno || end == text || *end || n <= 0 || n > argc - i - 1) {
+                std::cerr << "ERR RWB 无效的元素数量" << std::endl;
+                return 1;
+            }
+            for (long long k = 0; k < n; ++k) {
+                rwb_vals.push_back(argv[++i]);
             }
             have_rwb = true;
         } else if (std::string(argv[i]) == "--run" && i + 1 < argc) {
@@ -375,9 +387,39 @@ int main(int argc, char** argv) {
             did_id_cmd = true;
         }
         if (have_rwb) {
-            int r = runtime.write_bulk_id(rwb_id, rwb_vals.data(), rwb_vals.size());
+            OrpheusResolvedData d;
+            if (runtime.resolve(rwb_id, &d) != ORPHEUS_OK ||
+                d.form != ORPHEUS_FORM_BULK || rwb_vals.size() > d.count ||
+                (d.type != ORPHEUS_VALUE_INT && d.type != ORPHEUS_VALUE_FLOAT)) {
+                std::cerr << "ERR RWB 无效的槽类型或元素数量" << std::endl;
+                return 1;
+            }
+            std::vector<uint32_t> words(rwb_vals.size());
+            for (size_t k = 0; k < rwb_vals.size(); ++k) {
+                const char* text = rwb_vals[k].c_str();
+                char* end = nullptr;
+                errno = 0;
+                if (d.type == ORPHEUS_VALUE_INT) {
+                    long long value = std::strtoll(text, &end, 10);
+                    if (errno || end == text || *end || value < INT32_MIN || value > INT32_MAX) {
+                        std::cerr << "ERR RWB 需要 int32 整数" << std::endl;
+                        return 1;
+                    }
+                    int32_t integer = static_cast<int32_t>(value);
+                    std::memcpy(&words[k], &integer, sizeof(integer));
+                } else {
+                    float value = std::strtof(text, &end);
+                    if (errno || end == text || *end) {
+                        std::cerr << "ERR RWB 无效的 float32 数值" << std::endl;
+                        return 1;
+                    }
+                    std::memcpy(&words[k], &value, sizeof(value));
+                }
+            }
+            int r = runtime.write_bulk_id(rwb_id, words.data(), words.size());
             std::cout << (r == ORPHEUS_OK ? "OK RWB " : "ERR RWB ")
                       << std::hex << "0x" << rwb_id << std::dec << std::endl;
+            if (r != ORPHEUS_OK) return 1;
             did_id_cmd = true;
         }
         if (run_blocks > 0 && did_id_cmd) {
@@ -417,16 +459,29 @@ int main(int argc, char** argv) {
             }
             OrpheusResolvedData d;
             if (!have_id || runtime.resolve(id, &d) != ORPHEUS_OK ||
-                d.form != ORPHEUS_FORM_BULK) {
+                d.form != ORPHEUS_FORM_BULK ||
+                (d.type != ORPHEUS_VALUE_INT && d.type != ORPHEUS_VALUE_FLOAT)) {
                 std::cout << "ERR GETBULK " << std::hex << "0x" << id << std::dec << std::endl;
+                return 1;
             } else {
-                std::vector<float> vals(d.count);
+                std::vector<uint32_t> vals(d.count);
                 if (runtime.get_bulk_id(id, vals.data(), vals.size()) == ORPHEUS_OK) {
                     std::cout << "BULKVALUE " << std::hex << "0x" << id << std::dec;
-                    for (const float v : vals) std::cout << " " << v;
+                    for (const uint32_t word : vals) {
+                        if (d.type == ORPHEUS_VALUE_INT) {
+                            int32_t value;
+                            std::memcpy(&value, &word, sizeof(value));
+                            std::cout << " " << value;
+                        } else {
+                            float value;
+                            std::memcpy(&value, &word, sizeof(value));
+                            std::cout << " " << value;
+                        }
+                    }
                     std::cout << std::endl;
                 } else {
                     std::cout << "ERR GETBULK " << std::hex << "0x" << id << std::dec << std::endl;
+                    return 1;
                 }
             }
             did_id_cmd = true;
