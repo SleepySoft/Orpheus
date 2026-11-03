@@ -108,6 +108,19 @@ if(NOT WIN32)
 endif()
 add_test(NAME linear_gain_smoke COMMAND linear_gain_smoke)
 
+add_executable(exponential_gain_smoke exponential_gain_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/exponential_gain/src/exponential_gain.c)
+target_include_directories(exponential_gain_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/exponential_gain/include)
+target_compile_definitions(exponential_gain_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(exponential_gain_smoke PRIVATE m)
+endif()
+add_test(NAME exponential_gain_smoke COMMAND exponential_gain_smoke)
+add_executable(exponential_gain_runner exponential_gain_runner.cpp)
+target_link_libraries(exponential_gain_runner PRIVATE orpheus_runtime_lib)
+
 add_executable(linear_gain_runner linear_gain_runner.cpp)
 target_link_libraries(linear_gain_runner PRIVATE orpheus_runtime_lib)
 

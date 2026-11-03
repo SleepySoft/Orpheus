@@ -1,0 +1,85 @@
+id: orpheus.builtin.exponential_gain
+name: 指数增益斜坡
+category: 基础/增益与混音
+description: 显式目标、每样本乘数和剩余调用块数的指数增益核；不自动将毫秒转换为请求。所有通道共享同一条逐样本包络。
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: ExponentialGainState
+sources: [src/exponential_gain.c]
+headers: [include/orpheus_exponential_gain.h]
+ports:
+  - id: in
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+  - id: out
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+parameters:
+  - id: channels
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 64]
+    update_policy: restart_required
+    affects_signature: true
+  - id: target_gain
+    name: 目标增益
+    type: float
+    default: 1.0
+    update_policy: block_boundary
+    bindable: true
+    readback: true
+    persistent: true
+  - id: ramp_coefficient
+    name: 每样本指数乘数
+    type: float
+    default: 1.0
+    update_policy: block_boundary
+    bindable: true
+    readback: true
+    persistent: true
+  - id: remaining_blocks
+    name: 剩余调用块数
+    type: float
+    default: 0.0
+    range: [0.0, 16777216.0]
+    update_policy: block_boundary
+    bindable: true
+    control_source: true
+    readback: true
+    persistent: true
+  - id: initial_gain
+    name: 初始增益
+    type: float
+    default: 1.0
+    update_policy: restart_required
+  - id: min_gain
+    name: 指数起点下限
+    type: float
+    default: 4.7315126e-7
+    update_policy: restart_required
+  - id: snap_threshold
+    name: 目标吸附阈值
+    type: float
+    default: 1.0e-9
+    update_policy: restart_required
+  - id: current_gain
+    name: 当前增益
+    type: float
+    kind: probe
+    readback: true
+    control_source: true
+memory:
+  state_size: 0
+  scratch_size: 0
+  alignment: 8
+execution:
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: true
+  realtime_safe: true
