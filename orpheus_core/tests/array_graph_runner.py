@@ -23,7 +23,7 @@ def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3):
                    "target_compile_definitions(array_test PRIVATE ORPHEUS_TEST_GENERATED)\n"
                    "target_link_libraries(array_test PRIVATE orpheus_graph)\n")
         for component in sorted({cfg["component"] for cfg in plan.node_configs.values()
-                                 if cfg["component"].startswith("orpheus.test.")}):
+                                 if not cfg["component"].startswith("orpheus.builtin.")}):
             info = registry.get(component)
             assert info is not None
             target = component.replace(".", "_")+"_dynamic"
