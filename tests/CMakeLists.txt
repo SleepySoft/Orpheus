@@ -177,6 +177,16 @@ endif()
 add_test(NAME sample_gain_smoke COMMAND sample_gain_smoke)
 add_executable(sample_gain_runner sample_gain_runner.cpp)
 target_link_libraries(sample_gain_runner PRIVATE orpheus_runtime_lib)
+add_executable(explicit_fade_smoke explicit_fade_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fade/src/fade.c)
+target_include_directories(explicit_fade_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fade/include)
+target_compile_definitions(explicit_fade_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(explicit_fade_smoke PRIVATE m)
+endif()
+add_test(NAME explicit_fade_smoke COMMAND explicit_fade_smoke)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)

@@ -155,6 +155,7 @@ class CodeGenerator:
         # The generated project must be self-contained: vendor the ABI header.
         abi_header = self.project_root / "orpheus_abi" / "include" / "orpheus_abi.h"
         shutil.copy2(abi_header, include_dir / "orpheus_abi.h")
+        shutil.copy2(abi_header.with_name("orpheus_gain_array.h"), include_dir / "orpheus_gain_array.h")
         if plan.target == "adsp21593":
             generated_abi = include_dir / "orpheus_abi.h"
             generated_abi.write_text(

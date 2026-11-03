@@ -1,8 +1,8 @@
 id: orpheus.builtin.fade
 name: 前后衰减
 category: 音效/空间与声像
-description: 频谱分频前后衰减（低频全通、高频按前/后增益斜坡衰减），fade=-1 全后 +1 全前
-version: 1.0.0
+description: 内部分频前后衰减，或外部分频与四组显式幂次包络混合
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: FadeState
@@ -21,6 +21,12 @@ ports:
     type: audio
     sample_format: f32
     channels: param:channels
+  - id: lpf
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+    count: param:execution_mode
 parameters:
   - id: fade
     name: 衰减
@@ -56,6 +62,18 @@ parameters:
     range: [0.0, 1000.0]
     unit: ms
     update_policy: restart_required
+  - {id: execution_mode, name: 执行模式（0内部分频，1外部分频显式包络）, type: int, default: 0, range: [0, 1], update_policy: restart_required, affects_signature: true}
+  - {id: chan_map, name: 通道到前后组映射（-1正零）, type: string, default: "", widget: text, update_policy: restart_required}
+  - {id: current_gains, name: 高频前后/低频前后当前增益, type: string, default: "", kind: bulk, shape: [4], widget: text, update_policy: restart_required}
+  - {id: target_gains, name: 高频前后/低频前后目标增益, type: string, default: "", kind: bulk, shape: [4], widget: text, update_policy: restart_required}
+  - {id: coefficients, name: 高频前后/低频前后幂次乘数, type: string, default: "", kind: bulk, shape: [4], widget: text, update_policy: restart_required}
+  - {id: remaining_blocks, name: 四组剩余块数（仅前两组驱动）, type: string, default: "", kind: bulk, shape: [4], range: [-2147483648, 2147483647], widget: text, update_policy: restart_required}
+  - {id: freeze, name: 冻结显式包络, type: bool, default: false, persistent: true, readback: true, update_policy: block_boundary}
+bulk_slots:
+  - {id: current_gains, name: 四组当前增益, type: float, count: 4, shape: [4], double_bank: true}
+  - {id: target_gains, name: 四组目标增益, type: float, count: 4, shape: [4], double_bank: true}
+  - {id: coefficients, name: 四组幂次乘数, type: float, count: 4, shape: [4], double_bank: true}
+  - {id: remaining_blocks, name: 四组剩余块数, type: int, count: 4, shape: [4], double_bank: true}
 memory:
   state_size: 0
   scratch_size: 0

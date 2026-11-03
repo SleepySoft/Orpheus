@@ -22,6 +22,13 @@ typedef struct {
     float ramp_ms;            /* 参数缓存（restart_required） */
     uint32_t channels;
     uint32_t front_channels;  /* 0..front_channels-1 are front */
+    int32_t execution_mode;
+    int32_t chan_map[MAX_CHANNELS];
+    bool freeze;
+    float current_gains[4];
+    float target_gains[4];
+    float coefficients[4];
+    int32_t remaining_blocks[4];
 } FadeState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);

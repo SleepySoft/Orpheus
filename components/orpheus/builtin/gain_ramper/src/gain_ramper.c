@@ -1,4 +1,5 @@
 #include "orpheus_gain_ramper.h"
+#include "orpheus_gain_array.h"
 
 #include <math.h>
 #include <ctype.h>
@@ -155,35 +156,6 @@ static int gr_create(void** state, const OrpheusConfig* config) {
 
 static int gr_destroy(void* state) { (void)state; return ORPHEUS_OK; }
 
-static int parse_explicit_array(const char* cursor,void* values,unsigned count,bool integer,int32_t min_i32,int32_t max_i32) {
-    if (!cursor) return ORPHEUS_ERR_INVALID_ARG;
-    if (!*cursor) {
-        for (unsigned i=0;i<count;++i) {
-            if (integer) ((int32_t*)values)[i]=0;
-            else ((float*)values)[i]=1;
-        }
-        return ORPHEUS_OK;
-    }
-    for (unsigned i=0;i<count;++i) {
-        char* end;
-        errno=0;
-        if (integer) {
-            long long value=strtoll(cursor,&end,10);
-            if (errno==ERANGE || value<min_i32 || value>max_i32) return ORPHEUS_ERR_INVALID_ARG;
-            ((int32_t*)values)[i]=(int32_t)value;
-        } else {
-            float value=strtof(cursor,&end);
-            if (!isfinite(value) || value<0) return ORPHEUS_ERR_INVALID_ARG;
-            ((float*)values)[i]=value;
-        }
-        if (end==cursor) return ORPHEUS_ERR_INVALID_ARG;
-        while (isspace((unsigned char)*end)) ++end;
-        if (i+1<count ? *end!=',' : *end!='\0') return ORPHEUS_ERR_INVALID_ARG;
-        cursor=i+1<count ? end+1 : end;
-    }
-    return ORPHEUS_OK;
-}
-
 static int gr_prepare(void* state, const OrpheusConfig* config) {
     if (!state || !config || (config->param_count && (!config->param_ids || !config->param_values)))
         return ORPHEUS_ERR_INVALID_ARG;
@@ -213,11 +185,11 @@ static int gr_prepare(void* state, const OrpheusConfig* config) {
         if (channels<1 || channels>GR_MAX_CHANNELS || rampers<1 || rampers>GR_MAX_RAMPERS)
             return ORPHEUS_ERR_INVALID_ARG;
         s->channels=(unsigned)channels; s->numRampers=(unsigned)rampers;
-        if (parse_explicit_array(read_string(config,"chan_map",""),s->chanMap,s->channels,true,s->execution_mode==2 ? -2 : -1,rampers-1)!=ORPHEUS_OK ||
-            parse_explicit_array(read_string(config,"current_gains",""),s->current_gains,s->numRampers,false,0,0)!=ORPHEUS_OK ||
-            parse_explicit_array(read_string(config,"target_gains",""),s->target_gains,s->numRampers,false,0,0)!=ORPHEUS_OK ||
-            parse_explicit_array(read_string(config,"coefficients",""),s->coefficients,s->numRampers,false,0,0)!=ORPHEUS_OK ||
-            parse_explicit_array(read_string(config,"remaining_blocks",""),s->remaining_blocks,s->numRampers,true,
+        if (orpheus_parse_gain_array(read_string(config,"chan_map",""),s->chanMap,s->channels,true,s->execution_mode==2 ? -2 : -1,rampers-1)!=ORPHEUS_OK ||
+            orpheus_parse_gain_array(read_string(config,"current_gains",""),s->current_gains,s->numRampers,false,0,0)!=ORPHEUS_OK ||
+            orpheus_parse_gain_array(read_string(config,"target_gains",""),s->target_gains,s->numRampers,false,0,0)!=ORPHEUS_OK ||
+            orpheus_parse_gain_array(read_string(config,"coefficients",""),s->coefficients,s->numRampers,false,0,0)!=ORPHEUS_OK ||
+            orpheus_parse_gain_array(read_string(config,"remaining_blocks",""),s->remaining_blocks,s->numRampers,true,
                                  s->execution_mode==2 ? INT32_MIN : 0,INT32_MAX)!=ORPHEUS_OK)
             return ORPHEUS_ERR_INVALID_ARG;
         return ORPHEUS_OK;

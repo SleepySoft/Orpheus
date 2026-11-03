@@ -53,9 +53,9 @@ def reference_block(samples, params, state):
     return output
 
 
-def verify_sample_gains(tmp_path, cases, reference=None):
+def verify_sample_gains(tmp_path, cases, reference=None, component="gain_ramper", input_ports=("in",)):
     from test_generated_double_bank import _build
-    frames, width = sum(BLOCKS)*32, max(p["channels"] for p in cases.values())
+    frames, width = sum(BLOCKS)*32, max(p["channels"] for p in cases.values())*len(input_ports)
     samples = [[((n*113+c*911) % 50001)-25000 for c in range(width)] for n in range(frames)]
     with wave.open(str(tmp_path / "input.wav"), "wb") as stream:
         stream.setnchannels(width); stream.setsampwidth(2); stream.setframerate(48000)
@@ -64,12 +64,17 @@ def verify_sample_gains(tmp_path, cases, reference=None):
     edges = []
     for name, params in cases.items():
         count = params["channels"]
-        nodes[name+"_route"] = Node(id=name+"_route", component="orpheus.builtin.channel_router",
-                                    params={"channels_in": width, "channels_out": count, "indices": ",".join(map(str, range(count)))})
-        nodes[name] = Node(id=name, component="orpheus.builtin.gain_ramper", params=params)
+        node_params = params if component == "gain_ramper" else {k: v for k, v in params.items() if k != "num_rampers"}
+        nodes[name] = Node(id=name, component="orpheus.builtin."+component, params=node_params)
         nodes[name+"_out"] = Node(id=name+"_out", component="orpheus.builtin.wav_out", params={"channels": count, "file_path": name+".wav"})
-        for left, right in (("source", name+"_route"), (name+"_route", name), (name, name+"_out")):
-            edges.append(Connection(from_ref=PortRef(left, "out"), to_ref=PortRef(right, "in")))
+        for port_index, port in enumerate(input_ports):
+            route = name+"_route"+("" if port_index == 0 else "_"+port)
+            nodes[route] = Node(id=route, component="orpheus.builtin.channel_router",
+                                params={"channels_in": width, "channels_out": count,
+                                        "indices": ",".join(str(c+port_index*count) for c in range(count))})
+            edges.extend([Connection(from_ref=PortRef("source", "out"), to_ref=PortRef(route, "in")),
+                          Connection(from_ref=PortRef(route, "out"), to_ref=PortRef(name, port))])
+        edges.append(Connection(from_ref=PortRef(name, "out"), to_ref=PortRef(name+"_out", "in")))
     project = Project(metadata={"name": "显式逐样本分组增益"}, tasks={"default": Task(id="default", sample_rate=48000, block_size=32)})
     project.graph = Graph(nodes=nodes, connections=edges)
     registry = Registry(); registry.add_search_path(ROOT / "components"); registry.scan()
@@ -85,7 +90,7 @@ def verify_sample_gains(tmp_path, cases, reference=None):
                      "target_compile_definitions(sample_gain_test PRIVATE ORPHEUS_TEST_GENERATED)\n"
                      "target_link_libraries(sample_gain_test PRIVATE orpheus_graph)\n")
     result = subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", "sample_gain_runner",
-                             *["orpheus_builtin_"+c for c in ("gain_ramper", "channel_router", "wav_in", "wav_out")]],
+                             *["orpheus_builtin_"+c for c in (component, "channel_router", "wav_in", "wav_out")]],
                             capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout+result.stderr
     _build(generated, tmp_path)
@@ -99,6 +104,7 @@ def verify_sample_gains(tmp_path, cases, reference=None):
                 assert slot["form"] == "BULK" and slot["count"] == params["num_rampers"]
                 assert slot["type"] == ("int" if key == "remaining_blocks" else "float")
             args.append(str(slot["id"]))
+        args.append(str(params["num_rampers"]))
     expected, states = {name: [] for name in cases}, {}
     for name, params in cases.items():
         state = {"freeze": params.get("freeze", False)}
@@ -113,7 +119,7 @@ def verify_sample_gains(tmp_path, cases, reference=None):
             update_reference(state, step)
         for _ in range(count):
             for name, params in cases.items():
-                chunk = [row[:params["channels"]] for row in samples[block*32:(block+1)*32]]
+                chunk = [row[:params["channels"]*len(input_ports)] for row in samples[block*32:(block+1)*32]]
                 state = states[name]
                 expected[name] += (reference_block(chunk, params, state) if reference is None else reference(name, chunk, params, state))
                 size = params["num_rampers"]
