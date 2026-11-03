@@ -142,7 +142,8 @@ def verify_sample_gains(tmp_path, cases, reference=None):
 def test_sample_gain_four_entries(tmp_path):
     verify_sample_gains(tmp_path, {
         "mapped": {"channels": 7, "execution_mode": 1, "num_rampers": 3, "chan_map": "0,1,-1,0,2,-1,2"},
-        "wide": {"channels": 32, "execution_mode": 1, "num_rampers": 32, "chan_map": ",".join(map(str, range(32)))},
+        "wide": {"channels": 64, "execution_mode": 1, "num_rampers": 32, "chan_map": ",".join(str(c//2) for c in range(64))},
         "unused": {"channels": 3, "execution_mode": 1, "num_rampers": 4, "chan_map": "-1,-1,-1"},
         "power": {"channels": 7, "execution_mode": 2, "num_rampers": 4, "chan_map": "0,1,-1,2,-2,0,2"},
+        "wide_power": {"channels": 64, "execution_mode": 2, "num_rampers": 4, "chan_map": ",".join(str(c%4) if c < 62 else "-2" for c in range(64))},
     })

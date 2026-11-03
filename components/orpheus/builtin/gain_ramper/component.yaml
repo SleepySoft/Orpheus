@@ -2,7 +2,7 @@ id: orpheus.builtin.gain_ramper
 name: 多通道增益斜坡器
 category: 高级/滤波器组
 description: 块级dB请求、显式逐样本递推或帧内幂次包络，通道映射与旁路/静音
-version: 1.2.0
+version: 1.3.0
 abi_version: 1
 package_type: source
 state_type: GainRamperState
@@ -40,7 +40,7 @@ parameters:
     name: 通道数
     type: int
     default: 2
-    range: [1, 32]
+    range: [1, 64]
     update_policy: restart_required
     affects_signature: true
   - id: num_rampers

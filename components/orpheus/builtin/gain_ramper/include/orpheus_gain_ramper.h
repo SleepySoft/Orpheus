@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 #define GR_MAX_RAMPERS  32
-#define GR_MAX_CHANNELS 32
+#define GR_MAX_CHANNELS 64
 #define GR_SILENT_GAIN  5.0118723e-7f   /* -126 dB，与 Rgainx rgain_SILENT_GAIN 一致 */
 
 /* 单个 ramper 槽位：指数斜坡状态机 */
@@ -20,7 +20,7 @@ typedef struct {
 
 typedef struct {
     RamperSlot rampers[GR_MAX_RAMPERS];
-    int32_t    chanMap[GR_MAX_CHANNELS];  /* 通道->ramper 索引，-1=bypass */
+    int32_t    chanMap[GR_MAX_CHANNELS];  /* 通道->组，-1旁路；模式2额外允许-2正零 */
     float      gain_db;       /* 调音参数：目标增益（dB） */
     float      ramp_ms;       /* 调音参数：斜坡时间 */
     uint32_t   channels;

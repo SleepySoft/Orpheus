@@ -48,6 +48,9 @@ int main(void) {
     CHECK(iface->process(&state,&context)==ORPHEUS_ERR_INVALID_ARG && !memcmp(expected,output,sizeof(expected)));
     params[7].value.str="-1,0,0";
     CHECK(iface->prepare(&state,&config)==ORPHEUS_ERR_INVALID_ARG);
+    params[7].value.str="1,0,2"; params[1].value.i32=65;
+    CHECK(iface->prepare(&state,&config)==ORPHEUS_ERR_INVALID_ARG);
+    params[1].value.i32=4;
     params[0].value.i32=2; params[3].value.str="0,1,-1,-2";
     params[4].value.str=".8,.5,.75"; params[7].value.str="1,0,-2147483648";
     CHECK(iface->prepare(&state,&config)==ORPHEUS_OK && state.execution_mode==2);

@@ -99,7 +99,7 @@ static const OrpheusParameter gr_params[] = {
       .readback = true, .persistent = true },
     { .id = "channels", .name = "Channels", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
-      .min_i32 = 1, .max_i32 = 32,
+      .min_i32 = 1, .max_i32 = GR_MAX_CHANNELS,
       .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
       .readback = true, .persistent = true, .affects_signature = true },
     { .id = "num_rampers", .name = "Num Rampers", .type = ORPHEUS_VALUE_INT,
@@ -134,7 +134,7 @@ static const OrpheusPort gr_ports[] = {
 };
 
 static const OrpheusComponentDescriptor gr_descriptor = {
-    .id = "orpheus.builtin.gain_ramper", .version = "1.2.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .id = "orpheus.builtin.gain_ramper", .version = "1.3.0", .abi_version = ORPHEUS_ABI_VERSION,
     .ports = gr_ports, .port_count = 2, .params = gr_params, .param_count = sizeof(gr_params)/sizeof(gr_params[0]),
     .state_size = sizeof(GainRamperState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = true
