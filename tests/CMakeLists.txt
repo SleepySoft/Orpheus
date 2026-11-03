@@ -247,6 +247,13 @@ target_include_directories(halfcomplex_encode_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_encode/include)
 target_compile_definitions(halfcomplex_encode_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME halfcomplex_encode_smoke COMMAND halfcomplex_encode_smoke)
+add_executable(complementary_coefficients_smoke complementary_coefficients_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complementary_coefficients/src/complementary_coefficients.c)
+target_include_directories(complementary_coefficients_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complementary_coefficients/include)
+target_compile_definitions(complementary_coefficients_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME complementary_coefficients_smoke COMMAND complementary_coefficients_smoke)
 
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)

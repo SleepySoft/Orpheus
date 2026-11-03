@@ -183,6 +183,15 @@ ports:
 
 ### 验收证据
 
+`complementary_coefficients`是纯计算数据组件：逐行把N通道系数`x`展开为
+`[x, total-x]`的2N通道BULK，默认total=1。前半直接保留位型，后半只执行一次
+float32减法；不夹到0～1，不叠加平滑，不用乘加改写减法。适用于互补混合权重、
+剩余系数和交叉渐变；total须有限，输入特殊IEEE值遵循原生减法传播。
+元素数独立于时间量子，无音频输入的整条计算图可直接按Task节拍执行，
+不需要伪造PCM或借参数投递。原生冒烟覆盖特殊位型与错误输入不部分写入；
+`orpheus_core/tests/test_complementary_coefficients.py`验证129/387元素按128/384
+帧节拍同轮计算、非单位total及动态/生成全局与Task四入口逐位一致。
+
 `orpheus_core/tests/test_data_ports.py`使用非占位C组件验证129×2数组和标量的同轮计算、
 每三块更新的慢结果保持、初值零、同tick更新可见、扇出、悬空输出、复合组件保存/展开、
 分数采样率时间线与非法连线拒绝；动态DLL和生成工程各自的全局/Task入口共四种入口，

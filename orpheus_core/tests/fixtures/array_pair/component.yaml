@@ -1,0 +1,24 @@
+id: orpheus.test.array_pair
+name: 数组计算验收数据源与采集
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: ArrayPairState
+sources: [src/array_pair.c]
+headers: [include/array_pair.h]
+ports:
+  - {id: a, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+  - {id: b, direction: input, type: bulk, sample_format: f32, channels: "param:channels*2", block_size: "param:elements"}
+  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+parameters:
+  - {id: channels, type: int, default: 2, affects_signature: true, update_policy: restart_required}
+  - {id: elements, type: int, default: 129, affects_signature: true, update_policy: restart_required}
+  - {id: mode, type: int, default: 0, update_policy: restart_required}
+  - {id: packed_values, type: string, default: "", kind: bulk, shape: ["param:elements", "param:channels"], readback: true}
+  - {id: decoded_values, type: string, default: "", kind: bulk, shape: ["param:elements", "param:channels*2"], readback: true}
+  - {id: calls, type: int, default: 0, readback: true}
+  - {id: quantum, type: int, default: 0, readback: true}
+bulk_slots:
+  - {id: packed_values, name: 输入数组, type: float, count: 8192, shape: ["param:elements", "param:channels"]}
+  - {id: decoded_values, name: 输出数组, type: float, count: 8192, shape: ["param:elements", "param:channels*2"]}
+execution: {realtime_safe: true, supports_inplace: false}
