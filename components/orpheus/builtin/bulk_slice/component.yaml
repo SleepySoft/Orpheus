@@ -1,0 +1,24 @@
+id: orpheus.builtin.bulk_slice
+name: 计算数据步进切片
+category: 基础/计算数据
+version: 1.0.0
+abi_version: 5
+package_type: source
+state_type: BulkSliceState
+description: >-
+  将输入交错f32数据视作线性槽数组，out[i]=in[offset+i*stride]，再按输出通道数解释布局。
+  复制原始位型，不计算、不解码复数、不补零、不改变调用周期；最后访问槽须在输入范围内。
+  输入必需，NULL输出允许但仍验证输入；禁止输入输出重叠。无效配置不修改既有配置。
+sources: [src/bulk_slice.c]
+headers: [include/orpheus_bulk_slice.h]
+ports:
+  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:input_channels", block_size: "param:input_elements"}
+  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+parameters:
+  - {id: input_channels, name: 输入通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  - {id: input_elements, name: 输入每通道元素数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  - {id: channels, name: 输出通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  - {id: elements, name: 输出每通道元素数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  - {id: offset, name: 首槽索引, type: int, default: 0, range: [0, 2147483647], update_policy: restart_required}
+  - {id: stride, name: 槽步长, type: int, default: 1, range: [1, 2147483647], update_policy: restart_required}
+execution: {realtime_safe: true, supports_inplace: false}

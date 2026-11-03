@@ -245,6 +245,15 @@ reset恢复冷启动而保留配置，块边界修改alpha保留历史，
 原生测试和四入口通道反序/重复/补零验收见`tests/bulk_channels_smoke.c`、
 `orpheus_core/tests/test_bulk_channels.py`。
 
+`bulk_slice`按线性f32槽索引复制`out[i]=in[offset+i*stride]`，可提取固定区间或矩阵列：
+例如100通道×130行输入的`offset=99,stride=200`提取末通道的65个偶数行槽。
+输入/输出通道数各1..128、每通道元素数各1..65536；输出的线性槽按输出通道数重新交错解释。
+末槽必须在输入范围内，配置校验使用64位索引运算，失败保留旧配置，不补零或截断。
+该桥不认识复数、频率或矩阵含义，不作算术或位型转换，不适用于i32端口；
+输入必需，NULL输出仍检查输入，重叠或无效缓冲在写输出前拒绝，零处理量不写。
+数据行数独立于调用量子，没有新增时间延迟；原生与四入口测试见
+`tests/bulk_slice_smoke.c`、`orpheus_core/tests/test_bulk_slice.py`，含真实13000槽矩阵。
+
 `trapezoid_ratio`将两份独立f32向量分别按
 `y=(x+x_prev)*((1-alpha)*0.5)+y_prev*alpha`平滑，再计算
 `numerator_y/(denominator_y+epsilon)`。每点/通道保存四组历史，顺序批次共享各自历史，

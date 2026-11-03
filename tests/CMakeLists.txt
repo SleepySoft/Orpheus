@@ -313,6 +313,14 @@ add_executable(bulk_channels_smoke bulk_channels_smoke.c
 target_include_directories(bulk_channels_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
 add_test(NAME bulk_channels_smoke COMMAND bulk_channels_smoke)
 
+add_executable(bulk_slice_smoke bulk_slice_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_slice/src/bulk_slice.c)
+target_include_directories(bulk_slice_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_slice/include)
+target_compile_definitions(bulk_slice_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME bulk_slice_smoke COMMAND bulk_slice_smoke)
+
 add_executable(bulk_subtract_smoke bulk_subtract_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_subtract/src/bulk_subtract.c)
 target_include_directories(bulk_subtract_smoke PRIVATE
