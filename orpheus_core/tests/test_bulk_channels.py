@@ -42,6 +42,7 @@ def verify_bulk_channels(tmp_path,*,channels,elements,step,order=None):
 
 
 @pytest.mark.parametrize("channels,elements,step,order",[
-    (6,258,128,None),(8,774,384,None),(4,129,32,[2,None,0,2])])
+    (6,258,128,None),(8,774,384,None),(4,129,32,[2,None,0,2]),
+    (80,1,32,None),(128,5,32,None)])
 def test_bulk_channel_routes_four_entries(tmp_path,channels,elements,step,order):
     verify_bulk_channels(tmp_path,channels=channels,elements=elements,step=step,order=order)

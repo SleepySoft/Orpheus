@@ -3,7 +3,7 @@
 #include <string.h>
 static const OrpheusParameter params[]={
     {.id="channels",.name="通道数",.type=ORPHEUS_VALUE_INT,.default_value={.type=ORPHEUS_VALUE_INT,.value.i32=2},
-     .min_i32=1,.max_i32=64,.update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,.affects_signature=true},
+     .min_i32=1,.max_i32=128,.update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,.affects_signature=true},
     {.id="elements",.name="每通道元素数",.type=ORPHEUS_VALUE_INT,.default_value={.type=ORPHEUS_VALUE_INT,.value.i32=129},
      .min_i32=1,.max_i32=65536,.update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,.affects_signature=true}
 };
@@ -12,7 +12,7 @@ static const OrpheusPort ports[]={
     {.id="out",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_F32,.channels=1,.is_variable=true}
 };
 static const OrpheusComponentDescriptor descriptor={
-    .id="orpheus.builtin.bulk_deinterleave",.version="1.0.0",.abi_version=ORPHEUS_ABI_VERSION,
+    .id="orpheus.builtin.bulk_deinterleave",.version="1.1.0",.abi_version=ORPHEUS_ABI_VERSION,
     .ports=ports,.port_count=2,.params=params,.param_count=2,.state_size=sizeof(BulkDeinterleaveState),
     .alignment=8,.realtime_safe=true,.supports_inplace=false
 };
