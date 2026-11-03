@@ -39,6 +39,17 @@ target_link_libraries(integer_delay_runner PRIVATE orpheus_runtime_lib)
 add_executable(integer_bulk_runner integer_bulk_runner.cpp)
 target_link_libraries(integer_bulk_runner PRIVATE orpheus_runtime_lib)
 
+add_executable(channel_selector_runner channel_selector_runner.cpp)
+target_link_libraries(channel_selector_runner PRIVATE orpheus_runtime_lib)
+
+add_executable(channel_selector_smoke channel_selector_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/channel_selector/src/channel_selector.c)
+target_include_directories(channel_selector_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/channel_selector/include)
+target_compile_definitions(channel_selector_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME channel_selector_smoke COMMAND channel_selector_smoke)
+
 add_executable(pool_delay_smoke pool_delay_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/pool_delay/src/pool_delay.c)
 target_include_directories(pool_delay_smoke PRIVATE

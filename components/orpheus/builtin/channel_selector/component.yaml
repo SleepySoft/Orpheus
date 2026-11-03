@@ -1,0 +1,42 @@
+id: orpheus.builtin.channel_selector
+name: 双源通道选择与增益
+category: 基础/路由
+description: 按运行期整数索引从A后接B的逻辑通道空间选路，可选逐通道线性增益。无效或未接输入直接输出正零，不执行乘法。
+version: 1.0.0
+abi_version: 1
+package_type: source
+state_type: ChannelSelectorState
+sources: [src/channel_selector.c]
+headers: [include/orpheus_channel_selector.h]
+ports:
+  - {id: a, direction: input, type: audio, sample_format: f32, channels: "param:channels_a"}
+  - {id: b, direction: input, type: audio, sample_format: f32, channels: "param:channels_b"}
+  - {id: out, direction: output, type: audio, sample_format: f32, channels: "param:channels_out"}
+parameters:
+  - {id: channels_a, name: A输入通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: channels_b, name: B输入通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: channels_out, name: 输出通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: index_base, name: 索引起点（0或1）, type: int, default: 0, range: [0, 1], update_policy: restart_required}
+  - {id: high_index_policy, name: 正越界策略（0置零，1夹到末路）, type: int, default: 0, range: [0, 1], update_policy: restart_required}
+  - {id: apply_gain, name: 应用逐通道增益, type: bool, default: false, update_policy: restart_required}
+  - id: indices
+    name: 初始通道索引
+    type: string
+    default: ""
+    kind: bulk
+    shape: [param:channels_out]
+    update_policy: restart_required
+    description: 空CSV为从index_base起的顺序映射；非空严格要求channels_out项，保留负值及int32极值，不经float转换
+  - id: gains
+    name: 初始逐通道线性增益
+    type: string
+    default: ""
+    kind: bulk
+    shape: [param:channels_out]
+    update_policy: restart_required
+    description: 空CSV全1；非空严格要求channels_out个有限值。不应用增益时逐字节拷贝选中输入
+bulk_slots:
+  - {id: indices, name: 通道索引, type: int, count: 64, shape: ["param:channels_out"], double_bank: true}
+  - {id: gains, name: 逐通道增益, type: float, count: 64, shape: ["param:channels_out"], double_bank: true}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}
