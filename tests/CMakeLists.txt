@@ -50,6 +50,17 @@ add_test(NAME pool_delay_smoke COMMAND pool_delay_smoke)
 add_executable(pool_delay_runner pool_delay_runner.cpp)
 target_link_libraries(pool_delay_runner PRIVATE orpheus_runtime_lib)
 
+add_executable(sine_table_smoke sine_table_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sine_mod/src/sine_mod.c)
+target_include_directories(sine_table_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sine_mod/include)
+target_compile_definitions(sine_table_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(sine_table_smoke PRIVATE m)
+endif()
+add_test(NAME sine_table_smoke COMMAND sine_table_smoke)
+
 add_executable(linear_gain_smoke linear_gain_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain/src/gain.c)
 target_include_directories(linear_gain_smoke PRIVATE

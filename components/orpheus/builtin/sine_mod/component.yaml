@@ -1,8 +1,8 @@
 id: orpheus.builtin.sine_mod
 name: 正弦调制器
 category: 音效/调制
-description: AM/颤音调制 y=x·(1+depth·sin(2πft))，频率/深度可实时调
-version: 1.0.0
+description: 默认AM/颤音；可选逐帧同步的周期表纯乘法，支持有符号载波
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: SineModState
@@ -43,6 +43,26 @@ parameters:
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
+  - id: modulation_mode
+    name: 调制方式（0兼容AM，1周期表乘法）
+    type: int
+    default: 0
+    range: [0, 1]
+    update_policy: restart_required
+    description: 模式1每帧取同一个有符号表值乘全部通道，不叠加1，不使用freq_hz或depth
+  - id: table_length
+    name: 周期表长度（样本）
+    type: int
+    default: 1
+    range: [1, 1024]
+    update_policy: restart_required
+  - id: carrier_table
+    name: 周期载波表
+    type: string
+    default: "1"
+    widget: text
+    update_policy: restart_required
+    description: 模式1必须提供恰好table_length项有限float32 CSV；从索引0开始，跨块连续，reset仅重置索引
 memory:
   state_size: 0
   scratch_size: 0

@@ -1,6 +1,8 @@
 #include "orpheus_sine_mod.h"
 
 #include <math.h>
+#include <ctype.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -29,7 +31,19 @@ static const OrpheusParameter sm_params[] = {
     { .id = "channels", .name = "通道数", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
       .min_i32 = 1, .max_i32 = 32, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
-      .readback = true, .persistent = true, .affects_signature = true }
+      .readback = true, .persistent = true, .affects_signature = true },
+    { .id = "modulation_mode", .name = "调制方式", .type = ORPHEUS_VALUE_INT,
+      .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 0 },
+      .min_i32 = 0, .max_i32 = 1, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+      .readback = true, .persistent = true },
+    { .id = "table_length", .name = "周期表长度", .type = ORPHEUS_VALUE_INT,
+      .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 1 },
+      .min_i32 = 1, .max_i32 = SINE_MOD_MAX_TABLE,
+      .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
+      .readback = true, .persistent = true },
+    { .id = "carrier_table", .name = "周期载波表", .type = ORPHEUS_VALUE_STRING,
+      .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "1" },
+      .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED }
 };
 
 static const OrpheusPort sm_ports[] = {
@@ -42,8 +56,8 @@ static const OrpheusPort sm_ports[] = {
 };
 
 static const OrpheusComponentDescriptor sm_descriptor = {
-    .id = "orpheus.builtin.sine_mod", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = sm_ports, .port_count = 2, .params = sm_params, .param_count = 3,
+    .id = "orpheus.builtin.sine_mod", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = sm_ports, .port_count = 2, .params = sm_params, .param_count = 6,
     .state_size = sizeof(SineModState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = true
 };
@@ -62,6 +76,43 @@ static int sm_destroy(void* state) { (void)state; return ORPHEUS_OK; }
 
 static int sm_prepare(void* state, const OrpheusConfig* config) {
     SineModState* s = (SineModState*)state;
+    if (!s || !config) return ORPHEUS_ERR_INVALID_ARG;
+    s->modulation_mode = 0;
+    s->table_length = 1;
+    s->table_index = 0;
+    const char* table = "1";
+    for (uint32_t i = 0; i < config->param_count; ++i) {
+        const char* key = config->param_ids[i];
+        if (!key) continue;
+        const OrpheusValue* value = &config->param_values[i];
+        if (strcmp(key, "modulation_mode") == 0 || strcmp(key, "table_length") == 0) {
+            if (value->type != ORPHEUS_VALUE_INT) return ORPHEUS_ERR_INVALID_ARG;
+            if (strcmp(key, "modulation_mode") == 0) s->modulation_mode = value->value.i32;
+            else s->table_length = value->value.i32;
+        } else if (strcmp(key, "carrier_table") == 0) {
+            if (value->type != ORPHEUS_VALUE_STRING) return ORPHEUS_ERR_INVALID_ARG;
+            table = value->value.str;
+        }
+    }
+    if (s->modulation_mode < 0 || s->modulation_mode > 1 ||
+        s->table_length < 1 || s->table_length > SINE_MOD_MAX_TABLE)
+        return ORPHEUS_ERR_INVALID_ARG;
+    if (s->modulation_mode == 1) {
+        if (!table) return ORPHEUS_ERR_INVALID_ARG;
+        for (int32_t n = 0; n < s->table_length; ++n) {
+            char* end = NULL;
+            errno = 0;
+            float value = strtof(table, &end);
+            if (end == table || errno == ERANGE || !isfinite(value))
+                return ORPHEUS_ERR_INVALID_ARG;
+            s->carrier_table[n] = value;
+            table = end;
+            while (isspace((unsigned char)*table)) ++table;
+            if (n + 1 == s->table_length) {
+                if (*table) return ORPHEUS_ERR_INVALID_ARG;
+            } else if (*table++ != ',') return ORPHEUS_ERR_INVALID_ARG;
+        }
+    }
     s->channels = config->channels > 0 ? config->channels : 2;
     s->freq_hz = read_float(config, "freq_hz", 1.0f);
     s->depth = read_float(config, "depth", 1.0f);
@@ -74,6 +125,8 @@ static int sm_prepare(void* state, const OrpheusConfig* config) {
 static int sm_reset(void* state) {
     SineModState* s = (SineModState*)state;
     s->phase = 0.0f;
+    s->table_index = 0;
+    if (s->modulation_mode == 1) return ORPHEUS_OK;
     s->freq_hz = 1.0f;
     s->depth = 1.0f;
     return ORPHEUS_OK;
@@ -89,6 +142,16 @@ static int sm_process(void* state, const OrpheusProcessContext* ctx) {
     uint32_t ch = s->channels;
     const float* in_data = (const float*)in->data;
     float* out_data = (float*)out->data;
+    if (s->modulation_mode == 1) {
+        for (uint32_t n = 0; n < frames; ++n) {
+            const float carrier = s->carrier_table[s->table_index];
+            for (uint32_t c = 0; c < ch; ++c)
+                out_data[(size_t)n * ch + c] = in_data[(size_t)n * ch + c] * carrier;
+            if (++s->table_index == (uint32_t)s->table_length) s->table_index = 0;
+        }
+        out->frame_count = frames;
+        return ORPHEUS_OK;
+    }
     float depth = s->depth < 0.0f ? 0.0f : (s->depth > 1.0f ? 1.0f : s->depth);
     for (uint32_t i = 0; i < frames * ch; ++i) {
         float mod = 1.0f + depth * sinf(s->phase);
@@ -119,6 +182,12 @@ static int sm_set_parameter(void* state, const char* param_id, const OrpheusValu
 
 static int sm_get_parameter(void* state, const char* param_id, OrpheusValue* value) {
     SineModState* s = (SineModState*)state;
+    if (strcmp(param_id, "modulation_mode") == 0 || strcmp(param_id, "table_length") == 0) {
+        value->type = ORPHEUS_VALUE_INT;
+        value->value.i32 = strcmp(param_id, "modulation_mode") == 0
+            ? s->modulation_mode : s->table_length;
+        return ORPHEUS_OK;
+    }
     if (strcmp(param_id, "freq_hz") == 0) {
         value->type = ORPHEUS_VALUE_FLOAT;
         value->value.f32 = s->freq_hz;
@@ -151,6 +220,14 @@ static int sm_register_slots(void* state, const OrpheusRegistry* reg) {
                      ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, modulation_mode, ORPHEUS_SLOT_SETTING, "modulation_mode", "调制方式",
+                     ORPHEUS_VALUE_INT, .min_i32=0, .max_i32=1,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg, s, table_length, ORPHEUS_SLOT_SETTING, "table_length", "周期表长度",
+                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=SINE_MOD_MAX_TABLE,
+                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
     return ORPHEUS_OK;
 }
 
