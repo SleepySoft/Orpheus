@@ -39,6 +39,17 @@ target_link_libraries(integer_delay_runner PRIVATE orpheus_runtime_lib)
 add_executable(integer_bulk_runner integer_bulk_runner.cpp)
 target_link_libraries(integer_bulk_runner PRIVATE orpheus_runtime_lib)
 
+add_executable(pool_delay_smoke pool_delay_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/pool_delay/src/pool_delay.c)
+target_include_directories(pool_delay_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/pool_delay/include)
+target_compile_definitions(pool_delay_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME pool_delay_smoke COMMAND pool_delay_smoke)
+
+add_executable(pool_delay_runner pool_delay_runner.cpp)
+target_link_libraries(pool_delay_runner PRIVATE orpheus_runtime_lib)
+
 add_executable(linear_gain_smoke linear_gain_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain/src/gain.c)
 target_include_directories(linear_gain_smoke PRIVATE
