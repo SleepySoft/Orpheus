@@ -35,6 +35,14 @@ tags: [orpheus/how]
 `[num_taps]` / `[channels,num_taps]`。每通道模式的总系数数不得超过 32768，
 固定 active 存储上限 128 KiB；历史只在 prepare 按实际 `channels*num_taps` 分配，
 process 不分配内存。有效抽头数/跨度变化需要重启，不重解释旧历史。
+`coefs_mode=banked` 时，`num_filters` 个系数集按 `[num_filters,num_taps]`
+存入 `coefs_banked` 浮点 BULK，每通道用 `filter_indices_i32` 整数 BULK
+选择一组（0 起，小于 num_filters）。初始 `filter_indices` CSV 为空时全0，
+非空严格要求 channels 项；非 banked 模式不接受该配置。
+索引和系数均在块边界提交，切换索引不重置历史、不执行其它系数集。
+reset 保留索引。多个参数槽不是自动事务：需要成组更新时，调用方须在处理边界前
+完成写入并管理原事务顺序；不能假定分开的并发写入天然原子。
+非法索引在 process 写历史/输出前显式报错，不钳位或读取越界系数。
 `processing_enabled=0` 输出正零并冻结历史和游标；清系数则仍消费输入并推进历史，
 这两种禁用语义不能混用。reset 清历史/游标，保留系数、长度、模式与处理使能。
 

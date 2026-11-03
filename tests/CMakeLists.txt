@@ -75,6 +75,9 @@ target_link_libraries(filter_freeze_runner PRIVATE orpheus_runtime_lib)
 add_executable(mux_gate_runner mux_gate_runner.cpp)
 target_link_libraries(mux_gate_runner PRIVATE orpheus_runtime_lib)
 
+add_executable(fir_bank_indices_runner fir_bank_indices_runner.cpp)
+target_link_libraries(fir_bank_indices_runner PRIVATE orpheus_runtime_lib)
+
 add_executable(direct_iir_smoke direct_iir_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir/src/iir.c)
 target_include_directories(direct_iir_smoke PRIVATE

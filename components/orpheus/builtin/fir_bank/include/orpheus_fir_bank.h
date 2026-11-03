@@ -15,6 +15,8 @@ typedef struct {
     uint32_t channels;
     uint32_t num_taps;
     uint32_t coefs_mode;
+    uint32_t num_filters;
+    int32_t filter_indices_i32[FIR_BANK_MAX_CHANNELS];
     int32_t processing_enabled;
     uint32_t taps_per_channel[FIR_BANK_MAX_CHANNELS];
     uint32_t positions[FIR_BANK_MAX_CHANNELS];

@@ -2,7 +2,7 @@ id: orpheus.builtin.fir_bank
 name: 多通道FIR滤波器组
 category: 高级/滤波器
 description: 共享或每通道独立系数、异构有效抽头数、块边界系数更新；暂停输出正零并冻结历史
-version: 1.0.1
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: FirBankState
@@ -44,9 +44,32 @@ parameters:
     type: string
     default: shared
     widget: select
-    options: [shared, per_channel]
+    options: [shared, per_channel, banked]
     update_policy: restart_required
     affects_signature: true
+  - id: num_filters
+    name: 系数集数量（banked模式）
+    type: int
+    default: 1
+    range: [1, 64]
+    update_policy: restart_required
+    affects_signature: true
+  - id: filter_indices
+    name: 初始系数集索引（空为全0）
+    type: string
+    default: ""
+    update_policy: restart_required
+  - id: filter_indices_i32
+    name: 每通道活动系数集索引
+    type: int
+    kind: bulk
+    shape: [param:channels]
+    bulk_slot: filter_indices_i32
+    range: [0, 63]
+    update_policy: block_boundary
+    bindable: true
+    control_source: true
+    readback: true
   - id: coefs
     name: 初始系数（最新样本至最旧样本）
     type: string
@@ -75,6 +98,18 @@ bulk_slots:
     type: float
     count: 32768
     shape: [param:channels, param:num_taps]
+    double_bank: true
+  - id: coefs_banked
+    name: FIR系数集
+    type: float
+    count: 32768
+    shape: [param:num_filters, param:num_taps]
+    double_bank: true
+  - id: filter_indices_i32
+    name: 每通道活动系数集索引
+    type: int
+    count: 64
+    shape: [param:channels]
     double_bank: true
 memory:
   state_size: 0

@@ -7,14 +7,72 @@
 #define CHECK(expr) do { if (!(expr)) { fprintf(stderr, "%d: %s\n", __LINE__, #expr); return 1; } } while (0)
 
 static OrpheusSlotInfo coefficient_slot;
+static OrpheusSlotInfo index_slot;
 
 static OrpheusSlotId capture(void* ctx, const OrpheusSlotInfo* slot) {
     (void)ctx;
-    if (slot->kind == ORPHEUS_SLOT_BULK) coefficient_slot = *slot;
+    if (slot->kind == ORPHEUS_SLOT_BULK && slot->type == ORPHEUS_VALUE_FLOAT) coefficient_slot = *slot;
+    if (slot->kind == ORPHEUS_SLOT_BULK && slot->type == ORPHEUS_VALUE_INT) index_slot = *slot;
+    return 0;
+}
+
+static int bank_selection(void) {
+    const OrpheusComponentInterface* api = orpheus_get_interface();
+    FirBankState state = {0};
+    const char* keys[] = {"num_taps", "num_filters", "coefs_mode", "coefs", "filter_indices"};
+    OrpheusValue values[] = {
+        {.type=ORPHEUS_VALUE_INT, .value.i32=3},
+        {.type=ORPHEUS_VALUE_INT, .value.i32=2},
+        {.type=ORPHEUS_VALUE_STRING, .value.str="banked"},
+        {.type=ORPHEUS_VALUE_STRING, .value.str="1,0.5,0.25,2,1,0.5"},
+        {.type=ORPHEUS_VALUE_STRING, .value.str="0,1"}
+    };
+    OrpheusConfig config = {.channels=2, .param_count=5, .param_ids=keys, .param_values=values};
+    CHECK(api->prepare(&state, &config) == ORPHEUS_OK);
+    OrpheusRegistry registry = {.add=capture};
+    CHECK(api->register_slots(&state, &registry) == ORPHEUS_OK);
+    CHECK(coefficient_slot.count == 6 && strcmp(coefficient_slot.key, "coefs_banked") == 0);
+    CHECK(index_slot.count == 2 && index_slot.type == ORPHEUS_VALUE_INT && index_slot.max_i32 == 1);
+    float data[2] = {1,2};
+    OrpheusBuffer in = {.data=data}, out = {.data=data};
+    const OrpheusBuffer* inputs[] = {&in};
+    OrpheusBuffer* outputs[] = {&out};
+    OrpheusProcessContext context = {.inputs=inputs, .outputs=outputs, .frame_count=1};
+    CHECK(api->process(&state, &context) == ORPHEUS_OK && data[0] == 1 && data[1] == 4);
+    state.filter_indices_i32[0] = 1; state.filter_indices_i32[1] = 0;
+    data[0] = 0; data[1] = 0;
+    CHECK(api->process(&state, &context) == ORPHEUS_OK && data[0] == 1 && data[1] == 1);
+    float history[6];
+    memcpy(history, state.history, sizeof(history));
+    uint32_t positions[2];
+    memcpy(positions, state.positions, sizeof(positions));
+    for (int bad = -1; bad <= 2; bad += 3) {
+        state.filter_indices_i32[0] = bad;
+        CHECK(api->process(&state, &context) == ORPHEUS_ERR_INVALID_ARG);
+        CHECK(memcmp(history, state.history, sizeof(history)) == 0);
+        CHECK(memcmp(positions, state.positions, sizeof(positions)) == 0);
+    }
+    state.filter_indices_i32[0] = 1;
+    CHECK(api->reset(&state) == ORPHEUS_OK && state.filter_indices_i32[0] == 1 && state.coefs[0] == 1);
+    state.filter_indices_i32[1] = 1; state.coefs[0] = NAN;
+    data[0] = 1; data[1] = 2;
+    CHECK(api->process(&state, &context) == ORPHEUS_OK && data[0] == 2 && data[1] == 4);
+    const char* bad_indices[] = {"-1,0", "0,2", "0", "0,1,", "0,,1", "0.5,1"};
+    for (unsigned i = 0; i < sizeof(bad_indices)/sizeof(bad_indices[0]); ++i) {
+        values[4].value.str = bad_indices[i];
+        CHECK(api->prepare(&state, &config) == ORPHEUS_ERR_INVALID_ARG);
+    }
+    values[4].value.str = ""; values[3].value.str = "";
+    values[1].value.i32 = 65;
+    CHECK(api->prepare(&state, &config) == ORPHEUS_ERR_INVALID_ARG);
+    values[1].value.i32 = 64; values[0].value.i32 = 513;
+    CHECK(api->prepare(&state, &config) == ORPHEUS_ERR_INVALID_ARG);
+    CHECK(api->destroy(&state) == ORPHEUS_OK);
     return 0;
 }
 
 int main(void) {
+    CHECK(bank_selection() == 0);
     const OrpheusComponentInterface* api = orpheus_get_interface();
     FirBankState state = {0};
     const char* keys[] = {"num_taps", "coefs", "coefs_mode", "taps_per_channel"};

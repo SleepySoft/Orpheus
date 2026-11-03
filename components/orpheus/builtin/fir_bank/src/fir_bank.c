@@ -22,6 +22,18 @@ static const OrpheusParameter params[] = {
     {.id="coefs_mode", .name="系数模式", .type=ORPHEUS_VALUE_STRING,
      .default_value={.type=ORPHEUS_VALUE_STRING, .value.str="shared"},
      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .affects_signature=true},
+    {.id="num_filters", .name="系数集数量", .type=ORPHEUS_VALUE_INT,
+     .default_value={.type=ORPHEUS_VALUE_INT, .value.i32=1},
+     .min_i32=1, .max_i32=FIR_BANK_MAX_CHANNELS,
+     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+     .readback=true, .persistent=true, .affects_signature=true},
+    {.id="filter_indices", .name="初始系数集索引", .type=ORPHEUS_VALUE_STRING,
+     .default_value={.type=ORPHEUS_VALUE_STRING, .value.str=""},
+     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED},
+    {.id="filter_indices_i32", .name="活动系数集索引", .type=ORPHEUS_VALUE_INT,
+     .default_value={.type=ORPHEUS_VALUE_INT, .value.i32=0},
+     .min_i32=0, .max_i32=FIR_BANK_MAX_CHANNELS-1,
+     .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY, .readback=true},
     {.id="coefs", .name="FIR初始系数", .type=ORPHEUS_VALUE_STRING,
      .default_value={.type=ORPHEUS_VALUE_STRING, .value.str=""},
      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED},
@@ -39,8 +51,8 @@ static const OrpheusPort ports[] = {
 };
 
 static const OrpheusComponentDescriptor descriptor = {
-    .id="orpheus.builtin.fir_bank", .version="1.0.1", .abi_version=ORPHEUS_ABI_VERSION,
-    .ports=ports, .port_count=2, .params=params, .param_count=6,
+    .id="orpheus.builtin.fir_bank", .version="1.1.0", .abi_version=ORPHEUS_ABI_VERSION,
+    .ports=ports, .port_count=2, .params=params, .param_count=9,
     .state_size=sizeof(FirBankState), .alignment=8,
     .realtime_safe=true, .supports_inplace=true
 };
@@ -84,10 +96,11 @@ static int prepare(void* state, const OrpheusConfig* config) {
     if (!state || !config) return ORPHEUS_ERR_INVALID_ARG;
     FirBankState* s = (FirBankState*)state;
     uint32_t channels = config->channels ? config->channels : 2;
-    uint32_t taps = 1, mode = 0;
+    uint32_t taps = 1, mode = 0, filters = 1;
     int32_t enabled = 1;
     const char* coefficients = "";
     const char* lengths = "";
+    const char* indices = "";
     if (channels > FIR_BANK_MAX_CHANNELS) return ORPHEUS_ERR_INVALID_ARG;
     for (uint32_t i = 0; i < config->param_count; ++i) {
         const char* id = config->param_ids[i];
@@ -97,24 +110,32 @@ static int prepare(void* state, const OrpheusConfig* config) {
             if (value->type != ORPHEUS_VALUE_INT || value->value.i32 < 1 ||
                 value->value.i32 > FIR_BANK_MAX_TAPS) return ORPHEUS_ERR_INVALID_ARG;
             taps = (uint32_t)value->value.i32;
+        } else if (strcmp(id, "num_filters") == 0) {
+            if (value->type != ORPHEUS_VALUE_INT || value->value.i32 < 1 ||
+                value->value.i32 > FIR_BANK_MAX_CHANNELS) return ORPHEUS_ERR_INVALID_ARG;
+            filters = (uint32_t)value->value.i32;
         } else if (strcmp(id, "processing_enabled") == 0) {
             if (value->type != ORPHEUS_VALUE_INT || value->value.i32 < 0 ||
                 value->value.i32 > 1) return ORPHEUS_ERR_INVALID_ARG;
             enabled = value->value.i32;
         } else if (strcmp(id, "coefs_mode") == 0 || strcmp(id, "coefs") == 0 ||
-                   strcmp(id, "taps_per_channel") == 0) {
+                   strcmp(id, "taps_per_channel") == 0 || strcmp(id, "filter_indices") == 0) {
             if (value->type != ORPHEUS_VALUE_STRING || !value->value.str)
                 return ORPHEUS_ERR_INVALID_ARG;
             if (strcmp(id, "coefs") == 0) coefficients = value->value.str;
             else if (strcmp(id, "taps_per_channel") == 0) lengths = value->value.str;
+            else if (strcmp(id, "filter_indices") == 0) indices = value->value.str;
             else if (strcmp(value->value.str, "per_channel") == 0) mode = 1;
+            else if (strcmp(value->value.str, "banked") == 0) mode = 2;
             else if (strcmp(value->value.str, "shared") == 0) mode = 0;
             else return ORPHEUS_ERR_INVALID_ARG;
         }
     }
-    uint32_t count = (mode ? channels : 1)*taps;
+    uint32_t sets = mode == 2 ? filters : mode == 1 ? channels : 1;
+    uint32_t count = sets*taps;
     if (count > FIR_BANK_MAX_COEFS) return ORPHEUS_ERR_INVALID_ARG;
     uint32_t parsed_lengths[FIR_BANK_MAX_CHANNELS];
+    int32_t parsed_indices[FIR_BANK_MAX_CHANNELS] = {0};
     const char* p = skip_space(lengths);
     for (uint32_t c = 0; c < channels; ++c) {
         parsed_lengths[c] = taps;
@@ -127,12 +148,25 @@ static int prepare(void* state, const OrpheusConfig* config) {
             p = end;
             if (delimiter(&p, c, channels) != ORPHEUS_OK) return ORPHEUS_ERR_INVALID_ARG;
         }
+        if (*indices) {
+            if (mode != 2) return ORPHEUS_ERR_INVALID_ARG;
+            p = skip_space(indices);
+            for (uint32_t c = 0; c < channels; ++c) {
+                char* end = NULL;
+                if (*p == '-') return ORPHEUS_ERR_INVALID_ARG;
+                unsigned long value = strtoul(p, &end, 10);
+                if (end == p || value >= filters) return ORPHEUS_ERR_INVALID_ARG;
+                parsed_indices[c] = (int32_t)value;
+                p = end;
+                if (delimiter(&p, c, channels) != ORPHEUS_OK) return ORPHEUS_ERR_INVALID_ARG;
+            }
+        }
     }
     float* next_coefs = (float*)calloc(count, sizeof(float));
     if (!next_coefs) return ORPHEUS_ERR_OUT_OF_MEMORY;
     p = skip_space(coefficients);
     if (!*p) {
-        for (uint32_t c = 0; c < (mode ? channels : 1); ++c) next_coefs[c*taps] = 1.0f;
+        for (uint32_t c = 0; c < sets; ++c) next_coefs[c*taps] = 1.0f;
     } else {
         for (uint32_t i = 0; i < count; ++i) {
             char* end = NULL;
@@ -158,6 +192,8 @@ static int prepare(void* state, const OrpheusConfig* config) {
     s->channels = channels;
     s->num_taps = taps;
     s->coefs_mode = mode;
+    s->num_filters = filters;
+    memcpy(s->filter_indices_i32, parsed_indices, channels*sizeof(int32_t));
     s->processing_enabled = enabled;
     memcpy(s->taps_per_channel, parsed_lengths, channels*sizeof(uint32_t));
     memset(s->positions, 0, sizeof(s->positions));
@@ -177,6 +213,12 @@ static int reset(void* state) {
 static int process(void* state, const OrpheusProcessContext* ctx) {
     FirBankState* s = (FirBankState*)state;
     if (!ctx->outputs[0] || !s->history) return ORPHEUS_ERR_INVALID_ARG;
+    if (s->coefs_mode == 2) {
+        for (uint32_t c = 0; c < s->channels; ++c)
+            if (s->filter_indices_i32[c] < 0 ||
+                (uint32_t)s->filter_indices_i32[c] >= s->num_filters)
+                return ORPHEUS_ERR_INVALID_ARG;
+    }
     OrpheusBuffer* out = ctx->outputs[0];
     float* output = (float*)out->data;
     if (!s->processing_enabled) {
@@ -192,7 +234,9 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
                     continue;
                 }
                 float* history = s->history+(size_t)c*s->num_taps;
-                const float* coefs = s->coefs+(s->coefs_mode ? c*s->num_taps : 0);
+                uint32_t filter = s->coefs_mode == 2 ? (uint32_t)s->filter_indices_i32[c] :
+                                  s->coefs_mode == 1 ? c : 0;
+                const float* coefs = s->coefs+filter*s->num_taps;
                 uint32_t position = s->positions[c];
                 uint32_t index = position+1 == length ? 0 : position+1;
                 history[position] = input[(size_t)f*s->channels+c];
@@ -226,6 +270,7 @@ static int get_parameter(void* state, const char* id, OrpheusValue* value) {
     value->type = ORPHEUS_VALUE_INT;
     if (strcmp(id, "channels") == 0) value->value.i32 = (int32_t)s->channels;
     else if (strcmp(id, "num_taps") == 0) value->value.i32 = (int32_t)s->num_taps;
+    else if (strcmp(id, "num_filters") == 0) value->value.i32 = (int32_t)s->num_filters;
     else if (strcmp(id, "processing_enabled") == 0) value->value.i32 = s->processing_enabled;
     else return ORPHEUS_ERR_NOT_FOUND;
     return ORPHEUS_OK;
@@ -234,19 +279,34 @@ static int get_parameter(void* state, const char* id, OrpheusValue* value) {
 static int register_slots(void* state, const OrpheusRegistry* reg) {
     FirBankState* s = (FirBankState*)state;
     OrpheusSlotInfo slot = {
-        .kind=ORPHEUS_SLOT_BULK, .key=s->coefs_mode ? "coefs_per_channel" : "coefs",
+        .kind=ORPHEUS_SLOT_BULK, .key=s->coefs_mode == 2 ? "coefs_banked" :
+                                   s->coefs_mode == 1 ? "coefs_per_channel" : "coefs",
         .name="FIR系数", .type=ORPHEUS_VALUE_FLOAT,
         .offset=offsetof(FirBankState, coefs), .size=sizeof(float),
-        .count=(s->coefs_mode ? s->channels : 1)*s->num_taps,
+        .count=(s->coefs_mode == 2 ? s->num_filters : s->coefs_mode == 1 ? s->channels : 1)*s->num_taps,
         .flags=ORPHEUS_SLOT_DOUBLE_BUFFERED
     };
     reg->add(reg->ctx, &slot);
+    if (s->coefs_mode == 2) {
+        slot = (OrpheusSlotInfo){
+            .kind=ORPHEUS_SLOT_BULK, .key="filter_indices_i32", .name="活动系数集索引",
+            .type=ORPHEUS_VALUE_INT, .offset=offsetof(FirBankState, filter_indices_i32),
+            .size=sizeof(int32_t), .count=s->channels,
+            .min_i32=0, .max_i32=(int32_t)s->num_filters-1,
+            .flags=ORPHEUS_SLOT_DOUBLE_BUFFERED
+        };
+        reg->add(reg->ctx, &slot);
+    }
     ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数",
                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=FIR_BANK_MAX_CHANNELS,
                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_AFFECTS_SIGNATURE);
     ORPHEUS_REG_SLOT(reg, s, num_taps, ORPHEUS_SLOT_SETTING, "num_taps", "每通道系数跨度",
                     ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=FIR_BANK_MAX_TAPS,
+                    .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
+                    .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg, s, num_filters, ORPHEUS_SLOT_SETTING, "num_filters", "系数集数量",
+                    ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=FIR_BANK_MAX_CHANNELS,
                     .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                     .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_AFFECTS_SIGNATURE);
     ORPHEUS_REG_SLOT(reg, s, processing_enabled, ORPHEUS_SLOT_SETTING, "processing_enabled", "处理使能",
