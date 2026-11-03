@@ -61,7 +61,7 @@ static const OrpheusPort mm_ports[] = {
 };
 
 static const OrpheusComponentDescriptor mm_descriptor = {
-    .id = "orpheus.builtin.matrix_mul", .version = "1.0.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .id = "orpheus.builtin.matrix_mul", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
     .ports = mm_ports, .port_count = 2, .params = mm_params, .param_count = 3,
     .state_size = sizeof(MatrixMulState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = false
@@ -138,9 +138,7 @@ static int mm_get_parameter(void* state, const char* param_id, OrpheusValue* val
         return ORPHEUS_OK;
     }
     if (strcmp(param_id, "matrix") == 0) {
-        value->type = ORPHEUS_VALUE_STRING;
-        value->value.str = (const char*)s->matrix; /* 调用方按 float 解释；字符串仅占位 */
-        return ORPHEUS_OK;
+        return ORPHEUS_ERR_UNSUPPORTED;
     }
     return ORPHEUS_ERR_NOT_FOUND;
 }
@@ -160,6 +158,12 @@ static int mm_register_slots(void* state, const OrpheusRegistry* reg) {
                      ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=32,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    OrpheusSlotInfo slot = {
+        .kind=ORPHEUS_SLOT_BULK, .key="matrix", .name="矩阵系数",
+        .type=ORPHEUS_VALUE_FLOAT, .offset=offsetof(MatrixMulState, matrix),
+        .size=sizeof(float), .count=s->rows*s->cols, .flags=ORPHEUS_SLOT_DOUBLE_BUFFERED
+    };
+    reg->add(reg->ctx, &slot);
     return ORPHEUS_OK;
 }
 

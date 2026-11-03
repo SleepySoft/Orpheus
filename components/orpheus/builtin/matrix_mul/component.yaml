@@ -2,7 +2,7 @@ id: orpheus.builtin.matrix_mul
 name: 矩阵乘法
 category: 高级/矩阵与混音
 description: 矩阵乘音频块（out[rows] = M(rows×cols) · in[cols]，M 为 BULK 系数）
-version: 1.0.0
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: MatrixMulState
@@ -44,6 +44,13 @@ parameters:
     kind: bulk
     update_policy: restart_required
     shape: [param:rows, param:cols]  # 维度声明：rows×cols（供控制连接形状校验）
+bulk_slots:
+  - id: matrix
+    name: 矩阵系数
+    type: float
+    count: 1024
+    shape: [param:rows, param:cols]
+    double_bank: true
 memory:
   state_size: 0
   scratch_size: 0
