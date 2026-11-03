@@ -1,8 +1,8 @@
 id: orpheus.builtin.limiter
 name: 峰值限幅
 category: 音效/动态与塑形
-description: 峰值限幅器（共享或每通道 attack/decay/k1/maxAttack）
-version: 1.1.0
+description: 共享/逐通道峰值包络，或双参数组的逐通道反馈增益限幅
+version: 1.2.0
 abi_version: 1
 package_type: source
 state_type: LimiterState
@@ -27,7 +27,7 @@ parameters:
     type: string
     default: shared
     widget: select
-    options: [shared, per_channel]
+    options: [shared, per_channel, feedback]
     update_policy: restart_required
   - id: threshold_db
     name: 阈值
@@ -81,6 +81,19 @@ parameters:
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
+  - {id: parameter_set, name: 反馈参数组, type: int, default: 1, range: [1, 2], persistent: true, readback: true, update_policy: block_boundary}
+  - {id: disabled, name: 反馈限幅旁路, type: bool, default: false, persistent: true, readback: true, update_policy: block_boundary}
+  - {id: feedback_attack, name: 反馈启动系数（两组）, type: string, default: "", kind: bulk, shape: [2, "param:channels"], widget: text, update_policy: restart_required}
+  - {id: feedback_release, name: 反馈释放乘数（两组）, type: string, default: "", kind: bulk, shape: [2, "param:channels"], widget: text, update_policy: restart_required}
+  - {id: feedback_k1, name: 反馈检测系数（两组）, type: string, default: "", kind: bulk, shape: [2, "param:channels"], widget: text, update_policy: restart_required}
+  - {id: feedback_min_factor, name: 反馈最小乘数（两组）, type: string, default: "", kind: bulk, shape: [2, "param:channels"], widget: text, update_policy: restart_required}
+  - {id: active_mask, name: 本块限幅通道位图, type: int, default: 0, readback: true, control_source: true, update_policy: immediate}
+  - {id: gain, name: 最后通道当前增益, type: float, default: 1.0, readback: true, control_source: true, update_policy: immediate}
+bulk_slots:
+  - {id: feedback_attack, name: 反馈启动系数, type: float, count: 64, shape: [2, "param:channels"], double_bank: true}
+  - {id: feedback_release, name: 反馈释放乘数, type: float, count: 64, shape: [2, "param:channels"], double_bank: true}
+  - {id: feedback_k1, name: 反馈检测系数, type: float, count: 64, shape: [2, "param:channels"], double_bank: true}
+  - {id: feedback_min_factor, name: 反馈最小乘数, type: float, count: 64, shape: [2, "param:channels"], double_bank: true}
 memory:
   state_size: 0
   scratch_size: 0

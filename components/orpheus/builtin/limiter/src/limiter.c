@@ -1,6 +1,7 @@
 #include "orpheus_limiter.h"
 
 #include <math.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -53,6 +54,9 @@ static void fill_per_channel(float* arr, uint32_t channels, const char* text, fl
     }
 }
 
+#define FEEDBACK_PARAMETER(key, label) \
+    {.id=key,.name=label,.type=ORPHEUS_VALUE_STRING, \
+     .default_value={.type=ORPHEUS_VALUE_STRING,.value.str=""},.update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED}
 static const OrpheusParameter limiter_params[] = {
     { .id = "mode", .name = "\xe6\xa8\xa1\xe5\xbc\x8f", .type = ORPHEUS_VALUE_STRING,
       .default_value = { .type = ORPHEUS_VALUE_STRING, .value.str = "shared" },
@@ -92,8 +96,25 @@ static const OrpheusParameter limiter_params[] = {
     { .id = "channels", .name = "\xe9\x80\x9a\xe9\x81\x93\xe6\x95\xb0", .type = ORPHEUS_VALUE_INT,
       .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 2 },
       .min_i32 = 1, .max_i32 = LIMITER_MAX_CHANNELS, .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,
-      .readback = true, .persistent = true, .affects_signature = true }
+      .readback = true, .persistent = true, .affects_signature = true },
+    {.id="parameter_set",.name="反馈参数组",.type=ORPHEUS_VALUE_INT,
+     .default_value={.type=ORPHEUS_VALUE_INT,.value.i32=1},.min_i32=1,.max_i32=2,
+     .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY,.readback=true,.persistent=true},
+    {.id="disabled",.name="反馈限幅旁路",.type=ORPHEUS_VALUE_BOOL,
+     .default_value={.type=ORPHEUS_VALUE_BOOL,.value.b=false},
+     .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY,.readback=true,.persistent=true},
+    FEEDBACK_PARAMETER("feedback_attack","反馈启动系数"),
+    FEEDBACK_PARAMETER("feedback_release","反馈释放乘数"),
+    FEEDBACK_PARAMETER("feedback_k1","反馈检测系数"),
+    FEEDBACK_PARAMETER("feedback_min_factor","反馈最小乘数"),
+    {.id="active_mask",.name="本块限幅通道位图",.type=ORPHEUS_VALUE_INT,
+     .default_value={.type=ORPHEUS_VALUE_INT,.value.i32=0},
+     .update_policy=ORPHEUS_UPDATE_IMMEDIATE,.readback=true},
+    {.id="gain",.name="最后通道当前增益",.type=ORPHEUS_VALUE_FLOAT,
+     .default_value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=1},
+     .update_policy=ORPHEUS_UPDATE_IMMEDIATE,.readback=true}
 };
+#undef FEEDBACK_PARAMETER
 
 static const OrpheusPort limiter_ports[] = {
     { .id = "in", .direction = ORPHEUS_PORT_INPUT, .type = ORPHEUS_PORT_AUDIO,
@@ -105,8 +126,8 @@ static const OrpheusPort limiter_ports[] = {
 };
 
 static const OrpheusComponentDescriptor limiter_descriptor = {
-    .id = "orpheus.builtin.limiter", .version = "1.1.0", .abi_version = ORPHEUS_ABI_VERSION,
-    .ports = limiter_ports, .port_count = 2, .params = limiter_params, .param_count = 9,
+    .id = "orpheus.builtin.limiter", .version = "1.2.0", .abi_version = ORPHEUS_ABI_VERSION,
+    .ports = limiter_ports, .port_count = 2, .params = limiter_params, .param_count = sizeof(limiter_params)/sizeof(limiter_params[0]),
     .state_size = sizeof(LimiterState), .scratch_size = 0, .alignment = 8,
     .latency_samples = 0, .realtime_safe = true, .supports_inplace = true
 };
@@ -123,7 +144,26 @@ static int limiter_create(void** state, const OrpheusConfig* config) {
 }
 static int limiter_destroy(void* state) { (void)state; return ORPHEUS_OK; }
 
+static int parse_feedback_array(const char* cursor, float* values, unsigned count, float fallback) {
+    if (!cursor) return ORPHEUS_ERR_INVALID_ARG;
+    if (!*cursor) {
+        for (unsigned i=0;i<count;++i) values[i]=fallback;
+        return ORPHEUS_OK;
+    }
+    for (unsigned i=0;i<count;++i) {
+        char* end;
+        float value=strtof(cursor,&end);
+        if (end==cursor || !isfinite(value)) return ORPHEUS_ERR_INVALID_ARG;
+        while (isspace((unsigned char)*end)) ++end;
+        if (i+1<count ? *end!=',' : *end!='\0') return ORPHEUS_ERR_INVALID_ARG;
+        values[i]=value; cursor=i+1<count ? end+1 : end;
+    }
+    return ORPHEUS_OK;
+}
+
 static int limiter_prepare(void* state, const OrpheusConfig* config) {
+    if (!state || !config || (config->param_count && (!config->param_ids || !config->param_values)))
+        return ORPHEUS_ERR_INVALID_ARG;
     LimiterState* s = (LimiterState*)state;
     s->channels = config->channels > 0 ? config->channels : 2;
     if (s->channels > LIMITER_MAX_CHANNELS) s->channels = LIMITER_MAX_CHANNELS;
@@ -132,7 +172,37 @@ static int limiter_prepare(void* state, const OrpheusConfig* config) {
     s->threshold_linear = db_to_linear(s->threshold_db);
 
     const char* mode_str = read_string(config, "mode", "shared");
-    s->mode = (strcmp(mode_str, "per_channel") == 0) ? 1U : 0U;
+    s->mode = strcmp(mode_str,"feedback")==0 ? 2U : (strcmp(mode_str, "per_channel") == 0 ? 1U : 0U);
+    s->parameter_set=1; s->disabled=false; s->active_mask=0;
+    if (s->mode==2) {
+        s->channels=config->channels>0 ? config->channels : 2;
+        for (uint32_t i=0;i<config->param_count;++i) {
+            for (unsigned j=0;j<sizeof(limiter_params)/sizeof(limiter_params[0]);++j) {
+                if (!config->param_ids[i] || strcmp(config->param_ids[i],limiter_params[j].id)!=0) continue;
+                const OrpheusValue* v=&config->param_values[i];
+                if (v->type!=limiter_params[j].type ||
+                    (v->type==ORPHEUS_VALUE_FLOAT && !isfinite(v->value.f32)) ||
+                    (v->type==ORPHEUS_VALUE_STRING && !v->value.str)) return ORPHEUS_ERR_INVALID_ARG;
+            }
+            if (config->param_ids[i] && strcmp(config->param_ids[i],"channels")==0)
+                s->channels=(uint32_t)config->param_values[i].value.i32;
+            if (config->param_ids[i] && strcmp(config->param_ids[i],"parameter_set")==0)
+                s->parameter_set=config->param_values[i].value.i32;
+            if (config->param_ids[i] && strcmp(config->param_ids[i],"disabled")==0)
+                s->disabled=config->param_values[i].value.b;
+        }
+        if (s->channels<1 || s->channels>LIMITER_MAX_CHANNELS || s->parameter_set<1 || s->parameter_set>2)
+            return ORPHEUS_ERR_INVALID_ARG;
+        unsigned count=2*s->channels;
+        if (parse_feedback_array(read_string(config,"feedback_attack",""),s->feedback_attack,count,.0237f)!=ORPHEUS_OK ||
+            parse_feedback_array(read_string(config,"feedback_release",""),s->feedback_release,count,1.00024f)!=ORPHEUS_OK ||
+            parse_feedback_array(read_string(config,"feedback_k1",""),s->feedback_k1,count,.01185f)!=ORPHEUS_OK ||
+            parse_feedback_array(read_string(config,"feedback_min_factor",""),s->feedback_min_factor,count,.31623f)!=ORPHEUS_OK)
+            return ORPHEUS_ERR_INVALID_ARG;
+        for (unsigned c=0;c<s->channels;++c) s->env[c]=1;
+        s->gain=1;
+        return ORPHEUS_OK;
+    }
 
     if (s->mode == 0U) {
         s->attack_ms = read_float(config, "attack_ms", 5.0f);
@@ -157,13 +227,60 @@ static int limiter_prepare(void* state, const OrpheusConfig* config) {
 
 static int limiter_reset(void* state) {
     LimiterState* s = (LimiterState*)state;
-    for (uint32_t c = 0; c < LIMITER_MAX_CHANNELS; ++c) s->env[c] = 0.0f;
+    for (uint32_t c = 0; c < LIMITER_MAX_CHANNELS; ++c) s->env[c] = s->mode==2 ? 1.0f : 0.0f;
     s->gain = 1.0f;
+    s->active_mask=0;
+    return ORPHEUS_OK;
+}
+
+static int process_feedback(LimiterState* s,const OrpheusProcessContext* ctx) {
+    const OrpheusBuffer* input=ctx->inputs[0];
+    OrpheusBuffer* output=ctx->outputs[0];
+    unsigned frames=ctx->frame_count, channels=s->channels;
+    if (!input || !output || !input->data || !output->data ||
+        input->channels!=channels || output->channels!=channels ||
+        input->frame_capacity<frames || output->frame_capacity<frames ||
+        s->parameter_set<1 || s->parameter_set>2) return ORPHEUS_ERR_INVALID_ARG;
+    if (!frames) { output->frame_count=0; return ORPHEUS_OK; }
+    const float* source=(const float*)input->data;
+    float* destination=(float*)output->data;
+    if (s->disabled) {
+        if (destination!=source) memcpy(destination,source,(size_t)frames*channels*sizeof(float));
+        s->active_mask=0; output->frame_count=frames; return ORPHEUS_OK;
+    }
+    unsigned base=(unsigned)(s->parameter_set-1)*channels;
+    for (unsigned c=0;c<channels;++c) {
+        unsigned i=base+c;
+        if (!isfinite(s->feedback_attack[i]) || !isfinite(s->feedback_release[i]) ||
+            !isfinite(s->feedback_k1[i]) || !isfinite(s->feedback_min_factor[i]))
+            return ORPHEUS_ERR_INVALID_ARG;
+    }
+    uint32_t mask=0;
+    for (unsigned c=0;c<channels;++c) {
+        unsigned i=base+c;
+        float gain=s->env[c], total_in=0, total_out=0, attack=s->feedback_attack[i];
+        for (unsigned n=0;n<frames;++n) {
+            float x=source[n*channels+c], magnitude=fabsf(x);
+            total_in+=magnitude;
+            gain=fminf(fmaxf((attack+1.0f)-fmaxf(s->feedback_k1[i]*gain*magnitude,attack),
+                            s->feedback_min_factor[i])*(gain*s->feedback_release[i]),1.0f);
+            float y=x*gain;
+            total_out+=fabsf(y);
+            destination[n*channels+c]=y;
+        }
+        s->env[c]=gain;
+        if (total_out<total_in) mask|=(uint32_t)1<<c;
+    }
+    memcpy(&s->active_mask,&mask,sizeof(mask));
+    s->gain=s->env[channels-1]; output->frame_count=frames;
     return ORPHEUS_OK;
 }
 
 static int limiter_process(void* state, const OrpheusProcessContext* ctx) {
+    if (!state || !ctx || ctx->input_count<1 || ctx->output_count<1 || !ctx->inputs || !ctx->outputs)
+        return ORPHEUS_ERR_INVALID_ARG;
     LimiterState* s = (LimiterState*)state;
+    if (s->mode==2) return process_feedback(s,ctx);
     const OrpheusBuffer* in = ctx->inputs[0];
     OrpheusBuffer* out = ctx->outputs[0];
     if (in == NULL || out == NULL) return ORPHEUS_ERR_INVALID_ARG;
@@ -218,7 +335,19 @@ static int limiter_process(void* state, const OrpheusProcessContext* ctx) {
 }
 
 static int limiter_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {
+    if (!state || !param_id || !value) return ORPHEUS_ERR_INVALID_ARG;
     LimiterState* s = (LimiterState*)state;
+    if (strcmp(param_id,"parameter_set")==0) {
+        if (s->mode!=2) return ORPHEUS_ERR_UNSUPPORTED;
+        if (value->type!=ORPHEUS_VALUE_INT || value->value.i32<1 || value->value.i32>2) return ORPHEUS_ERR_INVALID_ARG;
+        s->parameter_set=value->value.i32; return ORPHEUS_OK;
+    }
+    if (strcmp(param_id,"disabled")==0) {
+        if (s->mode!=2) return ORPHEUS_ERR_UNSUPPORTED;
+        if (value->type!=ORPHEUS_VALUE_BOOL) return ORPHEUS_ERR_INVALID_ARG;
+        s->disabled=value->value.b; return ORPHEUS_OK;
+    }
+    if (s->mode==2) return ORPHEUS_ERR_UNSUPPORTED;
     if (strcmp(param_id, "threshold_db") == 0) {
         if (value->type != ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
         s->threshold_db = value->value.f32;
@@ -260,7 +389,16 @@ static int limiter_set_parameter(void* state, const char* param_id, const Orpheu
 }
 
 static int limiter_get_parameter(void* state, const char* param_id, OrpheusValue* value) {
+    if (!state || !param_id || !value) return ORPHEUS_ERR_INVALID_ARG;
     LimiterState* s = (LimiterState*)state;
+    if (strcmp(param_id,"parameter_set")==0 || strcmp(param_id,"active_mask")==0) {
+        value->type=ORPHEUS_VALUE_INT;
+        value->value.i32=strcmp(param_id,"parameter_set")==0 ? s->parameter_set : s->active_mask;
+        return ORPHEUS_OK;
+    }
+    if (strcmp(param_id,"disabled")==0) {
+        value->type=ORPHEUS_VALUE_BOOL; value->value.b=s->disabled; return ORPHEUS_OK;
+    }
     if (strcmp(param_id, "threshold_db") == 0) {
         value->type = ORPHEUS_VALUE_FLOAT;
         value->value.f32 = s->threshold_db;
@@ -280,6 +418,7 @@ static int limiter_get_parameter(void* state, const char* param_id, OrpheusValue
 }
 
 static int limiter_register_slots(void* state, const OrpheusRegistry* reg) {
+    if (!state || !reg || !reg->add) return ORPHEUS_ERR_INVALID_ARG;
     LimiterState* s = (LimiterState*)state;
     ORPHEUS_REG_SLOT(reg, s, threshold_db, ORPHEUS_SLOT_SETTING, "threshold_db", "阈值",
                      ORPHEUS_VALUE_FLOAT, .min_f32=-96.0f, .max_f32=24.0f, .unit="dB",
@@ -299,6 +438,21 @@ static int limiter_register_slots(void* state, const OrpheusRegistry* reg) {
                      ORPHEUS_VALUE_INT, .min_i32=1, .max_i32=LIMITER_MAX_CHANNELS,
                      .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED,
                      .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_AFFECTS_SIGNATURE);
+    ORPHEUS_REG_SLOT(reg,s,parameter_set,ORPHEUS_SLOT_SETTING,"parameter_set","反馈参数组",ORPHEUS_VALUE_INT,
+                    .min_i32=1,.max_i32=2,.update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY,
+                    .flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg,s,disabled,ORPHEUS_SLOT_SETTING,"disabled","反馈限幅旁路",ORPHEUS_VALUE_BOOL,
+                    .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY,.flags=ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_READBACK);
+    ORPHEUS_REG_SLOT(reg,s,active_mask,ORPHEUS_SLOT_PROBE,"active_mask","本块限幅通道位图",ORPHEUS_VALUE_INT,
+                    .flags=ORPHEUS_SLOT_READBACK);
+#define REGISTER_FEEDBACK(field, label) \
+    ORPHEUS_REG_ARRAY(reg,s,field,2*s->channels,ORPHEUS_SLOT_BULK,#field,label,ORPHEUS_VALUE_FLOAT, \
+                     .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY,.flags=ORPHEUS_SLOT_DOUBLE_BUFFERED)
+    REGISTER_FEEDBACK(feedback_attack,"反馈启动系数");
+    REGISTER_FEEDBACK(feedback_release,"反馈释放乘数");
+    REGISTER_FEEDBACK(feedback_k1,"反馈检测系数");
+    REGISTER_FEEDBACK(feedback_min_factor,"反馈最小乘数");
+#undef REGISTER_FEEDBACK
     return ORPHEUS_OK;
 }
 
