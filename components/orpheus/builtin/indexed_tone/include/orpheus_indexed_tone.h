@@ -12,6 +12,13 @@ extern "C" {
 #define INDEXED_TONE_SILENT_GAIN 5.0118723e-7f
 
 typedef struct {
+    float current_gain;
+    float target_gain;
+    float coefficient;
+    int32_t remaining_blocks;
+} IndexedToneRamp;
+
+typedef struct {
     float boost_coefs[INDEXED_TONE_COEFS];
     float cut_coefs[INDEXED_TONE_COEFS];
     float z1[INDEXED_TONE_MAX_CHANNELS];
@@ -32,8 +39,11 @@ typedef struct {
     uint32_t block_size;
     float sample_rate;
     int32_t filter_order;
-    int32_t freeze;
+    bool freeze;
     int32_t crossing_phase;
+    int32_t execution_mode;
+    int32_t phase;
+    IndexedToneRamp ramps[2];
 } IndexedToneState;
 
 ORPHEUS_API const OrpheusComponentInterface* orpheus_get_interface(void);

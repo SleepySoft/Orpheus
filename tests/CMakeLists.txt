@@ -141,6 +141,19 @@ target_link_libraries(channel_gain_runner PRIVATE orpheus_runtime_lib)
 add_executable(matrix_bulk_runner matrix_bulk_runner.cpp)
 target_link_libraries(matrix_bulk_runner PRIVATE orpheus_runtime_lib)
 
+add_executable(phased_tone_smoke phased_tone_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/indexed_tone/src/indexed_tone.c)
+target_include_directories(phased_tone_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/indexed_tone/include)
+target_compile_definitions(phased_tone_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(phased_tone_smoke PRIVATE m)
+endif()
+add_test(NAME phased_tone_smoke COMMAND phased_tone_smoke)
+add_executable(phased_tone_runner phased_tone_runner.cpp)
+target_link_libraries(phased_tone_runner PRIVATE orpheus_runtime_lib)
+
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
     set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})

@@ -1,7 +1,7 @@
 id: orpheus.builtin.indexed_tone
 name: 索引式音调控制
 category: 音效/均衡
-version: 1.0.0
+version: 1.1.0
 abi_version: 1
 package_type: source
 state_type: IndexedToneState
@@ -21,7 +21,20 @@ parameters:
   - {id: ramp_db_per_s, name: 斜坡速率, type: float, default: 0.0, range: [0.0, 50000.0], unit: dB/s, update_policy: block_boundary}
   - {id: freeze, name: 冻结斜坡, type: bool, default: false, update_policy: block_boundary}
   - {id: filter_order, name: 滤波阶数, type: int, default: 1, range: [1, 2], update_policy: restart_required}
-  - {id: boost_coefs, name: Boost原始系数, type: string, default: "1,0,0,0,0", kind: bulk, widget: text, update_policy: restart_required}
-  - {id: cut_coefs, name: Cut原始系数, type: string, default: "1,0,0,0,0", kind: bulk, widget: text, update_policy: restart_required}
+  - {id: boost_coefs, name: Boost原始系数, type: string, default: "1,0,0,0,0", kind: bulk, shape: [5], widget: text, update_policy: restart_required}
+  - {id: cut_coefs, name: Cut原始系数, type: string, default: "1,0,0,0,0", kind: bulk, shape: [5], widget: text, update_policy: restart_required}
+  - {id: execution_mode, name: 执行模式（0索引请求，1显式两阶段）, type: int, default: 0, range: [0, 1], update_policy: restart_required}
+  - {id: phase, name: 当前阶段（1或2）, type: int, default: 1, range: [1, 2], persistent: true, readback: true, update_policy: block_boundary}
+  - {id: ramp0_current_gain, name: 阶段0当前线性增益, type: float, default: 1.0, persistent: true, readback: true, update_policy: block_boundary}
+  - {id: ramp0_target_gain, name: 阶段0目标线性增益, type: float, default: 1.0, persistent: true, readback: true, update_policy: block_boundary}
+  - {id: ramp0_coefficient, name: 阶段0逐样本乘数, type: float, default: 1.0, persistent: true, readback: true, update_policy: block_boundary}
+  - {id: ramp0_remaining_blocks, name: 阶段0剩余块数, type: int, default: 0, range: [-2147483648, 2147483647], persistent: true, readback: true, update_policy: block_boundary}
+  - {id: ramp1_current_gain, name: 阶段1当前线性增益, type: float, default: 1.0, persistent: true, readback: true, update_policy: block_boundary}
+  - {id: ramp1_target_gain, name: 阶段1目标线性增益, type: float, default: 1.0, persistent: true, readback: true, update_policy: block_boundary}
+  - {id: ramp1_coefficient, name: 阶段1逐样本乘数, type: float, default: 1.0, persistent: true, readback: true, update_policy: block_boundary}
+  - {id: ramp1_remaining_blocks, name: 阶段1剩余块数, type: int, default: 0, range: [-2147483648, 2147483647], persistent: true, readback: true, update_policy: block_boundary}
+bulk_slots:
+  - {id: boost_coefs, name: Boost系数, type: float, count: 5, shape: [5], double_bank: true}
+  - {id: cut_coefs, name: Cut系数, type: float, count: 5, shape: [5], double_bank: true}
 memory: {state_size: 0, scratch_size: 0, alignment: 8}
 execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}
