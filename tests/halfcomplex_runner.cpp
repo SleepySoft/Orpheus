@@ -4,6 +4,9 @@
 #ifdef ORPHEUS_TEST_GENERATED
 #include "orpheus_graph.h"
 #include "orpheus_control.h"
+#ifndef ORPHEUS_TEST_TASK_FUNCTION
+#define ORPHEUS_TEST_TASK_FUNCTION orpheus_generated_process_task_default
+#endif
 #else
 #include "orpheus_runtime/runtime.h"
 #endif
@@ -15,15 +18,18 @@ int main(int argc,char** argv) {
     CHECK(orpheus_generated_init(48000,quantum)==ORPHEUS_OK);
 #define GET(n,k,v) orpheus_control_get_value(n,k,v)
 #define READ(n,k,v,c) orpheus_control_get_bulk(n,k,v,c)
-#define PROCESS() (!strcmp(mode,"task") ? orpheus_generated_process_task_default(0) : orpheus_generated_process(quantum))
+#define PROCESS() (!strcmp(mode,"task") ? ORPHEUS_TEST_TASK_FUNCTION(0) : orpheus_generated_process(quantum))
 #else
     CHECK(argc>=9);
     const char* mode=argv[3]; unsigned quantum=(unsigned)atoi(argv[4]); int first=5;
     orpheus::Runtime runtime;
-    CHECK(runtime.load_plan(orpheus::Plan::load_from_file(argv[1]),argv[2])==ORPHEUS_OK);
+    const orpheus::Plan plan=orpheus::Plan::load_from_file(argv[1]);
+    CHECK(plan.tasks.size()<=1);
+    const std::string& task_id=plan.tasks.empty() ? plan.task_id : plan.tasks.front().id;
+    CHECK(runtime.load_plan(plan,argv[2])==ORPHEUS_OK);
 #define GET(n,k,v) runtime.get_parameter(n,k,v)
 #define READ(n,k,v,c) runtime.get_bulk(n,k,v,c)
-#define PROCESS() (!strcmp(mode,"task") ? runtime.process_task("default",0) : runtime.process_block(quantum))
+#define PROCESS() (!strcmp(mode,"task") ? runtime.process_task(task_id,0) : runtime.process_block(quantum))
 #endif
     CHECK((argc-first)%4==0);
     unsigned blocks=3;

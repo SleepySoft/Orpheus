@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from array_graph_runner import use_linear_call_chain
+from array_graph_runner import execute_array_graph, use_linear_call_chain
 from orpheus_core.compiler import ExecutionPlan
 
 
@@ -50,3 +50,11 @@ def test_existing_explicit_component_branches_are_not_rewritten():
 def test_numeric_fixture_without_base_cadence_fails_explicitly():
     with pytest.raises(ValueError, match="基本节拍"):
         use_linear_call_chain(plan_for({"source": 2, "a": 2}))
+
+
+def test_explicit_multitask_capture_fails_before_generation(tmp_path):
+    plan = plan_for({"source": 1})
+    plan.flow_mode = "task_sequence"
+    plan.tasks.append({"id": "other", "nodes": [], "entry_nodes": []})
+    with pytest.raises(ValueError, match="一个Task"):
+        execute_array_graph(tmp_path, None, plan, {})

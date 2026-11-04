@@ -37,13 +37,18 @@ def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3):
     from test_generated_double_bank import _build
     assert isinstance(blocks,int) and 1<=blocks<=100000
     use_linear_call_chain(plan)
+    if len(plan.tasks) != 1:
+        raise ValueError("数组数值夹具需要且仅支持一个Task。")
     step = plan.schedule["tick"]
     generated = tmp_path / "generated"
-    CodeGenerator(registry, ROOT).generate(plan, generated)
+    generator = CodeGenerator(registry, ROOT)
+    generator.generate(plan, generated)
+    task_symbol = generator._sanitized_node_id(plan.tasks[0]["id"])
     (generated / "src/array_test.c").write_bytes((ROOT / "tests/halfcomplex_runner.cpp").read_bytes())
     with (generated / "CMakeLists.txt").open("a", encoding="utf-8") as file:
         file.write("\nadd_executable(array_test src/array_test.c)\n"
-                   "target_compile_definitions(array_test PRIVATE ORPHEUS_TEST_GENERATED)\n"
+                   "target_compile_definitions(array_test PRIVATE ORPHEUS_TEST_GENERATED "
+                   f"ORPHEUS_TEST_TASK_FUNCTION=orpheus_generated_process_task_{task_symbol})\n"
                    "target_link_libraries(array_test PRIVATE orpheus_graph)\n")
         for component in sorted({cfg["component"] for cfg in plan.node_configs.values()
                                  if not cfg["component"].startswith("orpheus.builtin.")}):
