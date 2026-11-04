@@ -12,6 +12,9 @@ namespace orpheus {
 class RuntimeBridgeEndpoint {
 public:
     RuntimeBridgeEndpoint(Runtime& runtime, const Plan& plan, std::atomic<bool>& running);
+    ~RuntimeBridgeEndpoint();
+    RuntimeBridgeEndpoint(const RuntimeBridgeEndpoint&) = delete;
+    RuntimeBridgeEndpoint& operator=(const RuntimeBridgeEndpoint&) = delete;
 
     int serve_stdio();
     OrpheusBridgeEndpoint* endpoint() { return &endpoint_; }
@@ -29,6 +32,7 @@ private:
     static size_t map_count(void* context);
     static int map_get(void* context, size_t index, OrpheusBridgeMapEntry* output);
     static void request_stop(void* context);
+    static int bulk_target(void* context, uint32_t id, OrpheusBridgeBulkTarget* target);
 };
 
 } // namespace orpheus

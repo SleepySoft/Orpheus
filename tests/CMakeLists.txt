@@ -3,6 +3,17 @@ cmake_minimum_required(VERSION 3.16)
 # 基础版本测试目录：先建立空壳，后续填充 GoogleTest 用例
 enable_testing()
 
+add_executable(bridge_bulk_smoke bridge_bulk_smoke.c)
+target_link_libraries(bridge_bulk_smoke PRIVATE orpheus_bridge_endpoint)
+add_test(NAME bridge_bulk_smoke COMMAND bridge_bulk_smoke)
+
+add_executable(bridge_bulk_concurrency bridge_bulk_concurrency.cpp)
+target_link_libraries(bridge_bulk_concurrency PRIVATE orpheus_bridge_endpoint)
+if(UNIX)
+    target_link_libraries(bridge_bulk_concurrency PRIVATE pthread)
+endif()
+add_test(NAME bridge_bulk_concurrency COMMAND bridge_bulk_concurrency)
+
 # 占位测试：验证 ABI header 可编译
 add_executable(abi_smoke abi_smoke.c)
 target_include_directories(abi_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)

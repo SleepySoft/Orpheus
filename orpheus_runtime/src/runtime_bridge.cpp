@@ -23,6 +23,7 @@ RuntimeBridgeEndpoint::RuntimeBridgeEndpoint(
     backend.map_count = map_count;
     backend.map_get = map_get;
     backend.request_stop = request_stop;
+    backend.bulk_target = bulk_target;
 
     OrpheusBridgeHello hello{};
     hello.endpoint_kind = ORPHEUS_BRIDGE_KIND_DYNAMIC_RUNTIME;
@@ -34,6 +35,16 @@ RuntimeBridgeEndpoint::RuntimeBridgeEndpoint(
     identity.block_size = plan.schedule_tick > 0 ? plan.schedule_tick : plan.block_size;
     identity.flags = ORPHEUS_BRIDGE_IDENTITY_FLAG_WRITABLE;
     orpheus_bridge_endpoint_init(&endpoint_, &backend, &hello, &identity);
+    runtime.attach_bulk_bridge(endpoint_.bulk);
+}
+
+RuntimeBridgeEndpoint::~RuntimeBridgeEndpoint() {
+    context_.runtime->attach_bulk_bridge(nullptr);
+    orpheus_bridge_endpoint_destroy(&endpoint_);
+}
+
+int RuntimeBridgeEndpoint::bulk_target(void* context, uint32_t id, OrpheusBridgeBulkTarget* target) {
+    return static_cast<Context*>(context)->runtime->bridge_bulk_target(id, target);
 }
 
 int RuntimeBridgeEndpoint::dispatch(

@@ -2,6 +2,7 @@
 #define ORPHEUS_BRIDGE_ENDPOINT_H
 
 #include "orpheus_abi.h"
+#include "orpheus_bridge_bulk.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,6 +23,7 @@ extern "C" {
 #define ORPHEUS_BRIDGE_CAP_FLOW_CONTROL     (1u << 4)
 #define ORPHEUS_BRIDGE_CAP_MAP              (1u << 5)
 #define ORPHEUS_BRIDGE_CAP_STOP             (1u << 6)
+#define ORPHEUS_BRIDGE_CAP_BULK_FRAGMENT    (1u << 7)
 
 #define ORPHEUS_BRIDGE_KIND_DYNAMIC_RUNTIME 1u
 #define ORPHEUS_BRIDGE_KIND_GENERATED_APP   2u
@@ -98,6 +100,8 @@ typedef struct {
     OrpheusBridgeMapCountFn map_count;
     OrpheusBridgeMapGetFn map_get;
     OrpheusBridgeStopFn request_stop;
+    OrpheusBridgeBulkTargetFn bulk_target;
+    OrpheusBridgeClockFn now_ms;
 } OrpheusBridgeBackend;
 
 typedef struct {
@@ -106,6 +110,7 @@ typedef struct {
     OrpheusBridgeIdentity identity;
     OrpheusBridgeStats stats;
     bool stop_requested;
+    OrpheusBridgeBulkState* bulk;
 } OrpheusBridgeEndpoint;
 
 void orpheus_bridge_endpoint_init(
@@ -123,6 +128,7 @@ int orpheus_bridge_endpoint_process(
     size_t* response_len);
 
 bool orpheus_bridge_endpoint_should_stop(const OrpheusBridgeEndpoint* endpoint);
+void orpheus_bridge_endpoint_destroy(OrpheusBridgeEndpoint* endpoint);
 
 #ifdef __cplusplus
 }

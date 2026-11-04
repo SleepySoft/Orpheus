@@ -13,6 +13,7 @@ target_include_directories(orpheus_olink PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/incl
 
 add_library(orpheus_bridge_endpoint STATIC
     src/bridge_endpoint.c
+    src/bridge_bulk.c
     src/bridge_stdio.c
     src/bridge_transport.c
     src/bridge_pipe.c

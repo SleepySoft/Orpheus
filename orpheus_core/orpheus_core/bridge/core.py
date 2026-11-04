@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import struct
 import threading
 import time
@@ -34,6 +35,7 @@ class BridgeCapabilities:
     pipelined_calls: bool = False
     flow_control: bool = False
     max_frame: int = 8 + 1023 * 4
+    bulk_fragment: bool = False
 
     def __post_init__(self) -> None:
         if self.max_frame < 8:
@@ -59,7 +61,10 @@ class BridgeSession:
         read_chunk: int = 4096,
         log_sink: LogSink | None = None,
         probe_interval: float = 0.0,
+        bulk_timeout: float = 30.0,
     ):
+        if not math.isfinite(bulk_timeout) or bulk_timeout <= 0:
+            raise ValueError("BULK 分片等待超时必须为有限正数")
         self.transport = transport
         self.codec = codec
         self.capabilities = capabilities or BridgeCapabilities()
@@ -70,6 +75,7 @@ class BridgeSession:
         }
         self.call_timeout = call_timeout
         self.call_retries = call_retries
+        self.bulk_timeout = bulk_timeout
         self._read_chunk = read_chunk
         self._log_sink = log_sink or NullLogSink()
         self._probe_interval = max(0.0, probe_interval)
@@ -84,6 +90,7 @@ class BridgeSession:
         self._call_id_lock = threading.Lock()
         self._transport_write_lock = threading.Lock()
         self._call_sequence = 0
+        self._transfer_sequence = 0
         self._closed = threading.Event()
         self._probe_stop = threading.Event()
         self._link_errors = 0
@@ -217,6 +224,12 @@ class BridgeSession:
             if entry["kind"] != "PROBE" or not self.running:
                 continue
             try:
+                if entry["form"] == "BULK":
+                    value = self.read_bulk(data_id=entry["id"])
+                    with self._condition:
+                        self._probes.setdefault(entry["node"], {})[entry["key"]] = value
+                    updated += 1
+                    continue
                 response = self.call(entry["id"])
                 self._check_ok(response, f"POLL 0x{entry['id']:08x}")
                 parsed = {
@@ -255,11 +268,12 @@ class BridgeSession:
         *,
         call_id: int | None = None,
         timeout: float | None = None,
+        flags: int = 0,
     ) -> dict[str, Any]:
         """发送 CALL 并等待匹配 RESPONSE；半双工基线串行化全部 CALL。"""
         if not self.running:
             raise RuntimeError("Bridge 会话已关闭")
-        if len(payload) + 8 > self.capabilities.max_frame:
+        if 8 + ((len(payload) + 3) // 4) * 4 > min(self.capabilities.max_frame, 4100):
             raise RuntimeError("Bridge 消息超过协商的 max_frame")
 
         guard = nullcontext() if self.capabilities.pipelined_calls else self._call_lock
@@ -271,7 +285,7 @@ class BridgeSession:
                 self._inflight.add(call_id)
                 self._pending.pop(call_id, None)
             try:
-                frame = message.make_call(route, call_id, payload)
+                frame = message.make_frame(route, call_id, message.CALL, payload, flags)
                 wire = self.codec.encode(frame)
                 attempts = self.call_retries + 1
                 timeout_s = timeout if timeout is not None else self.call_timeout
@@ -287,6 +301,8 @@ class BridgeSession:
                             response = self._pending.pop(call_id, None)
                             if response is not None:
                                 parsed = message.parse_frame(response)
+                                if parsed["route"] != route:
+                                    raise RuntimeError("Bridge RESPONSE route 与 CALL 不一致")
                                 parsed["raw"] = response
                                 return parsed
                             remaining = deadline - time.time()
@@ -340,6 +356,7 @@ class BridgeSession:
             pipelined_calls=bool(capability_bits & message.CAP_PIPELINED_CALLS),
             flow_control=bool(capability_bits & message.CAP_FLOW_CONTROL),
             max_frame=hello["max_message"],
+            bulk_fragment=bool(capability_bits & message.CAP_BULK_FRAGMENT),
         )
         identity_response = self.call(message.ROUTE_IDENTITY)
         self._check_ok(identity_response, "IDENTITY")
@@ -428,6 +445,25 @@ class BridgeSession:
         if len(values) > entry["count"]:
             raise RuntimeError(f"BULK写入超过声明容量：{len(values)} > {entry['count']}")
         payload = message.encode_bulk(entry["type"], values)
+        if len(payload) + 8 > min(self.capabilities.max_frame, 4100):
+            chunk_size = self._bulk_chunk_size()
+            transfer_id = self._next_transfer_id()
+            committed = False
+            try:
+                for offset in range(0, len(values), chunk_size):
+                    count = min(chunk_size, len(values) - offset)
+                    self._bulk_fragment(
+                        data_id, message.BULK_WRITE, transfer_id, offset, count, len(values),
+                        payload[offset * 4:(offset + count) * 4],
+                    )
+                self._bulk_fragment(
+                    data_id, message.BULK_COMMIT, transfer_id, 0, 0, len(values),
+                )
+                committed = True
+            finally:
+                if not committed:
+                    self._cancel_bulk(data_id, transfer_id, len(values))
+            return
         response = self.call(data_id, payload)
         self._check_ok(response, f"WRITE_BULK 0x{data_id:08x}")
 
@@ -442,12 +478,89 @@ class BridgeSession:
                 raise RuntimeError("读取 BULK 需要 data_id 或 node/key")
             data_id = self._entry(node, key)["id"]
         entry = self._bulk_entry(data_id)
+        oversized = entry["count"] * 4 + 8 > min(self.capabilities.max_frame, 4100)
+        if oversized and self.capabilities.bulk_fragment:
+            chunk_size = self._bulk_chunk_size()
+            transfer_id = self._next_transfer_id()
+            total = 0
+            try:
+                total, _ = self._bulk_fragment(
+                    data_id, message.BULK_READ, transfer_id, 0, 0, 0,
+                )
+                if total < 1 or total > entry["count"]:
+                    raise RuntimeError("BULK 快照长度超过声明容量")
+                chunks = []
+                for offset in range(0, total, chunk_size):
+                    _, chunk = self._bulk_fragment(
+                        data_id, message.BULK_READ, transfer_id, offset,
+                        min(chunk_size, total - offset), total,
+                    )
+                    chunks.append(chunk)
+                return message.decode_bulk(entry["type"], b"".join(chunks))
+            finally:
+                self._cancel_bulk(data_id, transfer_id, total)
         response = self.call(data_id)
+        if oversized and response["error"] and not self.capabilities.bulk_fragment:
+            raise RuntimeError("Endpoint 未协商 BULK 分片能力，不能读取超限数组")
         self._check_ok(response, f"READ_BULK 0x{data_id:08x}")
         payload = response["payload"]
         if len(payload) > entry["count"] * 4:
             raise RuntimeError(f"BULK响应超过声明容量：0x{data_id:08x}")
         return message.decode_bulk(entry["type"], payload)
+
+    def _bulk_chunk_size(self) -> int:
+        if not self.capabilities.bulk_fragment:
+            raise RuntimeError("Endpoint 未协商 BULK 分片能力，不能传输超限数组")
+        if self.capabilities.max_frame < 32:
+            raise RuntimeError("BULK 分片需要 max_frame 至少为32字节")
+        return (min(self.capabilities.max_frame, 4100) - 28) // 4
+
+    def _next_transfer_id(self) -> int:
+        with self._call_id_lock:
+            if self._transfer_sequence >= 0xFFFFFFFF:
+                raise RuntimeError("BULK transfer_id 已耗尽，需要新建 Bridge 会话")
+            self._transfer_sequence += 1
+            return self._transfer_sequence
+
+    def _bulk_fragment(
+        self, data_id: int, operation: int, transfer_id: int, offset: int,
+        count: int, total: int, data: bytes = b"",
+    ) -> tuple[int, bytes]:
+        header = message.BULK_FRAGMENT_HEADER.pack(operation, transfer_id, offset, count, total)
+        deadline = time.monotonic() + self.bulk_timeout
+        while True:
+            response = self.call(data_id, header + data, flags=message.FLAG_FRAGMENT)
+            payload = response["payload"]
+            if (response["flags"] & ~message.FLAG_ERROR) != message.FLAG_FRAGMENT or len(payload) < 20:
+                raise RuntimeError("BULK 分片响应缺少分片标记或扩展头")
+            echoed = message.BULK_FRAGMENT_HEADER.unpack_from(payload)
+            if echoed[:4] != (operation, transfer_id, offset, count) or (
+                echoed[4] != total and not (
+                    operation in (message.BULK_READ, message.BULK_CANCEL) and total == 0
+                )
+            ):
+                raise RuntimeError("BULK 分片响应的传输标识、范围或总长度不匹配")
+            if response["error"]:
+                if len(payload) != 24:
+                    raise RuntimeError("BULK 分片错误响应长度无效")
+                code = struct.unpack_from("<I", payload, 20)[0]
+                if code == message.BULK_BUSY and operation != message.BULK_WRITE:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError(f"BULK transfer_id={transfer_id} 等待块边界超时")
+                    time.sleep(0.002)
+                    continue
+                reason = message.BULK_ERRORS.get(code, "未知分片错误")
+                raise RuntimeError(f"BULK transfer_id={transfer_id} 失败：{reason}（{code}）")
+            expected_size = 20 + (count * 4 if operation == message.BULK_READ else 0)
+            if len(payload) != expected_size:
+                raise RuntimeError("BULK 分片响应的数据长度不匹配")
+            return echoed[4], payload[20:]
+
+    def _cancel_bulk(self, data_id: int, transfer_id: int, total: int) -> None:
+        try:
+            self._bulk_fragment(data_id, message.BULK_CANCEL, transfer_id, 0, 0, total)
+        except RuntimeError as exc:
+            self._log(f"BULK 事务清理失败（Endpoint 将超时回收）：{exc}")
 
     def msg(self, msg_hex: str, call_id: int) -> str:
         self._require_write_access()
@@ -457,7 +570,7 @@ class BridgeSession:
             self._write_all(self.codec.encode(frame))
             return ""
         response = self.call(
-            parsed["route"], parsed["payload"], call_id=call_id
+            parsed["route"], parsed["payload"], call_id=call_id, flags=parsed["flags"]
         )
         return response["raw"].hex()
 
@@ -495,6 +608,7 @@ class BridgeSession:
                 "pipelined_calls": self.capabilities.pipelined_calls,
                 "unsolicited": self.capabilities.unsolicited,
                 "flow_control": self.capabilities.flow_control,
+                "bulk_fragment": self.capabilities.bulk_fragment,
                 "max_frame": self.capabilities.max_frame,
                 "link_errors": self._link_errors,
                 "log_sink": self._log_sink.stats(),

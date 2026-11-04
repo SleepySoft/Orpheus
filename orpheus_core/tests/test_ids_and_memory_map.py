@@ -213,7 +213,7 @@ def test_oversized_bulk_slots_require_bridge_fragmentation(registry: Registry) -
         ("orpheus.builtin.slc_matrix_mul", "accepted_targets", 1024),
         ("orpheus.builtin.slc_matrix_mul", "active_gains", 1024),
         ("orpheus.builtin.slc_matrix_mul", "requested_gains", 1024),
-    }, "新增超限 BULK 槽必须先实现 Bridge 分片或显式更新审计"
+    }, "新增超限 BULK 槽须更新容量审计，并由 Bridge 分片事务传输"
 
 
 @pytest.mark.skipif(

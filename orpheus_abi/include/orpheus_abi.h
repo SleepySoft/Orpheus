@@ -191,6 +191,7 @@ typedef enum {
 } OrpheusMsgType;
 
 #define ORPHEUS_MSG_FLAG_ERROR (1u << 3)  /* 4 位 flags 窗口的 bit3 = 头 bits 的 bit29（错误） */
+#define ORPHEUS_MSG_FLAG_FRAGMENT (1u << 0)
 
 typedef struct {
     uint32_t route_id;

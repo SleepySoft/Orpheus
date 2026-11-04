@@ -3,6 +3,7 @@
 
 #include "orpheus_abi.h"
 #include "orpheus_chain.h"
+#include "orpheus_bridge_bulk.h"
 #include "orpheus_runtime/loader.h"
 #include "orpheus_runtime/plan.h"
 
@@ -65,6 +66,10 @@ public:
     // v2.1 BULK 读回（active bank）：越界检查后仅 memcpy，体现高速大块特性。
     int get_bulk(const std::string& node_id, const std::string& key, void* out, size_t count);
     int get_bulk_id(uint32_t id, void* out, size_t count);
+    int bridge_bulk_target(uint32_t id, OrpheusBridgeBulkTarget* target);
+    void attach_bulk_bridge(OrpheusBridgeBulkState* state) {
+        bulk_bridge_.store(state, std::memory_order_release);
+    }
 
     // node/key → 32 位数据 ID（反查，GETBULK 等使用）
     bool lookup_id(const std::string& node_id, const std::string& key, uint32_t* out_id) const;
@@ -117,6 +122,7 @@ public:
     OrpheusBuffer* get_output_buffer(const std::string& node_id, const std::string& port_id);
 
 private:
+    std::atomic<OrpheusBridgeBulkState*> bulk_bridge_{nullptr};
     Plan plan_;
     ComponentLoader loader_;
     std::map<std::string, const OrpheusComponentInterface*> interfaces_;

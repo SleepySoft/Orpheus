@@ -89,9 +89,10 @@ SoC/HLOS 不需要新的“双工模式”，而需要与双工正交的扩展�
 
 SHM/RPMsg/TCP Adapter 只提供传输能力；Lane 调度、credit、订阅和 ownership 仍属于 Bridge/Endpoint 契约。
 
-当前 Core Profile 单帧 payload 上限为 1023 个 32 位 word。所有自动轮询 Probe
-必须在单帧内完成：波形/频谱使用定长二进制数组，结构化 STRING Probe 必须证明
-最坏编码长度不超过上限。大 BULK 分片尚未实现；当前按声明容量审计的超限槽如下：
+当前单帧 payload 上限为 1023 个 32 位 word。数值 BULK 已支持能力协商后的
+事务分片；主机 `read_bulk/write_bulk` 自动拆分，不更换 OLINK 或长度前缀 Codec。
+主动 NOTIFICATION 不分片；内置 Probe 仍保持单帧有界，结构化 STRING Probe
+必须证明最坏编码长度不超过上限。当前按声明容量审计的超限槽如下：
 
 | 组件 | 槽及元素容量 |
 |---|---|
@@ -104,10 +105,62 @@ SHM/RPMsg/TCP Adapter 只提供传输能力；Lane 调度、credit、订阅和 o
 | `rnc_mimo_nlms` | `weights`：12000 |
 | `slc_matrix_mul` | `requested_gains`、`active_gains`、`accepted_targets`：1024 |
 
-不得缩短组件容量冒充协议支持。主机整组写入超过协商帧上限时明确拒绝；
-端点读取超限数组必须返回 ERROR，而不是截断数组或返回成功空值。
+不得缩短组件容量冒充协议支持。不支持分片的端点仍明确拒绝超限数组；
+不带分片标记的超限读取仍返回 ERROR，不截断数组或返回成功空值。
 1023 word 的限制属于消息头，不随调用者提供的大缓冲放宽：动态 Runtime、
 生成代码、hook RESPONSE 和 Python 消息助手均须遵守；输入帧实际长度必须与头部一致。
+
+### 3.4 BULK 分片事务
+
+HELLO 能力 `BULK_FRAGMENT = 1 << 7` 表示支持以下扩展。原8字节消息头不变，
+`flags` 窗口的 bit0（头部 bit26）为 `FRAGMENT`，route_id 仍为数组 ID。
+每片 payload 先放5个 LE uint32：
+
+| 字段 | 含义 |
+|---|---|
+| operation | READ=1、WRITE=2、COMMIT=3、CANCEL=4 |
+| transfer_id | 会话内非零事务 ID；与单次 RPC 的 call_id 独立 |
+| offset | 以元素为单位的起始位置 |
+| count | 本片元素数 |
+| total | 本事务总元素数 |
+
+数值元素为 float32/int32，单片最多1018个元素，实际还受协商帧长限制。
+成功响应回显片头；READ 后附 count 个元素，其余操作无附加数据。
+ERROR 响应回显片头并附一个 uint32 错误码：1参数无效、2传输不存在、
+3忙/等待边界、4冲突、5未收齐、6资源上限、7已结束、8过期。
+解析错误不能把片头当普通数组写入。分片端点的帧长至少为32字节。
+
+- **读快照**：READ(offset=0,count=0,total=0) 开启快照并查询实际注册长度，
+  响应 total 为该长度（声明容量可能更大）。首次读取可能返回 BUSY，直到所属 Task
+  的块边界完成整数组快照；后续 READ 任意顺序取片，整个事务固定同一快照。
+  也支持以非零 total 和具体范围直接开启读取；读取结束用 CANCEL 释放快照。
+- **写暂存**：首个 WRITE 创建独立暂存区和覆盖位图，不改变算法内存。
+  允许不同数组/事务交错，允许乱序与重叠片；已覆盖元素逐字节相同则幂等，
+  不同则整片报冲突，不接受半片。route、方向和 total 不得中途改变。
+  同一数组（包括内存重叠的别名）只允许一个写事务；普通消息写入也受此独占约束。
+- **整组提交**：收齐后显式 COMMIT，未收齐返回错误5。提交请求通过无锁邮箱
+  发布，在所属 Task 下一块开始、算法执行前整组应用；控制面获得完成确认前返回 BUSY。
+  不在实时线程分配、释放、加阻塞锁或执行链路 IO。即使工程 `double_bank=off`，
+  分片写仍单独暂存并在边界提交，不退化为逐片直写。
+  提交同时同步已有影子区并清除旧 pending，防止后续旧 bank 覆盖新数组。
+- **幂等与取消**：完成的 COMMIT 可重试，不重复应用；CANCEL 也可重试。
+  CANCEL 的 total=0 可用于取消首次响应丢失、尚不知道实际长度的读取。
+  已应用的提交不能取消，返回错误7，不伪装成回滚成功。
+- **有界资源**：每端点最多8条活动传输，共用1 MiB暂存预算（含写覆盖位图）；
+  超限明确报错，不降低算法容量。空闲30秒过期；待边界执行的任务也有30秒期限，
+  Task 停顿后恢复不能应用过期写入。回收在后续控制请求或端点销毁时执行，
+  实时线程只标记完成/过期。完成墓碑在同一有界表内按最近使用保留，
+  空闲30秒或表满时淘汰；淘汰后重试 COMMIT 返回“不存在”，绝不重新应用。
+  客户端在同一会话内不复用 transfer_id；新 HELLO 清理上一会话。
+
+`orpheus_bridge_endpoint_process` 由一个控制执行者串行调用，半双工仍只允许一个
+outstanding CALL，但多个事务可在不同 CALL 之间交错。Task 侧只处理自己的邮箱请求；
+端点销毁前必须停止并等待所有 Task。裸 `Runtime::message/orpheus_control_message`
+不协商该扩展，拒绝带分片 flag 的输入；统一 Bridge Endpoint 负责分片状态机。
+嵌入式自定义 Backend 可提供 `now_ms` 单调时钟，须线程安全且实时安全；
+Windows/POSIX 默认使用单调时钟，裸 DSP 默认使用平台 `clock()` 时间基。
+Python 的每个边界等待默认30秒，可用 `bulk_timeout` 调整；失败后发送 CANCEL，
+清理失败明确记录日志并由端点超时回收。
 
 ## 4. 半双工基线时序
 

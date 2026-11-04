@@ -862,6 +862,39 @@ int Runtime::get_bulk_id(uint32_t id, void* out, size_t count) {
     return get_bulk(d.node, d.key, out, count);
 }
 
+static void clear_bulk_pending(void* pending) {
+    *static_cast<bool*>(pending) = false;
+}
+
+int Runtime::bridge_bulk_target(uint32_t id, OrpheusBridgeBulkTarget* target) {
+    if (target == nullptr) return ORPHEUS_ERR_INVALID_ARG;
+    OrpheusResolvedData data;
+    if (resolve(id, &data) != ORPHEUS_OK || data.form != ORPHEUS_FORM_BULK ||
+        data.node == nullptr || data.key == nullptr) return ORPHEUS_ERR_NOT_FOUND;
+    const Instance& inst = *instances_.at(data.node);
+    const SlotEntry& slot = inst.slots.at(inst.slot_index.at(data.key));
+    if (slot.size != 4u ||
+        (slot.kind != ORPHEUS_SLOT_BULK && slot.kind != ORPHEUS_SLOT_PROBE))
+        return ORPHEUS_ERR_INVALID_ARG;
+    *target = {};
+    target->active = data.base;
+    target->task = plan_.node_configs.at(data.node).task.c_str();
+    target->count = slot.count;
+    target->type = slot.type;
+    target->writable = slot.kind == ORPHEUS_SLOT_BULK &&
+        (data.kind == ORPHEUS_ID_RTC || data.kind == ORPHEUS_ID_TUNE);
+    target->min_i32 = slot.min_i32;
+    target->max_i32 = slot.max_i32;
+    const std::string key = std::string(data.node) + "\x1f" + data.key;
+    auto shadow = bulk_shadow_map_.find(key);
+    if (shadow != bulk_shadow_map_.end()) {
+        target->shadow = shadow->second;
+        target->pending = &bulk_pending_.at(key);
+        target->clear_pending = clear_bulk_pending;
+    }
+    return ORPHEUS_OK;
+}
+
 bool Runtime::lookup_id(const std::string& node_id, const std::string& key,
                         uint32_t* out_id) const {
     auto it = key_to_id_.find(node_id + "\x1f" + key);
@@ -916,6 +949,11 @@ int Runtime::message(const uint8_t* in, size_t in_len, uint8_t* out,
     uint32_t call_id = ORPHEUS_MSG_CALL_ID(hdr);
     OrpheusBlob req{in + kMsgHdrSize, static_cast<uint32_t>(words * 4)};
     uint32_t msg_type = ORPHEUS_MSG_TYPE(hdr);
+    if (ORPHEUS_MSG_FLAGS(hdr) != 0u) {
+        if (msg_type != ORPHEUS_MSG_CALL) return ORPHEUS_ERR_INVALID_ARG;
+        *out_len = msg_write_response(out, out_cap, route, call_id, ORPHEUS_MSG_FLAG_ERROR, 0u);
+        return ORPHEUS_OK;
+    }
 
     if (msg_type == ORPHEUS_MSG_NOTIFICATION) {
         /* 单向分发：外部 hook 或组件 hook；resp=NULL（notification 无返回） */
@@ -1474,6 +1512,7 @@ int Runtime::process_chain(ChainScope& scope, const OrpheusChainRun& run) {
 
 int Runtime::process_block(uint32_t frame_count) {
     commit_bulk();
+    orpheus_bridge_bulk_service(bulk_bridge_.load(std::memory_order_acquire), nullptr);
     const uint32_t advance = frame_count > 0
         ? frame_count
         : (plan_.schedule_tick > 0 ? plan_.schedule_tick : plan_.block_size);
@@ -1499,6 +1538,7 @@ int Runtime::process_task(const std::string& task_id, uint32_t frame_count) {
     if (task == nullptr) return ORPHEUS_ERR_NOT_FOUND;
 
     commit_bulk(plan_.flow_mode == "task_sequence" ? &task_id : nullptr);
+    orpheus_bridge_bulk_service(bulk_bridge_.load(std::memory_order_acquire), task_id.c_str());
     uint64_t& counter = task_counters_[task_id];
     uint64_t& frame_index = task_frame_indices_[task_id];
     uint32_t& timeline_flags = task_timeline_flags_[task_id];

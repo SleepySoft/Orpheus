@@ -1,0 +1,17 @@
+id: orpheus.test.bridge_bulk
+name: 分片事务验收
+version: 1.0.0
+abi_version: 6
+package_type: source
+state_type: BridgeBulkTestState
+sources: [src/bridge_bulk_test.c]
+headers: [include/bridge_bulk_test.h]
+ports: []
+parameters:
+  - {id: snapshot, name: 持续变化的快照源, type: float, count: 2048, default: 0.0, kind: probe, readback: true}
+  - {id: scalar, name: 标量探针, type: float, default: 0.0, kind: probe, readback: true}
+bulk_slots:
+  - {id: integers, name: 整数数组, type: int, count: 2048, double_bank: true}
+  - {id: floats, name: 浮点数组, type: float, count: 2048, double_bank: true}
+  - {id: small, name: 容量与实际长度不同的数组, type: int, count: 2048, double_bank: true}
+execution: {sample_rate_independent: true, realtime_safe: true, supports_inplace: false}

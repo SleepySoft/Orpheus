@@ -95,7 +95,8 @@ void orpheus_bridge_endpoint_init(
     if (identity != NULL) endpoint->identity = *identity;
     endpoint->hello.protocol_version = ORPHEUS_BRIDGE_PROTOCOL_VERSION;
     endpoint->hello.abi_version = ORPHEUS_ABI_VERSION;
-    if (endpoint->hello.max_message == 0u) {
+    if (endpoint->hello.max_message == 0u ||
+        endpoint->hello.max_message > ORPHEUS_BRIDGE_MAX_MESSAGE) {
         endpoint->hello.max_message = ORPHEUS_BRIDGE_MAX_MESSAGE;
     }
     endpoint->hello.capabilities |= ORPHEUS_BRIDGE_CAP_HALF_DUPLEX;
@@ -107,6 +108,19 @@ void orpheus_bridge_endpoint_init(
     if (endpoint->backend.request_stop != NULL) {
         endpoint->hello.capabilities |= ORPHEUS_BRIDGE_CAP_STOP;
     }
+    endpoint->hello.capabilities &= ~ORPHEUS_BRIDGE_CAP_BULK_FRAGMENT;
+    if (endpoint->hello.max_message >= 32u) {
+        endpoint->bulk = orpheus_bridge_bulk_create(
+            endpoint->backend.context, endpoint->backend.bulk_target, endpoint->backend.now_ms);
+        if (endpoint->bulk != NULL)
+            endpoint->hello.capabilities |= ORPHEUS_BRIDGE_CAP_BULK_FRAGMENT;
+    }
+}
+
+void orpheus_bridge_endpoint_destroy(OrpheusBridgeEndpoint* endpoint) {
+    if (endpoint == NULL) return;
+    orpheus_bridge_bulk_destroy(endpoint->bulk);
+    endpoint->bulk = NULL;
 }
 
 int orpheus_bridge_endpoint_process(
@@ -131,10 +145,32 @@ int orpheus_bridge_endpoint_process(
     }
 
     endpoint->stats.calls++;
+    if (response_cap > ORPHEUS_BRIDGE_MAX_MESSAGE) response_cap = ORPHEUS_BRIDGE_MAX_MESSAGE;
+    if (response_cap > endpoint->hello.max_message) response_cap = endpoint->hello.max_message;
     const uint8_t* payload = request_bytes + sizeof(request);
     int result = ORPHEUS_OK;
+    const uint32_t flags = ORPHEUS_MSG_FLAGS(&request);
+    if (request_len > endpoint->hello.max_message ||
+        (flags != 0u && flags != ORPHEUS_MSG_FLAG_FRAGMENT)) {
+        endpoint->stats.errors++;
+        return bridge_response(&request, ORPHEUS_MSG_FLAG_ERROR, NULL, 0u,
+            response, response_cap, response_len);
+    }
+    if (flags == ORPHEUS_MSG_FLAG_FRAGMENT) {
+        result = orpheus_bridge_bulk_message(
+            endpoint->bulk, &request, payload, payload_len,
+            response, response_cap, response_len);
+        OrpheusMessageHeader reply;
+        if (result != ORPHEUS_OK) endpoint->stats.errors++;
+        else if (*response_len >= sizeof(reply)) {
+            memcpy(&reply, response, sizeof(reply));
+            if (ORPHEUS_MSG_FLAGS(&reply) & ORPHEUS_MSG_FLAG_ERROR) endpoint->stats.errors++;
+        }
+        return result;
+    }
     switch (request.route_id) {
         case ORPHEUS_BRIDGE_ROUTE_HELLO:
+            orpheus_bridge_bulk_reset_session(endpoint->bulk);
             result = bridge_response(&request, 0u, &endpoint->hello,
                 sizeof(endpoint->hello), response, response_cap, response_len);
             break;
@@ -164,9 +200,15 @@ int orpheus_bridge_endpoint_process(
                 result = bridge_response(&request, ORPHEUS_MSG_FLAG_ERROR, NULL, 0u,
                     response, response_cap, response_len);
             } else {
-                result = endpoint->backend.dispatch(
-                    endpoint->backend.context, request_bytes, request_len,
-                    response, response_cap, response_len);
+                if (payload_len != 0u &&
+                    orpheus_bridge_bulk_write_locked(endpoint->bulk, request.route_id)) {
+                    result = bridge_response(&request, ORPHEUS_MSG_FLAG_ERROR, NULL, 0u,
+                        response, response_cap, response_len);
+                } else {
+                    result = endpoint->backend.dispatch(
+                        endpoint->backend.context, request_bytes, request_len,
+                        response, response_cap, response_len);
+                }
             }
             break;
     }

@@ -10,6 +10,7 @@ import struct
 
 CALL, RESPONSE, NOTIFICATION = 0, 1, 2
 FLAG_ERROR = 0x8  # flags 窗口 bit3（即 bits bit29）
+FLAG_FRAGMENT = 0x1
 MAX_PAYLOAD_WORDS = 0x3FF
 
 BRIDGE_PROTOCOL_VERSION = 1
@@ -26,6 +27,21 @@ CAP_PIPELINED_CALLS = 1 << 3
 CAP_FLOW_CONTROL = 1 << 4
 CAP_MAP = 1 << 5
 CAP_STOP = 1 << 6
+CAP_BULK_FRAGMENT = 1 << 7
+
+BULK_READ, BULK_WRITE, BULK_COMMIT, BULK_CANCEL = 1, 2, 3, 4
+BULK_BUSY = 3
+BULK_FRAGMENT_HEADER = struct.Struct("<5I")
+BULK_ERRORS = {
+    1: "分片参数或数据点无效",
+    2: "传输不存在",
+    3: "等待块边界或同数组写事务占用",
+    4: "传输元数据或重复片内容冲突",
+    5: "写入尚未收齐",
+    6: "分片事务数或暂存内存达到上限",
+    7: "事务已结束",
+    8: "事务已过期",
+}
 
 IDENTITY_WRITABLE = 1 << 0
 
@@ -45,7 +61,7 @@ def make_frame(route: int, call_id: int, msg_type: int = CALL,
                payload: bytes = b"", flags: int = 0) -> bytes:
     words = (len(payload) + 3) // 4
     if words > MAX_PAYLOAD_WORDS:
-        raise ValueError("消息负载超过1023个32位字，尚不支持分片")
+        raise ValueError("单条消息负载超过1023个32位字，请使用BULK分片事务")
     bits = (msg_type << 30) | (flags << 26) | (call_id << 10) | words
     return struct.pack("<II", route, bits) + payload.ljust(words * 4, b"\x00")
 

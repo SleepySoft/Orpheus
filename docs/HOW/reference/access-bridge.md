@@ -21,6 +21,12 @@
 
 动态、生成与远程设备现已统一到 §18 消息。后续缺口集中在订阅、流控、多 Lane、写租约和高带宽 Observation，不再是宿主各自维护控制协议。
 
+数值大数组通过 `BULK_FRAGMENT` 能力在现有消息头上扩展5字段片头；
+共享 C Endpoint 负责交错事务、乱序/重传校验、独立暂存、稳定读快照和提交幂等，
+Runtime 与生成代码只提供真实槽定位并在所属 Task 边界服务无锁邮箱。
+主机仍调用 `read_bulk/write_bulk`；组件、OLINK 和 HLOS Transport 不增加外层封装。
+资源与超时上限、单数组写独占及错误码见 `bridge-protocol.md` §3.4。
+
 目标：UI、脚本和自动化只面对一个 ControlPlane/BridgeSession；动态 Runtime、生成代码、UART、进程管道、共享内存和进程内调用共享同一访问语义。
 
 ## 2. 分层

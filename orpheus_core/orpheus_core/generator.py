@@ -360,6 +360,9 @@ class CodeGenerator:
             abi_dir / "src" / "bridge_endpoint.c",
             src_dir / "bridge_endpoint.c",
         )
+        shutil.copy2(abi_dir / "include" / "orpheus_bridge_bulk.h",
+                     include_dir / "orpheus_bridge_bulk.h")
+        shutil.copy2(abi_dir / "src" / "bridge_bulk.c", src_dir / "bridge_bulk.c")
         if not bare_target:
             shutil.copy2(
                 abi_dir / "include" / "orpheus_bridge_stdio.h",
@@ -396,6 +399,8 @@ class CodeGenerator:
             "#define ORPHEUS_BRIDGE_GENERATED_H",
             '#include "orpheus_bridge_endpoint.h"',
             "void orpheus_generated_bridge_init(void);",
+            "void orpheus_generated_bridge_destroy(void);",
+            "void orpheus_generated_bridge_boundary(const char* task);",
             "int orpheus_generated_bridge_process(const uint8_t* request, size_t request_len,",
             "    uint8_t* response, size_t response_cap, size_t* response_len);",
             "bool orpheus_generated_bridge_should_stop(void);",
@@ -454,13 +459,24 @@ class CodeGenerator:
             "static void backend_request_stop(void* context) {",
             "    (void)context; if (g_stop_handler != NULL) g_stop_handler(g_stop_context);",
             "}",
+            "static int backend_bulk_target(void* context, uint32_t id, OrpheusBridgeBulkTarget* target) {",
+            "    (void)context; return orpheus_control_bridge_target(id, target);",
+            "}",
+            "void orpheus_generated_bridge_destroy(void) {",
+            "    orpheus_bridge_endpoint_destroy(&g_endpoint);",
+            "}",
+            "void orpheus_generated_bridge_boundary(const char* task) {",
+            "    orpheus_bridge_bulk_service(g_endpoint.bulk, task);",
+            "}",
             "void orpheus_generated_bridge_init(void) {",
+            "    orpheus_generated_bridge_destroy();",
             "    OrpheusBridgeBackend backend = {0};",
             "    OrpheusBridgeHello hello = {0};",
             "    OrpheusBridgeIdentity identity = {0};",
             "    backend.dispatch = backend_dispatch;",
             "    backend.map_count = backend_map_count; backend.map_get = backend_map_get;",
             "    backend.request_stop = backend_request_stop;",
+            "    backend.bulk_target = backend_bulk_target;",
             f"    hello.endpoint_kind = {endpoint_kind};",
                         *(["    hello.capabilities = ORPHEUS_BRIDGE_CAP_FULL_DUPLEX | "
                              "ORPHEUS_BRIDGE_CAP_UNSOLICITED | ORPHEUS_BRIDGE_CAP_PIPELINED_CALLS;"]
@@ -1612,6 +1628,7 @@ class CodeGenerator:
         else:
             lines.append('void* orpheus_arena_base(void) { return NULL; }')
         lines.append('void orpheus_generated_teardown(void) {')
+        lines.append('    orpheus_generated_bridge_destroy();')
         for node_index, node_id in reversed(list(enumerate(plan.execution_order))):
             s = self._sanitized_node_id(node_id)
             lines.append(
@@ -2894,6 +2911,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             '#ifndef ORPHEUS_CONTROL_H',
             '#define ORPHEUS_CONTROL_H',
             '#include "orpheus_abi.h"',
+            '#include "orpheus_bridge_bulk.h"',
             '#include <stddef.h>',
             '#include <stdint.h>',
             '/* 生成路径控制 API：按 node/key 或 32 位数据 ID 读写 BULK 槽。',
@@ -2912,6 +2930,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             'int orpheus_control_write_bulk_id(uint32_t id, const void* data, size_t count);',
             'int orpheus_control_get_bulk(const char* node, const char* key, void* out, size_t count);',
             'int orpheus_control_get_bulk_id(uint32_t id, void* out, size_t count);',
+            'int orpheus_control_bridge_target(uint32_t id, OrpheusBridgeBulkTarget* target);',
             'int orpheus_control_register_hook(uint32_t id, OrpheusHookFn fn, void* ctx);',
             'int orpheus_control_message(const uint8_t* in, size_t in_len, uint8_t* out, size_t out_cap, size_t* out_len);',
             '/* 标量槽读写与探针枚举（宿主控制面用，如 win 宿主的 SET/GET/PROBE 协议）。',
@@ -2932,6 +2951,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
 
         c = [
             '#include "orpheus_control.h"',
+            '#include "orpheus_bridge_generated.h"',
             '#include <string.h>',
             '',
             f'#define ORPHEUS_GEN_MAX_SLOTS {max_slots}u',
@@ -3060,6 +3080,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         c.append('            s->pending = 0;')
         c.append('        }')
         c.append('    }')
+        c.append('    orpheus_generated_bridge_boundary(NULL);')
         c.append('}')
         c.append('')
         c.append('void orpheus_control_commit_bulk_slot(const char* node, const char* key) {')
@@ -3078,6 +3099,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         c.append('            s->pending = 0;')
         c.append('        }')
         c.append('    }')
+        c.append('    orpheus_generated_bridge_boundary(task);')
         c.append('}')
         c.append('')
         c.append('static const struct { uint32_t id; const char* node; const char* key; } g_bulk_id_ref[] = {')
@@ -3216,6 +3238,28 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         c.append('    return NULL;')
         c.append('}')
         c.append('')
+        c.extend([
+            'static void orpheus_control_clear_pending(void* pending) {',
+            '    *(uint32_t*)pending = 0u;',
+            '}',
+            'int orpheus_control_bridge_target(uint32_t id, OrpheusBridgeBulkTarget* target) {',
+            '    if (orpheus_control_bulk_count_id(id) == 0u) return ORPHEUS_ERR_NOT_FOUND;',
+            '    OrpheusGenSlot* s = orpheus_control_find_by_id(id);',
+            '    if (!target || !s || s->size != 4u ||',
+            '        (s->kind != ORPHEUS_SLOT_BULK && s->kind != ORPHEUS_SLOT_PROBE))',
+            '        return ORPHEUS_ERR_NOT_FOUND;',
+            '    memset(target, 0, sizeof(*target));',
+            '    target->active = (char*)s->state + s->offset;',
+            '    target->shadow = s->shadow; target->task = s->task;',
+            '    target->count = s->count; target->type = s->type;',
+            '    target->writable = s->kind == ORPHEUS_SLOT_BULK &&',
+            '        (ORPHEUS_ID_KIND(id) == ORPHEUS_ID_RTC || ORPHEUS_ID_KIND(id) == ORPHEUS_ID_TUNE);',
+            '    target->min_i32 = s->min_i32; target->max_i32 = s->max_i32;',
+            '    target->pending = &s->pending; target->clear_pending = orpheus_control_clear_pending;',
+            '    return ORPHEUS_OK;',
+            '}',
+            '',
+        ])
         c.append('/* 按 ID 标量读写（RW/RR 命令）：经 id→node/key 引用表定位槽。 */')
         c.append('int orpheus_control_set_value_id(uint32_t id, OrpheusValue v) {')
         c.append('    OrpheusGenSlot* s = orpheus_control_find_by_id(id);')
@@ -3244,6 +3288,14 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         c.append('    uint32_t call_id = ORPHEUS_MSG_CALL_ID(hdr);')
         c.append('    OrpheusBlob req = { in + sizeof(OrpheusMessageHeader), (uint32_t)(words * 4) };')
         c.append('    uint32_t type = ORPHEUS_MSG_TYPE(hdr);')
+        c.extend([
+            '    if (ORPHEUS_MSG_FLAGS(hdr) != 0u) {',
+            '        if (type != ORPHEUS_MSG_CALL) return ORPHEUS_ERR_INVALID_ARG;',
+            '        OrpheusMessageHeader reply = { route,',
+            '            ORPHEUS_MSG_MAKE(ORPHEUS_MSG_RESPONSE, ORPHEUS_MSG_FLAG_ERROR, call_id, 0u) };',
+            '        memcpy(out, &reply, sizeof(reply)); *out_len = sizeof(reply); return ORPHEUS_OK;',
+            '    }',
+        ])
         c.append('    if (type == ORPHEUS_MSG_NOTIFICATION) {')
         c.append('        for (size_t i = 0; i < g_hook_count; ++i) {')
         c.append('            if (g_hooks[i].id == route) { g_hooks[i].fn(g_hooks[i].ctx, route, ORPHEUS_EVENT_CUSTOM, &req, NULL); break; }')
@@ -3361,7 +3413,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
 
         graph_sources = "src/orpheus_graph.c"
         for bridge_source in (
-            "bridge_endpoint.c", "bridge_stdio.c", "bridge_transport.c",
+            "bridge_endpoint.c", "bridge_bulk.c", "bridge_stdio.c", "bridge_transport.c",
             "bridge_pipe.c", "bridge_tcp.c", "bridge_serve.c",
             "orpheus_bridge_generated.c",
         ):
