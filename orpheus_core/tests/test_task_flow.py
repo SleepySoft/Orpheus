@@ -139,7 +139,7 @@ def test_fanout_keeps_direct_calls_without_join_scheduling(registry):
         drive("clock", "a"), drive("clock", "b"),
         drive("a", "c"), drive("b", "c"),
     ]
-    assert GraphCompiler(registry).compile(source).execution_order == ["clock", "a", "b", "c"]
+    assert GraphCompiler(registry).compile(source).execution_order == ["clock", "a", "c", "b"]
     source.drive_connections[1] = drive("clock", "b", 2)
     plan = GraphCompiler(registry).compile(source)
     assert plan.call_graph["a"] == [{"node": "c", "every": 1, "phase": 0}]
@@ -211,6 +211,54 @@ def test_source_divided_call_drives_consumer_not_buffer_fullness(registry):
     ]
     assert plan.call_graph["r"] == []
     assert plan.node_configs["g"]["frames"] == 64
+
+
+def test_sibling_chain_signatures_follow_actual_depth_first_calls(registry):
+    source = audio_project()
+    source.graph.nodes["mid"] = Node("mid", "orpheus.builtin.gain", params={"channels": 1})
+    source.graph.connections = [data("s", "r"), data("r", "mid"), data("mid", "g")]
+    source.drive_connections = [drive("s", "r"), drive("r", "mid", 2),
+                                drive("s", "g", 2)]
+    plan = GraphCompiler(registry).compile(source)
+    assert plan.execution_order == ["s", "r", "mid", "g"]
+    assert plan.node_configs["g"]["frames"] == 64
+
+
+def test_source_drives_split_at_base_rate_after_divided_producer(registry):
+    source = audio_project()
+    source.graph.nodes["split"] = Node("split", "orpheus.builtin.block_split",
+                                      params={"channels": 1, "factor": 2})
+    source.graph.connections.append(data("g", "split"))
+    source.drive_connections = [drive("s", "r"), drive("s", "g", 2),
+                                drive("s", "split")]
+    plan = GraphCompiler(registry).compile(source)
+    assert plan.node_configs["g"]["frames"] == 64
+    assert plan.node_configs["split"]["frames"] == 32
+    assert plan.node_configs["split"]["period"] == 1
+    assert plan.call_graph["s"][-1] == {"node": "split", "every": 1, "phase": 0}
+    source.drive_connections[-1] = drive("s", "split", 2)
+    with pytest.raises(CompileError, match="交付周期/相位"):
+        GraphCompiler(registry).compile(source)
+
+
+def test_declared_window_history_preserves_first_zero_padded_call(registry):
+    source = Project(flow_mode="task_sequence", block_size=32)
+    source.graph.nodes = {
+        "s": Node("s", "orpheus.builtin.signal_gen", params={"channels": 1}),
+        "history": Node("history", "orpheus.builtin.circular_buffer",
+                        params={"channels": 1, "frame_size": 64, "hop_size": 32, "num_frames": 1}),
+        "gain": Node("gain", "orpheus.builtin.gain", params={"channels": 1}),
+    }
+    source.graph.connections = [data("s", "history"), data("history", "gain")]
+    source.drive_connections = [drive("s", "history"), drive("history", "gain")]
+    plan = GraphCompiler(registry).compile(source)
+    cfg = plan.node_configs["gain"]
+    assert (cfg["frames"], cfg["frame_step"], cfg["frame_origin"]) == (64, 32, 0)
+    assert cfg["initial_padding_frames"] == 32
+    local = registry.fork()
+    local.get("orpheus.builtin.circular_buffer").manifest["scheduling"].pop("history")
+    with pytest.raises(CompileError, match="启动相位"):
+        GraphCompiler(local).compile(source)
 
 
 def test_bridge_identity_includes_direct_call_order(registry):
@@ -370,6 +418,7 @@ def test_default_host_explicitly_rejects_multiple_source_tasks():
 
 @pytest.mark.parametrize("kind,phase", [
     ("bulk", 0), ("bulk", 1), ("scalar", 0), ("scope", 0), ("independent", 0),
+    ("sibling", 0), ("split", 0), ("history", 0),
 ])
 def test_dynamic_generated_global_task_entries(registry, tmp_path, kind, phase):
     from orpheus_core.generator import CodeGenerator
@@ -395,7 +444,7 @@ def test_dynamic_generated_global_task_entries(registry, tmp_path, kind, phase):
             stream.setsampwidth(2)
             stream.setframerate(48000)
             stream.writeframes(struct.pack("<h", 8192) * 128)
-    elif kind == "independent":
+    elif kind in ("independent", "sibling", "split", "history"):
         source = Project(flow_mode="task_sequence", block_size=32)
         source.graph.nodes = {
             "clock": Node("clock", "orpheus.builtin.wav_in",
@@ -408,6 +457,26 @@ def test_dynamic_generated_global_task_entries(registry, tmp_path, kind, phase):
         source.graph.connections = [data("clock", "batch"), data("batch", "sink")]
         source.drive_connections = [drive("clock", "batch"), drive("clock", "sink", 2)]
         source.control_connections = []
+        if kind == "sibling":
+            source.graph.nodes["mid"] = Node("mid", "orpheus.builtin.gain", params={"channels": 1})
+            source.graph.connections = [data("clock", "batch"), data("batch", "mid"), data("mid", "sink")]
+            source.drive_connections = [drive("clock", "batch"), drive("batch", "mid", 2),
+                                        drive("clock", "sink", 2)]
+        elif kind == "split":
+            source.graph.nodes["mid"] = Node("mid", "orpheus.builtin.gain", params={"channels": 1})
+            source.graph.nodes["split"] = Node("split", "orpheus.builtin.block_split",
+                                              params={"channels": 1, "factor": 2})
+            source.graph.connections = [data("clock", "batch"), data("batch", "mid"),
+                                        data("mid", "split"), data("split", "sink")]
+            source.drive_connections = [drive("clock", "batch"), drive("clock", "mid", 2),
+                                        drive("clock", "split"), drive("split", "sink")]
+        elif kind == "history":
+            del source.graph.nodes["batch"]
+            source.graph.nodes["history"] = Node("history", "orpheus.builtin.circular_buffer",
+                params={"channels": 1, "frame_size": 64, "hop_size": 32, "num_frames": 1})
+            source.graph.nodes["mid"] = Node("mid", "orpheus.builtin.gain", params={"channels": 1})
+            source.graph.connections = [data("clock", "history"), data("history", "mid"), data("mid", "sink")]
+            source.drive_connections = [drive("clock", "history"), drive("history", "mid"), drive("mid", "sink")]
         with wave.open(str(tmp_path / "in.wav"), "wb") as stream:
             stream.setnchannels(1)
             stream.setsampwidth(2)
@@ -441,9 +510,10 @@ def test_dynamic_generated_global_task_entries(registry, tmp_path, kind, phase):
         executable = (generated / "build" / "task_flow_test.exe" if generated_mode
                       else ROOT / "build" / "tests" / "task_flow_runner.exe")
         for mode in (("task",) if kind == "scope" else ("global", "task")):
+            runner_kind = "independent" if kind in ("sibling", "split", "history") else kind
             args = ([str(executable)] if generated_mode else [
                 str(executable), str(path), str(ROOT / "build" / "components"),
-            ]) + [mode, kind, str(phase)]
+            ]) + [mode, runner_kind, str(phase)]
             result = subprocess.run(args, cwd=tmp_path, capture_output=True, text=True, encoding="utf-8")
             assert result.returncode == 0, result.stdout + result.stderr
             if kind == "scalar":
@@ -452,11 +522,19 @@ def test_dynamic_generated_global_task_entries(registry, tmp_path, kind, phase):
                     output = struct.unpack("<128h", stream.readframes(128))
                 expected = 8192 * 10 ** (0.25 / 20)
                 assert max(abs(value - expected) for value in output) < 2
-            elif kind == "independent":
+            elif kind in ("independent", "sibling", "split", "history"):
+                samples = [64 * (i + 1) for i in range(128)]
+                expected = samples
+                if kind == "split":
+                    expected = [0] * 32 + samples[:96]
+                elif kind == "history":
+                    expected = [0] * 32 + samples[:32]
+                    for block in range(1, 4):
+                        expected += samples[(block - 1) * 32:(block + 1) * 32]
                 with wave.open(str(tmp_path / "out.wav"), "rb") as stream:
-                    assert stream.getnframes() == 128
-                    output = struct.unpack("<128h", stream.readframes(128))
-                assert max(abs(value - 64 * (i + 1)) for i, value in enumerate(output)) <= 1
+                    assert stream.getnframes() == len(expected)
+                    output = struct.unpack(f"<{len(expected)}h", stream.readframes(len(expected)))
+                assert max(abs(value - reference) for value, reference in zip(output, expected)) <= 1
                 independent_outputs.append(output)
     if independent_outputs:
         assert all(output == independent_outputs[0] for output in independent_outputs)

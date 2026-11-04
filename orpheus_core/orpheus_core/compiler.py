@@ -1094,6 +1094,7 @@ class GraphCompiler:
 
         intervals: dict[str, int] = {}
         output_intervals: dict[str, Fraction] = {}
+        output_history: dict[str, Fraction] = {}
         for node_id in execution_order:
             cfg = plan.node_configs[node_id]
             frames_n = int(cfg["frames"])
@@ -1111,6 +1112,14 @@ class GraphCompiler:
                     raise CompileError(f"节点 {node_id} 的显式调用时间线步长不是整数样本：{step}")
                 cfg["frame_step"] = int(step)
                 origin = Fraction((phase + 1) * nt.block_size, task_rate) * rate_n - frames_n
+                history = max(
+                    (output_history[str(conn.from_ref)] for conn in rate_inputs[node_id]
+                     if graph.nodes[conn.from_ref.node_id].task == graph.nodes[node_id].task),
+                    default=Fraction(0),
+                )
+                if origin < 0 and origin.denominator == 1 and -origin <= history * rate_n:
+                    cfg["initial_padding_frames"] = int(-origin)
+                    origin = Fraction(0)
                 if origin < 0 or origin.denominator != 1:
                     raise CompileError(
                         f"节点 {node_id} 的启动相位无法提供完整输入数据："
@@ -1122,6 +1131,14 @@ class GraphCompiler:
                 for pm in expanded_ports[node_id]:
                     if pm["direction"] != "output":
                         continue
+                    key = f"{node_id}:{pm['id']}"
+                    padding = history
+                    if scheduling.get("history") and resolved_ports[key].type == "audio":
+                        extra = resolved_ports[key].block_size - frames_n
+                        if extra < 0:
+                            raise CompileError(f"历史窗口 {node_id} 的输出不能短于本次新输入")
+                        padding += Fraction(extra, resolved_ports[key].sample_rate)
+                    output_history[key] = padding
                     relative_period, relative_phase = output_cadence(
                         comp.manifest, pm, graph.nodes[node_id], nt,
                     )
@@ -1139,6 +1156,13 @@ class GraphCompiler:
                         aligned = (
                             period % produced["period"] == 0
                             and phase % produced["period"] == produced["phase"]
+                        )
+                    elif scheduling.get("split"):
+                        factor = Fraction(cfg["block_size"], frames_n)
+                        aligned = (
+                            factor.denominator == 1
+                            and produced["period"] == period * factor
+                            and produced["phase"] == phase + period * (factor - 1)
                         )
                     if not aligned:
                         raise CompileError(

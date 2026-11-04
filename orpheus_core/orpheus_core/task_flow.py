@@ -124,7 +124,7 @@ def build_task_flow(project: Project, registry: Registry) -> TaskFlow:
         first_calls[nid] = len(first_calls)
         stack.extend(e.to_ref.node_id for e in reversed(outgoing[nid]))
     project.tasks = tasks
-    return TaskFlow(order, roots, ancestors, cadences, first_calls)
+    return TaskFlow(list(first_calls), roots, ancestors, cadences, first_calls)
 
 
 def output_cadence(manifest: dict, port: dict, node, task: Task) -> tuple[int, int]:

@@ -12,14 +12,23 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def use_linear_call_chain(plan):
-    # 数值验证显式声明一次调用链，数据会合不承担执行同步/去重。
+    # 已声明的调用不改写；旧数值夹具按节拍分段，段内续调，入口只驱动各段。
+    if plan.flow_mode == "task_sequence":
+        return
     order = plan.execution_order
+    if not order or not plan.schedule or len(plan.tasks) != 1:
+        raise ValueError("数组数值夹具需要单Task、非空入口和完整节拍声明。")
+    periods = plan.schedule["periods"]
+    if periods[order[0]] != 1:
+        raise ValueError("数组数值夹具的入口必须按Task基本节拍调用。")
     plan.entry_nodes = order[:1]
-    plan.call_graph = {
-        nid: ([{"node": order[i + 1], "every": 1, "phase": 0}]
-              if i + 1 < len(order) else [])
-        for i, nid in enumerate(order)
-    }
+    plan.call_graph = {nid: [] for nid in order}
+    for previous, nid in zip(order, order[1:]):
+        period = periods[nid]
+        same = period == periods[previous]
+        caller = previous if same else order[0]
+        plan.call_graph[caller].append(
+            {"node": nid, "every": 1 if same else period, "phase": 0 if same else period-1})
     for task in plan.tasks:
         task["entry_nodes"] = [nid for nid in plan.entry_nodes if nid in task["nodes"]]
 
