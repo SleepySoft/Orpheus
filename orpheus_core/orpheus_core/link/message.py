@@ -10,6 +10,7 @@ import struct
 
 CALL, RESPONSE, NOTIFICATION = 0, 1, 2
 FLAG_ERROR = 0x8  # flags 窗口 bit3（即 bits bit29）
+MAX_PAYLOAD_WORDS = 0x3FF
 
 BRIDGE_PROTOCOL_VERSION = 1
 ROUTE_HELLO = 0xFFFF0001
@@ -43,6 +44,8 @@ def form_name(form: int) -> str:
 def make_frame(route: int, call_id: int, msg_type: int = CALL,
                payload: bytes = b"", flags: int = 0) -> bytes:
     words = (len(payload) + 3) // 4
+    if words > MAX_PAYLOAD_WORDS:
+        raise ValueError("消息负载超过1023个32位字，尚不支持分片")
     bits = (msg_type << 30) | (flags << 26) | (call_id << 10) | words
     return struct.pack("<II", route, bits) + payload.ljust(words * 4, b"\x00")
 
@@ -55,7 +58,9 @@ def parse_frame(frame: bytes) -> dict:
     if len(frame) < 8:
         raise ValueError("消息过短（至少 8 字节头）")
     route, bits = struct.unpack("<II", frame[:8])
-    words = bits & 0x3FF
+    words = bits & MAX_PAYLOAD_WORDS
+    if len(frame) != 8 + words * 4:
+        raise ValueError("消息长度与头部声明不一致")
     return {
         "route": route,
         "type": (bits >> 30) & 0x3,

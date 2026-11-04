@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from orpheus_core.compiler import GraphCompiler
+from orpheus_core.project import ProjectLoader
+from orpheus_core.registry import Registry
 from orpheus_core.server.app import create_app
+from orpheus_core.subgraph import flatten_project
 
 ROOT = Path(__file__).resolve().parents[2]
 _CREATED: list[str] = []
@@ -20,6 +26,56 @@ def _new_name() -> str:
     name = f"resolve_{uuid.uuid4().hex[:8]}"
     _CREATED.append(name)
     return name
+
+
+def _assert_example_map(plan: dict, lines: list[str]) -> None:
+    # 编译期目录包含初始化配置与条件槽；MAP 只列出当前已注册的数据点。
+    unavailable = {("post__fir", "coefficients")}
+    unavailable.update(
+        (node, "gains")
+        for node, config in plan["node_configs"].items()
+        if config["component"] == "orpheus.builtin.gain"
+        and config["params"].get("gain_mode", 0) != 2
+    )
+    declared = {(entry["node"], entry["key"]): entry["id"] for entry in plan["id_map"]}
+    assert unavailable <= declared.keys()
+    expected = {data_id for key, data_id in declared.items() if key not in unavailable}
+    expected.update(
+        (0x1 << 28) | (module["id"] << 16) | 0xFFFF
+        for module in plan["modules"] if module["path"]
+    )
+    actual = [int(line.split()[1], 16) for line in lines]
+    assert len(actual) == len(set(actual)), "MAP 不应重复返回同一 ID"
+    assert set(actual) == expected
+
+
+@pytest.mark.parametrize("gain_mode", [0, 1, 2])
+@pytest.mark.skipif(
+    not (ROOT / "build" / "orpheus_runtime.exe").exists()
+    or not (ROOT / "build" / "components").exists(),
+    reason="runtime and components not built",
+)
+def test_runtime_map_tracks_registered_gain_mode(tmp_path, gain_mode):
+    registry = Registry([ROOT / "components"])
+    registry.scan()
+    project = flatten_project(
+        ProjectLoader(registry).load(ROOT / "examples" / "dsp_model_reference.yaml")
+    )
+    for node in project.graph.nodes.values():
+        if node.component == "orpheus.builtin.gain":
+            node.params["gain_mode"] = gain_mode
+    plan = asdict(GraphCompiler(registry).compile(project))
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+    shutil.copy2(ROOT / "examples" / "test_input.wav", tmp_path / "test_input.wav")
+    result = subprocess.run(
+        [str(ROOT / "build" / "orpheus_runtime.exe"), str(path),
+         str(ROOT / "build" / "components"), "--map"],
+        cwd=tmp_path, capture_output=True, text=True, encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr
+    _assert_example_map(plan, [line for line in result.stdout.splitlines()
+                               if line.startswith("RESOLVED ")])
 
 
 @pytest.fixture(autouse=True)
@@ -109,8 +165,7 @@ def test_runtime_resolve_and_map() -> None:
     )
     assert out.returncode == 0, out.stderr
     lines = [l for l in out.stdout.splitlines() if l.startswith("RESOLVED ")]
-    # 数据点（个别 manifest 参数未注册为运行槽则 resolve 跳过）+ 模块包
-    assert len(lines) >= len(plan["id_map"]) - 2 + 6
+    _assert_example_map(plan, lines)
     assert any(l.split()[3] == "MODULE" for l in lines)
     assert any("node=front__trim key=gain_db" in l for l in lines)
 

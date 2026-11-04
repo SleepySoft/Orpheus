@@ -62,6 +62,8 @@ add_executable(pool_delay_runner pool_delay_runner.cpp)
 target_link_libraries(pool_delay_runner PRIVATE orpheus_runtime_lib)
 add_executable(task_flow_runner task_flow_runner.cpp)
 target_link_libraries(task_flow_runner PRIVATE orpheus_runtime_lib)
+add_executable(message_bounds_runner message_bounds_runner.cpp)
+target_link_libraries(message_bounds_runner PRIVATE orpheus_runtime_lib)
 
 add_executable(sine_table_smoke sine_table_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sine_mod/src/sine_mod.c)

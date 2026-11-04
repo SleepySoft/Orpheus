@@ -6,12 +6,18 @@ import json
 import struct
 import subprocess
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from orpheus_core.builder import run_cmake_with_msvc_env
+from orpheus_core.compiler import GraphCompiler
+from orpheus_core.generator import CodeGenerator
+from orpheus_core.link import message
+from orpheus_core.project import DriveConnection, Node, PortRef, Project
+from orpheus_core.registry import Registry
 from orpheus_core.server.app import create_app
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -76,6 +82,140 @@ def _plan_of(client, name: str, double_bank: str = "auto") -> tuple[Path, dict]:
     cwd = ROOT / "workspace" / name
     plan = json.loads((cwd / "project.plan.json").read_text(encoding="utf-8"))
     return cwd, plan
+
+
+@pytest.mark.parametrize("size", [0, 1, 4091, 4092])
+def test_python_message_payload_boundary(size):
+    payload = b"x" * size
+    raw = message.make_call(123, 0xA55A, payload)
+    parsed = message.parse_frame(raw)
+    assert parsed["call_id"] == 0xA55A
+    assert parsed["payload"] == payload.ljust((size + 3) // 4 * 4, b"\x00")
+    assert len(raw) <= 4100
+
+
+@pytest.mark.parametrize("size", [4093, 4096, 8192])
+def test_python_message_rejects_oversized_payload(size):
+    with pytest.raises(ValueError, match="1023"):
+        message.make_call(123, 1, b"x" * size)
+
+
+@pytest.mark.parametrize("raw", [
+    b"",
+    message.make_call(123, 1, b"abcd")[:-1],
+    message.make_call(123, 1) + b"abcd",
+])
+def test_python_message_rejects_mismatched_length(raw):
+    with pytest.raises(ValueError):
+        message.parse_frame(raw)
+
+
+@pytest.fixture(scope="module")
+def boundary_backends(tmp_path_factory):
+    from test_generated_double_bank import _build
+
+    directory = tmp_path_factory.mktemp("message_boundaries")
+    registry = Registry([ROOT / "components"])
+    registry.scan()
+    project = Project(flow_mode="task_sequence", block_size=32)
+    project.graph.nodes = {
+        "clock": Node("clock", "orpheus.builtin.task_source", params={"frequency_hz": 100}),
+        "gain": Node("gain", "orpheus.builtin.gain", params={"channels": 1}),
+        "relay": Node("relay", "orpheus.builtin.bulk_relay",
+                      params={"count": 2048, "initial_values": ",".join(["0"] * 2048)}),
+    }
+    project.drive_connections = [
+        DriveConnection(PortRef("clock", "out"), PortRef("gain", "in")),
+        DriveConnection(PortRef("gain", "out"), PortRef("relay", "in")),
+    ]
+    plan = GraphCompiler(registry).compile(project)
+    path = directory / "plan.json"
+    path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
+    generated = directory / "generated"
+    CodeGenerator(registry, ROOT).generate(plan, generated)
+    (generated / "src/message_bounds_test.c").write_bytes(
+        (ROOT / "tests/message_bounds_runner.cpp").read_bytes()
+    )
+    with (generated / "CMakeLists.txt").open("a", encoding="utf-8") as stream:
+        stream.write(
+            "\nadd_executable(message_bounds_test src/message_bounds_test.c)\n"
+            "target_compile_definitions(message_bounds_test PRIVATE ORPHEUS_TEST_GENERATED)\n"
+            "target_link_libraries(message_bounds_test PRIVATE orpheus_graph)\n"
+        )
+    executable = _build(generated, directory)
+    commands = {
+        "dynamic": [str(ROOT / "build" / "orpheus_runtime.exe"),
+                    str(path), str(ROOT / "build" / "components")],
+        "generated": [str(executable), "0"],
+    }
+    bulk_id = next(entry["id"] for entry in plan.id_map
+                   if entry["node"] == "relay" and entry["key"] == "values_storage")
+    return directory, commands, bulk_id
+
+
+def _boundary_run(backends, backend, *args):
+    directory, commands, _ = backends
+    return subprocess.run(
+        [*commands[backend], *args], cwd=directory, capture_output=True,
+        text=True, encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize("backend", ["dynamic", "generated"])
+def test_bulk_response_cannot_overflow_header(boundary_backends, backend):
+    _, _, bulk_id = boundary_backends
+    result = _boundary_run(boundary_backends, backend, "--msg",
+                           message.make_call(bulk_id, 0xA55A).hex())
+    assert result.returncode == 0, result.stderr
+    raw = bytes.fromhex(result.stdout.strip().removeprefix("MSGRSP "))
+    response = message.parse_frame(raw)
+    assert len(raw) == 8
+    assert response["route"] == bulk_id and response["call_id"] == 0xA55A
+    assert response["error"] and response["payload"] == b""
+
+
+@pytest.mark.parametrize("backend", ["dynamic", "generated"])
+@pytest.mark.parametrize("size", [0, 4092])
+def test_hook_response_at_payload_limit(boundary_backends, backend, size):
+    custom_id = 0x40000001
+    payload = b"x" * size
+    result = _boundary_run(
+        boundary_backends, backend, "--echo-hook", str(custom_id),
+        "--msg", message.make_call(custom_id, 0xA55A, payload).hex(),
+    )
+    assert result.returncode == 0, result.stderr
+    raw = bytes.fromhex(result.stdout.strip().removeprefix("MSGRSP "))
+    response = message.parse_frame(raw)
+    assert len(raw) == 8 + size
+    assert not response["error"] and response["payload"] == payload
+    assert response["route"] == custom_id and response["call_id"] == 0xA55A
+
+
+@pytest.mark.parametrize("backend", ["dynamic", "generated"])
+@pytest.mark.parametrize("request_frame", [
+    message.make_call(0x40000001, 1, b"abcd")[:-1],
+    message.make_call(0x40000001, 1) + b"abcd",
+    make_msg(0x40000001, 1, payload=b"x" * 4096),
+])
+def test_native_message_rejects_mismatched_length(boundary_backends, backend, request_frame):
+    result = _boundary_run(boundary_backends, backend, "--msg", request_frame.hex())
+    assert "ERR MSG" in result.stdout, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("backend", ["dynamic", "generated"])
+def test_native_message_output_and_hook_bounds(boundary_backends, backend):
+    directory, commands, bulk_id = boundary_backends
+    plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
+    scalar_id = str(next(entry["id"] for entry in plan["id_map"]
+                         if entry["node"] == "gain" and entry["key"] == "gain_db"))
+    command = (
+        [str(ROOT / "build/tests/message_bounds_runner.exe"), *commands["dynamic"][1:], scalar_id, str(bulk_id)]
+        if backend == "dynamic" else
+        [str(directory / "generated/build/message_bounds_test.exe"), scalar_id, str(bulk_id)]
+    )
+    result = subprocess.run(command, cwd=directory, capture_output=True,
+                            text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.skipif(

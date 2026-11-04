@@ -202,9 +202,17 @@ def test_oversized_bulk_slots_require_bridge_fragmentation(registry: Registry) -
 
     assert oversized == {
         ("orpheus.builtin.bulk_relay", "values_storage", 2048),
-        ("orpheus.builtin.iir_bank", "coefs_per_channel", 2560),
+        ("orpheus.builtin.fir_bank", "coefs", 4096),
+        ("orpheus.builtin.fir_bank", "coefs_banked", 32768),
+        ("orpheus.builtin.fir_bank", "coefs_per_channel", 32768),
+        ("orpheus.builtin.iir", "coefs_per_channel", 2112),
+        ("orpheus.builtin.iir_bank", "coefs_per_channel", 5120),
         ("orpheus.builtin.input_mixer_3d", "weights", 1024),
+        ("orpheus.builtin.matrix_mul", "matrix", 1024),
         ("orpheus.builtin.rnc_mimo_nlms", "weights", 12000),
+        ("orpheus.builtin.slc_matrix_mul", "accepted_targets", 1024),
+        ("orpheus.builtin.slc_matrix_mul", "active_gains", 1024),
+        ("orpheus.builtin.slc_matrix_mul", "requested_gains", 1024),
     }, "新增超限 BULK 槽必须先实现 Bridge 分片或显式更新审计"
 
 

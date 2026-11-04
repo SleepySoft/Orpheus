@@ -54,6 +54,7 @@ def test_decomposed_loudness_example_exposes_control_stages(tmp_path) -> None:
 
     CodeGenerator(registry, ROOT).generate(plan, tmp_path)
     graph_source = (tmp_path / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
-    assert "static void control_tick(void)" in graph_source
+    assert "static int control_tick(" in graph_source
+    assert "rc = control_tick(" in graph_source
     assert "rms_detector.rms [标量] -> gain_controller.level" in graph_source
     assert "gain_controller.gain_db [标量] -> auto_gain.gain_db" in graph_source

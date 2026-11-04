@@ -60,14 +60,12 @@ def test_parse_probe_lines_scalar_and_json(client):
 
 def test_components_have_chinese_name_and_category(client):
     comps = client.get("/api/components").json()
-    allowed_top = {"基础", "音效", "高级", "平台"}
     for c in comps:
         assert c["name"] and c["name"] != c["id"], f"{c['id']} missing display name"
         assert c["category"] and c["category"] != "未分类", f"{c['id']} missing category"
-        # 分类为多级路径（顶层/二级），顶层必须在约定集合内
+        # 顶层分类可扩展，面板中的优先排序列表不是分类白名单。
         segs = [s.strip() for s in c["category"].split("/") if s.strip()]
         assert len(segs) >= 2, f"{c['id']} category 应为多级路径: {c['category']}"
-        assert segs[0] in allowed_top, f"{c['id']} 顶层分类非法: {segs[0]}"
 
 
 def test_component_rescan_refreshes_cached_project_registry(tmp_path):

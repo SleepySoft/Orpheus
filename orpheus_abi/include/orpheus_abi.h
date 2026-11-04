@@ -200,7 +200,8 @@ typedef struct {
 #define ORPHEUS_MSG_TYPE(h)       (((h)->bits >> 30) & 0x3u)
 #define ORPHEUS_MSG_FLAGS(h)      (((h)->bits >> 26) & 0xFu)
 #define ORPHEUS_MSG_CALL_ID(h)    (((h)->bits >> 10) & 0xFFFFu)
-#define ORPHEUS_MSG_PAYLOAD_WORDS(h) ((h)->bits & 0x3FFu)
+#define ORPHEUS_MSG_MAX_PAYLOAD_WORDS 0x3FFu
+#define ORPHEUS_MSG_PAYLOAD_WORDS(h) ((h)->bits & ORPHEUS_MSG_MAX_PAYLOAD_WORDS)
 #define ORPHEUS_MSG_MAKE(type_, flags_, call_id_, words_) \
     ((((uint32_t)(type_)) << 30) | (((uint32_t)(flags_)) << 26) | \
      (((uint32_t)(call_id_)) << 10) | ((uint32_t)(words_)))

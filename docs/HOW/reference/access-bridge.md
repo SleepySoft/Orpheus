@@ -13,6 +13,12 @@
 - 生成图库的 `orpheus_control_message/get_value/get_bulk/probe_get`；
 - 动态/生成宿主的 LengthPrefix 二进制 stdio 和远程 OLINK 串口。
 
+`plan.id_map` 与 Bridge `MAP` 是编译期声明目录，包含仅用于初始化的配置项和条件槽；
+动态 Runtime 的 `resolve_all/--map` 则列出当前已注册、可解析的数据点及非根模块。
+两者不能按固定行数视为完全相同：例如 FIR 的 CSV `coefficients` 只参与初始化，
+`gain.gains` 仅在 `gain_mode=2` 注册。未注册项的运行期访问必须明确报错，
+不能伪造内存基址或成功空值；测试按具体 ID 与当前配置核对，不以宽松数量阈值代替。
+
 动态、生成与远程设备现已统一到 §18 消息。后续缺口集中在订阅、流控、多 Lane、写租约和高带宽 Observation，不再是宿主各自维护控制协议。
 
 目标：UI、脚本和自动化只面对一个 ControlPlane/BridgeSession；动态 Runtime、生成代码、UART、进程管道、共享内存和进程内调用共享同一访问语义。

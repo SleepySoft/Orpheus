@@ -885,7 +885,12 @@ uint32_t msg_event_of(uint32_t kind, bool write) {
 
 size_t msg_write_response(uint8_t* out, size_t out_cap, uint32_t route,
                           uint32_t call_id, uint32_t flags, uint32_t words) {
-    if (out_cap < kMsgHdrSize + (size_t)words * 4) return 0;
+    if (out_cap < kMsgHdrSize) return 0;
+    if (words > ORPHEUS_MSG_MAX_PAYLOAD_WORDS ||
+        out_cap < kMsgHdrSize + (size_t)words * 4) {
+        flags |= ORPHEUS_MSG_FLAG_ERROR;
+        words = 0;
+    }
     OrpheusMessageHeader* h = reinterpret_cast<OrpheusMessageHeader*>(out);
     h->route_id = route;
     h->bits = ORPHEUS_MSG_MAKE(ORPHEUS_MSG_RESPONSE, flags, call_id, words);
@@ -901,11 +906,12 @@ int Runtime::register_hook(uint32_t id, OrpheusHookFn fn, void* ctx) {
 
 int Runtime::message(const uint8_t* in, size_t in_len, uint8_t* out,
                      size_t out_cap, size_t* out_len) {
-    if (in == nullptr || in_len < kMsgHdrSize || out == nullptr || out_len == nullptr) return -1;
+    if (out_len == nullptr) return -1;
     *out_len = 0;
+    if (in == nullptr || in_len < kMsgHdrSize || out == nullptr || out_cap < kMsgHdrSize) return -1;
     const OrpheusMessageHeader* hdr = reinterpret_cast<const OrpheusMessageHeader*>(in);
     size_t words = ORPHEUS_MSG_PAYLOAD_WORDS(hdr);
-    if (kMsgHdrSize + words * 4 > in_len) return -1;
+    if (kMsgHdrSize + words * 4 != in_len) return -1;
     uint32_t route = hdr->route_id;
     uint32_t call_id = ORPHEUS_MSG_CALL_ID(hdr);
     OrpheusBlob req{in + kMsgHdrSize, static_cast<uint32_t>(words * 4)};
@@ -936,7 +942,9 @@ int Runtime::message(const uint8_t* in, size_t in_len, uint8_t* out,
     OrpheusBlob resp{out + kMsgHdrSize, 0};
     auto hook_resp = [&](OrpheusHookFn fn, void* ctx, uint32_t event) -> size_t {
         int r = fn(ctx, route, event, &req, &resp);
-        if (r == ORPHEUS_HOOK_ERROR || resp.len > out_cap - kMsgHdrSize) {
+        if (r == ORPHEUS_HOOK_ERROR ||
+            resp.len > ORPHEUS_MSG_MAX_PAYLOAD_WORDS * 4u ||
+            resp.len > out_cap - kMsgHdrSize) {
             return msg_write_response(out, out_cap, route, call_id, ORPHEUS_MSG_FLAG_ERROR, 0);
         }
         if (r == ORPHEUS_HOOK_HANDLED) {
@@ -1029,7 +1037,8 @@ int Runtime::msg_default(uint32_t route, const OrpheusBlob& req, bool write,
     /* 读 */
     if (d.form == ORPHEUS_FORM_BULK) {
         size_t n = d.count;
-        if (n == 0 || n * 4 > out_cap - kMsgHdrSize) { *resp_flags = ORPHEUS_MSG_FLAG_ERROR; return 0; }
+        if (n == 0 || n > ORPHEUS_MSG_MAX_PAYLOAD_WORDS ||
+            n * 4 > out_cap - kMsgHdrSize) { *resp_flags = ORPHEUS_MSG_FLAG_ERROR; return 0; }
         if (get_bulk_id(route, out + kMsgHdrSize, n) != ORPHEUS_OK) {
             *resp_flags = ORPHEUS_MSG_FLAG_ERROR;
             return 0;
@@ -1037,6 +1046,7 @@ int Runtime::msg_default(uint32_t route, const OrpheusBlob& req, bool write,
         *resp_words = static_cast<uint32_t>(n);
         return 0;
     }
+    if (out_cap - kMsgHdrSize < 4u) { *resp_flags = ORPHEUS_MSG_FLAG_ERROR; return 0; }
     OrpheusValue v;
     if (read_id(route, &v) != ORPHEUS_OK) { *resp_flags = ORPHEUS_MSG_FLAG_ERROR; return 0; }
     if (v.type == ORPHEUS_VALUE_FLOAT) {
