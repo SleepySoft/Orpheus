@@ -33,6 +33,7 @@ HOW 记录“怎么做”：架构、实现、验证和历史。
 - [[reference/timeline|时间线设计]]
 - [[reference/clock-scheduling|时钟调度]]
 - [[reference/distillation-semantics-discussion|算法蒸馏执行语义讨论（全局数据读写与更新顺序）]]
+- [[reference/task-driven-execution-design|Source驱动的Task顺序调用（框架迁移设计草案）]]
 - [[reference/sport-boundary|SPORT Boundary、Clock Domain 与 Trigger Group]]
 - [[reference/pc-generated-app|PC 配置好即完整程序]]
 - [[reference/pc-generated-app-audit|PC 生成程序 Bridge 交接审计]]
