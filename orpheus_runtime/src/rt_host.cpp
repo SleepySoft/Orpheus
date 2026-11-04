@@ -309,6 +309,11 @@ int main(int argc, char** argv) {
 
     try {
         orpheus::Plan plan = orpheus::Plan::load_from_file(plan_path);
+        if (plan.flow_mode == "task_sequence" && plan.tasks.size() > 1) {
+            std::cerr << "多个 Source 必须由对应的独立 Task 入口驱动；"
+                         "当前设备宿主不提供多 Task 自动分派。" << std::endl;
+            return 1;
+        }
         plan.sample_rate = sample_rate;
         plan.block_size = block_size;
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, NodeResizer, useUpdateNodeInternals } from 'reactflow';
-import { resolveExprValue, resolveShape, shapeText, CTL_PREFIX } from './graphUtils';
+import { resolveExprValue, resolveShape, shapeText, CTL_PREFIX, driveHandles, DRIVE_IN, DRIVE_OUT } from './graphUtils';
 import { NODE_WIDGETS } from './nodeWidgets';
 import { NodeActionsContext } from './NodeActionsContext';
 import { PLACEHOLDER_ID } from './placeholder';
@@ -84,7 +84,9 @@ function noiseStatusClass(data) {
 const BodyWidget = NODE_WIDGETS[data.component];
   const { showReadme, showControlLinks, revealSubExport } = React.useContext(NodeActionsContext);
   const updateNodeInternals = useUpdateNodeInternals();
+  const executionHandles = driveHandles(data, data.flowMode);
   const handleSignature = [
+    ...executionHandles,
     ...ports.map((port) => `audio:${port.direction}:${port.id}:${data.exportedAudioPorts?.[port.id]?.id || ''}`),
     ...(data.parameters || [])
       .filter((parameter) => parameter.control_source || parameter.bindable)
@@ -243,6 +245,17 @@ const BodyWidget = NODE_WIDGETS[data.component];
           )}
         </div>
       </div>
+      {executionHandles.length > 0 && (
+        <div className="node-drive port-row" title="框架虚拟执行引脚，不是组件数据端口">
+          {executionHandles.includes(DRIVE_IN) && (
+            <Handle type="target" position={Position.Left} id={DRIVE_IN}
+              className="drive-handle" style={{ ...handleStyle, left: -11 }} />
+          )}
+          <span>{data.clockSource ? '执行源 →' : '执行 →'}</span>
+          <Handle type="source" position={Position.Right} id={DRIVE_OUT}
+            className="drive-handle" style={{ ...handleStyle, right: -11 }} />
+        </div>
+      )}
       <div className="node-body">
         <div className="node-ports inputs">{inputs.map((p) => renderRow(p, true))}</div>
         <div className="node-ports outputs">{outputs.map((p) => renderRow(p, false))}</div>

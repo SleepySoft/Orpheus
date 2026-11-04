@@ -48,6 +48,7 @@ class ExecutionPlan:
     sample_rate: int
     block_size: int
     task_id: str
+    flow_mode: str = "dataflow"
     tasks: list[dict[str, Any]] = field(default_factory=list)
     buffer_size: int = 0
     nodes: list[str] = field(default_factory=list)
@@ -384,10 +385,13 @@ class GraphCompiler:
 
         prepared = copy.deepcopy(project)
         graph = prepared.graph
+        flow_connections = graph.connections + (
+            prepared.drive_connections if prepared.flow_mode == "task_sequence" else []
+        )
         if any(
             connection.from_ref.node_id not in graph.nodes
             or connection.to_ref.node_id not in graph.nodes
-            for connection in graph.connections
+            for connection in flow_connections
         ) or any(
             connection.from_ref.node_id not in graph.nodes
             or connection.to_ref.node_id not in graph.nodes
@@ -397,7 +401,7 @@ class GraphCompiler:
             return prepared, []
         connected = {
             node_id
-            for connection in graph.connections
+            for connection in flow_connections
             for node_id in (connection.from_ref.node_id, connection.to_ref.node_id)
         }
 
@@ -409,7 +413,7 @@ class GraphCompiler:
                 node_id = parent[node_id]
             return node_id
 
-        for connection in graph.connections:
+        for connection in flow_connections:
             source_id, target_id = connection.from_ref.node_id, connection.to_ref.node_id
             source_root, target_root = find(source_id), find(target_id)
             if source_root != target_root:
@@ -442,6 +446,8 @@ class GraphCompiler:
             info = self.registry.get(node.component)
             if info and info.manifest.get("execution", {}).get("none"):
                 active.add(node.id)
+            if prepared.flow_mode == "task_sequence" and info and info.manifest.get("clock_source"):
+                active.add(node.id)
 
         ignored = sorted(set(graph.nodes) - active)
         if not ignored:
@@ -456,10 +462,18 @@ class GraphCompiler:
             connection for connection in prepared.control_connections
             if connection.from_ref.node_id in active and connection.to_ref.node_id in active
         ]
+        prepared.drive_connections = [
+            connection for connection in prepared.drive_connections
+            if connection.from_ref.node_id in active and connection.to_ref.node_id in active
+        ]
         return prepared, ignored
 
     def compile(self, project: Project, target: str | None = None) -> ExecutionPlan:
+        if project.flow_mode not in ("dataflow", "task_sequence"):
+            raise CompileError(f"未知流程模式：{project.flow_mode}")
         for node in project.graph.nodes.values():
+            if node.component == "orpheus.builtin.task_source" and project.flow_mode != "task_sequence":
+                raise CompileError("任务驱动源需要显式启用 flow_mode: task_sequence")
             comp = self.registry.get(node.component)
             if comp is None or comp.package_type != "placeholder":
                 continue
@@ -480,6 +494,10 @@ class GraphCompiler:
         resolved, _resolution = resolve_project(project, self.registry, target)
         project = resolved
         graph = project.graph
+        task_flow = None
+        if project.flow_mode == "task_sequence":
+            from orpheus_core.task_flow import build_task_flow
+            task_flow = build_task_flow(project, self.registry)
         resolved_platform = _resolution.platform
         default_task = project.get_default_task()
         task_values = list(project.tasks.values()) or [default_task]
@@ -769,18 +787,33 @@ class GraphCompiler:
                     raise CompileError(f"占位模块 {node.id} 的透传输入 {port_id} 未连接；请连接或显式使用 -1 置零")
 
         # 2.5 Clock domains: every flow must be driven by exactly one clock
-        self._validate_clock_domains(graph, node_task)
+        clock_graph = Graph(
+            nodes=graph.nodes,
+            connections=graph.connections + (project.drive_connections if task_flow else []),
+        )
+        self._validate_clock_domains(clock_graph, node_task, source_tasks=bool(task_flow))
 
         # 2.6 控制连接校验（control_source/bindable/类型/形状），产出 plan.control_links
         control_links = self._validate_control_links(graph, project.control_connections, node_task)
 
         # 3. Topological sort
-        execution_order = self._topological_sort(graph)
+        execution_order = task_flow.order if task_flow else self._topological_sort(graph)
+        if task_flow:
+            for conn in graph.connections:
+                if (graph.nodes[conn.from_ref.node_id].task == graph.nodes[conn.to_ref.node_id].task
+                        and resolved_ports[str(conn.to_ref)].timing != "latest"):
+                    task_flow.require_before(conn.from_ref.node_id, conn.to_ref.node_id)
+            for link in control_links:
+                if graph.nodes[link["src_node"]].task != graph.nodes[link["dst_node"]].task:
+                    raise CompileError("Task 顺序模式的参数连接不能隐式跨 Task；请使用显式快照/事务桥")
+                task_flow.require_before(link["src_node"], link["dst_node"])
+                link["delivery"] = "before_call"
 
         # 3.5 Rate divisor propagation (multi-rate scheduling)
-        node_divisor = self._propagate_rate_divisors(
+        node_divisor = ({nid: value[0] for nid, value in task_flow.cadences.items()}
+                        if task_flow else self._propagate_rate_divisors(
             graph, expanded_ports, execution_order, node_task, rate_inputs
-        )
+        ))
 
         # 4. Build execution plan
         plan = ExecutionPlan(
@@ -789,6 +822,7 @@ class GraphCompiler:
             block_size=resolved_task.block_size,
             buffer_size=project.buffer_size,
             task_id=resolved_task.id,
+            flow_mode=project.flow_mode,
             nodes=list(graph.nodes.keys()),
             execution_order=execution_order,
         )
@@ -1067,6 +1101,52 @@ class GraphCompiler:
             task_rate = node_task(graph.nodes[node_id]).sample_rate
             comp = self.registry.get(graph.nodes[node_id].component)
             scheduling = (comp.manifest.get("scheduling") or {}) if comp else {}
+            if task_flow:
+                from orpheus_core.task_flow import output_cadence
+                nt = node_task(graph.nodes[node_id])
+                period, phase = task_flow.cadences[node_id]
+                intervals[node_id] = nt.block_size * period
+                step = Fraction(intervals[node_id], task_rate) * rate_n
+                if step.denominator != 1:
+                    raise CompileError(f"节点 {node_id} 的显式调用时间线步长不是整数样本：{step}")
+                cfg["frame_step"] = int(step)
+                origin = Fraction((phase + 1) * nt.block_size, task_rate) * rate_n - frames_n
+                if origin < 0 or origin.denominator != 1:
+                    raise CompileError(
+                        f"节点 {node_id} 的启动相位无法提供完整输入数据："
+                        f"块起点={origin}，每次处理={frames_n}；"
+                        "请声明足够的启动相位/交付节拍，不隐式预填充或截断时间线"
+                    )
+                cfg["frame_origin"] = int(origin)
+                cfg["output_cadences"] = {}
+                for pm in expanded_ports[node_id]:
+                    if pm["direction"] != "output":
+                        continue
+                    relative_period, relative_phase = output_cadence(
+                        comp.manifest, pm, graph.nodes[node_id], nt,
+                    )
+                    cfg["output_cadences"][pm["id"]] = {
+                        "period": period * relative_period,
+                        "phase": phase + period * relative_phase,
+                    }
+                for conn in rate_inputs[node_id]:
+                    src_id = conn.from_ref.node_id
+                    if graph.nodes[src_id].task != graph.nodes[node_id].task:
+                        continue
+                    produced = plan.node_configs[src_id]["output_cadences"][conn.from_ref.port_id]
+                    aligned = (produced["period"], produced["phase"]) == (period, phase)
+                    if scheduling.get("merge"):
+                        aligned = (
+                            period % produced["period"] == 0
+                            and phase % produced["period"] == produced["phase"]
+                        )
+                    if not aligned:
+                        raise CompileError(
+                            f"节点 {node_id} 输入 {conn.to_ref.port_id} 的交付周期/相位与调用不一致："
+                            f"源={produced}，调用=({period}, {phase})；"
+                            "请显式设置驱动连接 every/phase 或使用允许旧值的 latest 非音频输入"
+                        )
+                continue
             incoming = {
                 output_intervals[conn.from_ref.node_id]
                 for conn in rate_inputs[node_id]
@@ -1110,10 +1190,16 @@ class GraphCompiler:
         plan.schedule = {
             "tick": tick,
             "periods": periods,
-            "multi_clock": len(task_domains) > 1,
+            "multi_clock": len(task_domains) > 1 or bool(
+                task_flow and len(set(task_flow.roots.values())) > 1
+            ),
         }
         for nid, cfg in plan.node_configs.items():
             cfg["period"] = periods[nid]
+            if task_flow:
+                nt = node_task(graph.nodes[nid])
+                scale = nt.block_size // tick
+                cfg["phase"] = task_flow.cadences[nid][1] * scale + scale - 1
 
         effective_tasks = list(resolved_tasks.values()) or [resolved_task]
         for task in effective_tasks:
@@ -1140,7 +1226,13 @@ class GraphCompiler:
                     "schedule": {
                         "tick": task_tick,
                         "periods": {nid: intervals[nid] // task_tick for nid in task_nodes},
+                        **({"phases": {nid: task_flow.cadences[nid][1] for nid in task_nodes}}
+                           if task_flow else {}),
                     },
+                    **({
+                        "source": next(nid for nid in task_nodes if task_flow.roots[nid] == nid),
+                        "frequency_hz": task.sample_rate / task_tick,
+                    } if task_flow else {}),
                 }
             )
 
@@ -1526,7 +1618,7 @@ class GraphCompiler:
             modules.append({"path": path, "id": ids[path], "leaves": leaves})
         return modules
 
-    def _validate_clock_domains(self, graph: Graph, node_task) -> None:
+    def _validate_clock_domains(self, graph: Graph, node_task, *, source_tasks: bool = False) -> None:
         """Every connected flow must be driven by exactly one clock domain.
 
         Clock sources are components tagged `clock_source: true` with a
@@ -1571,7 +1663,7 @@ class GraphCompiler:
                 info = self.registry.get(node.component)
                 manifest = info.manifest if info else {}
                 scheduling = manifest.get("scheduling") or {}
-                if not task.clock_domain and scheduling.get("async_bridge"):
+                if not task.clock_domain and scheduling.get("async_bridge") and not source_tasks:
                     domains.add(f"task:{task.id}")
                 if manifest.get("clock_source"):
                     domains.add(

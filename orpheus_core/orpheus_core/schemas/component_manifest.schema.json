@@ -103,6 +103,15 @@
             "default": "sync",
             "description": "输入交付语义：sync 参与调度周期约束；latest 仅限同 Task 非音频输入，读取最近结果，不驱动执行周期；尚未产出时为零"
           },
+          "cadence": {
+            "type": "object",
+            "description": "显式输出交付节拍，单位为本节点调用次数；缺省同调用节拍。不分析实现代码",
+            "properties": {
+              "period": { "type": ["integer", "string"], "minimum": 1 },
+              "phase": { "type": ["integer", "string"], "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
           "sample_format": { "type": "string", "enum": ["f32", "i16", "i24", "i32"] },
           "channels": { "type": ["integer", "string"] },
           "sample_rate": { "type": ["integer", "string"] },
@@ -120,6 +129,10 @@
           "bulk_slot": false
         },
         "allOf": [
+          {
+            "if": { "required": ["cadence"] },
+            "then": { "properties": { "direction": { "const": "output" } } }
+          },
           {
             "if": { "anyOf": [{ "required": ["layout"] }, { "required": ["frame_size"] }] },
             "then": { "properties": { "type": { "enum": ["control", "bulk", "debug"] } } }

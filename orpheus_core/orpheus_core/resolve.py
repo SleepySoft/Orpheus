@@ -188,7 +188,7 @@ def _resolve_graph(
     warnings: list[str] = []
 
     wired: dict[str, int] = {}
-    for conn in graph.connections:
+    for conn in graph.connections + graph.drive_connections:
         wired[conn.from_ref.node_id] = wired.get(conn.from_ref.node_id, 0) + 1
         wired[conn.to_ref.node_id] = wired.get(conn.to_ref.node_id, 0) + 1
 
@@ -310,8 +310,12 @@ def resolve_project(
     active_all: dict[str, str] = {}
 
     for gi, graph in enumerate([resolved.graph] + [s.graph for s in resolved.subcomponents]):
+        flow_graph = copy.copy(graph)
+        flow_graph.drive_connections = graph.drive_connections + (
+            resolved.drive_connections if gi == 0 and resolved.flow_mode == "task_sequence" else []
+        )
         active_map, group_map, warns = _resolve_graph(
-            graph, platform, registry, platforms
+            flow_graph, platform, registry, platforms
         )
         group_map_all.update(group_map)
         active_all.update(active_map)
@@ -327,14 +331,14 @@ def resolve_project(
         for nid in inactive:
             graph.nodes.pop(nid, None)
         # 边重映射：锚定成员 -> 激活成员
-        for conn in graph.connections:
+        for conn in graph.connections + graph.drive_connections:
             if conn.from_ref.node_id in active_map:
                 conn.from_ref.node_id = active_map[conn.from_ref.node_id]
             if conn.to_ref.node_id in active_map:
                 conn.to_ref.node_id = active_map[conn.to_ref.node_id]
         # 控制连接（顶层段，引用主图节点）同样重映射到激活成员
         if gi == 0:
-            for cc in resolved.control_connections:
+            for cc in resolved.control_connections + resolved.drive_connections:
                 if cc.from_ref.node_id in active_map:
                     cc.from_ref.node_id = active_map[cc.from_ref.node_id]
                 if cc.to_ref.node_id in active_map:

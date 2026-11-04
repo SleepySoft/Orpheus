@@ -577,6 +577,7 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
     bulk_active_map_.clear();
     bulk_span_map_.clear();
     bulk_pending_.clear();
+    bulk_tasks_.clear();
     size_t shadow_offset = 0;
     for (auto& kv : instances_) {
         for (const auto& e : kv.second->slots) {
@@ -591,6 +592,7 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             bulk_active_map_[key] = static_cast<uint8_t*>(kv.second->state) + e.offset;
             bulk_span_map_[key] = e.count * e.size;
             bulk_pending_[key] = false;
+            bulk_tasks_[key] = &plan_.node_configs.at(kv.first).task;
             std::memcpy(bulk_shadow_.data() + shadow_offset,
                         static_cast<uint8_t*>(kv.second->state) + e.offset,
                         e.count * e.size);
@@ -631,6 +633,7 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             if (shadow != bulk_shadow_map_.end() && pending != bulk_pending_.end() &&
                 span != bulk_span_map_.end() && span->second >= st.bulk_snapshot.size()) {
                 st.bulk_target_shadow = shadow->second;
+                st.bulk_target_active = bulk_active_map_.at(dst_key);
                 st.bulk_target_pending = &pending->second;
             }
             auto dst_instance = instances_.find(cl.dst_node);
@@ -1187,12 +1190,17 @@ int Runtime::control_tick() {
     return control_tick_for_task(nullptr);
 }
 
-int Runtime::control_tick_for_task(const std::string* task_id) {
+int Runtime::control_tick_for_task(const std::string* task_id, const std::string* before_node) {
     if (control_links_.empty()) return ORPHEUS_OK;
     /* 第一相：读 —— 全部源参数 → 快照（经 ABI get_parameter / 槽直读）。
        字符串源拷贝进预分配缓冲，process 路径零分配。 */
     for (auto& l : control_links_) {
         if (l.skip) continue;
+        const bool before_call = plan_.flow_mode == "task_sequence" &&
+            l.cfg->delivery == "before_call";
+        if (before_node != nullptr
+            ? (!before_call || l.cfg->dst_node != *before_node)
+            : before_call) continue;
         if (task_id != nullptr &&
             (plan_.node_configs[l.cfg->src_node].task != *task_id ||
              plan_.node_configs[l.cfg->dst_node].task != *task_id)) continue;
@@ -1216,6 +1224,11 @@ int Runtime::control_tick_for_task(const std::string* task_id) {
        读写分相保证顺序无关：多跳链每链固定 1 块延迟。 */
     for (auto& l : control_links_) {
         if (l.skip || !l.read_ok) continue;
+        const bool before_call = plan_.flow_mode == "task_sequence" &&
+            l.cfg->delivery == "before_call";
+        if (before_node != nullptr
+            ? (!before_call || l.cfg->dst_node != *before_node)
+            : before_call) continue;
         if (task_id != nullptr &&
             (plan_.node_configs[l.cfg->src_node].task != *task_id ||
              plan_.node_configs[l.cfg->dst_node].task != *task_id)) continue;
@@ -1223,7 +1236,13 @@ int Runtime::control_tick_for_task(const std::string* task_id) {
             if (!bulk_values_valid(*l.bulk_target_slot, l.bulk_snapshot.data(), l.cfg->count))
                 return ORPHEUS_ERR_INVALID_ARG;
             std::memcpy(l.bulk_target_shadow, l.bulk_snapshot.data(), l.bulk_snapshot.size());
-            *l.bulk_target_pending = true;
+            if (before_node != nullptr) {
+                std::memcpy(l.bulk_target_active, l.bulk_target_shadow,
+                            l.bulk_target_slot->count * l.bulk_target_slot->size);
+                *l.bulk_target_pending = false;
+            } else {
+                *l.bulk_target_pending = true;
+            }
             continue;
         }
         OrpheusValue v = l.snapshot;
@@ -1236,10 +1255,11 @@ int Runtime::control_tick_for_task(const std::string* task_id) {
     return ORPHEUS_OK;
 }
 
-void Runtime::commit_bulk() {
+void Runtime::commit_bulk(const std::string* task_id) {
     /* 块边界提交：待写的 BULK 影子区一次性 memcpy 到 active（单控制写者假设） */
     for (auto& kv : bulk_pending_) {
         if (!kv.second) continue;
+        if (task_id != nullptr && *bulk_tasks_.at(kv.first) != *task_id) continue;
         auto sm = bulk_shadow_map_.find(kv.first);
         auto am = bulk_active_map_.find(kv.first);
         auto span_it = bulk_span_map_.find(kv.first);
@@ -1309,7 +1329,8 @@ void Runtime::update_task_bridge_probes(TaskBridge& bridge) {
 int Runtime::process_nodes(const std::vector<std::string>& execution_order,
                            const std::map<std::string, uint32_t>* periods,
                            uint64_t counter, uint32_t frame_count,
-                           uint32_t timeline_flags, bool task_mode) {
+                           uint32_t timeline_flags, bool task_mode,
+                           const std::map<std::string, uint32_t>* phases) {
     OrpheusProcessContext ctx;
     ctx.scratch = nullptr;
     ctx.scratch_size = 0;
@@ -1321,7 +1342,14 @@ int Runtime::process_nodes(const std::vector<std::string>& execution_order,
             const auto period_it = periods->find(node_id);
             if (period_it != periods->end()) period = period_it->second;
         }
-        if (period > 1 && (counter + 1) % period != 0) {
+        uint32_t phase = cfg.phase >= 0 ? static_cast<uint32_t>(cfg.phase) : 0;
+        if (phases != nullptr) {
+            const auto phase_it = phases->find(node_id);
+            phase = phase_it != phases->end() ? phase_it->second : 0;
+        }
+        if (plan_.flow_mode == "task_sequence"
+            ? counter % period != phase
+            : (period > 1 && (counter + 1) % period != 0)) {
             continue;
         }
         auto reads = task_bridge_reads_.find(node_id);
@@ -1343,6 +1371,7 @@ int Runtime::process_nodes(const std::vector<std::string>& execution_order,
         ctx.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : plan_.sample_rate;
         ctx.frame_index = (counter / period) *
             static_cast<uint64_t>(cfg.frame_step > 0 ? cfg.frame_step : ctx.frame_count);
+        if (plan_.flow_mode == "task_sequence") ctx.frame_index += cfg.frame_origin;
         ctx.timestamp = ctx.sample_rate > 0
             ? static_cast<double>(ctx.frame_index) / static_cast<double>(ctx.sample_rate)
             : 0.0;
@@ -1351,6 +1380,10 @@ int Runtime::process_nodes(const std::vector<std::string>& execution_order,
         ctx.timeline_flags = timeline_flags
             | (counter < period ? ORPHEUS_TIMELINE_DISCONTINUITY : ORPHEUS_TIMELINE_NONE);
 
+        if (plan_.flow_mode == "task_sequence") {
+            const int result = control_tick_for_task(nullptr, &node_id);
+            if (result != ORPHEUS_OK) return result;
+        }
         int result = inst.interface_->process(inst.state, &ctx);
         if (result != ORPHEUS_OK) {
             return result;
@@ -1402,7 +1435,7 @@ int Runtime::process_task(const std::string& task_id, uint32_t frame_count) {
     }
     if (task == nullptr) return ORPHEUS_ERR_NOT_FOUND;
 
-    commit_bulk();
+    commit_bulk(plan_.flow_mode == "task_sequence" ? &task_id : nullptr);
     uint64_t& counter = task_counters_[task_id];
     uint64_t& frame_index = task_frame_indices_[task_id];
     uint32_t& timeline_flags = task_timeline_flags_[task_id];
@@ -1411,7 +1444,7 @@ int Runtime::process_task(const std::string& task_id, uint32_t frame_count) {
         : (task->schedule_tick > 0 ? task->schedule_tick : task->block_size);
     const int result = process_nodes(
         task->execution_order, &task->periods, counter, frame_count,
-        timeline_flags, true);
+        timeline_flags, true, &task->phases);
     if (result != 0) return result;
     const int control_result = control_tick_for_task(&task_id);
     counter++;

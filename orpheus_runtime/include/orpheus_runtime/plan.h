@@ -21,10 +21,12 @@ struct NodeConfig {
     std::map<std::string, std::string> output_port_sample_formats;
     uint32_t divisor = 1;   // rate divisor: node runs when (block_counter+1) % divisor == 0
     uint32_t period = 0;    // 静态调度周期（主 tick 数）；0 = 回退 divisor（旧 plan）
+    int32_t phase = -1;     // task_sequence 相位；缺省从 0 开始，旧模式仍用 period - 1
     uint32_t block_size = 0;  // node rate-domain scheduling quantum (0 = plan fallback)
     uint32_t frames = 0;    // samples to call process with per firing (0 = plan block_size)
     double sample_rate = 0;  // 节点采样率，支持有理SRC；0继承图速率
     uint32_t frame_step = 0;  // 窗口重叠时的时间线步长；0使用frames
+    uint64_t frame_origin = 0;  // task_sequence 首次调用消费块的绝对帧起点
 };
 
 struct BufferConfig {
@@ -75,6 +77,7 @@ struct ControlLinkConfig {
     std::string dst_slot;
     std::string type;              // "float"/"int"/"bool"/"string"（编译期已严格匹配）
     std::string transport = "scalar"; // scalar / bulk
+    std::string delivery;          // before_call / 缺省块末快照
     std::vector<uint32_t> shape;   // 求值后的维度（空 = 标量）
     uint32_t count = 1;            // shape 各维乘积（标量为 1）
 };
@@ -89,6 +92,7 @@ struct TaskConfig {
     std::vector<std::string> nodes;
     std::vector<std::string> execution_order;
     std::map<std::string, uint32_t> periods;
+    std::map<std::string, uint32_t> phases;
 };
 
 struct Plan {
@@ -99,6 +103,7 @@ struct Plan {
     uint32_t duration_frames = 0;  // 离线宿主运行时长提示（0=默认 10s）
     uint32_t schedule_tick = 0;    // 静态调度主步长（图速率帧）；0=回退 block_size（旧 plan）
     std::string task_id;
+    std::string flow_mode = "dataflow";
     std::vector<TaskConfig> tasks;
     std::vector<std::string> nodes;
     std::vector<std::string> execution_order;

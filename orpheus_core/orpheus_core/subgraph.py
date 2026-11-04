@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 
 from orpheus_core.compiler import CompileError
-from orpheus_core.project import Connection, ControlConnection, Graph, Node, PortRef, Project, Subcomponent
+from orpheus_core.project import Connection, ControlConnection, DriveConnection, Graph, Node, PortRef, Project, Subcomponent
 
 SUB_PREFIX = "sub:"
 NODE_SEP = "__"
@@ -135,6 +135,7 @@ def _expand_graph(
 ) -> Graph:
     """Return a flattened copy of `graph` with all node ids prefixed."""
     flat = Graph()
+    drive_boundaries: dict[str, tuple[list[str], list[str]]] = {}
 
     for node in graph.nodes.values():
         if not is_subcomponent_ref(node.component, subs):
@@ -170,6 +171,13 @@ def _expand_graph(
             inner.nodes[flat_target].params[target.port_id] = copy.deepcopy(value)
         flat.nodes.update(inner.nodes)
         flat.connections.extend(inner.connections)
+        flat.drive_connections.extend(inner.drive_connections)
+        called = {c.to_ref.node_id for c in inner.drive_connections}
+        callers = {c.from_ref.node_id for c in inner.drive_connections}
+        drive_boundaries[node.id] = (
+            [nid for nid in inner.nodes if nid not in called],
+            [nid for nid in inner.nodes if nid not in callers],
+        )
 
     def map_endpoint(ref: PortRef) -> PortRef:
         node = graph.nodes.get(ref.node_id)
@@ -186,6 +194,21 @@ def _expand_graph(
         flat.connections.append(
             Connection(from_ref=map_endpoint(conn.from_ref), to_ref=map_endpoint(conn.to_ref))
         )
+
+    for conn in graph.drive_connections:
+        source = conn.from_ref.node_id
+        target = conn.to_ref.node_id
+        if conn.from_ref.port_id != "out" or conn.to_ref.port_id != "in":
+            raise CompileError("驱动接口必须使用 node:out → node:in")
+        sources = drive_boundaries[source][1] if source in drive_boundaries else [prefix + source]
+        targets = drive_boundaries[target][0] if target in drive_boundaries else [prefix + target]
+        if not sources or not targets:
+            raise CompileError(f"子组件驱动边界为空或存在循环：{source} → {target}")
+        for src in sources:
+            for dst in targets:
+                flat.drive_connections.append(DriveConnection(
+                    PortRef(src, "out"), PortRef(dst, "in"), conn.every, conn.phase,
+                ))
 
     return flat
 
@@ -218,7 +241,11 @@ def flatten_project(project: Project) -> Project:
         ))
 
     flat = copy.copy(project)  # shallow: tasks/metadata shared, graph replaced
-    flat.graph = _expand_graph(project.graph, subs, prefix="", stack=())
+    graph = copy.copy(project.graph)
+    graph.drive_connections = project.drive_connections
+    flat.graph = _expand_graph(graph, subs, prefix="", stack=())
+    flat.drive_connections = flat.graph.drive_connections
+    flat.graph.drive_connections = []
     flat.bridges = copy.deepcopy(project.bridges)
     flat.subcomponents = []
     flat.control_connections = flat_control

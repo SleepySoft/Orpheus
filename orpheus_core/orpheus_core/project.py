@@ -55,9 +55,39 @@ class Connection:
 
 
 @dataclass
+class DriveConnection(Connection):
+    every: int = 1
+    phase: int = 0
+
+
+def _parse_drive_connections(data: list[dict[str, Any]]) -> list[DriveConnection]:
+    return [
+        DriveConnection(
+            from_ref=PortRef.parse(c["from"]),
+            to_ref=PortRef.parse(c["to"]),
+            every=c.get("every", 1),
+            phase=c.get("phase", c.get("every", 1) - 1),
+        )
+        for c in data
+    ]
+
+
+def _drive_connections_to_dict(connections: list[DriveConnection]) -> list[dict[str, Any]]:
+    return [
+        {
+            "from": str(c.from_ref), "to": str(c.to_ref),
+            **({"every": c.every} if c.every != 1 else {}),
+            **({"phase": c.phase} if c.phase != c.every - 1 else {}),
+        }
+        for c in connections
+    ]
+
+
+@dataclass
 class Graph:
     nodes: dict[str, Node] = field(default_factory=dict)
     connections: list[Connection] = field(default_factory=list)
+    drive_connections: list[DriveConnection] = field(default_factory=list)
 
 
 @dataclass
@@ -168,6 +198,8 @@ class Project:
     double_bank: str = "auto"  # BULK 双 bank：auto=按组件声明 / on=全部 / off=关闭（直写即时生效）
     target: str = "auto"  # 期望目标平台：auto / win / dsp（解析与警告用，缺省自动）
     debug_mode: bool = False  # 调试旁路：忽略孤立节点和未接入有效时钟源的残留流
+    flow_mode: str = "dataflow"
+    drive_connections: list[DriveConnection] = field(default_factory=list)
     tasks: dict[str, Task] = field(default_factory=dict)
     clock_domains: dict[str, ClockDomain] = field(default_factory=dict)
     trigger_groups: dict[str, TriggerGroup] = field(default_factory=dict)
@@ -247,6 +279,7 @@ def _parse_graph(
                 to_ref=PortRef.parse(c["to"]),
             )
         )
+    graph.drive_connections = _parse_drive_connections(graph_data.get("drive_connections", []))
     return graph
 
 
@@ -273,6 +306,8 @@ def _graph_to_dict(graph: Graph) -> dict[str, Any]:
             {"from": str(c.from_ref), "to": str(c.to_ref)}
             for c in graph.connections
         ],
+        **({"drive_connections": _drive_connections_to_dict(graph.drive_connections)}
+           if graph.drive_connections else {}),
     }
 
 
@@ -289,6 +324,9 @@ def project_to_dict(
         "double_bank": project.double_bank,
         "target": project.target,
         "debug_mode": project.debug_mode,
+        **({"flow_mode": project.flow_mode} if project.flow_mode != "dataflow" else {}),
+        **({"drive_connections": _drive_connections_to_dict(project.drive_connections)}
+           if project.drive_connections else {}),
         "tasks": [
             {
                 "id": t.id,
@@ -628,6 +666,8 @@ class ProjectLoader:
         project.double_bank = data.get("double_bank", "auto")
         project.target = data.get("target", "auto")
         project.debug_mode = bool(data.get("debug_mode", False))
+        project.flow_mode = data.get("flow_mode", "dataflow")
+        project.drive_connections = _parse_drive_connections(data.get("drive_connections", []))
 
         for t in data.get("tasks", []):
             task = Task(
@@ -698,6 +738,11 @@ class ProjectLoader:
         project.graph = _parse_graph(
             data.get("graph", {"nodes": [], "connections": []}), resource_values
         )
+        if project.graph.drive_connections:
+            if project.drive_connections:
+                raise ValueError("顶层与 graph.drive_connections 不可同时声明；请保留一份驱动连接")
+            project.drive_connections = project.graph.drive_connections
+            project.graph.drive_connections = []
         for c in data.get("control_connections", []) or []:
             project.control_connections.append(
                 ControlConnection(
@@ -733,7 +778,8 @@ class ProjectLoader:
         # 保留未知顶层字段（presets / model_tree 等），往返不丢
         known = {
             "version", "metadata", "sample_rate", "block_size", "buffer_size",
-            "double_bank", "target", "debug_mode", "tasks", "clock_domains", "trigger_groups",
+            "double_bank", "target", "debug_mode", "flow_mode", "drive_connections",
+            "tasks", "clock_domains", "trigger_groups",
             "sport_bindings", "bridges", "graph", "subcomponents",
             "control_connections", "imports", "resources",
         }

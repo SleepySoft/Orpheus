@@ -34,6 +34,7 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
   const [blockSize, setBlockSize] = useState(String(doc?.block_size ?? 128));
   const [doubleBank, setDoubleBank] = useState(doc?.double_bank || 'auto');
   const [target, setTarget] = useState(doc?.target || 'auto');
+  const [flowMode, setFlowMode] = useState(doc?.flow_mode || 'dataflow');
   const [tasks, setTasks] = useState(() => (
     doc?.tasks?.length ? doc.tasks.map((task) => ({ ...task })) : [{
       id: 'default', name: 'Default', sample_rate: sr0,
@@ -144,6 +145,7 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
     onSave({
       sample_rate: srVal, block_size: bs, buffer_size: buf,
       double_bank: doubleBank, target, tasks: normalizedTasks,
+      ...(doc?.flow_mode || flowMode !== 'dataflow' ? { flow_mode: flowMode } : {}),
       clock_domains: normalizedDomains,
       trigger_groups: normalizedTriggers,
     });
@@ -178,6 +180,19 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
         <h4>工程设置</h4>
 
         <div className="settings-field">
+          <label htmlFor="project-flow-mode">执行编排</label>
+          <select id="project-flow-mode" value={flowMode} onChange={(event) => setFlowMode(event.target.value)}>
+            <option value="dataflow">数据流（默认 / 兼容模式）</option>
+            <option value="task_sequence">任务驱动（显式执行顺序）</option>
+          </select>
+          <span className="settings-hint">
+            任务驱动模式在原子节点与复合组件上提供紫色虚拟执行引脚，时钟源仅有输出。
+            执行连线由时钟源启动，当前仅支持无环图；数据线与参数控制线保持独立。
+            切回数据流仅隐藏执行连线，所有已有连线均保留。节拍声明暂由后端配置。
+          </span>
+        </div>
+
+        <div className="settings-field">
           <label>采样率 (Hz)</label>
           <input type="number" value={sampleRate}
             onChange={(e) => setSampleRate(e.target.value)} />
@@ -207,6 +222,12 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
           ))}
           <button type="button" onClick={addTask}>新增 Task</button>
           <span className="settings-hint">依次为名称、采样率、块长度、优先级、时钟域和触发组。Task ID 创建后保持稳定。</span>
+          {flowMode === 'task_sequence' && (
+            <span className="settings-hint">
+              以上为兼容 Task 模板；任务驱动模式下，每个源（Source）生成独立的逻辑 Task。
+              task_source 的 frequency_hz 覆盖模板块量子，实际 Task 频率以编译后的 plan 为准。
+            </span>
+          )}
         </div>
 
         <div className="settings-field">

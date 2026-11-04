@@ -35,6 +35,15 @@
       "default": false,
       "description": "调试旁路：忽略完全孤立节点，以及存在显式时钟源时未接入任何时钟源的残留音频流"
     },
+    "flow_mode": {
+      "enum": ["dataflow", "task_sequence"],
+      "default": "dataflow",
+      "description": "dataflow 保留旧数据拓扑/块末控制语义；task_sequence 使用显式驱动连接"
+    },
+    "drive_connections": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/drive_connection" }
+    },
     "tasks": {
       "type": "array",
       "items": {
@@ -216,6 +225,17 @@
     }
   },
   "definitions": {
+    "drive_connection": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "every": { "type": "integer", "minimum": 1, "default": 1 },
+        "phase": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
     "todo": {
       "type": "object",
       "required": ["id", "title", "status"],
@@ -271,6 +291,10 @@
             "properties": {
               "from": { "type": "string" },
               "to": { "type": "string" }
+            },
+            "drive_connections": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/drive_connection" }
             }
           }
         }

@@ -42,6 +42,109 @@ export const LEGACY_UART_COMPONENT = 'orpheus.builtin.uart_link';
 export const isControlHandle = (h) => typeof h === 'string' && h.startsWith(CTL_PREFIX);
 export const ctlParamId = (h) => (isControlHandle(h) ? h.slice(CTL_PREFIX.length) : h);
 
+export const DRIVE_IN = 'drv:in';
+export const DRIVE_OUT = 'drv:out';
+export const isDriveHandle = (handle) => typeof handle === 'string' && handle.startsWith('drv:');
+export const isDriveEdge = (edge) => edge.type === 'drive'
+  || isDriveHandle(edge.sourceHandle) || isDriveHandle(edge.targetHandle);
+
+/** 执行引脚由框架提供；复合组件边界同样可调用，配置节点不参与。 */
+export function driveHandles(data, flowMode) {
+  if (flowMode !== 'task_sequence' || !data || data.missing || data.bridgeConfig
+    || data.component === LEGACY_UART_COMPONENT
+    || data.component === BRIDGE_COMPONENT || data.component === PLACEHOLDER_ID
+    || data.packageType === 'placeholder') return [];
+  return data.clockSource ? [DRIVE_OUT] : [DRIVE_IN, DRIVE_OUT];
+}
+
+/** 第一阶段仅允许无环执行图；根是否为时钟源由编译器做最终校验。 */
+export function validateDriveConnection(nodes, edges, params, flowMode) {
+  const source = nodes.find((node) => node.id === params.source);
+  const target = nodes.find((node) => node.id === params.target);
+  if (params.sourceHandle !== DRIVE_OUT || params.targetHandle !== DRIVE_IN)
+    return '执行引脚只能从执行输出连接到执行输入，不能与数据或控制引脚混连';
+  if (!driveHandles(source?.data, flowMode).includes(DRIVE_OUT)
+    || !driveHandles(target?.data, flowMode).includes(DRIVE_IN))
+    return '执行连接仅支持任务驱动模式下的可执行节点；时钟源没有执行输入';
+  const driveEdges = edges.filter(isDriveEdge);
+  if (driveEdges.some((edge) => edge.source === params.source && edge.target === params.target))
+    return '执行连接已存在';
+  const pending = [params.target];
+  const visited = new Set();
+  while (pending.length) {
+    const id = pending.pop();
+    if (id === params.source) return '执行连接不能形成循环（当前阶段仅支持执行 DAG）';
+    if (visited.has(id)) continue;
+    visited.add(id);
+    driveEdges.filter((edge) => edge.source === id).forEach((edge) => pending.push(edge.target));
+  }
+  return null;
+}
+
+export function driveTimingFields(data = {}) {
+  return {
+    ...(data.every !== undefined ? { every: data.every } : {}),
+    ...(data.phase !== undefined ? { phase: data.phase } : {}),
+  };
+}
+
+export function driveTimingLabel(data = {}) {
+  const every = data.every ?? 1;
+  const phase = data.phase ?? (every - 1);
+  return every !== 1 || phase !== 0 ? `每${every}次·相位${phase}` : '';
+}
+
+export function reconnectDriveEdge(edge, params) {
+  return {
+    ...params, type: 'drive', id: `ed-${params.source}:out-${params.target}:in`,
+    ...(edge?.data ? { data: { ...edge.data } } : {}),
+  };
+}
+
+export function flowDriveConnections(edges) {
+  return (edges || []).filter(
+    (edge) => isDriveEdge(edge) && edge.sourceHandle === DRIVE_OUT && edge.targetHandle === DRIVE_IN
+  ).map((edge) => ({
+    from: `${edge.source}:out`, to: `${edge.target}:in`, ...driveTimingFields(edge.data),
+  }));
+}
+
+/** 复制选中子图时保留三类内部连线，粘贴时统一重映射节点与边 ID。 */
+export function copyFlowSelection(view, selectedIds) {
+  const ids = new Set(selectedIds);
+  return JSON.parse(JSON.stringify({
+    nodes: view.nodes.filter((node) => ids.has(node.id)),
+    edges: view.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)),
+  }));
+}
+
+export function pasteFlowSelection(view, clipboard, offset = 40) {
+  const ids = new Set(view.nodes.map((node) => node.id));
+  const mapping = {};
+  const nodes = clipboard.nodes.map((node) => {
+    let id = `${node.id}_copy`;
+    let index = 2;
+    while (ids.has(id)) id = `${node.id}_copy${index++}`;
+    ids.add(id);
+    mapping[node.id] = id;
+    return { ...node, id, selected: true,
+      position: { x: node.position.x + offset, y: node.position.y + offset },
+      data: { ...node.data, label: node.data.label === node.id ? id : node.data.label } };
+  });
+  nodes.forEach((node) => {
+    node.data.alters = (node.data.alters || []).filter((id) => mapping[id]).map((id) => mapping[id]);
+  });
+  const edges = clipboard.edges.map((edge) => ({
+    ...edge,
+    id: `copy-${edge.type || 'audio'}-${mapping[edge.source]}:${edge.sourceHandle}-${mapping[edge.target]}:${edge.targetHandle}`,
+    source: mapping[edge.source], target: mapping[edge.target], selected: false,
+  }));
+  return {
+    nodes: [...view.nodes.map((node) => ({ ...node, selected: false })), ...nodes],
+    edges: [...view.edges, ...edges],
+  };
+}
+
 /**
  * 求值形状声明（[int | 'param:xxx', ...]）为具体维度。
  * 返回 int[]（[] 表示标量）；任一元素求值失败（非有限整数）返回 null。
@@ -159,7 +262,7 @@ export function alterGroupScreenBounds(nodes, memberIds, viewport, padding = 18)
 }
 
 /** graph {nodes, connections} + 顶层 control_connections -> { nodes, edges } for React Flow. */
-export function graphToFlow(graph, catalogById, controlConnections = [], bridges = [], algorithmProjection = {}) {
+export function graphToFlow(graph, catalogById, controlConnections = [], bridges = [], algorithmProjection = {}, driveConnections = []) {
   const nodes = (graph?.nodes || []).map((n) => {
     const comp = catalogById[n.component];
     return {
@@ -231,7 +334,16 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
       type: 'control',
     };
   });
-  return { nodes, edges: [...edges, ...controlEdges] };
+  const driveEdges = (driveConnections || []).map((connection) => ({
+    id: `ed-${connection.from}-${connection.to}`,
+    source: connection.from.split(':')[0],
+    target: connection.to.split(':')[0],
+    sourceHandle: DRIVE_OUT,
+    targetHandle: DRIVE_IN,
+    type: 'drive',
+    data: driveTimingFields(connection),
+  }));
+  return { nodes, edges: [...edges, ...controlEdges, ...driveEdges] };
 }
 
 /** React Flow nodes/edges -> graph {nodes, connections}（控制边不进 connections，由 viewsToDoc 单独写回顶层段）。 */
@@ -249,7 +361,9 @@ export function flowToGraph(nodes, edges) {
       ...(n.data.todos?.length ? { todos: n.data.todos } : {}),
     })),
     connections: edges
-      .filter((edge) => edge.sourceHandle && edge.targetHandle && edge.type !== 'control')
+      .filter((edge) => edge.sourceHandle && edge.targetHandle && edge.type !== 'control'
+        && !isControlHandle(edge.sourceHandle) && !isControlHandle(edge.targetHandle)
+        && !isDriveEdge(edge))
       .map((e) => ({
         from: `${e.source}:${e.sourceHandle}`,
         to: `${e.target}:${e.targetHandle}`,
@@ -277,11 +391,13 @@ export function docToViews(doc, globalComponents) {
   const views = {
     main: graphToFlow(
       graphToViewDocument(doc.graph, subIds), catalogById,
-      doc.control_connections, doc.bridges, doc.algorithm_projection
+      doc.control_connections, doc.bridges, doc.algorithm_projection, doc.drive_connections
     ),
   };
   for (const s of doc.subcomponents || []) {
-    views[subViewKey(s.id)] = graphToFlow(graphToViewDocument(s.graph, subIds), catalogById);
+    views[subViewKey(s.id)] = graphToFlow(
+      graphToViewDocument(s.graph, subIds), catalogById, [], [], {}, s.graph?.drive_connections
+    );
   }
   return { views, subsMeta };
 }
@@ -341,9 +457,16 @@ export function viewsToDoc(views, subsMeta, baseDoc) {
   } else {
     delete doc.control_connections;
   }
+  const driveConnections = flowDriveConnections(views.main?.edges);
+  if (driveConnections.length) {
+    doc.drive_connections = driveConnections;
+  } else {
+    delete doc.drive_connections;
+  }
   if (subsMeta.length > 0) {
     doc.subcomponents = subsMeta.map((sub) => {
       const view = views[subViewKey(sub.id)] || { nodes: [], edges: [] };
+      const internalDrive = flowDriveConnections(view.edges);
       return {
         id: sub.id,
         name: sub.name,
@@ -351,7 +474,10 @@ export function viewsToDoc(views, subsMeta, baseDoc) {
         ...(sub.read_only ? { read_only: true } : {}),
         ports: sub.ports,
         ...(sub.public_parameters?.length ? { public_parameters: sub.public_parameters } : {}),
-        graph: flowToGraph(view.nodes, view.edges),
+        graph: {
+          ...flowToGraph(view.nodes, view.edges),
+          ...(internalDrive.length ? { drive_connections: internalDrive } : {}),
+        },
       };
     });
   } else {

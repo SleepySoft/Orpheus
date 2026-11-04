@@ -258,6 +258,15 @@ def create_app(project_root: Path, *,
         rec.dirty = False
         return plan, plan_path
 
+    def require_single_source_host(plan: ExecutionPlan) -> None:
+        if plan.flow_mode == "task_sequence" and len(plan.tasks) > 1:
+            raise HTTPException(
+                status_code=400,
+                detail="本机默认宿主暂不自动分派多个 Source 的独立 Task；"
+                       "请使用各 Task 的动态/生成入口接入对应驱动。"
+                       "仍可编译或生成，不允许全局入口伪造多时钟同步。",
+            )
+
     def start_process_bridge(name: str, rec: ProjectRecord, argv: list[str],
                              plan: ExecutionPlan, log_name: str,
                              auto_stop_after: float | None = None) -> ProcessBridgeSession:
@@ -665,6 +674,8 @@ def create_app(project_root: Path, *,
             "plan_path": str(plan_path),
             "nodes": len(plan.nodes),
             "execution_order": plan.execution_order,
+            "flow_mode": plan.flow_mode,
+            "tasks": plan.tasks,
             "buffers": len(plan.buffers),
             "connections": len(plan.connections),
             "ignored_nodes": plan.ignored_nodes,
@@ -678,6 +689,10 @@ def create_app(project_root: Path, *,
                     "divisor": cfg.get("divisor", 1),
                     "sample_rate": cfg.get("sample_rate"),
                     "frames": cfg.get("frames"),
+                    **({
+                        "period": cfg["period"], "phase": cfg["phase"],
+                        "output_cadences": cfg.get("output_cadences", {}),
+                    } if plan.flow_mode == "task_sequence" else {}),
                 }
                 for nid, cfg in plan.node_configs.items()
             },
@@ -702,6 +717,7 @@ def create_app(project_root: Path, *,
         # 动态路径只在 PC 上运行：含设备组件时锁定 win 解析（即使工程 target=dsp，
         # alter 组也会在 win 下激活 device_in/out，保证「▶ 运行」语义直观）
         plan, plan_path = compile_record(rec, target="win" if has_device else None)
+        require_single_source_host(plan)
 
         if has_device:
             suffix = ".exe" if sys.platform == "win32" else ""
@@ -783,6 +799,7 @@ def create_app(project_root: Path, *,
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         plan, gen_dir = generate_record(rec)
+        require_single_source_host(plan)
 
         # reuse the toolchain of the main build (PATH may resolve a broken gcc)
         build_dir = gen_dir / "build"
@@ -981,6 +998,7 @@ def create_app(project_root: Path, *,
             )
         ensure_components_built(rec, flattened_project(rec))
         plan, plan_path = compile_record(rec)
+        require_single_source_host(plan)
         suffix = ".exe" if sys.platform == "win32" else ""
         rt_exe = ensure_target_built("orpheus_rt_host", f"orpheus_rt_host{suffix}")
         try:

@@ -50,6 +50,8 @@ def build_identity(plan) -> dict[str, int]:
         "control_links": plan.control_links,
         "schedule": plan.schedule,
     }
+    if getattr(plan, "flow_mode", "dataflow") != "dataflow":
+        graph_payload.update(flow_mode=plan.flow_mode, execution_order=plan.execution_order)
     plan_payload = {
         **graph_payload,
         "tasks": plan.tasks,

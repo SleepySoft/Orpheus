@@ -1663,6 +1663,8 @@ button.danger {
 .legend-audio i { border-top: 2px solid #16877c; }
 .legend-control { color: #9a4e00; }
 .legend-control i { border-top: 2px dashed #d97706; }
+.legend-drive { color: #7048e8; }
+.legend-drive i { border-top: 2px dashed #b197fc; }
 
 .subport-row.audio-export-row { border-left: 3px solid #16877c; }
 .subport-row.control-export-row { border-left: 3px solid #d97706; }
@@ -1769,6 +1771,32 @@ pre {
   border: 1px solid #ced4da;
   border-radius: 4px;
   font-size: 14px;
+}
+
+.node-drive {
+  position: relative;
+  margin: 0 10px 6px;
+  padding: 4px 0;
+  color: #b197fc;
+  border-bottom: 1px solid #7950b8;
+  font-size: 11px;
+}
+.orpheus-node .react-flow__handle.drive-handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #b197fc;
+  border-color: #7048e8;
+}
+.drive-edge-label {
+  position: absolute;
+  padding: 2px 5px;
+  border: 1px solid #7950b8;
+  border-radius: 4px;
+  background: #241a36;
+  color: #d0bfff;
+  font-size: 10px;
+  pointer-events: none;
 }
 
 .task-settings-row {

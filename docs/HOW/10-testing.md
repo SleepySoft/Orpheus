@@ -30,6 +30,21 @@ tags: [orpheus/how]
 每个可独立验收的改动通过对应验证后立即提交，再开始下一项。
 提交只包含本次改动，不混入用户已有的工作树修改。文档单独修改无需重复运行代码测试。
 
+### Task 顺序调用框架
+
+`python -m pytest orpheus_core\tests\test_task_flow.py -q` 验证显式驱动与数据绑定分离、
+Source/Task 归属、周期/相位、无音频计算、复合展开、保存/API 往返及错误拒绝。
+其中原生 runner 用动态/生成、全局/Task 入口核对：
+
+- 同次标量参数已经作用到实际音频输出，独立 PCM 参考不只比较两路同错；
+- typed BULK 在目标调用前生效，`every=2` 的两种相位分别验证跳过/保持；
+- 无关 Task 入口不能提交其它 Task 的外部 BULK 待写；
+- 旧 `test_control_links.py`、`test_static_schedule.py` 保留旧模式回归。
+
+运行数值用例前，定向重建 `task_flow_runner`、Runtime 与相关组件；
+前端驱动边的保存/复制/重连及节拍字段由 `graphUtils.test.js` 覆盖。
+详细支持范围见[Task 迁移设计的实现状态](reference/task-driven-execution-design.md#0-首批实现显式调用静态节拍与调用前参数交付)。
+
 ### 模型蒸馏的验收与断点记录
 
 - 数值正确性与执行一致性分开验证：先以原代码或独立参考核对算法，再比较动态全局、

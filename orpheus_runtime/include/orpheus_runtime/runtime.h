@@ -164,6 +164,7 @@ private:
     std::map<std::string, uint8_t*> bulk_active_map_;  // "node\x1fkey" -> active 指针
     std::map<std::string, size_t> bulk_span_map_;      // "node\x1fkey" -> 字节数
     std::map<std::string, bool> bulk_pending_;         // 待提交标志（块边界提交）
+    std::map<std::string, const std::string*> bulk_tasks_;
     struct RegisteredHook { OrpheusHookFn fn; void* ctx; };
     std::map<uint32_t, RegisteredHook> hooks_;         // 外部注册 hook（按 route_id）
     uint64_t block_counter_ = 0;  // for rate-divisor scheduling
@@ -184,6 +185,7 @@ private:
         std::vector<uint8_t> bulk_snapshot;
         const uint8_t* bulk_source = nullptr;
         uint8_t* bulk_target_shadow = nullptr;
+        uint8_t* bulk_target_active = nullptr;
         bool* bulk_target_pending = nullptr;
         const SlotEntry* bulk_target_slot = nullptr;
     };
@@ -193,12 +195,13 @@ private:
                     uint8_t* out, size_t out_cap, uint32_t* resp_words, uint32_t* resp_flags);
 
     int prepare_instance(Instance& inst, const NodeConfig& cfg);
-    void commit_bulk();
-    int control_tick_for_task(const std::string* task_id);
+    void commit_bulk(const std::string* task_id = nullptr);
+    int control_tick_for_task(const std::string* task_id, const std::string* before_node = nullptr);
     int process_nodes(const std::vector<std::string>& execution_order,
                       const std::map<std::string, uint32_t>* periods,
                       uint64_t counter, uint32_t frame_count,
-                      uint32_t timeline_flags, bool task_mode = false);
+                      uint32_t timeline_flags, bool task_mode = false,
+                      const std::map<std::string, uint32_t>* phases = nullptr);
     void task_bridge_push(TaskBridge& bridge);
     void task_bridge_pop(TaskBridge& bridge);
     void update_task_bridge_probes(TaskBridge& bridge);

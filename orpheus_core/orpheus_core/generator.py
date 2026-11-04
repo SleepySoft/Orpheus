@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -979,6 +980,7 @@ class CodeGenerator:
         # ---- 控制链路（两相快照 control_tick；语义与动态路径 Runtime::control_tick 一致：
         #      每图块一次，先读全部源到快照、再写全部目标，经组件 ABI get/set_parameter） ----
         ctl_links = list(getattr(plan, "control_links", []) or [])
+        task_sequence = getattr(plan, "flow_mode", "dataflow") == "task_sequence"
 
         def _fmt_shape(shape: list) -> str:
             return "标量" if not shape else "×".join(str(int(d)) for d in shape)
@@ -987,8 +989,19 @@ class CodeGenerator:
             src_task = plan.node_configs[link["src_node"]]["task"]
             dst_task = plan.node_configs[link["dst_node"]]["task"]
             if src_task != dst_task:
-                return "task == NULL"
-            return f'task == NULL || strcmp(task, "{self._c_escape(src_task)}") == 0'
+                task_guard = "task == NULL"
+            else:
+                task_guard = f'task == NULL || strcmp(task, "{self._c_escape(src_task)}") == 0'
+            if not task_sequence:
+                return task_guard
+            if task_sequence and link.get("delivery") == "before_call":
+                delivery_guard = (
+                    f'before_node != NULL && strcmp(before_node, '
+                    f'"{self._c_escape(link["dst_node"])}") == 0'
+                )
+            else:
+                delivery_guard = "before_node == NULL"
+            return f'({task_guard}) && ({delivery_guard})'
 
         if ctl_links:
             lines.append('/* ==== 控制链路（块边界两相快照：先全读、后全写，每链 1 块延迟，')
@@ -1005,7 +1018,10 @@ class CodeGenerator:
                         f'static char g_ctl_str{i}[256];  /* string 链快照缓冲（256B 上限，超长截断） */'
                     )
             lines.append('')
-            lines.append('static int control_tick(const char* task) {')
+            lines.append(
+                'static int control_tick(const char* task, const char* before_node) {'
+                if task_sequence else 'static int control_tick(const char* task) {'
+            )
             lines.append('    int rc;')
             lines.append('    /* 第一相：读 —— 全部源参数 → 快照（经组件 get_parameter） */')
             for i, link in enumerate(ctl_links):
@@ -1055,6 +1071,11 @@ class CodeGenerator:
                         f'g_ctl_bulk{i}, {int(link["count"])});'
                     )
                     lines.append('    if (rc != ORPHEUS_OK) return rc;')
+                    if task_sequence and link.get("delivery") == "before_call":
+                        lines.append(
+                            f'    orpheus_control_commit_bulk_slot('
+                            f'"{link["dst_node"]}", "{link.get("dst_slot", link["dst_param"])}");'
+                        )
                     lines.append('    }')
                     continue
                 s_dst = self._sanitized_node_id(link["dst_node"])
@@ -1277,7 +1298,11 @@ class CodeGenerator:
             period = int(cfg.get("period", 0) or cfg.get("divisor", 1))
             frames = cfg.get("frames", 0)
             if period > 1:
-                lines.append(f'    if ((g_block_counter + 1) % {period} == 0) {{')
+                if task_sequence:
+                    phase = int(cfg.get("phase", 0))
+                    lines.append(f'    if (g_block_counter % {period} == {phase}) {{')
+                else:
+                    lines.append(f'    if ((g_block_counter + 1) % {period} == 0) {{')
             indent = '        ' if period > 1 else '    '
             lines.append(
                 f'{indent}/* {self._c_escape(node_id)}: {self._c_escape(cfg["component"])} */'
@@ -1291,7 +1316,11 @@ class CodeGenerator:
             lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
             frame_step = int(cfg.get("frame_step", 0))
             step_expr = str(frame_step) if frame_step else "ctx.frame_count"
-            lines.append(f'{indent}ctx.frame_index = (g_block_counter / {period}u) * (uint64_t){step_expr};')
+            origin_expr = f' + UINT64_C({int(cfg.get("frame_origin", 0))})' if task_sequence else ''
+            lines.append(
+                f'{indent}ctx.frame_index = (g_block_counter / {period}u) '
+                f'* (uint64_t){step_expr}{origin_expr};'
+            )
             lines.append(f'{indent}ctx.timestamp = ctx.sample_rate > 0 ? (double)ctx.frame_index / (double)ctx.sample_rate : 0.0;')
             lines.append(f'{indent}ctx.epoch = g_timeline_epoch;')
             lines.append(f'{indent}ctx.valid_frames = ctx.frame_count;')
@@ -1303,6 +1332,9 @@ class CodeGenerator:
             lines.append(f'{indent}ctx.outputs = {out_name};')
             lines.append(f'{indent}ctx.input_count = {n_in};')
             lines.append(f'{indent}ctx.output_count = {n_out};')
+            if task_sequence and ctl_links:
+                lines.append(f'{indent}rc = control_tick(NULL, "{self._c_escape(node_id)}");')
+                lines.append(f'{indent}if (rc != ORPHEUS_OK) return rc;')
             lines.append(f'{indent}rc = g_iface_{s}->process(g_state_{s}, &ctx);')
             lines.append(
                 f'{indent}if (rc != ORPHEUS_OK) return orpheus_graph_fail("process", '
@@ -1326,7 +1358,8 @@ class CodeGenerator:
             lines.append('    orpheus_platform_io_post_block();')
         if ctl_links:
             lines.append('')
-            lines.append('    rc = control_tick(NULL);')
+            lines.append('    rc = control_tick(NULL, NULL);' if task_sequence
+                         else '    rc = control_tick(NULL);')
         lines.append('    g_block_counter++;')
         lines.append('    g_frame_index += advance;')
         lines.append('    g_timeline_flags = ORPHEUS_TIMELINE_NONE;')
@@ -1341,6 +1374,7 @@ class CodeGenerator:
             task_sym = self._sanitized_node_id(task_id)
             task_nodes = task.get("execution_order", [])
             task_periods = (task.get("schedule") or {}).get("periods", {})
+            task_phases = (task.get("schedule") or {}).get("phases", task.get("phases", {}))
             task_node_set = set(task_nodes)
             task_ctl_links = [
                 (i, link) for i, link in enumerate(ctl_links)
@@ -1383,7 +1417,10 @@ class CodeGenerator:
                 lines.append(f'        g_trigger_last_sequence_{task_sym} = trigger->sequence;')
                 lines.append(f'        g_trigger_next_frame_{task_sym} = trigger->frame_index + trigger->frames;')
                 lines.append('    }')
-            lines.append('    orpheus_control_commit_bulk();')
+            if task_sequence:
+                lines.append(f'    orpheus_control_commit_bulk_task("{self._c_escape(task_id)}");')
+            else:
+                lines.append('    orpheus_control_commit_bulk();')
             if task_has_platform_io:
                 lines.append('    orpheus_platform_io_pre_block();')
             for node_id in task_nodes:
@@ -1393,10 +1430,18 @@ class CodeGenerator:
                 n_out = len(cfg.get("output_ports", []))
                 in_name = f'g_inputs_{s}' if n_in else 'NULL'
                 out_name = f'g_outputs_{s}' if n_out else 'NULL'
-                period = int(task_periods.get(node_id, 1))
+                period = int(task_periods.get(
+                    node_id, cfg.get("period", 0) or cfg.get("divisor", 1)
+                )) if task_sequence else int(task_periods.get(node_id, 1))
                 frames = cfg.get("frames", 0)
                 if period > 1:
-                    lines.append(f'    if ((g_task_counter_{task_sym} + 1) % {period} == 0) {{')
+                    if task_sequence:
+                        phase = int(task_phases.get(node_id, 0))
+                        lines.append(
+                            f'    if (g_task_counter_{task_sym} % {period} == {phase}) {{'
+                        )
+                    else:
+                        lines.append(f'    if ((g_task_counter_{task_sym} + 1) % {period} == 0) {{')
                 indent = '        ' if period > 1 else '    '
                 lines.append(
                     f'{indent}/* {self._c_escape(node_id)}: {self._c_escape(cfg["component"])} */'
@@ -1410,7 +1455,42 @@ class CodeGenerator:
                 lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
                 frame_step = int(cfg.get("frame_step", 0))
                 step_expr = str(frame_step) if frame_step else "ctx.frame_count"
-                if external_trigger:
+                origin_expr = f' + UINT64_C({int(cfg.get("frame_origin", 0))})' if task_sequence else ''
+                if external_trigger and task_sequence:
+                    quantum = (
+                        Fraction(str(node_sr)) * int(task.get("block_size", plan.block_size))
+                        / Fraction(str(task.get("sample_rate", plan.sample_rate)))
+                    )
+                    lines.append(f'{indent}if (trigger != NULL) {{')
+                    if quantum.denominator != 1:
+                        lines.append(
+                            f'{indent}    return orpheus_graph_fail("process_task:{self._c_escape(task_id)}", '
+                            f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", '
+                            'ORPHEUS_ERR_INVALID_ARG);'
+                        )
+                    else:
+                        lines.append(
+                            f'{indent}    if (trigger->frame_index > UINT64_MAX - UINT64_C({quantum.numerator}) ||'
+                        )
+                        lines.append(
+                            f'{indent}        trigger->frame_index + UINT64_C({quantum.numerator}) < ctx.frame_count)'
+                        )
+                        lines.append(
+                            f'{indent}        return orpheus_graph_fail("process_task:{self._c_escape(task_id)}", '
+                            f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", '
+                            'ORPHEUS_ERR_INVALID_ARG);'
+                        )
+                        lines.append(
+                            f'{indent}    ctx.frame_index = trigger->frame_index + '
+                            f'UINT64_C({quantum.numerator}) - ctx.frame_count;'
+                        )
+                    lines.append(f'{indent}}} else {{')
+                    lines.append(
+                        f'{indent}    ctx.frame_index = (g_task_counter_{task_sym} / {period}u) '
+                        f'* (uint64_t){step_expr}{origin_expr};'
+                    )
+                    lines.append(f'{indent}}}')
+                elif external_trigger:
                     lines.append(
                         f'{indent}ctx.frame_index = trigger != NULL ? trigger->frame_index : '
                         f'(g_task_counter_{task_sym} / {period}u) * (uint64_t){step_expr};'
@@ -1418,7 +1498,7 @@ class CodeGenerator:
                 else:
                     lines.append(
                         f'{indent}ctx.frame_index = (g_task_counter_{task_sym} / {period}u) '
-                        f'* (uint64_t){step_expr};'
+                        f'* (uint64_t){step_expr}{origin_expr};'
                     )
                 lines.append(
                     f'{indent}ctx.timestamp = ctx.sample_rate > 0 ? '
@@ -1445,6 +1525,12 @@ class CodeGenerator:
                 lines.append(f'{indent}ctx.outputs = {out_name};')
                 lines.append(f'{indent}ctx.input_count = {n_in};')
                 lines.append(f'{indent}ctx.output_count = {n_out};')
+                if task_sequence and task_ctl_links:
+                    lines.append(
+                        f'{indent}rc = control_tick("{self._c_escape(task_id)}", '
+                        f'"{self._c_escape(node_id)}");'
+                    )
+                    lines.append(f'{indent}if (rc != ORPHEUS_OK) return rc;')
                 lines.append(f'{indent}rc = g_iface_{s}->process(g_state_{s}, &ctx);')
                 lines.append(
                     f'{indent}if (rc != ORPHEUS_OK) return orpheus_graph_fail("process_task:{self._c_escape(task_id)}", '
@@ -1464,7 +1550,10 @@ class CodeGenerator:
             if task_has_platform_io:
                 lines.append('    orpheus_platform_io_post_block();')
             if task_ctl_links:
-                lines.append(f'    rc = control_tick("{self._c_escape(task_id)}");')
+                lines.append(
+                    f'    rc = control_tick("{self._c_escape(task_id)}", NULL);'
+                    if task_sequence else f'    rc = control_tick("{self._c_escape(task_id)}");'
+                )
             lines.append(f'    g_task_counter_{task_sym}++;')
             lines.append(f'    g_task_frame_index_{task_sym} += advance;')
             lines.append(f'    g_task_timeline_flags_{task_sym} = ORPHEUS_TIMELINE_NONE;')
@@ -2704,6 +2793,8 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             'void orpheus_control_slot_register(void* state, const OrpheusSlotInfo* info);',
             'void orpheus_control_reset(void);',
             'void orpheus_control_commit_bulk(void);',
+            'void orpheus_control_commit_bulk_task(const char* task);',
+            'void orpheus_control_commit_bulk_slot(const char* node, const char* key);',
             'size_t orpheus_control_bulk_count(const char* node, const char* key);',
             'size_t orpheus_control_bulk_count_id(uint32_t id);',
             'int orpheus_control_write_bulk(const char* node, const char* key, const void* data, size_t count);',
@@ -2742,6 +2833,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         c.append('/* 槽表：init 时 register_slots 记录，write/get 按 node/key 寻址 */')
         c.append('typedef struct {')
         c.append('    const char* node;')
+        c.append('    const char* task;')
         c.append('    const char* key;')
         c.append('    uint32_t kind;')
         c.append('    uint32_t type;')
@@ -2781,6 +2873,12 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         c.append('    if (!info || !info->key || g_gen_slot_count >= ORPHEUS_GEN_MAX_SLOTS) return;')
         c.append('    OrpheusGenSlot* s = &g_gen_slots[g_gen_slot_count++];')
         c.append('    s->node = g_reg_node;')
+        c.append('    s->task = NULL;')
+        for node_id, cfg in plan.node_configs.items():
+            c.append(
+                f'    if (strcmp(g_reg_node, "{self._c_escape(node_id)}") == 0) '
+                f's->task = "{self._c_escape(cfg.get("task", "default"))}";'
+            )
         c.append('    s->key = info->key;')
         c.append('    s->kind = info->kind;')
         c.append('    s->type = info->type;')
@@ -2847,6 +2945,24 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         c.append('    for (size_t i = 0; i < g_gen_slot_count; ++i) {')
         c.append('        OrpheusGenSlot* s = &g_gen_slots[i];')
         c.append('        if (s->pending && s->shadow) {')
+        c.append('            memcpy((char*)s->state + s->offset, s->shadow, s->count * s->size);')
+        c.append('            s->pending = 0;')
+        c.append('        }')
+        c.append('    }')
+        c.append('}')
+        c.append('')
+        c.append('void orpheus_control_commit_bulk_slot(const char* node, const char* key) {')
+        c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
+        c.append('    if (s && s->pending && s->shadow) {')
+        c.append('        memcpy((char*)s->state + s->offset, s->shadow, s->count * s->size);')
+        c.append('        s->pending = 0;')
+        c.append('    }')
+        c.append('}')
+        c.append('')
+        c.append('void orpheus_control_commit_bulk_task(const char* task) {')
+        c.append('    for (size_t i = 0; i < g_gen_slot_count; ++i) {')
+        c.append('        OrpheusGenSlot* s = &g_gen_slots[i];')
+        c.append('        if (s->task && strcmp(s->task, task) == 0 && s->pending && s->shadow) {')
         c.append('            memcpy((char*)s->state + s->offset, s->shadow, s->count * s->size);')
         c.append('            s->pending = 0;')
         c.append('        }')

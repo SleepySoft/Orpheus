@@ -28,10 +28,18 @@ import {
   isSubRef,
   subIdOf,
   subViewKey,
+  isDriveHandle,
+  isDriveEdge,
+  validateDriveConnection,
+  copyFlowSelection,
+  pasteFlowSelection,
+  reconnectDriveEdge,
 } from './graphUtils';
 import OrpheusNode from './OrpheusNode';
 import AudioEdge from './AudioEdge';
 import ControlEdge from './ControlEdge';
+import DriveEdge from './DriveEdge';
+import SignalLegend from './SignalLegend';
 import ParamPanel from './ParamPanel';
 import ParamBrowser from './ParamBrowser';
 import Palette from './Palette';
@@ -48,7 +56,7 @@ import TodoPanel from './TodoPanel';
 import { PLACEHOLDER_ID, newTodo } from './placeholder';
 
 const nodeTypes = { orpheus: OrpheusNode };
-const edgeTypes = { audio: AudioEdge, control: ControlEdge };
+const edgeTypes = { audio: AudioEdge, control: ControlEdge, drive: DriveEdge };
 const AUTOSAVE_DELAY_MS = 1500;
 const EMPTY_VIEW = { nodes: [], edges: [] };
 
@@ -133,6 +141,8 @@ function Editor() {
   const [saving, setSaving] = useState(false);
   const [autoSave, setAutoSave] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const clipboardRef = useRef(null);
+  const pasteCountRef = useRef(0);
   const [showParams, setShowParams] = useState(false);
   const [showLesson, setShowLesson] = useState(false);
   const [lessonResult, setLessonResult] = useState(null);
@@ -212,6 +222,7 @@ const { screenToFlowPosition } = useReactFlow();
     [fullCatalog]
   );
   const view = views[activeView] || EMPTY_VIEW;
+  const flowMode = doc?.flow_mode || 'dataflow';
   const nodesInitialized = useNodesInitialized();
   const initializedViewRef = useRef('');
   const activeSubId = activeView === 'main' ? null : subIdOf(activeView);
@@ -597,8 +608,48 @@ const { screenToFlowPosition } = useReactFlow();
     [activeView, updateView]
   );
 
+  useEffect(() => {
+    const onKey = (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || !current) return;
+      if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      const key = event.key.toLowerCase();
+      if (key === 'c' && selectedIds.length) {
+        event.preventDefault();
+        clipboardRef.current = copyFlowSelection(view, selectedIds);
+        pasteCountRef.current = 0;
+        setStatus(`已复制 ${clipboardRef.current.nodes.length} 个节点及内部连线`);
+      } else if (key === 'v' && clipboardRef.current?.nodes.length) {
+        event.preventDefault();
+        pasteCountRef.current += 1;
+        const pasted = pasteFlowSelection(view, clipboardRef.current, pasteCountRef.current * 40);
+        updateView(activeView, () => pasted);
+        const ids = pasted.nodes.filter((node) => node.selected).map((node) => node.id);
+        setSelectedIds(ids);
+        setSelectedId(ids.length === 1 ? ids[0] : null);
+        setDirty(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeView, current, selectedIds, updateView, view]);
+
   const onConnect = useCallback(
-    (params) => {
+    (params, replacedEdge = null) => {
+      const remainingEdges = view.edges.filter((edge) => edge.id !== replacedEdge?.id);
+      const replaceOrAdd = (edge) => updateView(activeView, (v) => ({
+        ...v,
+        edges: addEdge(edge, v.edges.filter((existing) => existing.id !== replacedEdge?.id)),
+      }));
+      if (isDriveHandle(params.sourceHandle) || isDriveHandle(params.targetHandle)) {
+        const error = validateDriveConnection(view.nodes, remainingEdges, params, flowMode);
+        if (error) {
+          setStatus(`执行连接被拒绝：${error}`);
+          return;
+        }
+        replaceOrAdd(reconnectDriveEdge(replacedEdge, params));
+        setDirty(true);
+        return;
+      }
       // 控制引脚只能连控制引脚，音频引脚只能连音频引脚（交叉拒绝）
       const srcCtl = isControlHandle(params.sourceHandle);
       const dstCtl = isControlHandle(params.targetHandle);
@@ -607,7 +658,7 @@ const { screenToFlowPosition } = useReactFlow();
         return;
       }
       // an input pin may be driven by exactly one wire（控制目标引脚同样独占）
-      const occupied = view.edges.some(
+      const occupied = remainingEdges.some(
         (e) => e.target === params.target && e.targetHandle === params.targetHandle
       );
       if (occupied) {
@@ -622,16 +673,13 @@ const { screenToFlowPosition } = useReactFlow();
           return;
         }
         const id = `ec-${params.source}:${ctlParamId(params.sourceHandle)}-${params.target}:${ctlParamId(params.targetHandle)}`;
-        updateView(activeView, (v) => ({
-          ...v,
-          edges: addEdge({ ...params, id, type: 'control' }, v.edges),
-        }));
+        replaceOrAdd({ ...params, id, type: 'control' });
       } else {
-        updateView(activeView, (v) => ({ ...v, edges: addEdge(params, v.edges) }));
+        replaceOrAdd(params);
       }
       setDirty(true);
     },
-    [activeView, updateView, view.edges, view.nodes]
+    [activeView, updateView, view.edges, view.nodes, flowMode]
   );
 
   const onDragOver = useCallback((event) => {
@@ -716,7 +764,7 @@ const { screenToFlowPosition } = useReactFlow();
         const valid = new Set((edited?.data.ports || []).map((p) => p.id));
         const edges = v.edges.filter(
           (e) =>
-            e.type === 'control' ||
+            e.type === 'control' || isDriveEdge(e) ||
             (!(e.source === selectedId && !valid.has(e.sourceHandle)) &&
               !(e.target === selectedId && !valid.has(e.targetHandle)))
         );
@@ -771,7 +819,7 @@ const { screenToFlowPosition } = useReactFlow();
         // 同上：控制边不参与按端口的剪线（失配标红保留）
         const edges = v.edges.filter(
           (e) =>
-            e.type === 'control' ||
+            e.type === 'control' || isDriveEdge(e) ||
             (!(e.source === nodeId && !valid.has(e.sourceHandle)) &&
               !(e.target === nodeId && !valid.has(e.targetHandle)))
         );
@@ -1082,6 +1130,10 @@ const { screenToFlowPosition } = useReactFlow();
     const S = new Set(selectedIds.filter((id) => view.nodes.some((n) => n.id === id)));
     if (S.size === 0) {
       setStatus('请先在当前视图中选择要包装的节点');
+      return;
+    }
+    if (view.edges.some((edge) => isDriveEdge(edge) && (S.has(edge.source) || S.has(edge.target)))) {
+      setStatus('当前阶段不支持将含执行连线的节点包装为子组件，请先显式移除相关执行连线');
       return;
     }
     const subId = promptSubId();
@@ -1688,7 +1740,9 @@ const { screenToFlowPosition } = useReactFlow();
     () =>
       view.edges
         .filter((e) => showControlLinks || e.type !== 'control')
+        .filter((e) => !isDriveEdge(e) || flowMode === 'task_sequence')
         .map((e) => {
+          if (isDriveEdge(e)) return { ...e, type: 'drive' };
           if (e.type !== 'control') return { ...e, type: 'audio' };
           const src = controlEndpointInfo(view.nodes, e.source, e.sourceHandle);
           const dst = controlEndpointInfo(view.nodes, e.target, e.targetHandle);
@@ -1698,11 +1752,13 @@ const { screenToFlowPosition } = useReactFlow();
             data: { srcShape: src?.shape ?? null, dstShape: dst?.shape ?? null, mismatch },
           };
         }),
-    [view.edges, view.nodes, showControlLinks]
+    [view.edges, view.nodes, showControlLinks, flowMode, activeView]
   );
 
   const displayNodes = useMemo(() => {
-    if (!activeSub) return view.nodes;
+    if (!activeSub) return view.nodes.map((node) => ({
+      ...node, data: { ...node.data, flowMode },
+    }));
     const audioByNode = {};
     const controlByNode = {};
     const addExport = (table, exported) => {
@@ -1716,18 +1772,18 @@ const { screenToFlowPosition } = useReactFlow();
     activeSub.ports.forEach((port) => addExport(audioByNode, port));
     (activeSub.public_parameters || []).forEach((parameter) => addExport(controlByNode, parameter));
     return view.nodes.map((node) => {
-      if (!audioByNode[node.id] && !controlByNode[node.id]) return node;
       return {
         ...node,
         data: {
           ...node.data,
+          flowMode,
           exportSubId: activeSub.id,
           exportedAudioPorts: audioByNode[node.id] || {},
           exportedControlParameters: controlByNode[node.id] || {},
         },
       };
     });
-  }, [activeSub, view.nodes]);
+  }, [activeSub, view.nodes, flowMode]);
 
   const revealSubExport = useCallback((subId, kind, id) => {
     const viewKey = subViewKey(subId);
@@ -2087,10 +2143,7 @@ const { screenToFlowPosition } = useReactFlow();
           </>
         )}
         <div className={`canvas ${showControlLinks ? 'control-links-visible' : ''}`} onDrop={onDrop} onDragOver={onDragOver}>
-          <div className="signal-legend" aria-label="链路图例">
-            <span className="legend-audio"><i />音频</span>
-            {showControlLinks && <span className="legend-control"><i />控制</span>}
-          </div>
+          <SignalLegend flowMode={flowMode} showControlLinks={showControlLinks} />
           <NodeActionsContext.Provider value={{ showReadme: handleShowReadme, showControlLinks, revealSubExport }}>
             <ReactFlow
             key={`${current || 'empty'}:${activeView}`}
@@ -2099,6 +2152,7 @@ const { screenToFlowPosition } = useReactFlow();
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onEdgeUpdate={(edge, params) => onConnect(params, edge)}
             onNodeClick={(_, node) => setSelectedId(node.id)}
             onNodeDoubleClick={onNodeDoubleClick}
             onPaneClick={() => setSelectedId(null)}

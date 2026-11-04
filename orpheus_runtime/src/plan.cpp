@@ -23,6 +23,7 @@ Plan Plan::load_from_file(const std::string& path) {
     p.buffer_size = j.value("buffer_size", 0u);
     p.duration_frames = j.value("duration_frames", 0u);
     p.task_id = j.value("task_id", "default");
+    p.flow_mode = j.value("flow_mode", "dataflow");
     p.schedule_tick = j.value("schedule", json::object()).value("tick", 0u);
     const auto bridge_identity = j.value("bridge_identity", json::object());
     p.bridge_graph_hash = bridge_identity.value("graph_hash", UINT64_C(0));
@@ -47,6 +48,10 @@ Plan Plan::load_from_file(const std::string& path) {
         const auto task_periods = schedule.value("periods", json::object());
         for (auto it = task_periods.begin(); it != task_periods.end(); ++it) {
             tc.periods[it.key()] = it.value().get<uint32_t>();
+        }
+        const auto task_phases = schedule.value("phases", t.value("phases", json::object()));
+        for (auto it = task_phases.begin(); it != task_phases.end(); ++it) {
+            tc.phases[it.key()] = it.value().get<uint32_t>();
         }
         p.tasks.push_back(tc);
     }
@@ -96,9 +101,11 @@ Plan Plan::load_from_file(const std::string& path) {
         }
         cfg.divisor = it.value().value("divisor", 1u);
         cfg.period = it.value().value("period", 0u);
+        cfg.phase = it.value().value("phase", -1);
         cfg.block_size = it.value().value("block_size", 0u);
         cfg.frames = it.value().value("frames", 0u);
         cfg.frame_step = it.value().value("frame_step", 0u);
+        cfg.frame_origin = it.value().value("frame_origin", UINT64_C(0));
         cfg.sample_rate = it.value().value("sample_rate", 0.0);
         p.node_configs[it.key()] = cfg;
         } catch (const std::exception& e) {
@@ -152,6 +159,7 @@ Plan Plan::load_from_file(const std::string& path) {
         cc.dst_slot = cl.value("dst_slot", cc.dst_param);
         cc.type = cl.value("type", "float");
         cc.transport = cl.value("transport", "scalar");
+        cc.delivery = cl.value("delivery", "");
         for (const auto& d : cl.value("shape", json::array())) {
             cc.shape.push_back(static_cast<uint32_t>(d.get<int>()));
         }
