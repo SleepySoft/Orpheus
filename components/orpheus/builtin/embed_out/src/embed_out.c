@@ -71,7 +71,7 @@ static int embed_out_process(void* state, const OrpheusProcessContext* ctx) {
     if (s->dst != NULL && s->dst_capacity >= frames) {
         memcpy(s->dst, in->data, (size_t)frames * ch * sizeof(float));
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int embed_out_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

@@ -1,7 +1,7 @@
 id: orpheus.test.mixed_pair_capture
 name: 浮点输入与整数结果采集
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: MixedPairCapture
 sources: [src/capture.c]

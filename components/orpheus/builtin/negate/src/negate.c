@@ -28,7 +28,7 @@ static int neg_process(void* state, const OrpheusProcessContext* ctx) {
     uint32_t n = frames * s->channels;
     for (uint32_t i = 0; i < n; ++i) out[i] = -in[i];
     if (ctx->outputs[0]->frame_capacity >= frames) ctx->outputs[0]->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int neg_set(void* state, const char* id, const OrpheusValue* v) { (void)state;(void)id;(void)v; return ORPHEUS_ERR_UNSUPPORTED; }

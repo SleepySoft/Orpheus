@@ -2,7 +2,7 @@ id: orpheus.builtin.halfcomplex_decode
 name: 半复数频谱解包
 category: 高级/频域
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: HalfcomplexDecodeState
 description: >-

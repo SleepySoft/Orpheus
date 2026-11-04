@@ -2,7 +2,9 @@
 
 ## 目标
 
-工程中的 `tasks` 不再只是端口参数上下文。编译后的 plan 显式保存每个 Task 的节点、拓扑序和局部调度周期；动态 Runtime 与生成工程提供一致的 Task 入口。
+工程中的 `tasks` 不再只是端口参数上下文。动态 Runtime 与生成工程提供一致的 Task 入口：
+Task 只启动直接入口组件，后续由组件通过 ABI v6 续接接口调用其直接下游。
+具体契约见[组件链式调用](task-driven-execution-design.md#0-当前实现task-启动入口组件调用下游)。
 
 ## Plan 契约
 
@@ -10,10 +12,12 @@
 
 - `id/name/sample_rate/block_size/priority`
 - `nodes/execution_order`
+- `entry_nodes`：Task 可直接启动的入口；全图 `call_graph` 保存组件的直接调用连接
 - `schedule.tick`：该 Task 在图采样率时间轴上的触发量子
 - `schedule.periods`：节点相对该 Task tick 的触发周期
 
-旧的 `task_id`、全局 `execution_order` 和 `schedule` 保留。旧宿主继续调用全局入口，行为与历史 plan 一致。
+`execution_order` 仅用于编译分析、内存布局及展示，不参与运行期逐节点分派。
+`schedule` 用于宿主推进和入口节拍，不在下游组件处执行周期门控。
 
 ## 执行入口
 
@@ -31,7 +35,8 @@ orpheus_generated_process_task_producer(producer_frames);
 orpheus_generated_process_task_consumer(consumer_frames);
 ```
 
-文件宿主支持重复的 `--task <id> <blocks>`，用于测试和平台调度器联调。每个 Task 有独立计数器，按自己的局部 period 触发节点。
+文件宿主支持重复的 `--task <id> <blocks>`。每个 Task 有独立入口计数器，
+每条分频连接有自己的调用计数器。组件不续接时，下游不会由 Task 代为调用。
 
 ## 跨 Task 规则
 

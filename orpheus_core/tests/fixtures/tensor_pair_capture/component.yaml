@@ -1,7 +1,7 @@
 id: orpheus.test.tensor_pair_capture
 name: 独立尺寸张量对采集
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: TensorPairCapture
 sources: [src/capture.c]

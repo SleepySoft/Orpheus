@@ -188,7 +188,7 @@ static int rs_process(void* state, const OrpheusProcessContext* ctx) {
         s->stored[1] -= nread;
         out->frame_count = nread;
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int rs_get_param(void* state, const char* id, OrpheusValue* v) {

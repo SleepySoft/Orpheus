@@ -94,7 +94,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         context->input_count<1 || context->output_count<1) return ORPHEUS_ERR_INVALID_ARG;
     BulkRingDelayState* s=(BulkRingDelayState*)state;
     if (!s->history || !context->inputs[0]) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     const unsigned frames=s->bins*s->batches;
     const size_t row=(size_t)s->channels*sizeof(float),bytes=frames*row;
     const OrpheusBuffer* in=context->inputs[0];OrpheusBuffer* out=context->outputs[0];
@@ -118,7 +118,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         s->cursor=(s->cursor+s->bins)%s->capacity_elements;
     }
     if (out) out->frame_count=frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

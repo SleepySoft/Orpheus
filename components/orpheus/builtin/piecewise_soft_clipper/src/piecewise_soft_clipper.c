@@ -140,7 +140,7 @@ static int process_state(void* state, const OrpheusProcessContext* context) {
     }
     clipper->active_mask = (int32_t)active_mask;
     output->frame_count = context->frame_count;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 
 static int set_parameter(void* state, const char* id, const OrpheusValue* value) {

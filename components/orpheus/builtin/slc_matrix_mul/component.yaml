@@ -3,7 +3,7 @@ name: N表插值斜坡混音矩阵
 category: 高级/矩阵与混音
 description: N表插值请求，或奇偶序列锁存目标的一阶IIR渐变矩阵
 version: 1.1.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: SlcMatrixMulState
 sources:

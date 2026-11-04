@@ -217,7 +217,7 @@ static int rfft_process(void* state, const OrpheusProcessContext* ctx) {
     }
     if (out) out->frame_count = frames;
     if (spectrum) spectrum->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 /* ---- 参数 ---- */

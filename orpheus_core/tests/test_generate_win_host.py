@@ -249,8 +249,8 @@ def test_generated_graph_advances_absolute_timeline(registry, tmp_path) -> None:
 
     assert "static uint64_t g_frame_index = 0;" in source
     assert "static uint64_t g_timeline_epoch = 0;" in source
-    assert "ctx.frame_index = (g_block_counter / 1u) * (uint64_t)ctx.frame_count;" in source
+    assert "ctx.frame_index = (node->calls - 1u) * (uint64_t)ctx.frame_count;" in source
     assert "ctx.timestamp = ctx.sample_rate > 0 ? (double)ctx.frame_index / (double)ctx.sample_rate : 0.0;" in source
-    assert "ctx.timeline_flags = g_timeline_flags |" in source
+    assert "ctx.timeline_flags = run->timeline_flags |" in source
     assert "g_frame_index += advance;" in source
     assert "g_timeline_flags = ORPHEUS_TIMELINE_NONE;" in source

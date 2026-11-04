@@ -175,7 +175,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     for (uint32_t i = 0; i < frames * ch; ++i) out_data[i] = in_data[i];  /* 直通 */
     out->frame_count = frames;
 
-    if (s->done) return ORPHEUS_OK;
+    if (s->done) return orpheus_process_next(ctx);
 
     /* 当前块起始时刻对应的扫频频率 → 分箱 */
     double tt = s->t;
@@ -224,7 +224,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         }
         s->progress = (float)measured / (float)s->bins;
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int set_param(void* state, const char* id, const OrpheusValue* v) {

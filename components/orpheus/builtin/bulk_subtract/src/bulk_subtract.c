@@ -61,18 +61,18 @@ static int process(void* state,const OrpheusProcessContext* context) {
         context->input_count<2 || context->output_count<1) return ORPHEUS_ERR_INVALID_ARG;
     const BulkSubtractState* s=(const BulkSubtractState*)state;
     if (!s->channels || s->channels>64 || !s->elements || s->elements>65536) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     size_t count=(size_t)s->channels*s->elements,bytes=count*sizeof(float);
     OrpheusBuffer* out=context->outputs[0];
     if (out && !valid(out,s->channels,s->elements,false)) return ORPHEUS_ERR_INVALID_ARG;
     for (unsigned p=0;p<2;++p)
         if (!valid(context->inputs[p],s->channels,s->elements,true) ||
             (out && overlap(context->inputs[p]->data,out->data,bytes))) return ORPHEUS_ERR_INVALID_ARG;
-    if (!out) return ORPHEUS_OK;
+    if (!out) return orpheus_process_next(context);
     const float* a=(const float*)context->inputs[0]->data;const float* b=(const float*)context->inputs[1]->data;
     float* output=(float*)out->data;
     for (size_t i=0;i<count;++i) output[i]=a[i]-b[i];
-    out->frame_count=s->elements;return ORPHEUS_OK;
+    out->frame_count=s->elements;return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

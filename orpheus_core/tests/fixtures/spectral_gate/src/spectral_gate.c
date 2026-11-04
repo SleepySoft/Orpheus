@@ -78,7 +78,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     memcpy(out->data, in->data, (size_t)frames * s->channels * sizeof(float));
     out->frame_count = frames;
     ++s->calls;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 static int register_slots(void* state, const OrpheusRegistry* reg) {
     SpectralGateState* s = (SpectralGateState*)state;

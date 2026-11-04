@@ -1,7 +1,7 @@
 id: orpheus.test.array_pair
 name: 数组计算验收数据源与采集
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: ArrayPairState
 sources: [src/array_pair.c]

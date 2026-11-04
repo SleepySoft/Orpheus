@@ -163,7 +163,7 @@ static int mixer_process(void* state, const OrpheusProcessContext* ctx) {
     }
 
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int mixer_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

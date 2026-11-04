@@ -125,7 +125,7 @@ static int psd_process(void* state, const OrpheusProcessContext* ctx) {
     float* out_data = (float*)out->data;
     if (out != in) memcpy(out_data, in_data, frames * ch * sizeof(float));
     out->frame_count = frames;
-    if (!is_pow2(frames) || frames / 2 != s->half) return ORPHEUS_OK;
+    if (!is_pow2(frames) || frames / 2 != s->half) return orpheus_process_next(ctx);
 
     uint32_t n = frames;
     uint32_t half = s->half;
@@ -151,7 +151,7 @@ static int psd_process(void* state, const OrpheusProcessContext* ctx) {
         float fraction = source - (float)lower;
         s->probe[i] = mag0[lower] + (mag0[upper] - mag0[lower]) * fraction;
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int psd_get_parameter(void* state, const char* param_id, OrpheusValue* value) {

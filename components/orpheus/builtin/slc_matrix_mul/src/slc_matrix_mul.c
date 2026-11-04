@@ -312,7 +312,7 @@ static int process_sequence(SlcMatrixMulState* s,const OrpheusProcessContext* ct
     for (unsigned i=0;i<count;++i)
         if (!isfinite(s->requested_gains[i]) || (s->initialized && (!isfinite(s->active[i]) || !isfinite(s->target[i]))))
             return ORPHEUS_ERR_INVALID_ARG;
-    if (!frames) { output->frame_count=0; return ORPHEUS_OK; }
+    if (!frames) { output->frame_count=0; return orpheus_process_next(ctx); }
     if (!s->initialized) {
         memcpy(s->active,s->requested_gains,count*sizeof(float));
         memcpy(s->target,s->requested_gains,count*sizeof(float));
@@ -337,7 +337,7 @@ static int process_sequence(SlcMatrixMulState* s,const OrpheusProcessContext* ct
             y[n*rows+r]=value;
         }
     }
-    output->frame_count=frames; return ORPHEUS_OK;
+    output->frame_count=frames; return orpheus_process_next(ctx);
 }
 
 static int smm_process(void* state, const OrpheusProcessContext* ctx) {
@@ -389,7 +389,7 @@ static int smm_process(void* state, const OrpheusProcessContext* ctx) {
     }
 
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 /* ---- 参数读写 ---- */

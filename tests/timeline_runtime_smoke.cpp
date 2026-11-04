@@ -11,6 +11,8 @@ static orpheus::Plan make_plan(bool with_task, uint32_t period = 1) {
     plan.task_id = "default";
     plan.nodes.push_back("probe");
     plan.execution_order.push_back("probe");
+    plan.entry_nodes.push_back("probe");
+    plan.call_graph["probe"] = {};
 
     orpheus::NodeConfig node;
     node.id = "probe";

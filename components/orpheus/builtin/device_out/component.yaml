@@ -4,7 +4,7 @@ category: 基础/设备
 order: 2
 platforms: [win]
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: DeviceOutState
 sources:

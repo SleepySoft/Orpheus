@@ -239,7 +239,7 @@ static int gain_process(void* state, const OrpheusProcessContext* ctx) {
             for (uint32_t c = 0; c < ch; ++c)
                 out_data[n*ch+c] = in_data[n*ch+c]*s->per_channel_gains[c];
         out->frame_count = frames;
-        return ORPHEUS_OK;
+        return orpheus_process_next(ctx);
     }
     if (s->gain_mode == 1) {
         for (uint32_t n = 0; n < frames; ++n) {
@@ -253,7 +253,7 @@ static int gain_process(void* state, const OrpheusProcessContext* ctx) {
                 out_data[n * ch + c] = in_data[n * ch + c] * gain;
         }
         out->frame_count = frames;
-        return ORPHEUS_OK;
+        return orpheus_process_next(ctx);
     }
 
     /* 平滑过渡增益 */
@@ -265,7 +265,7 @@ static int gain_process(void* state, const OrpheusProcessContext* ctx) {
     }
 
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int gain_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

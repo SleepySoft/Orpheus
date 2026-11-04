@@ -3,7 +3,7 @@ name: 重叠相加
 category: 高级/频域
 description: 将num_frames个时域帧按hop_size重叠累加，输出hop_size*num_frames个连续样本，保留跨调用尾部。只做相加，窗口及归一化必须显式外置；reset清除历史。
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: OverlapAddState
 scheduling:

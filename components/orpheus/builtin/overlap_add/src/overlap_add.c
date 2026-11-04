@@ -116,7 +116,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         memset(s->history + tail_count, 0, hop_count * sizeof(float));
     }
     out->frame_count = output_frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 static int register_slots(void* state, const OrpheusRegistry* reg) {
     OverlapAddState* s = (OverlapAddState*)state;

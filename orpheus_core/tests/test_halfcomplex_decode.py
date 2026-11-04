@@ -13,6 +13,7 @@ from orpheus_core.compiler import CompileError, GraphCompiler
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import Registry
+from array_graph_runner import use_linear_call_chain
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).parent / "fixtures/halfcomplex"
@@ -67,6 +68,7 @@ def verify_halfcomplex_decode(tmp_path, cases, batches):
     registry.add_manifest(FIXTURE / "component.yaml")
     project = build_project(cases, batches)
     plan = GraphCompiler(registry).compile(project)
+    use_linear_call_chain(plan)
     assert plan.schedule["tick"] == step
     assert set(plan.schedule["periods"].values()) == {1}
     for name, p in cases.items():

@@ -140,7 +140,7 @@ static int cm_process(void* state, const OrpheusProcessContext* ctx) {
     float* out_data = (float*)out->data;
     if (out != in) memcpy(out_data, in_data, frames * n * sizeof(float));
     out->frame_count = frames;
-    if (!is_pow2(frames) || frames / 2 != h) return ORPHEUS_OK;
+    if (!is_pow2(frames) || frames / 2 != h) return orpheus_process_next(ctx);
 
     float a = s->alpha;
     /* 1) 每通道 FFT */
@@ -216,7 +216,7 @@ static int cm_process(void* state, const OrpheusProcessContext* ctx) {
         }
         if (rem > 2) snprintf(p, rem, "]");
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int cm_get_parameter(void* state, const char* param_id, OrpheusValue* value) {

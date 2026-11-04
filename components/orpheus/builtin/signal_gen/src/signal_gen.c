@@ -65,7 +65,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         for (uint32_t c = 0; c < ch; ++c) out_data[n * ch + c] = sample;
     }
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 static int set_param(void* state, const char* id, const OrpheusValue* v) {
     SignalGenState* s = (SignalGenState*)state;

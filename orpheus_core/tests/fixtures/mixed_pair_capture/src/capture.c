@@ -43,7 +43,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
     }
     size_t bytes=(size_t)s->channels*s->frames*4;
     memcpy(s->packed_values,context->inputs[0]->data,bytes);memcpy(s->decoded_values,context->inputs[1]->data,bytes);
-    ++s->calls;s->quantum=(int32_t)context->frame_count;return ORPHEUS_OK;
+    ++s->calls;s->quantum=(int32_t)context->frame_count;return orpheus_process_next(context);
 }
 static int get(void* state,const char* key,OrpheusValue* value) {
     MixedPairCapture* s=(MixedPairCapture*)state;value->type=ORPHEUS_VALUE_INT;

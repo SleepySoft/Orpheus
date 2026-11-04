@@ -105,27 +105,40 @@ def _run_single(client, params: dict, samples: list[float], ch: int = 1) -> list
 
 
 def _run_ab(client, params: dict, ref_samples: list[float], in_samples: list[float], ch: int = 1) -> list[dict]:
-    """双端：两个 wav_in 分别接 ref / in，直通输出到 wav_out。"""
-    name = f"ndab_{uuid.uuid4().hex[:8]}"
+    return _run_pair(client, "noise_detector_ab", "ab", params, ref_samples, in_samples, ch)
+
+
+def _run_pair(client, component, node_id, params, ref_samples, in_samples, ch):
+    """单 Source 准备两路数据，再显式调用双端检测组件。"""
+    name = f"ndpair_{uuid.uuid4().hex[:8]}"
     _CREATED.append(name)
     assert client.post("/api/projects", json={"name": name}).status_code == 201
     pdir = ROOT / "workspace" / name
-    _write_wav(pdir, "ref.wav", ref_samples, ch)
-    _write_wav(pdir, "in.wav", in_samples, ch)
+    paired = np.concatenate((np.asarray(ref_samples).reshape(-1, ch),
+                             np.asarray(in_samples).reshape(-1, ch)), axis=1)
+    _write_wav(pdir, "input.wav", paired.ravel().tolist(), ch * 2)
     doc = client.get(f"/api/projects/{name}").json()
     doc["sample_rate"] = 48000
     doc["block_size"] = 128
+    doc["flow_mode"] = "task_sequence"
+    order = ["source", "wr", "wi", node_id, "out"]
+    doc["drive_connections"] = [
+        {"from": f"{a}:out", "to": f"{b}:in"} for a, b in zip(order, order[1:])
+    ]
     doc["graph"] = {
         "nodes": [
-            {"id": "wr", "component": "orpheus.builtin.wav_in", "params": {"file_path": "ref.wav", "channels": ch}, "position": {"x": 0, "y": 0}},
-            {"id": "wi", "component": "orpheus.builtin.wav_in", "params": {"file_path": "in.wav", "channels": ch}, "position": {"x": 0, "y": 80}},
-            {"id": "ab", "component": "orpheus.builtin.noise_detector_ab", "params": {**params, "channels": ch}, "position": {"x": 200, "y": 0}},
+            {"id": "source", "component": "orpheus.builtin.wav_in", "params": {"file_path": "input.wav", "channels": ch * 2}},
+            {"id": "wr", "component": "orpheus.builtin.channel_router", "params": {"channels_in": ch * 2, "channels_out": ch, "indices": ",".join(map(str, range(ch)))}},
+            {"id": "wi", "component": "orpheus.builtin.channel_router", "params": {"channels_in": ch * 2, "channels_out": ch, "indices": ",".join(map(str, range(ch, ch * 2)))}},
+            {"id": node_id, "component": "orpheus.builtin." + component, "params": {**params, "channels": ch}, "position": {"x": 200, "y": 0}},
             {"id": "out", "component": "orpheus.builtin.wav_out", "params": {"file_path": "outputs/out.wav", "channels": ch, "sample_rate": 48000}, "position": {"x": 400, "y": 0}},
         ],
         "connections": [
-            {"from": "wr:out", "to": "ab:ref"},
-            {"from": "wi:out", "to": "ab:in"},
-            {"from": "ab:out", "to": "out:in"},
+            {"from": "source:out", "to": "wr:in"},
+            {"from": "source:out", "to": "wi:in"},
+            {"from": "wr:out", "to": f"{node_id}:ref"},
+            {"from": "wi:out", "to": f"{node_id}:in"},
+            {"from": f"{node_id}:out", "to": "out:in"},
         ],
     }
     _put_project(client, name, doc)
@@ -194,35 +207,7 @@ def test_noise_detector_ab_noisy_upstream_raises(client) -> None:
 
 
 def _run_nlms(client, params: dict, ref_samples: list[float], in_samples: list[float], ch: int = 1) -> list[dict]:
-    """NLMS 双端：两个 wav_in 接 ref / in，直通输出到 wav_out。"""
-    name = f"ndnl_{uuid.uuid4().hex[:8]}"
-    _CREATED.append(name)
-    assert client.post("/api/projects", json={"name": name}).status_code == 201
-    pdir = ROOT / "workspace" / name
-    _write_wav(pdir, "ref.wav", ref_samples, ch)
-    _write_wav(pdir, "in.wav", in_samples, ch)
-    doc = client.get(f"/api/projects/{name}").json()
-    doc["sample_rate"] = 48000
-    doc["block_size"] = 128
-    doc["graph"] = {
-        "nodes": [
-            {"id": "wr", "component": "orpheus.builtin.wav_in", "params": {"file_path": "ref.wav", "channels": ch}, "position": {"x": 0, "y": 0}},
-            {"id": "wi", "component": "orpheus.builtin.wav_in", "params": {"file_path": "in.wav", "channels": ch}, "position": {"x": 0, "y": 80}},
-            {"id": "nl", "component": "orpheus.builtin.noise_detector_nlms", "params": {**params, "channels": ch}, "position": {"x": 200, "y": 0}},
-            {"id": "out", "component": "orpheus.builtin.wav_out", "params": {"file_path": "outputs/out.wav", "channels": ch, "sample_rate": 48000}, "position": {"x": 400, "y": 0}},
-        ],
-        "connections": [
-            {"from": "wr:out", "to": "nl:ref"},
-            {"from": "wi:out", "to": "nl:in"},
-            {"from": "nl:out", "to": "out:in"},
-        ],
-    }
-    assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
-    resp = client.post(f"/api/projects/{name}/run")
-    assert resp.status_code == 200, resp.text
-    result = resp.json()
-    assert result["status"] == "ok", result["stderr"]
-    return result.get("probes", [])
+    return _run_pair(client, "noise_detector_nlms", "nl", params, ref_samples, in_samples, ch)
 
 
 # ---------- NLMS 残差双端 ----------

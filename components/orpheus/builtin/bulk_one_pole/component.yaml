@@ -2,7 +2,7 @@ id: orpheus.builtin.bulk_one_pole
 name: 计算数据一阶指数平滑
 category: 基础/计算数据
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: BulkOnePoleState
 description: >-

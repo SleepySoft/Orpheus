@@ -3,7 +3,7 @@ name: 同步缓冲
 category: 基础/路由与时序
 description: 多路已降到同一慢速的流按公倍数对齐合流；支持自动计算缓冲长度（LCM）或手动指定
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: RateSyncState
 sources:

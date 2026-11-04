@@ -190,7 +190,7 @@ static int fade_process_explicit(FadeState* s,const OrpheusProcessContext* ctx) 
         if (!isfinite(s->current_gains[r]) || s->current_gains[r]<0 ||
             !isfinite(s->target_gains[r]) || s->target_gains[r]<0 ||
             !isfinite(s->coefficients[r]) || s->coefficients[r]<0) return ORPHEUS_ERR_INVALID_ARG;
-    if (!frames) { out->frame_count=0; return ORPHEUS_OK; }
+    if (!frames) { out->frame_count=0; return orpheus_process_next(ctx); }
     float starts[4],coefficients[4]={1,1,1,1},gains[4];
     memcpy(starts,s->current_gains,sizeof(starts));
     for (unsigned r=0;r<2;++r) if (!s->freeze) {
@@ -219,7 +219,7 @@ static int fade_process_explicit(FadeState* s,const OrpheusProcessContext* ctx) 
     }
     memcpy(s->current_gains,gains,sizeof(gains));
     out->frame_count=frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 static int fade_process(void* state, const OrpheusProcessContext* ctx) {
     FadeState* s = (FadeState*)state;
@@ -244,7 +244,7 @@ static int fade_process(void* state, const OrpheusProcessContext* ctx) {
         }
     }
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 static int fade_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {
     FadeState* s = (FadeState*)state;

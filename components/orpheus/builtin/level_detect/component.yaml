@@ -9,7 +9,7 @@ description: >-
   rms0/peak0为1×1控制数据端口，经普通同步连接可供同周期下游读取；参数控制连接仍有一块延迟。
   level在统计模式别名rms_db；音频out可不接，已接时逐字节直通。零帧不推进，reset恢复静音dB值。
 version: 1.1.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: LevelDetectState
 sources:

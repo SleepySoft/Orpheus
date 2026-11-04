@@ -96,7 +96,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         memset(out->data, 0, count * sizeof(float));
     }
     out->frame_count = s->output_frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 static int register_slots(void* state, const OrpheusRegistry* reg) {
     BlockSplitState* s = (BlockSplitState*)state;

@@ -48,10 +48,27 @@ def _mux_run(client, name, src_files, select, inputs, ramp_ms=20.0, out_name="ou
               "params": {"file_path": "outputs/" + out_name, "channels": 2,
                          "sample_rate": SR}, "position": {"x": 800, "y": 0}}]
     conns = []
-    for idx, path in src_files.items():
-        nodes.append({"id": f"src{idx}", "component": "orpheus.builtin.wav_in",
-                      "params": {"file_path": path, "channels": 2},
+    pdir = ROOT / "workspace" / name
+    width = len(src_files) * 2
+    samples = []
+    for path in src_files.values():
+        with wave.open(str(pdir / path), "rb") as stream:
+            assert (stream.getnchannels(), stream.getsampwidth(), stream.getframerate()) == (2, 2, SR)
+            raw = stream.readframes(stream.getnframes())
+            samples.append(struct.unpack(f"<{len(raw)//2}h", raw))
+    assert len({len(values) for values in samples}) == 1
+    with wave.open(str(pdir / "mux_inputs.wav"), "wb") as stream:
+        stream.setnchannels(width); stream.setsampwidth(2); stream.setframerate(SR)
+        stream.writeframes(b"".join(struct.pack("<2h", *values[i:i+2])
+                                   for i in range(0, len(samples[0]), 2) for values in samples))
+    nodes.append({"id": "source", "component": "orpheus.builtin.wav_in",
+                  "params": {"file_path": "mux_inputs.wav", "channels": width}})
+    for slot, idx in enumerate(src_files):
+        nodes.append({"id": f"src{idx}", "component": "orpheus.builtin.channel_router",
+                      "params": {"channels_in": width, "channels_out": 2,
+                                 "indices": f"{slot*2},{slot*2+1}"},
                       "position": {"x": 0, "y": idx * 120}})
+        conns.append({"from": "source:out", "to": f"src{idx}:in"})
         conns.append({"from": f"src{idx}:out", "to": f"mux:in{idx}"})
     mux_params = {"inputs": inputs, "channels": 2, "select": select, "ramp_ms": ramp_ms}
     if select_index is not None:
@@ -64,6 +81,11 @@ def _mux_run(client, name, src_files, select, inputs, ramp_ms=20.0, out_name="ou
     doc = client.get(f"/api/projects/{name}").json()
     doc["sample_rate"] = SR
     doc["block_size"] = BLOCK
+    doc["flow_mode"] = "task_sequence"
+    order = ["source", *(f"src{idx}" for idx in src_files), "mux", "wav_out"]
+    doc["drive_connections"] = [
+        {"from": f"{a}:out", "to": f"{b}:in"} for a, b in zip(order, order[1:])
+    ]
     doc["graph"] = {"nodes": nodes, "connections": conns}
     assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
     rj = client.post(f"/api/projects/{name}/run").json()

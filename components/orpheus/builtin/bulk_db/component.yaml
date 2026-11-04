@@ -8,7 +8,7 @@ description: >-
   不取绝对值、钳位或隐藏NaN/Inf；加法、乘法与除法各自舍入。
   不广播、不保存历史、不改变节拍；NULL输出仍检查输入，零处理量不写。
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: BulkDbState
 sources: [src/bulk_db.c]

@@ -214,7 +214,7 @@ static int process_state(void* state, const OrpheusProcessContext* context) {
         nlms->position = (nlms->position + 1) % nlms->filter_length;
     }
     output_buffer->frame_count = context->frame_count;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 
 static int set_parameter(void* state, const char* id, const OrpheusValue* value) {

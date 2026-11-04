@@ -164,6 +164,7 @@ class CodeGenerator:
         # The generated project must be self-contained: vendor the ABI header.
         abi_header = self.project_root / "orpheus_abi" / "include" / "orpheus_abi.h"
         shutil.copy2(abi_header, include_dir / "orpheus_abi.h")
+        shutil.copy2(abi_header.with_name("orpheus_chain.h"), include_dir / "orpheus_chain.h")
         shutil.copy2(abi_header.with_name("orpheus_gain_array.h"), include_dir / "orpheus_gain_array.h")
         if plan.target == "adsp21593":
             generated_abi = include_dir / "orpheus_abi.h"
@@ -591,6 +592,8 @@ class CodeGenerator:
         lines: list[str] = []
         lines.append('#include <string.h>')
         lines.append('#include "orpheus_abi.h"')
+        lines.append('#include "orpheus_chain.h"')
+        lines.append('static void orpheus_chain_reset(void);')
         has_task_bridges = any(buf.get("task_bridge") for buf in plan.buffers.values())
         if has_task_bridges:
             lines.append('#ifdef _MSC_VER')
@@ -684,6 +687,7 @@ class CodeGenerator:
         lines.append('}')
         lines.append('static int orpheus_graph_fail(const char* operation, const char* node,')
         lines.append('                              const char* component, int code) {')
+        lines.append('    if (g_graph_error.code != ORPHEUS_OK) return code;')
         lines.append('    g_graph_error.operation = operation;')
         lines.append('    g_graph_error.node = node;')
         lines.append('    g_graph_error.component = component;')
@@ -1101,6 +1105,7 @@ class CodeGenerator:
         lines.append('        return orpheus_graph_fail("init", "", "", ORPHEUS_ERR_INVALID_ARG);')
         lines.append('    orpheus_control_reset();')
         lines.append('    g_block_counter = 0;')
+        lines.append('    orpheus_chain_reset();')
         lines.append('    g_frame_index = 0;')
         lines.append('    g_timeline_epoch++;')
         lines.append('    g_timeline_flags = ORPHEUS_TIMELINE_DISCONTINUITY;')
@@ -1268,7 +1273,9 @@ class CodeGenerator:
         lines.append('}')
         lines.append("")
 
-        # Process function (multi-rate: per-node frames + schedule-period-gated firing)
+        chain_resets: list[str] = []
+        scope_start = len(lines)
+        chain_blocks: dict[str, tuple[list[str], list[str]]] = {}
         lines.append('int orpheus_generated_process(uint32_t frame_count) {')
         lines.append('    int rc;')
         lines.append('    OrpheusProcessContext ctx;')
@@ -1288,6 +1295,7 @@ class CodeGenerator:
             lines.append('    orpheus_platform_io_pre_block();')
             lines.append('')
         for node_id in plan.execution_order:
+            block_start = len(lines)
             cfg = plan.node_configs[node_id]
             s = self._sanitized_node_id(node_id)
             n_in = len(cfg.get("input_ports", []))
@@ -1340,6 +1348,7 @@ class CodeGenerator:
                 f'{indent}if (rc != ORPHEUS_OK) return orpheus_graph_fail("process", '
                 f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);'
             )
+            publish_start = len(lines)
             # rate-bridge：本节点是桥接源时，触发后把 staging 的新鲜块滚入桥接 buffer
             for i, cp in enumerate(bridge_copies):
                 if cp["src_node"] != node_id:
@@ -1351,8 +1360,19 @@ class CodeGenerator:
             for i, cp in enumerate(task_bridge_copies):
                 if cp["src_node"] == node_id and not cp["rate_bridge"]:
                     lines.append(f'{indent}orpheus_task_bridge_push_{i}();')
+            invoke = lines[block_start:publish_start]
+            publish = lines[publish_start:]
+            del lines[block_start:]
             if period > 1:
-                lines.append('    }')
+                invoke = invoke[1:]
+            chain_blocks[node_id] = (invoke, publish)
+        declarations, calls, resets = self._generate_chain_scope(
+            plan, "global", plan.execution_order, chain_blocks, "g_block_counter",
+            "g_timeline_flags",
+        )
+        lines[scope_start:scope_start] = declarations
+        lines.extend(calls)
+        chain_resets.extend(resets)
         if embed_in_nodes or embed_out_nodes:
             lines.append('')
             lines.append('    orpheus_platform_io_post_block();')
@@ -1384,6 +1404,8 @@ class CodeGenerator:
                 nid in task_node_set for nid in (*embed_in_nodes, *embed_out_nodes)
             )
             external_trigger = bool(task.get("trigger_group"))
+            scope_start = len(lines)
+            chain_blocks = {}
             if external_trigger:
                 lines.append(f'int orpheus_generated_process_task_{task_sym}_at(')
                 lines.append('    uint32_t frame_count, const OrpheusExternalTriggerContext* trigger) {')
@@ -1424,6 +1446,7 @@ class CodeGenerator:
             if task_has_platform_io:
                 lines.append('    orpheus_platform_io_pre_block();')
             for node_id in task_nodes:
+                block_start = len(lines)
                 cfg = plan.node_configs[node_id]
                 s = self._sanitized_node_id(node_id)
                 n_in = len(cfg.get("input_ports", []))
@@ -1536,6 +1559,7 @@ class CodeGenerator:
                     f'{indent}if (rc != ORPHEUS_OK) return orpheus_graph_fail("process_task:{self._c_escape(task_id)}", '
                     f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);'
                 )
+                publish_start = len(lines)
                 for i, cp in enumerate(bridge_copies):
                     if cp["src_node"] != node_id:
                         continue
@@ -1545,8 +1569,20 @@ class CodeGenerator:
                 for i, cp in enumerate(task_bridge_copies):
                     if cp["src_node"] == node_id:
                         lines.append(f'{indent}orpheus_task_bridge_push_{i}();')
+                invoke = lines[block_start:publish_start]
+                publish = lines[publish_start:]
+                del lines[block_start:]
                 if period > 1:
-                    lines.append('    }')
+                    invoke = invoke[1:]
+                chain_blocks[node_id] = (invoke, publish)
+            declarations, calls, resets = self._generate_chain_scope(
+                plan, f"task_{task_sym}", task_nodes, chain_blocks,
+                f"g_task_counter_{task_sym}", f"g_task_timeline_flags_{task_sym}",
+                task_periods, task_phases, external_trigger,
+            )
+            lines[scope_start:scope_start] = declarations
+            lines.extend(calls)
+            chain_resets.extend(resets)
             if task_has_platform_io:
                 lines.append('    orpheus_platform_io_post_block();')
             if task_ctl_links:
@@ -1568,6 +1604,9 @@ class CodeGenerator:
                 lines.append('}')
             lines.append("")
 
+        lines.append('static void orpheus_chain_reset(void) {')
+        lines.extend(chain_resets)
+        lines.append('}')
         if any(self._state_type(nid, plan) for nid in plan.execution_order):
             lines.append('void* orpheus_arena_base(void) { return &g_arena; }')
         else:
@@ -1605,6 +1644,78 @@ class CodeGenerator:
 
         with open(path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
+
+    def _generate_chain_scope(
+        self, plan: ExecutionPlan, scope: str, nodes: list[str],
+        blocks: dict[str, tuple[list[str], list[str]]], counter: str, flags: str,
+        periods: dict[str, int] | None = None, phases: dict[str, int] | None = None,
+        external_trigger: bool = False,
+    ) -> tuple[list[str], list[str], list[str]]:
+        symbols = {nid: f'g_chain_{scope}_{self._sanitized_node_id(nid)}' for nid in nodes}
+        definitions: list[str] = []
+        resets: list[str] = []
+        calls = [
+            f'    const OrpheusChainRun chain_run = {{{counter}, frame_count, {flags}, '
+            f'g_timeline_epoch, {"trigger" if external_trigger else "NULL"}, '
+            f'{"false" if scope == "global" else "true"}}};',
+        ]
+        for symbol in symbols.values():
+            definitions.append(f'static OrpheusChainNode {symbol};')
+        for nid, symbol in symbols.items():
+            resets.append(f'    {symbol}.calls = 0;')
+            cfg = plan.node_configs[nid]
+            invoke, publish = blocks[nid]
+            definitions.extend([
+                f'static int {symbol}_invoke(OrpheusChainNode* node, const OrpheusChainRun* run) {{',
+                '    int rc;',
+                '    OrpheusProcessContext ctx = {0};',
+                '    const uint32_t frame_count = run->frame_count;',
+                '    OrpheusChainCall call = {node, run};',
+                '    const OrpheusContinuation continuation = {&call, orpheus_chain_continue, node->child_count};',
+                '    ctx.continuation = &continuation;',
+            ])
+            if external_trigger:
+                definitions.append('    const OrpheusExternalTriggerContext* trigger = run->trigger;')
+            for line in invoke:
+                line = line.replace(counter, "run->counter").replace(flags, "run->timeline_flags")
+                line = re.sub(r'\(run->counter / \d+u\)', '(node->calls - 1u)', line)
+                line = re.sub(r'run->counter < \d+u', 'node->calls == 1u', line)
+                definitions.append(line)
+            definitions.extend(['    return ORPHEUS_OK;', '}'])
+            definitions.append(
+                f'static int {symbol}_publish(OrpheusChainNode* node, const OrpheusChainRun* run) {{'
+            )
+            definitions.extend(publish)
+            definitions.extend(['    return ORPHEUS_OK;', '}'])
+            edges = [e for e in plan.call_graph.get(nid, []) if e["node"] in symbols]
+            if edges:
+                definitions.append(f'static OrpheusChainLink {symbol}_links[] = {{')
+                for edge in edges:
+                    definitions.append(
+                        f'    {{&{symbols[edge["node"]]}, {edge["every"]}u, {edge["phase"]}u, 0}},'
+                    )
+                definitions.append('};')
+                resets.extend(
+                    f'    {symbol}_links[{i}].calls = 0;' for i in range(len(edges))
+                )
+            period = int((periods or {}).get(nid, cfg.get("period", 0) or cfg.get("divisor", 1)))
+            phase = int((phases or {}).get(nid, cfg.get("phase", 0))) \
+                if plan.flow_mode == "task_sequence" else period - 1
+            definitions.extend([
+                f'static OrpheusChainNode {symbol} = {{',
+                f'    .invoke = {symbol}_invoke, .publish = {symbol}_publish,',
+                f'    .children = {symbol + "_links" if edges else "NULL"},',
+                f'    .child_count = {len(edges)}, .period = {period}, .phase = {phase}',
+                '};',
+            ])
+            if nid in plan.entry_nodes:
+                calls.extend([
+                    f'    if (orpheus_chain_due(&{symbol}, &chain_run)) {{',
+                    f'        rc = orpheus_chain_enter(&{symbol}, &chain_run);',
+                    '        if (rc != ORPHEUS_OK) return rc;',
+                    '    }',
+                ])
+        return definitions, calls, resets
 
     def _generate_minimal_main_c(self, plan: ExecutionPlan, path: Path) -> None:
         """最小集成示例：用户可删除此文件，在自己的 main/中断中调用同一组入口。"""

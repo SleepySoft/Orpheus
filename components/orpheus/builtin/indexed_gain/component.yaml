@@ -2,7 +2,7 @@ id: orpheus.builtin.indexed_gain
 name: 索引式增益
 category: 基础/增益与动态
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: IndexedGainState
 sources: [src/indexed_gain.c]

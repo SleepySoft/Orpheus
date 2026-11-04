@@ -153,7 +153,7 @@ static int process_statistics(LevelDetectState* s,const OrpheusProcessContext* c
         if (out->format!=ORPHEUS_FORMAT_F32 || out->channels!=(i==0 ? channels : 1) ||
             out->frame_capacity<(i==0 ? frames : 1) || (frames && !out->data)) return ORPHEUS_ERR_INVALID_ARG;
     }
-    if (!frames) return ORPHEUS_OK;
+    if (!frames) return orpheus_process_next(ctx);
     const float* values=(const float*)input->data;
     float powers[32],peaks[32];
     for (unsigned c=0;c<channels;++c) {
@@ -184,7 +184,7 @@ static int process_statistics(LevelDetectState* s,const OrpheusProcessContext* c
             out->frame_count=1;
         }
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int ld_process(void* state, const OrpheusProcessContext* ctx) {
@@ -229,7 +229,7 @@ static int ld_process(void* state, const OrpheusProcessContext* ctx) {
     s->level = max_env;
     if (out != in) memcpy(out_data, in_data, frames * ch * sizeof(float));
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int ld_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

@@ -53,7 +53,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         }
     }
     out->frame_count = ctx->frame_count;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int set_param(void* state, const char* id, const OrpheusValue* v) { (void)state; (void)id; (void)v; return ORPHEUS_ERR_UNSUPPORTED; }

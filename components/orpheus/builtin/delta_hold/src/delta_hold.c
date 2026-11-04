@@ -101,7 +101,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         context->input_count<1 || context->output_count<1) return ORPHEUS_ERR_INVALID_ARG;
     DeltaHoldState* s=(DeltaHoldState*)state;
     if (!s->channels || !context->inputs[0]) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     const OrpheusBuffer* in=context->inputs[0];OrpheusBuffer* out=context->outputs[0];
     const size_t bytes=(size_t)s->channels*s->batches*sizeof(float);
     if (!valid(in,s->channels,s->batches,true)) return ORPHEUS_ERR_INVALID_ARG;
@@ -121,7 +121,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         if (out) ((int32_t*)out->data)[i]=active;
     }
     if (out) out->frame_count=s->batches;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

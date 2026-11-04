@@ -2,7 +2,7 @@ id: orpheus.builtin.bulk_slice
 name: 计算数据步进切片
 category: 基础/计算数据
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: BulkSliceState
 description: >-

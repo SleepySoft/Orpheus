@@ -2,7 +2,7 @@ id: orpheus.builtin.bulk_guarded_slew
 name: 数据方向保持与阈值限速
 category: 基础/计算数据
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: BulkGuardedSlewState
 description: >-

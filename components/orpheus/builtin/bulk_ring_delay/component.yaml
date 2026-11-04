@@ -2,7 +2,7 @@ id: orpheus.builtin.bulk_ring_delay
 name: 计算向量环形历史
 category: 基础/计算数据
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: BulkRingDelayState
 description: >-

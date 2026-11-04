@@ -120,14 +120,17 @@ def test_invalid_driver_contract_rejected(registry, mutation, error):
         GraphCompiler(registry).compile(source)
 
 
-def test_parameter_wire_does_not_invent_sequence(registry):
+def test_parameter_wire_uses_declared_sibling_call_order(registry):
     source = project()
     source.drive_connections = [drive("clock", "a"), drive("clock", "b")]
-    with pytest.raises(CompileError, match="顺序未声明"):
-        GraphCompiler(registry).compile(source)
+    plan = GraphCompiler(registry).compile(source)
+    assert plan.call_graph["clock"] == [
+        {"node": "a", "every": 1, "phase": 0},
+        {"node": "b", "every": 1, "phase": 0},
+    ]
 
 
-def test_fanout_join_calls_each_instance_once(registry):
+def test_fanout_keeps_direct_calls_without_join_scheduling(registry):
     source = project()
     source.control_connections = []
     source.graph.nodes["c"] = copy.deepcopy(source.graph.nodes["b"])
@@ -138,8 +141,9 @@ def test_fanout_join_calls_each_instance_once(registry):
     ]
     assert GraphCompiler(registry).compile(source).execution_order == ["clock", "a", "b", "c"]
     source.drive_connections[1] = drive("clock", "b", 2)
-    with pytest.raises(CompileError, match="周期/相位不一致"):
-        GraphCompiler(registry).compile(source)
+    plan = GraphCompiler(registry).compile(source)
+    assert plan.call_graph["a"] == [{"node": "c", "every": 1, "phase": 0}]
+    assert plan.call_graph["b"] == [{"node": "c", "every": 1, "phase": 0}]
 
 
 def test_two_sources_have_independent_tasks_and_reject_shared_instance(registry):
@@ -195,6 +199,33 @@ def test_default_and_declared_output_cadence(registry):
     assert plan.node_configs["r"]["output_cadences"]["out"] == {"period": 2, "phase": 1}
     assert (plan.node_configs["g"]["period"], plan.node_configs["g"]["phase"]) == (2, 1)
     assert plan.node_configs["g"]["frames"] == 64
+
+
+def test_source_divided_call_drives_consumer_not_buffer_fullness(registry):
+    source = audio_project()
+    source.drive_connections = [drive("s", "r"), drive("s", "g", 2)]
+    plan = GraphCompiler(registry).compile(source)
+    assert plan.call_graph["s"] == [
+        {"node": "r", "every": 1, "phase": 0},
+        {"node": "g", "every": 2, "phase": 1},
+    ]
+    assert plan.call_graph["r"] == []
+    assert plan.node_configs["g"]["frames"] == 64
+
+
+def test_bridge_identity_includes_direct_call_order(registry):
+    from orpheus_core.bridge.identity import build_identity
+
+    source = project()
+    source.control_connections = []
+    source.drive_connections = [drive("clock", "a"), drive("clock", "b")]
+    plan = GraphCompiler(registry).compile(source)
+    before = build_identity(plan)
+    plan.call_graph["clock"].reverse()
+    after = build_identity(plan)
+    assert before["graph_hash"] != after["graph_hash"]
+    assert before["plan_hash"] != after["plan_hash"]
+    assert before["id_map_hash"] == after["id_map_hash"]
 
 
 def test_data_binding_does_not_change_call_order_or_cadence(registry):
@@ -337,7 +368,9 @@ def test_default_host_explicitly_rejects_multiple_source_tasks():
             assert client.delete(f"/api/projects/{name}").status_code == 200
 
 
-@pytest.mark.parametrize("kind,phase", [("bulk", 0), ("bulk", 1), ("scalar", 0), ("scope", 0)])
+@pytest.mark.parametrize("kind,phase", [
+    ("bulk", 0), ("bulk", 1), ("scalar", 0), ("scope", 0), ("independent", 0),
+])
 def test_dynamic_generated_global_task_entries(registry, tmp_path, kind, phase):
     from orpheus_core.generator import CodeGenerator
     from test_generated_double_bank import _build
@@ -362,6 +395,24 @@ def test_dynamic_generated_global_task_entries(registry, tmp_path, kind, phase):
             stream.setsampwidth(2)
             stream.setframerate(48000)
             stream.writeframes(struct.pack("<h", 8192) * 128)
+    elif kind == "independent":
+        source = Project(flow_mode="task_sequence", block_size=32)
+        source.graph.nodes = {
+            "clock": Node("clock", "orpheus.builtin.wav_in",
+                          params={"channels": 1, "file_path": "in.wav"}),
+            "batch": Node("batch", "orpheus.builtin.downrate",
+                          params={"channels": 1, "factor": 2}),
+            "sink": Node("sink", "orpheus.builtin.wav_out",
+                         params={"channels": 1, "file_path": "out.wav"}),
+        }
+        source.graph.connections = [data("clock", "batch"), data("batch", "sink")]
+        source.drive_connections = [drive("clock", "batch"), drive("clock", "sink", 2)]
+        source.control_connections = []
+        with wave.open(str(tmp_path / "in.wav"), "wb") as stream:
+            stream.setnchannels(1)
+            stream.setsampwidth(2)
+            stream.setframerate(48000)
+            stream.writeframes(struct.pack("<128h", *(64 * (i + 1) for i in range(128))))
     elif kind == "scope":
         source.graph.nodes["other"] = Node("other", "orpheus.builtin.task_source",
                                           params={"frequency_hz": 200})
@@ -385,6 +436,7 @@ def test_dynamic_generated_global_task_entries(registry, tmp_path, kind, phase):
             "target_link_libraries(task_flow_test PRIVATE orpheus_graph)\n"
         )
     _build(generated, tmp_path)
+    independent_outputs = []
     for generated_mode in (False, True):
         executable = (generated / "build" / "task_flow_test.exe" if generated_mode
                       else ROOT / "build" / "tests" / "task_flow_runner.exe")
@@ -400,3 +452,11 @@ def test_dynamic_generated_global_task_entries(registry, tmp_path, kind, phase):
                     output = struct.unpack("<128h", stream.readframes(128))
                 expected = 8192 * 10 ** (0.25 / 20)
                 assert max(abs(value - expected) for value in output) < 2
+            elif kind == "independent":
+                with wave.open(str(tmp_path / "out.wav"), "rb") as stream:
+                    assert stream.getnframes() == 128
+                    output = struct.unpack("<128h", stream.readframes(128))
+                assert max(abs(value - 64 * (i + 1)) for i, value in enumerate(output)) <= 1
+                independent_outputs.append(output)
+    if independent_outputs:
+        assert all(output == independent_outputs[0] for output in independent_outputs)

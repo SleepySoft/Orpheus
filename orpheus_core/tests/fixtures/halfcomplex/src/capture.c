@@ -70,7 +70,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
     memcpy(s->decoded_values,decoded->data,s->decoded_frames*s->channels*sizeof(float));
     memcpy(s->packed_values,packed->data,s->packed_frames*s->channels*sizeof(float));
     ++s->calls; s->quantum=(int32_t)context->frame_count;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static int get(void* state,const char* key,OrpheusValue* value) {
     HalfcomplexCapture* s=(HalfcomplexCapture*)state;

@@ -3,7 +3,7 @@ name: 指数增益斜坡
 category: 基础/增益与混音
 description: 显式目标、每样本乘数和剩余调用块数的指数增益核；不自动将毫秒转换为请求。所有通道共享同一条逐样本包络。
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: ExponentialGainState
 sources: [src/exponential_gain.c]

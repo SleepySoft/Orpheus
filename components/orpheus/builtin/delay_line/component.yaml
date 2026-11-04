@@ -3,7 +3,7 @@ name: 多通道独立延迟线
 category: 高级/滤波器组
 description: 每通道独立延迟，支持BULK向量或运行期公共整数样本延迟；切换保留历史
 version: 1.2.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: DelayLineState
 sources:

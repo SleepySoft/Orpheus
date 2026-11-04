@@ -2,7 +2,7 @@ id: orpheus.builtin.complex_gain_split
 name: 复数增益与互补分流
 category: 基础/计算数据
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: ComplexGainSplitState
 description: >-

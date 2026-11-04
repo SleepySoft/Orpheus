@@ -656,7 +656,15 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         return ORPHEUS_ERR_INVALID_ARG;
     }
 
-    return 0;
+    int result = build_chain(global_chain_, plan_.execution_order);
+    if (result != ORPHEUS_OK) return result;
+    task_chains_.clear();
+    for (const auto& task : plan_.tasks) {
+        result = build_chain(task_chains_[task.id], task.execution_order,
+                             &task.periods, &task.phases);
+        if (result != ORPHEUS_OK) return result;
+    }
+    return ORPHEUS_OK;
 }
 
 int Runtime::prepare_instance(Instance& inst, const NodeConfig& cfg) {
@@ -1326,87 +1334,132 @@ void Runtime::update_task_bridge_probes(TaskBridge& bridge) {
     instance_it->second->interface_->set_parameter(instance_it->second->state, "overruns", &value);
 }
 
-int Runtime::process_nodes(const std::vector<std::string>& execution_order,
-                           const std::map<std::string, uint32_t>* periods,
-                           uint64_t counter, uint32_t frame_count,
-                           uint32_t timeline_flags, bool task_mode,
-                           const std::map<std::string, uint32_t>* phases) {
-    OrpheusProcessContext ctx;
+int Runtime::build_chain(ChainScope& scope, const std::vector<std::string>& nodes,
+                         const std::map<std::string, uint32_t>* periods,
+                         const std::map<std::string, uint32_t>* phases) {
+    scope.bindings.clear();
+    scope.entries.clear();
+    for (const auto& id : nodes) {
+        auto& binding = scope.bindings[id];
+        binding.runtime = this;
+        binding.instance = instances_.at(id).get();
+        binding.config = &plan_.node_configs.at(id);
+        const auto& cfg = *binding.config;
+        auto& node = binding.node;
+        node.user = &binding;
+        node.invoke = invoke_chain;
+        node.publish = publish_chain;
+        node.period = cfg.period > 0 ? cfg.period : cfg.divisor;
+        if (periods && periods->count(id)) node.period = periods->at(id);
+        if (!node.period) return ORPHEUS_ERR_INVALID_ARG;
+        node.phase = plan_.flow_mode == "task_sequence"
+            ? (phases ? (phases->count(id) ? phases->at(id) : 0u)
+                      : (cfg.phase >= 0 ? static_cast<uint32_t>(cfg.phase) : 0u))
+            : node.period - 1;
+        if (node.phase >= node.period) return ORPHEUS_ERR_INVALID_ARG;
+    }
+    for (const auto& edge : plan_.call_graph) {
+        auto src = scope.bindings.find(edge.first);
+        if (src == scope.bindings.end()) continue;
+        for (const auto& dst : edge.second) {
+            if (!dst.every || dst.phase >= dst.every) return ORPHEUS_ERR_INVALID_ARG;
+            auto target = scope.bindings.find(dst.node);
+            if (target == scope.bindings.end()) continue;
+            src->second.children.push_back({&target->second.node, dst.every, dst.phase, 0});
+        }
+    }
+    for (const auto& id : nodes) {
+        auto& binding = scope.bindings.at(id);
+        binding.node.children = binding.children.data();
+        binding.node.child_count = static_cast<uint32_t>(binding.children.size());
+        if (std::find(plan_.entry_nodes.begin(), plan_.entry_nodes.end(), id)
+            != plan_.entry_nodes.end()) scope.entries.push_back(&binding.node);
+    }
+    return ORPHEUS_OK;
+}
+
+int Runtime::invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
+    auto& binding = *static_cast<ChainBinding*>(node->user);
+    Runtime& runtime = *binding.runtime;
+    const std::string& node_id = binding.instance->node_id;
+    const NodeConfig& cfg = *binding.config;
+    OrpheusProcessContext ctx{};
+    OrpheusChainCall call{node, run};
+    OrpheusContinuation continuation{&call, orpheus_chain_continue, node->child_count};
+    ctx.continuation = &continuation;
     ctx.scratch = nullptr;
     ctx.scratch_size = 0;
-
-    for (const auto& node_id : execution_order) {
-        const NodeConfig& cfg = plan_.node_configs[node_id];
-        uint32_t period = cfg.period > 0 ? cfg.period : cfg.divisor;
-        if (periods != nullptr) {
-            const auto period_it = periods->find(node_id);
-            if (period_it != periods->end()) period = period_it->second;
-        }
-        uint32_t phase = cfg.phase >= 0 ? static_cast<uint32_t>(cfg.phase) : 0;
-        if (phases != nullptr) {
-            const auto phase_it = phases->find(node_id);
-            phase = phase_it != phases->end() ? phase_it->second : 0;
-        }
-        if (plan_.flow_mode == "task_sequence"
-            ? counter % period != phase
-            : (period > 1 && (counter + 1) % period != 0)) {
-            continue;
-        }
-        auto reads = task_bridge_reads_.find(node_id);
-        if (reads != task_bridge_reads_.end()) {
-            for (TaskBridge* bridge : reads->second) {
-                if (task_mode || !bridge->legacy_rate_bridge) {
-                    task_bridge_pop(*bridge);
-                    update_task_bridge_probes(*bridge);
-                }
-            }
-        }
-        Instance& inst = *instances_[node_id];
-        ctx.state = inst.state;
-        ctx.frame_count = cfg.frames > 0 ? cfg.frames : frame_count;
-        ctx.inputs = inst.inputs.empty() ? nullptr : const_cast<const OrpheusBuffer**>(inst.inputs.data());
-        ctx.outputs = inst.outputs.empty() ? nullptr : inst.outputs.data();
-        ctx.input_count = static_cast<uint32_t>(inst.inputs.size());
-        ctx.output_count = static_cast<uint32_t>(inst.outputs.size());
-        ctx.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : plan_.sample_rate;
-        ctx.frame_index = (counter / period) *
-            static_cast<uint64_t>(cfg.frame_step > 0 ? cfg.frame_step : ctx.frame_count);
-        if (plan_.flow_mode == "task_sequence") ctx.frame_index += cfg.frame_origin;
-        ctx.timestamp = ctx.sample_rate > 0
-            ? static_cast<double>(ctx.frame_index) / static_cast<double>(ctx.sample_rate)
-            : 0.0;
-        ctx.epoch = timeline_epoch_;
-        ctx.valid_frames = ctx.frame_count;
-        ctx.timeline_flags = timeline_flags
-            | (counter < period ? ORPHEUS_TIMELINE_DISCONTINUITY : ORPHEUS_TIMELINE_NONE);
-
-        if (plan_.flow_mode == "task_sequence") {
-            const int result = control_tick_for_task(nullptr, &node_id);
-            if (result != ORPHEUS_OK) return result;
-        }
-        int result = inst.interface_->process(inst.state, &ctx);
-        if (result != ORPHEUS_OK) {
-            return result;
-        }
-        // rate-bridge：生产者触发后，把 staging 里的新鲜块按写游标滚入桥接 buffer
-        auto bc = bridge_copies_.find(node_id);
-        if (!task_mode && bc != bridge_copies_.end()) {
-            for (auto& cp : bc->second) {
-                float* dst = static_cast<float*>(cp.bridge->data)
-                             + static_cast<size_t>(cp.cursor) * cp.channels;
-                const size_t n = static_cast<size_t>(cp.frames) * cp.channels;
-                std::memcpy(dst, cp.staging->data, n * sizeof(float));
-                cp.cursor = (cp.cursor + cp.frames) % cp.bridge->frame_capacity;
-            }
-        }
-        auto writes = task_bridge_writes_.find(node_id);
-        if (writes != task_bridge_writes_.end()) {
-            for (TaskBridge* bridge : writes->second) {
-                if (task_mode || !bridge->legacy_rate_bridge) task_bridge_push(*bridge);
+    auto reads = runtime.task_bridge_reads_.find(node_id);
+    if (reads != runtime.task_bridge_reads_.end()) {
+        for (TaskBridge* bridge : reads->second) {
+            if (run->task_mode || !bridge->legacy_rate_bridge) {
+                runtime.task_bridge_pop(*bridge);
+                runtime.update_task_bridge_probes(*bridge);
             }
         }
     }
-    return 0;
+    Instance& inst = *binding.instance;
+    ctx.state = inst.state;
+    ctx.frame_count = cfg.frames > 0 ? cfg.frames : run->frame_count;
+    ctx.inputs = inst.inputs.empty() ? nullptr : const_cast<const OrpheusBuffer**>(inst.inputs.data());
+    ctx.outputs = inst.outputs.empty() ? nullptr : inst.outputs.data();
+    ctx.input_count = static_cast<uint32_t>(inst.inputs.size());
+    ctx.output_count = static_cast<uint32_t>(inst.outputs.size());
+    ctx.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : runtime.plan_.sample_rate;
+    ctx.frame_index = (node->calls - 1) *
+        static_cast<uint64_t>(cfg.frame_step > 0 ? cfg.frame_step : ctx.frame_count);
+    if (runtime.plan_.flow_mode == "task_sequence") ctx.frame_index += cfg.frame_origin;
+    ctx.timestamp = ctx.sample_rate > 0
+        ? static_cast<double>(ctx.frame_index) / static_cast<double>(ctx.sample_rate)
+        : 0.0;
+    ctx.epoch = run->epoch;
+    ctx.valid_frames = ctx.frame_count;
+    ctx.timeline_flags = run->timeline_flags
+        | (node->calls == 1 ? ORPHEUS_TIMELINE_DISCONTINUITY : ORPHEUS_TIMELINE_NONE);
+
+    if (runtime.plan_.flow_mode == "task_sequence") {
+        const int result = runtime.control_tick_for_task(nullptr, &node_id);
+        if (result != ORPHEUS_OK) return result;
+    }
+    int result = inst.interface_->process(inst.state, &ctx);
+    if (result != ORPHEUS_OK) {
+        std::cerr << "[Runtime] 链式调用失败：" << node_id << "，错误码=" << result << std::endl;
+        return result;
+    }
+    return ORPHEUS_OK;
+}
+
+int Runtime::publish_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
+    auto& binding = *static_cast<ChainBinding*>(node->user);
+    Runtime& runtime = *binding.runtime;
+    const auto& node_id = binding.instance->node_id;
+    // rate-bridge：生产者触发后，把 staging 里的新鲜块按写游标滚入桥接 buffer
+    auto bc = runtime.bridge_copies_.find(node_id);
+    if (!run->task_mode && bc != runtime.bridge_copies_.end()) {
+        for (auto& cp : bc->second) {
+            float* dst = static_cast<float*>(cp.bridge->data)
+                         + static_cast<size_t>(cp.cursor) * cp.channels;
+            const size_t n = static_cast<size_t>(cp.frames) * cp.channels;
+            std::memcpy(dst, cp.staging->data, n * sizeof(float));
+            cp.cursor = (cp.cursor + cp.frames) % cp.bridge->frame_capacity;
+        }
+    }
+    auto writes = runtime.task_bridge_writes_.find(node_id);
+    if (writes != runtime.task_bridge_writes_.end()) {
+        for (TaskBridge* bridge : writes->second) {
+            if (run->task_mode || !bridge->legacy_rate_bridge) runtime.task_bridge_push(*bridge);
+        }
+    }
+    return ORPHEUS_OK;
+}
+
+int Runtime::process_chain(ChainScope& scope, const OrpheusChainRun& run) {
+    for (auto* entry : scope.entries) {
+        if (!orpheus_chain_due(entry, &run)) continue;
+        const int result = orpheus_chain_enter(entry, &run);
+        if (result != ORPHEUS_OK) return result;
+    }
+    return ORPHEUS_OK;
 }
 
 int Runtime::process_block(uint32_t frame_count) {
@@ -1414,9 +1467,9 @@ int Runtime::process_block(uint32_t frame_count) {
     const uint32_t advance = frame_count > 0
         ? frame_count
         : (plan_.schedule_tick > 0 ? plan_.schedule_tick : plan_.block_size);
-    const int result = process_nodes(
-        plan_.execution_order, nullptr, block_counter_, frame_count,
-        timeline_flags_);
+    const OrpheusChainRun run{block_counter_, frame_count, timeline_flags_,
+                              timeline_epoch_, nullptr, false};
+    const int result = process_chain(global_chain_, run);
     if (result != 0) return result;
     const int control_result = control_tick();
     block_counter_++;
@@ -1442,9 +1495,9 @@ int Runtime::process_task(const std::string& task_id, uint32_t frame_count) {
     const uint32_t advance = frame_count > 0
         ? frame_count
         : (task->schedule_tick > 0 ? task->schedule_tick : task->block_size);
-    const int result = process_nodes(
-        task->execution_order, &task->periods, counter, frame_count,
-        timeline_flags, true, &task->phases);
+    const OrpheusChainRun run{counter, frame_count, timeline_flags,
+                              timeline_epoch_, nullptr, true};
+    const int result = process_chain(task_chains_.at(task_id), run);
     if (result != 0) return result;
     const int control_result = control_tick_for_task(&task_id);
     counter++;

@@ -100,7 +100,7 @@ static int bridge_process(void* state, const OrpheusProcessContext* ctx) {
                (size_t)(output->frame_capacity - frames) * bridge->channels * sizeof(float));
     }
     output->frame_count = output->frame_capacity;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int bridge_set_parameter(void* state, const char* id, const OrpheusValue* value) {

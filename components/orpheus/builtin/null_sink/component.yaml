@@ -3,7 +3,7 @@ name: 空接收器
 category: 基础/工具
 description: 接收音频输入并丢弃，用于终止不需要的支路（如侧链电平检测）。
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: NullSinkState
 sources:

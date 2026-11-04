@@ -3,7 +3,7 @@ name: 正弦调制器
 category: 音效/调制
 description: 默认AM/颤音；可选逐帧同步的周期表纯乘法，支持有符号载波
 version: 1.1.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: SineModState
 sources:

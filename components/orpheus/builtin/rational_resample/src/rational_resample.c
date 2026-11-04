@@ -141,7 +141,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     if (s->up == s->down) {
         memcpy(output, input, (size_t)output_frames * s->channels * sizeof(float));
         out->frame_count = output_frames;
-        return ORPHEUS_OK;
+        return orpheus_process_next(ctx);
     }
     uint32_t consumed = 0;
     for (uint32_t f = 0; f < output_frames; ++f) {
@@ -163,7 +163,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     while (consumed < ctx->frame_count)
         push(s, input + (size_t)consumed++ * s->channels);
     out->frame_count = output_frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int register_slots(void* state, const OrpheusRegistry* reg) {

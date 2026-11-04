@@ -85,7 +85,7 @@ static int device_in_process(void* state, const OrpheusProcessContext* ctx) {
     out->channels = s->channels;
     out->interleaved = true;
     /* Host fills the buffer before calling process; no work here. */
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int device_in_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

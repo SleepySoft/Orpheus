@@ -146,7 +146,7 @@ static int il_process(void* state, const OrpheusProcessContext* ctx) {
         p += len; rem -= (size_t)len;
     }
     if (rem > 2) snprintf(p, rem, "]");
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int il_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

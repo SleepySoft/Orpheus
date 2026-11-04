@@ -173,7 +173,7 @@ static int anc_process(void* state, const OrpheusProcessContext* ctx) {
         (void)len;
     }
     if (ctx->outputs[0]->frame_capacity >= frames) ctx->outputs[0]->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int anc_set_parameter(void* state, const char* id, const OrpheusValue* v) {

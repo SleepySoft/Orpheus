@@ -216,7 +216,7 @@ static int wav_out_process(void* state, const OrpheusProcessContext* ctx) {
     }
     s->count += samples;
 
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int wav_out_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

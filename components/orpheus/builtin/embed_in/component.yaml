@@ -3,7 +3,7 @@ name: 嵌入输入
 category: 平台/平台
 platforms: [dsp]
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: EmbedInState
 clock_source: true

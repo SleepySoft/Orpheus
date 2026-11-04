@@ -1,7 +1,7 @@
 id: orpheus.builtin.trapezoid_ratio
 name: 双路梯形平滑比值
 version: 1.1.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: TrapezoidRatioState
 sources: [src/trapezoid_ratio.c]

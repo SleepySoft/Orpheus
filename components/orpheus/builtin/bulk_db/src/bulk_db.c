@@ -94,10 +94,10 @@ static int process(void* state,const OrpheusProcessContext* context) {
         return ORPHEUS_ERR_INVALID_ARG;
     const BulkDbState* s=(const BulkDbState*)state;
     if (!s->channels || !s->elements) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     const OrpheusBuffer* in=context->inputs[0];OrpheusBuffer* out=context->outputs[0];
     if (!valid(in,s->channels,s->elements,true)) return ORPHEUS_ERR_INVALID_ARG;
-    if (!out) return ORPHEUS_OK;
+    if (!out) return orpheus_process_next(context);
     size_t count=(size_t)s->channels*s->elements,bytes=count*sizeof(float);
     if (!valid(out,s->channels,s->elements,false) || overlap(in->data,out->data,bytes)) return ORPHEUS_ERR_INVALID_ARG;
     const unsigned char* src=(const unsigned char*)in->data;unsigned char* dst=(unsigned char*)out->data;
@@ -113,7 +113,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         }
         memcpy(dst+i*sizeof(float),&value,sizeof(float));
     }
-    out->frame_count=s->elements;return ORPHEUS_OK;
+    out->frame_count=s->elements;return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

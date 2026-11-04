@@ -6,7 +6,7 @@ description: >-
   gain_output=1时gain0为所选gain_channel的块末已应用线性增益（1×1控制数据）；
   旁路为1、模式2静音为0，非该组首样本增益或目标值。默认关闭，不改变旧音频与BULK接口。
 version: 1.4.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: GainRamperState
 sources:

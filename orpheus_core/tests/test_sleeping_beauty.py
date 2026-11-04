@@ -67,6 +67,7 @@ class OrpheusProcessContext(ctypes.Structure):
         ("epoch", ctypes.c_uint64),
         ("valid_frames", ctypes.c_uint32),
         ("timeline_flags", ctypes.c_uint32),
+        ("continuation", ctypes.c_void_p),
     ]
 
 

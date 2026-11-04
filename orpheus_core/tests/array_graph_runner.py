@@ -11,9 +11,23 @@ from orpheus_core.generator import CodeGenerator
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def use_linear_call_chain(plan):
+    # 数值验证显式声明一次调用链，数据会合不承担执行同步/去重。
+    order = plan.execution_order
+    plan.entry_nodes = order[:1]
+    plan.call_graph = {
+        nid: ([{"node": order[i + 1], "every": 1, "phase": 0}]
+              if i + 1 < len(order) else [])
+        for i, nid in enumerate(order)
+    }
+    for task in plan.tasks:
+        task["entry_nodes"] = [nid for nid in plan.entry_nodes if nid in task["nodes"]]
+
+
 def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3):
     from test_generated_double_bank import _build
     assert isinstance(blocks,int) and 1<=blocks<=100000
+    use_linear_call_chain(plan)
     step = plan.schedule["tick"]
     generated = tmp_path / "generated"
     CodeGenerator(registry, ROOT).generate(plan, generated)

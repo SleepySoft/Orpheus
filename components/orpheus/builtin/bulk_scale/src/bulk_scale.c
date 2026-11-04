@@ -65,14 +65,14 @@ static int process(void* state,const OrpheusProcessContext* context) {
         return ORPHEUS_ERR_INVALID_ARG;
     const BulkScaleState* s=(const BulkScaleState*)state;
     if (!s->channels || !s->elements) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     const OrpheusBuffer* in=context->inputs[0];const OrpheusBuffer* gain=context->inputs[1];
     const OrpheusBuffer* integer=context->input_count>2 ? context->inputs[2] : NULL;
     if ((gain!=NULL)==(integer!=NULL) || !valid(in,s->channels,s->elements,ORPHEUS_FORMAT_F32,true))
         return ORPHEUS_ERR_INVALID_ARG;
     const OrpheusBuffer* scalar=gain ? gain : integer;
     if (!valid(scalar,1,1,gain ? ORPHEUS_FORMAT_F32 : ORPHEUS_FORMAT_I32,true)) return ORPHEUS_ERR_INVALID_ARG;
-    OrpheusBuffer* out=context->outputs[0];if (!out) return ORPHEUS_OK;
+    OrpheusBuffer* out=context->outputs[0];if (!out) return orpheus_process_next(context);
     size_t count=(size_t)s->channels*s->elements,bytes=count*sizeof(float);
     if (!valid(out,s->channels,s->elements,ORPHEUS_FORMAT_F32,false) ||
         overlap(in->data,bytes,out->data,bytes) || overlap(scalar->data,sizeof(float),out->data,bytes))
@@ -85,7 +85,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         float value;memcpy(&value,src+i*sizeof(float),sizeof(float));value=value*factor;
         memcpy(dst+i*sizeof(float),&value,sizeof(float));
     }
-    out->frame_count=s->elements;return ORPHEUS_OK;
+    out->frame_count=s->elements;return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

@@ -10,6 +10,7 @@ from orpheus_core.compiler import GraphCompiler
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import Registry
+from array_graph_runner import use_linear_call_chain
 
 ROOT = Path(__file__).resolve().parents[2]
 BLOCKS = [2, 1, 2, 1]
@@ -58,6 +59,7 @@ def verify_channel_selectors(tmp_path, cases):
     registry = Registry(); registry.add_search_path(ROOT / "components"); registry.scan()
     plan = GraphCompiler(registry).compile(project)
     assert not plan.warnings
+    use_linear_call_chain(plan)
     path = tmp_path / "plan.json"
     path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
     generated = tmp_path / "generated"

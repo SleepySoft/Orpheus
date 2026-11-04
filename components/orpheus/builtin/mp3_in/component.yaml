@@ -3,7 +3,7 @@ name: MP3 文件输入
 category: 基础/文件
 order: 3
 version: 1.0.1
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: Mp3InState
 clock_source: true

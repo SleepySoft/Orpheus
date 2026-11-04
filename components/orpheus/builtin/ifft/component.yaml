@@ -3,7 +3,7 @@ name: 实数IFFT
 category: 高级/频域
 description: 实数IFFT，支持独立FFT点数和多帧批次，含1/N归一化。优先使用半复数spectrum数据输入；旧音频in保留，二者必须且只能连接一个。
 version: 1.1.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: IfftState
 sources:

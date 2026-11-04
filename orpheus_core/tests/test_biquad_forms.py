@@ -58,7 +58,8 @@ class OrpheusProcessContext(ctypes.Structure):
                 ("scratch", ctypes.c_void_p), ("scratch_size", ctypes.c_size_t),
                 ("timestamp", ctypes.c_double),
                 ("frame_index", ctypes.c_uint64), ("epoch", ctypes.c_uint64),
-                ("valid_frames", ctypes.c_uint32), ("timeline_flags", ctypes.c_uint32)]
+                ("valid_frames", ctypes.c_uint32), ("timeline_flags", ctypes.c_uint32),
+                ("continuation", ctypes.c_void_p)]
 
 
 CB = ctypes.CFUNCTYPE

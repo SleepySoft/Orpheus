@@ -115,7 +115,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         (in && (!in->data || in->channels != s->channels || in->frame_capacity < frames)) ||
         (out && (!out->data || out->channels != s->channels || out->frame_capacity < frames)))
         return ORPHEUS_ERR_INVALID_ARG;
-    if (!frames) return ORPHEUS_OK;
+    if (!frames) return orpheus_process_next(ctx);
     float current = fmaxf(s->current_gain, s->min_gain);
     bool ramping = fabsf(s->target_gain-current) > s->snap_threshold && s->remaining_blocks > 0.0f;
     if (ramping) {
@@ -138,7 +138,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         s->load_initial = false;
     }
     if (out) out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 static int set_parameter(void* state, const char* key, const OrpheusValue* value) {
     if (!state || !key || !value) return ORPHEUS_ERR_INVALID_ARG;

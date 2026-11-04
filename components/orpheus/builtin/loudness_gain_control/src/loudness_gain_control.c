@@ -199,7 +199,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     const size_t count = (size_t)ctx->frame_count * s->channels;
     if (output != input) memcpy(output->data, input->data, count * sizeof(float));
     output->frame_count = ctx->frame_count;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int set_parameter(void* state, const char* id, const OrpheusValue* value) {

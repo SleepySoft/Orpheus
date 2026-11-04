@@ -3,7 +3,7 @@ name: 矩阵乘法
 category: 高级/矩阵与混音
 description: 矩阵乘音频块（out[rows] = M(rows×cols) · in[cols]，M 为 BULK 系数）
 version: 1.1.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: MatrixMulState
 sources:

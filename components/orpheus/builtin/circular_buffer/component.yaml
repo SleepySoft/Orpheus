@@ -3,7 +3,7 @@ name: 循环缓冲分帧
 category: 高级/频域
 description: 带历史重叠的循环缓冲分帧组件。输入一块新样本，输出 num_frames 个展开帧（每帧 frame_size），帧移 hop_size。用于拼接 STFT 帧流。
 version: 1.1.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: CircularBufferState
 scheduling:

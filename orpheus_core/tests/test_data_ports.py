@@ -55,8 +55,9 @@ def data_project(*, latest: bool = False) -> Project:
                  params={"factor": 3, "channels": 1}),
             Node(id="slow", component="orpheus.test.data_probe"),
         ])
+        # 先调用慢速更新分支，再调用读取 latest 的分支；不依赖全局拓扑重排。
+        connections.insert(0, edge("clock:out", "batch:in"))
         connections.extend([
-            edge("clock:out", "batch:in"),
             edge("batch:out", "slow:audio"),
             edge("slow:scalar_out", "consumer:held"),
         ])
@@ -98,6 +99,7 @@ def test_latest_input_does_not_drive_consumer_clock(compiler):
     assert held["frame_count"] == 1
     assert not held.get("rate_bridge")
     assert not held.get("task_bridge")
+    assert [call["node"] for call in plan.call_graph["clock"]] == ["batch", "producer"]
 
 
 def test_sync_data_inputs_with_different_delivery_periods_are_rejected(compiler):

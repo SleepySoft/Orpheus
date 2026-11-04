@@ -6,7 +6,7 @@ description: >-
   enabled默认true保持原行为；false时逐字节输出干声且冻结整个池/游标，重新启用从旧历史继续。
   reset清池及游标但保留延迟和enabled配置；不是永远运行延迟再选择干声。
 version: 1.1.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: PoolDelayState
 sources:

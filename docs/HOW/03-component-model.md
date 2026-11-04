@@ -10,6 +10,13 @@ tags: [orpheus/how]
 
 组件由 manifest 和 C/C++ 实现组成。
 
+## ABI v6：组件主动续接
+
+`process` 完成本组件工作后可返回 `orpheus_process_next(ctx)` 调用所有直接下游，
+或用 `orpheus_process_branch(ctx, index)` 调用指定分支。不续接便结束该链，
+成功返回不会由框架自动补调；下游错误必须向上传播。续接上下文只在本次调用内有效。
+Task、组件与数据缓冲的完整职责见[组件链式调用](reference/task-driven-execution-design.md)。
+
 ## manifest 能力
 
 - 声明 id、名称、类别和源码。

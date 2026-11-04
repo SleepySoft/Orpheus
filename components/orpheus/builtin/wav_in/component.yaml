@@ -3,7 +3,7 @@ name: WAV 文件输入
 category: 基础/文件
 order: 1
 version: 1.1.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: WavInState
 clock_source: true

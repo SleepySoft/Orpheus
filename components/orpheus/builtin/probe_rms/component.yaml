@@ -3,7 +3,7 @@ name: 电平表
 category: 基础/监控
 order: 1
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: ProbeRmsState
 sources:

@@ -124,7 +124,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     if (!s->processing_enabled) {
         memset(out->data, 0, (size_t)ctx->frame_count*s->channels*sizeof(float));
         out->frame_count = ctx->frame_count;
-        return ORPHEUS_OK;
+        return orpheus_process_next(ctx);
     }
     if (!in || !in->data) return ORPHEUS_ERR_INVALID_ARG;
     const float* input = (const float*)in->data;
@@ -142,7 +142,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         }
     }
     out->frame_count = ctx->frame_count;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int set_parameter(void* state, const char* id, const OrpheusValue* value) {

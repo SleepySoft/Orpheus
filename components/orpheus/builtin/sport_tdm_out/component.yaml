@@ -4,7 +4,7 @@ category: 平台/ADI DSP
 description: 图内交错 f32 到 SPORT/TDM DMA slot 的输出边界；物理 slot 映射和格式由工程顶层 sport_bindings 配置
 platforms: [adsp21593]
 version: 1.0.0
-abi_version: 4
+abi_version: 6
 package_type: source
 state_type: SportTdmOutState
 sources:

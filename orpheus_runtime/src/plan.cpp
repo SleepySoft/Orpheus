@@ -24,6 +24,17 @@ Plan Plan::load_from_file(const std::string& path) {
     p.duration_frames = j.value("duration_frames", 0u);
     p.task_id = j.value("task_id", "default");
     p.flow_mode = j.value("flow_mode", "dataflow");
+    p.entry_nodes = j.value("entry_nodes", std::vector<std::string>{});
+    for (auto it = j.at("call_graph").begin(); it != j.at("call_graph").end(); ++it) {
+        auto& edges = p.call_graph[it.key()];
+        for (const auto& edge : it.value()) {
+            CallConfig call;
+            call.node = edge.at("node").get<std::string>();
+            call.every = edge.at("every").get<uint32_t>();
+            call.phase = edge.at("phase").get<uint32_t>();
+            edges.push_back(call);
+        }
+    }
     p.schedule_tick = j.value("schedule", json::object()).value("tick", 0u);
     const auto bridge_identity = j.value("bridge_identity", json::object());
     p.bridge_graph_hash = bridge_identity.value("graph_hash", UINT64_C(0));
@@ -37,6 +48,7 @@ Plan Plan::load_from_file(const std::string& path) {
         tc.sample_rate = t.value("sample_rate", p.sample_rate);
         tc.block_size = t.value("block_size", p.block_size);
         tc.priority = t.value("priority", 0);
+        tc.entry_nodes = t.value("entry_nodes", std::vector<std::string>{});
         const auto schedule = t.value("schedule", json::object());
         tc.schedule_tick = schedule.value("tick", tc.block_size);
         for (const auto& n : t.value("nodes", json::array())) {

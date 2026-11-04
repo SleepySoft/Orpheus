@@ -45,7 +45,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         a->frame_count!=s->frames_a || b->frame_count!=s->frames_b) return ORPHEUS_ERR_INVALID_ARG;
     memcpy(s->packed_values,a->data,(size_t)s->frames_a*s->channels_a*sizeof(float));
     memcpy(s->decoded_values,b->data,(size_t)s->frames_b*s->channels_b*sizeof(float));
-    ++s->calls;s->quantum=(int32_t)context->frame_count;return ORPHEUS_OK;
+    ++s->calls;s->quantum=(int32_t)context->frame_count;return orpheus_process_next(context);
 }
 static int get(void* state,const char* key,OrpheusValue* value) {
     TensorPairCapture* s=(TensorPairCapture*)state;value->type=ORPHEUS_VALUE_INT;

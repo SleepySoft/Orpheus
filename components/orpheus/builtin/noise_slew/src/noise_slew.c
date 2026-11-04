@@ -99,7 +99,7 @@ static int ns_process(void* state, const OrpheusProcessContext* ctx) {
         out_data[i] = y;
     }
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int ns_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

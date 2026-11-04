@@ -175,7 +175,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     const size_t sample_count = (size_t)frames * channels;
     if (sample_count == 0) {
         output->frame_count = 0;
-        return ORPHEUS_OK;
+        return orpheus_process_next(ctx);
     }
 
     float block_energy = 0.0f;
@@ -225,7 +225,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         }
     }
     output->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int set_parameter(void* state, const char* id, const OrpheusValue* value) {

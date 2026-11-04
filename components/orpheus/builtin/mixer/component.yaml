@@ -3,7 +3,7 @@ name: 混音器
 category: 基础/增益与混音
 order: 2
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: MixerState
 sources:

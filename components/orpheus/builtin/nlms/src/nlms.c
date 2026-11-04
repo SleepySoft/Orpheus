@@ -161,7 +161,7 @@ static int nlms_process(void* state, const OrpheusProcessContext* ctx) {
     }
 
     out_buf->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int nlms_get_parameter(void* state, const char* param_id, OrpheusValue* value) {

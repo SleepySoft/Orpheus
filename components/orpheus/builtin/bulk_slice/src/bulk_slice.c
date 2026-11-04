@@ -73,17 +73,17 @@ static int process(void* state,const OrpheusProcessContext* context) {
         return ORPHEUS_ERR_INVALID_ARG;
     const uint32_t* v=((const BulkSliceState*)state)->values;
     if (!v[0]) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     const OrpheusBuffer* in=context->inputs[0];OrpheusBuffer* out=context->outputs[0];
     if (!valid(in,v[0],v[1],true)) return ORPHEUS_ERR_INVALID_ARG;
-    if (!out) return ORPHEUS_OK;
+    if (!out) return orpheus_process_next(context);
     size_t input_bytes=(size_t)v[0]*v[1]*sizeof(float),count=(size_t)v[2]*v[3];
     if (!valid(out,v[2],v[3],false) || overlap(in->data,input_bytes,out->data,count*sizeof(float)))
         return ORPHEUS_ERR_INVALID_ARG;
     const unsigned char* src=(const unsigned char*)in->data;unsigned char* dst=(unsigned char*)out->data;
     for (size_t i=0;i<count;++i)
         memcpy(dst+i*sizeof(float),src+((size_t)v[4]+i*v[5])*sizeof(float),sizeof(float));
-    out->frame_count=v[3];return ORPHEUS_OK;
+    out->frame_count=v[3];return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

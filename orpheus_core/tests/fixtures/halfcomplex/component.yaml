@@ -1,7 +1,7 @@
 id: orpheus.test.halfcomplex_capture
 name: 半复数桥接验收采集
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: HalfcomplexCapture
 sources: [src/capture.c]

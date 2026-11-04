@@ -16,9 +16,10 @@ class TaskFlow:
     roots: dict[str, str]
     ancestors: dict[str, set[str]]
     cadences: dict[str, tuple[int, int]]
+    first_calls: dict[str, int]
 
     def require_before(self, source: str, target: str) -> None:
-        if source not in self.ancestors[target]:
+        if self.first_calls[source] >= self.first_calls[target]:
             raise CompileError(
                 f"Task 顺序未声明：{source} 必须在 {target} 之前调用；"
                 "请连接显式驱动路径，数据线/参数线不会补充调用顺序"
@@ -99,25 +100,31 @@ def build_task_flow(project: Project, registry: Registry) -> TaskFlow:
             source_roots = {roots[e.from_ref.node_id] for e in parents}
             if len(source_roots) != 1:
                 raise CompileError(f"节点 {dst} 被多个 Source/Task 直接调用；请通过显式跨 Task 桥交付数据")
-            rates = set()
+            rates = []
             ancestors[dst] = set()
             for e in parents:
                 src = e.from_ref.node_id
                 period, phase = cadences[src]
-                rates.add((period * e.every, phase + period * e.phase))
+                rates.append((period * e.every, phase + period * e.phase))
                 ancestors[dst].update(ancestors[src] | {src})
-            if len(rates) != 1:
-                raise CompileError(f"驱动合流 {dst} 的周期/相位不一致；请显式同步，不能阻塞等待串行分支")
             roots[dst] = next(iter(source_roots))
             nodes[dst].task = nodes[roots[dst]].task
-            cadences[dst] = next(iter(rates))
+            cadences[dst] = rates[0]
             queue.append(dst)
     if len(order) != len(nodes):
         raise CompileError("驱动图包含循环；当前 Task 顺序模式要求显式无环调用，不将环猜成循环语句")
     if not order:
         raise CompileError("Task 顺序模式至少需要一个 Source")
+    first_calls: dict[str, int] = {}
+    stack = list(reversed([nid for nid in order if roots[nid] == nid]))
+    while stack:
+        nid = stack.pop()
+        if nid in first_calls:
+            continue
+        first_calls[nid] = len(first_calls)
+        stack.extend(e.to_ref.node_id for e in reversed(outgoing[nid]))
     project.tasks = tasks
-    return TaskFlow(order, roots, ancestors, cadences)
+    return TaskFlow(order, roots, ancestors, cadences, first_calls)
 
 
 def output_cadence(manifest: dict, port: dict, node, task: Task) -> tuple[int, int]:

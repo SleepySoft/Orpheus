@@ -2,7 +2,7 @@ id: orpheus.builtin.delay
 name: 延迟
 category: 基础/延迟
 version: 1.0.1
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: DelayState
 sources:

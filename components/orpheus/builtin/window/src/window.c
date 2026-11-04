@@ -126,7 +126,7 @@ static int win_process(void* state, const OrpheusProcessContext* ctx) {
         for (uint32_t c = 0; c < ch; ++c) out_data[f * ch + c] = in_data[f * ch + c] * w;
     }
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int win_get_parameter(void* state, const char* param_id, OrpheusValue* value) {

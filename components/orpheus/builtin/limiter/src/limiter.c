@@ -241,12 +241,12 @@ static int process_feedback(LimiterState* s,const OrpheusProcessContext* ctx) {
         input->channels!=channels || output->channels!=channels ||
         input->frame_capacity<frames || output->frame_capacity<frames ||
         s->parameter_set<1 || s->parameter_set>2) return ORPHEUS_ERR_INVALID_ARG;
-    if (!frames) { output->frame_count=0; return ORPHEUS_OK; }
+    if (!frames) { output->frame_count=0; return orpheus_process_next(ctx); }
     const float* source=(const float*)input->data;
     float* destination=(float*)output->data;
     if (s->disabled) {
         if (destination!=source) memcpy(destination,source,(size_t)frames*channels*sizeof(float));
-        s->active_mask=0; output->frame_count=frames; return ORPHEUS_OK;
+        s->active_mask=0; output->frame_count=frames; return orpheus_process_next(ctx);
     }
     unsigned base=(unsigned)(s->parameter_set-1)*channels;
     for (unsigned c=0;c<channels;++c) {
@@ -273,7 +273,7 @@ static int process_feedback(LimiterState* s,const OrpheusProcessContext* ctx) {
     }
     memcpy(&s->active_mask,&mask,sizeof(mask));
     s->gain=s->env[channels-1]; output->frame_count=frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int limiter_process(void* state, const OrpheusProcessContext* ctx) {
@@ -331,7 +331,7 @@ static int limiter_process(void* state, const OrpheusProcessContext* ctx) {
     }
 
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int limiter_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

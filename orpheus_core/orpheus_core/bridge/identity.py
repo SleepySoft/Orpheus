@@ -42,6 +42,7 @@ def wire_map_entries(id_map: list[dict[str, Any]]) -> list[tuple[int, ...]]:
 
 def build_identity(plan) -> dict[str, int]:
     graph_payload = {
+        "abi_version": plan.abi_version,
         "sample_rate": plan.sample_rate,
         "block_size": plan.block_size,
         "target": plan.target,
@@ -49,6 +50,8 @@ def build_identity(plan) -> dict[str, int]:
         "connections": plan.connections,
         "control_links": plan.control_links,
         "schedule": plan.schedule,
+        "call_graph": plan.call_graph,
+        "entry_nodes": plan.entry_nodes,
     }
     if getattr(plan, "flow_mode", "dataflow") != "dataflow":
         graph_payload.update(flow_mode=plan.flow_mode, execution_order=plan.execution_order)

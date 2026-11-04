@@ -118,7 +118,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         context->input_count<2 || context->output_count<1) return ORPHEUS_ERR_INVALID_ARG;
     TrapezoidRatioState* s=(TrapezoidRatioState*)state;
     if (!s->history) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     unsigned frames=s->bins*s->batches;
     size_t points=(size_t)s->bins*s->channels,bytes=points*s->batches*sizeof(float);
     OrpheusBuffer* out=context->outputs[0];
@@ -144,7 +144,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
             } else ((float*)out->data)[index]=smoothed[0]/denominator;
         }
     }
-    if (out) out->frame_count=frames;return ORPHEUS_OK;
+    if (out) out->frame_count=frames;return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

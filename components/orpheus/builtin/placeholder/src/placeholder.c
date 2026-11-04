@@ -118,7 +118,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         else memset(out->data, 0, bytes);
         out->frame_count = ctx->frame_count;
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int get_param(void* state, const char* id, OrpheusValue* value) {

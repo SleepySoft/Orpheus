@@ -12,6 +12,7 @@ from orpheus_core.compiler import GraphCompiler
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import Registry
+from array_graph_runner import use_linear_call_chain
 from test_phased_tone import f32
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +62,7 @@ def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_r
     registry.add_manifest(FIXTURE / "component.yaml")
     plan = GraphCompiler(registry).compile(project)
     assert not plan.warnings
+    use_linear_call_chain(plan)
     assert plan.schedule["tick"] == 32
     for name in cases:
         for port in ("rms", "peak"):

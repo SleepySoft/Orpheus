@@ -62,7 +62,7 @@ static int process(void* state, const OrpheusProcessContext* context) {
     s->frame_index=(int32_t)context->frame_index;
     s->frame_count=(int32_t)context->frame_count;
     s->timestamp_frames=(int32_t)(context->timestamp*context->sample_rate+0.5);
-    ++s->value; ++s->calls; ++s->values[0]; return ORPHEUS_OK;
+    ++s->value; ++s->calls; ++s->values[0]; return orpheus_process_next(context);
 }
 static int get(void* state, const char* key, OrpheusValue* out) {
     SequenceState* s=state; out->type=ORPHEUS_VALUE_INT;
@@ -189,7 +189,7 @@ int main(int argc,char** argv) {
 
 
 def _plan(mode: str) -> ExecutionPlan:
-    plan = ExecutionPlan(abi_version=5, sample_rate=48000, block_size=1, task_id="main")
+    plan = ExecutionPlan(abi_version=6, sample_rate=48000, block_size=1, task_id="main")
     plan.flow_mode = mode
     plan.bridge_identity = {"graph_hash": 1, "plan_hash": 2, "id_map_hash": 3}
     plan.nodes = plan.execution_order = ["source", "target", "sparse", "aggregate", "spare"]
@@ -202,6 +202,13 @@ def _plan(mode: str) -> ExecutionPlan:
             "period": 4 if nid == "target" else 1,
             "phase": 2 if nid == "target" else 0,
         }
+    plan.entry_nodes = ["source", "spare"]
+    plan.call_graph = {nid: [] for nid in plan.nodes}
+    plan.call_graph["source"] = [
+        {"node": "target", "every": 4, "phase": 2 if mode == "task_sequence" else 3},
+        {"node": "sparse", "every": 2, "phase": 1},
+        {"node": "aggregate", "every": 2, "phase": 1},
+    ]
     plan.tasks = [
         {"id": "main", "block_size": 32, "sample_rate": 48000, "trigger_group": "external",
          "nodes": ["source", "target", "sparse", "aggregate"],
@@ -249,8 +256,81 @@ def _plan(mode: str) -> ExecutionPlan:
     return plan
 
 
-@pytest.fixture(scope="module", params=["task_sequence", "dataflow"])
-def backend_pair(request):
+CHAIN_HARNESS = r"""
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifdef DYNAMIC
+#include "orpheus_runtime/runtime.h"
+static orpheus::Runtime runtime;
+static int get(const char* node,const char* key) {
+    OrpheusValue v={}; if(runtime.get_parameter(node,key,&v)) return -999;
+    return v.value.i32;
+}
+static int set(const char* node,int value) {
+    OrpheusValue v={};v.type=ORPHEUS_VALUE_INT;v.value.i32=value;
+    return runtime.set_parameter(node,"value",v);
+}
+#else
+#include "orpheus_graph.h"
+#include "orpheus_control.h"
+static int get(const char* node,const char* key) {
+    OrpheusValue v={0}; if(orpheus_control_get_value(node,key,&v)) return -999;
+    return v.value.i32;
+}
+static int set(const char* node,int value) {
+    OrpheusValue v={0};v.type=ORPHEUS_VALUE_INT;v.value.i32=value;
+    return orpheus_control_set_value(node,"value",v);
+}
+#endif
+int main(int argc,char** argv) {
+#ifdef DYNAMIC
+    if(runtime.load_plan(orpheus::Plan::load_from_file(argv[1]),argv[2])) return 2;
+#else
+    if(orpheus_generated_init(48000,1)) return 2;
+#endif
+    int scenario=atoi(argv[argc-2]), task=!strcmp(argv[argc-1],"task");
+    if(scenario==1 && set("a",-1)) return 3;
+    if(scenario==2 && set("a",-2)) return 3;
+    if(scenario==3 && set("b",-3)) return 3;
+    if(scenario==4 && set("a",-4)) return 3;
+    if(scenario==5 && set("a",-5)) return 3;
+    int rc;
+#ifdef DYNAMIC
+    rc=task ? runtime.process_task("main",1) : runtime.process_block(1);
+#else
+    rc=task ? orpheus_generated_process_task_main(1) : orpheus_generated_process(1);
+    if(scenario==3 && strcmp(orpheus_graph_last_error()->node,"b")) return 4;
+#endif
+    printf("RC %d\n",rc);
+    const char* nodes[]={"a","b","c","d"};
+    for(int i=0;i<4;++i) printf("NODE %s %d %d %d\n",nodes[i],
+        get(nodes[i],"calls"),get(nodes[i],"observed"),get(nodes[i],"other"));
+    return 0;
+}
+"""
+
+CHAIN_PROCESS = r"""
+static int serial;
+static int process(void* state, const OrpheusProcessContext* context) {
+    SequenceState* s=state;
+    s->observed=++serial;
+    ++s->calls;
+    int rc=ORPHEUS_OK;
+    if(s->value==-2) rc=orpheus_process_branch(context,1);
+    else if(s->value==-3) rc=ORPHEUS_ERR_PROCESSING;
+    else if(s->value!=-1) {
+        rc=orpheus_process_next(context);
+        if(rc==ORPHEUS_OK && s->value==-4) rc=orpheus_process_next(context);
+        if(rc==ORPHEUS_OK && s->value==-5) rc=ORPHEUS_ERR_PROCESSING;
+    }
+    s->other=++serial;
+    return rc;
+}
+"""
+
+
+def _build_backend_pair(mode):
     if not (ROOT / "build" / "orpheus_abi" / "liborpheus_bridge_endpoint.a").exists():
         pytest.skip("需要已有 MinGW bridge 静态库")
     directory = ROOT / "workspace" / f"backend_sequence_{uuid.uuid4().hex[:8]}"
@@ -259,25 +339,64 @@ def backend_pair(request):
         component_dir = directory / "component"
         (component_dir / "src").mkdir(parents=True)
         (component_dir / "include").mkdir()
-        (component_dir / "src" / "sequence.c").write_text(SOURCE, encoding="utf-8")
+        source = SOURCE
+        if mode == "chain":
+            start = source.index("static int process(")
+            end = source.index("static int get(", start)
+            source = source[:start] + CHAIN_PROCESS + source[end:]
+        (component_dir / "src" / "sequence.c").write_text(source, encoding="utf-8")
         (component_dir / "include" / "sequence.h").write_text(HEADER, encoding="utf-8")
         registry = Registry()
         registry._components[COMPONENT] = ComponentInfo(
-            id=COMPONENT, version="1.0.0", abi_version=5, package_type="source",
+            id=COMPONENT, version="1.0.0", abi_version=6, package_type="source",
             manifest_path=component_dir / "component.yaml", root_dir=component_dir,
             manifest={"id": COMPONENT, "sources": ["src/sequence.c"], "headers": ["include/sequence.h"],
                       "state_type": "SequenceState",
                       "parameters": [{"id": "value", "type": "int"}]},
         )
-        plan = _plan(request.param)
+        plan = _plan(mode)
+        if mode == "chain":
+            plan = ExecutionPlan(abi_version=6, sample_rate=48000, block_size=1,
+                                 task_id="main", flow_mode="task_sequence")
+            plan.bridge_identity = {"graph_hash": 1, "plan_hash": 2, "id_map_hash": 3}
+            plan.nodes = ["a", "b", "c", "d"]
+            plan.schedule = {"tick": 1}
+            plan.execution_order = ["d", "c", "b", "a"]
+            plan.entry_nodes = ["a"]
+            plan.call_graph = {
+                "a": [{"node": "b", "every": 1, "phase": 0},
+                      {"node": "c", "every": 1, "phase": 0}],
+                "b": [{"node": "d", "every": 1, "phase": 0}],
+                "c": [{"node": "d", "every": 1, "phase": 0}], "d": [],
+            }
+            plan.node_configs = {
+                nid: {"component": COMPONENT, "task": "main", "params": {"value": 0},
+                      "frames": 1, "period": 1, "phase": 0}
+                for nid in plan.nodes
+            }
+            plan.node_configs["b"].update(period=37, phase=36)
+            plan.tasks = [{"id": "main", "nodes": plan.nodes, "execution_order": plan.execution_order,
+                           "entry_nodes": ["a"], "schedule": {"tick": 1}}]
+            plan.modules = [{"path": "", "id": 0, "leaves": [
+                {"node": nid, "slot": i} for i, nid in enumerate(plan.nodes)
+            ]}]
+            plan.id_map = [
+                {"id": 0x01000000 + i * 8 + j, "node": nid, "key": key,
+                 "kind": "TUNE" if key in {"value", "other"} else "PROBE",
+                 "form": "SCALAR", "type": "int", "count": 1}
+                for i, nid in enumerate(plan.nodes)
+                for j, key in enumerate(["value", "other", "observed", "calls",
+                                         "bulk_seen", "frame_index", "frame_count", "timestamp_frames"])
+            ]
         document = asdict(plan)
         document["flow_mode"] = plan.flow_mode
         plan_path = directory / "plan.json"
         plan_path.write_text(json.dumps(document), encoding="utf-8")
         generated = directory / "generated"
         CodeGenerator(registry, ROOT).generate(plan, generated)
-        (directory / "harness.c").write_text(HARNESS, encoding="utf-8")
-        (directory / "harness.cpp").write_text(HARNESS, encoding="utf-8")
+        harness = CHAIN_HARNESS if mode == "chain" else HARNESS
+        (directory / "harness.c").write_text(harness, encoding="utf-8")
+        (directory / "harness.cpp").write_text(harness, encoding="utf-8")
         cmake = f"""
 cmake_minimum_required(VERSION 3.16)
 project(sequence_backend C CXX)
@@ -310,9 +429,52 @@ target_link_libraries(generated_backend PRIVATE orpheus_graph)
                                "--target", "dynamic", "generated_backend", "sequence"]]:
             result = run_cmake_with_msvc_env(command, cwd=directory, build_dir=ROOT / "build")
             assert result.returncode == 0, result.stdout + result.stderr
-        yield request.param, directory, plan_path
+        yield mode, directory, plan_path
     finally:
         shutil.rmtree(directory, ignore_errors=True)
+
+
+@pytest.fixture(scope="module", params=["task_sequence", "dataflow"])
+def backend_pair(request):
+    yield from _build_backend_pair(request.param)
+
+
+@pytest.fixture(scope="module")
+def chain_pair():
+    yield from _build_backend_pair("chain")
+
+
+@pytest.mark.parametrize("entry", ["global", "task"])
+@pytest.mark.parametrize("scenario,counts,rc", [
+    (0, [1, 1, 1, 2], 0),
+    (1, [1, 0, 0, 0], 0),
+    (2, [1, 0, 1, 1], 0),
+    (3, [1, 1, 0, 0], -5),
+    (4, [1, 2, 2, 4], 0),
+    (5, [1, 1, 1, 2], -5),
+])
+def test_component_owned_chain_calls(chain_pair, entry, scenario, counts, rc):
+    _, directory, plan_path = chain_pair
+    outputs = []
+    for executable in ["dynamic", "generated_backend"]:
+        arguments = [str(plan_path), str(directory / "build")] if executable == "dynamic" else []
+        result = subprocess.run(
+            [str(directory / "build" / f"{executable}.exe"), *arguments, str(scenario), entry],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        outputs.append(result.stdout)
+    assert outputs[0] == outputs[1]
+    lines = outputs[0].splitlines()
+    assert f"RC {rc}" in lines
+    nodes = {
+        line.split()[1]: [int(v) for v in line.split()[2:]]
+        for line in lines if line.startswith("NODE ")
+    }
+    assert [nodes[nid][0] for nid in "abcd"] == counts
+    if scenario == 0:
+        assert nodes == {"a": [1, 1, 10], "b": [1, 2, 5],
+                         "c": [1, 6, 9], "d": [2, 7, 8]}
 
 
 @pytest.mark.parametrize("entry", ["global", "task", "error", "bulk_error"])
@@ -339,7 +501,7 @@ def test_sequence_dynamic_generated_match(backend_pair, entry):
             assert rows[-1][1] != 0
             assert all(row[2] == 0 for row in rows)
         else:
-            firing = 1 if entry == "task" else 2
+            firing = 2
             assert all(row[2:5] == [0, 2, 3] for row in rows[:firing])
             assert rows[firing][2] == 1
             assert rows[firing][5] == (11 + firing) * 100 + 2
@@ -351,7 +513,7 @@ def test_sequence_dynamic_generated_match(backend_pair, entry):
         assert rows[0][7] >= 17
         if entry in {"global", "task"}:
             assert [row[2] for row in rows] == (
-                [0, 1, 1, 2] if entry == "task" else [0, 0, 0, 1]
+                [0, 0, 0, 1]
             )
 
 

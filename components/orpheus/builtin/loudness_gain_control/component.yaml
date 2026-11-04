@@ -4,7 +4,7 @@ category: 基础/控制
 order: 1
 description: 将线性 RMS 电平转换为目标 dB 增益：检测平滑、静音门、增益限幅和快压慢抬；音频端口仅直通以保持同一时间线
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: LoudnessGainControlState
 sources:

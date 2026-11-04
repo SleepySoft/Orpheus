@@ -53,7 +53,7 @@ static int process(void* state, const OrpheusProcessContext* context) {
     }
     output->frame_count = frames;
     output->interleaved = true;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static int set_parameter(void* state, const char* id, const OrpheusValue* value) {
     (void)state; (void)id; (void)value; return ORPHEUS_ERR_UNSUPPORTED;

@@ -251,7 +251,7 @@ static int process_explicit(IndexedToneState* state, const OrpheusProcessContext
         input->channels!=state->channels || output->channels!=state->channels ||
         input->frame_capacity<frames || output->frame_capacity<frames)
         return ORPHEUS_ERR_INVALID_ARG;
-    if (!frames) { output->frame_count=0; return ORPHEUS_OK; }
+    if (!frames) { output->frame_count=0; return orpheus_process_next(context); }
     unsigned phase=(unsigned)state->phase-1;
     IndexedToneRamp* ramp=&state->ramps[phase];
     float gain=ramp->current_gain, coefficient=1;
@@ -284,7 +284,7 @@ static int process_explicit(IndexedToneState* state, const OrpheusProcessContext
     }
     ramp->current_gain=gain;
     output->frame_count=frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 
 static int process(void* opaque,const OrpheusProcessContext* context) {
@@ -310,7 +310,7 @@ static int process(void* opaque,const OrpheusProcessContext* context) {
         state->current_gain=state->target_gain; state->ramp_coeff=1;
         if(state->crossing_phase){ state->crossing_phase=0; configure_ramp(state,state->final_target_gain); }
     }
-    output->frame_count=context->frame_count; return ORPHEUS_OK;
+    output->frame_count=context->frame_count; return orpheus_process_next(context);
 }
 
 static int set_parameter(void* opaque,const char* id,const OrpheusValue* value){

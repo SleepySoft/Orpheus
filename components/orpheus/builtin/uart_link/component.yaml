@@ -3,7 +3,7 @@ name: 串口链路
 category: 平台/平台
 description: 非音频组件：生成 OLINK 串口访问桥；半双工由主机轮询观测，全双工可主动上报
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 codegen_template: uart_link
 ui_hidden: true

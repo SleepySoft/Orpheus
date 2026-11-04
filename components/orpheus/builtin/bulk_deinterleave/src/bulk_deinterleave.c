@@ -62,7 +62,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
     const BulkDeinterleaveState* s=(const BulkDeinterleaveState*)state;
     if (!s->channels || !s->elements || context->input_count<1 || context->output_count<s->channels)
         return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     const OrpheusBuffer* in=context->inputs[0];size_t mono=(size_t)s->elements*sizeof(float);
     if (!valid(in,s->channels,s->elements,true)) return ORPHEUS_ERR_INVALID_ARG;
     for (unsigned c=0;c<s->channels;++c) {
@@ -79,7 +79,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
             memcpy((unsigned char*)out->data+(size_t)i*sizeof(float),src+((size_t)i*s->channels+c)*sizeof(float),sizeof(float));
         out->frame_count=s->elements;
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

@@ -3,7 +3,7 @@ name: WAV 文件输出
 category: 基础/文件
 order: 2
 version: 1.1.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: WavOutState
 sources:

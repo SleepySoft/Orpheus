@@ -122,7 +122,7 @@ static int probe_rms_process(void* state, const OrpheusProcessContext* ctx) {
 
     s->rms = (float)sqrt(sum / (frames * ch));
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int probe_rms_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

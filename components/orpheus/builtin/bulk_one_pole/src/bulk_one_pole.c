@@ -104,7 +104,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
     if (!state || !context || !context->inputs || !context->outputs || context->input_count<1 || context->output_count<1)
         return ORPHEUS_ERR_INVALID_ARG;
     BulkOnePoleState* s=(BulkOnePoleState*)state;if (!s->history) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     const OrpheusBuffer* in=context->inputs[0];const OrpheusBuffer* update=context->input_count>1 ? context->inputs[1] : NULL;
     OrpheusBuffer* out=context->outputs[0];size_t count=(size_t)s->channels*s->elements,bytes=count*sizeof(float);
     if (!valid(in,s->channels,s->elements,ORPHEUS_FORMAT_F32,true) ||
@@ -120,7 +120,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         }
     }
     if (out) {memcpy(out->data,s->history,bytes);out->frame_count=s->elements;}
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,.process=process,

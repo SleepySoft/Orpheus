@@ -93,7 +93,7 @@ static int mute_process(void* state, const OrpheusProcessContext* ctx) {
         out_data[i] = in_data[i] * s->gain_linear;
     }
     out->frame_count = ctx->frame_count;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 static int mute_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {
     MuteState* s = (MuteState*)state;

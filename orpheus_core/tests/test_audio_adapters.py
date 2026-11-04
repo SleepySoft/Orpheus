@@ -224,7 +224,7 @@ def test_window_has_full_output_capacity_and_preserves_hop(compiler, tmp_path):
     CodeGenerator(compiler.registry, ROOT).generate(plan, tmp_path / "generated")
     source = (tmp_path / "generated" / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
     assert "* (uint64_t)128;" in source
-    assert "g_task_counter_default / 4u) * (uint64_t)128;" in source
+    assert "(node->calls - 1u) * (uint64_t)128;" in source
 
 
 @pytest.mark.parametrize("kind", ["src", "split", "window"])

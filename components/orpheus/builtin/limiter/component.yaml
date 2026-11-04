@@ -3,7 +3,7 @@ name: 峰值限幅
 category: 音效/动态与塑形
 description: 共享/逐通道峰值包络，或双参数组的逐通道反馈增益限幅
 version: 1.2.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: LimiterState
 sources:

@@ -86,11 +86,11 @@ static int process(void* state,const OrpheusProcessContext* context) {
     const ComplementaryCoefficientsState* s=(const ComplementaryCoefficientsState*)state;
     const OrpheusBuffer* in=context->inputs[0]; OrpheusBuffer* out=context->outputs[0];
     if (!in) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     if (!s->channels || !in->data || in->format!=ORPHEUS_FORMAT_F32 || !in->interleaved ||
         in->channels!=s->channels || in->frame_count!=s->elements || in->frame_capacity<s->elements)
         return ORPHEUS_ERR_INVALID_ARG;
-    if (!out) return ORPHEUS_OK;
+    if (!out) return orpheus_process_next(context);
     if (!out->data || out->format!=ORPHEUS_FORMAT_F32 || !out->interleaved ||
         out->channels!=s->channels*2 || out->frame_capacity<s->elements) return ORPHEUS_ERR_INVALID_ARG;
     size_t input_bytes=(size_t)s->elements*s->channels*sizeof(float),output_bytes=input_bytes*2;
@@ -104,7 +104,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
             output[(size_t)row*s->channels*2+s->channels+c]=s->total-input[(size_t)row*s->channels+c];
     }
     out->frame_count=s->elements;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

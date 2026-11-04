@@ -27,6 +27,11 @@ Orpheus 统一使用三个正交的顶层维度；pacing 降为主动推进的�
 
 ## 2. 执行实现
 
+两种实现均采用组件主动链式调用：Task 只启动入口，组件通过
+`orpheus_process_next` 或 `orpheus_process_branch` 决定后续执行。
+没有逐节点调度循环，也没有会合等待/去重。
+见[调用契约](task-driven-execution-design.md#0-当前实现task-启动入口组件调用下游)。
+
 ### 2.1 动态 Runtime
 
 UI 的“▶ 运行”使用此实现：

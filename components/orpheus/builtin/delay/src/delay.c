@@ -107,7 +107,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         s->write_pos = (s->write_pos + ch) % s->capacity;
     }
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 static int set_param(void* state, const char* id, const OrpheusValue* v) {
     DelayState* s = (DelayState*)state;

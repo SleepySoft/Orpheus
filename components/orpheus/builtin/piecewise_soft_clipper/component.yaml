@@ -3,7 +3,7 @@ name: 二次分段软削波
 category: 高级/动态处理
 description: 二次分段压缩曲线，支持 high/low 两套参数与 active bitmask
 version: 1.0.0
-abi_version: 3
+abi_version: 6
 package_type: source
 state_type: PiecewiseSoftClipperState
 sources:

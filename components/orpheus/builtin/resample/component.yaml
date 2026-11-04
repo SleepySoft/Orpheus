@@ -3,7 +3,7 @@ name: 降采样器
 category: 高级/多速率
 description: 整数倍降采样（N:1），默认滑动平均，也可按指定相位纯选点；纯选点须由上游承担抗混叠
 version: 1.1.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: ResampleState
 scheduling:

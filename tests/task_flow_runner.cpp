@@ -18,11 +18,12 @@ int main(int argc, char** argv) {
     const char* mode = argv[1];
     const char* kind = argv[2];
     const int phase = atoi(argv[3]);
-    CHECK(orpheus_generated_init(48000, strcmp(kind, "scalar") == 0 ? 32 : 480) == ORPHEUS_OK);
+    CHECK(orpheus_generated_init(48000,
+        strcmp(kind, "scalar") == 0 || strcmp(kind, "independent") == 0 ? 32 : 480) == ORPHEUS_OK);
 #define GET(n, k, v) orpheus_control_get_value(n, k, v)
 #define WRITE(n, v) orpheus_control_write_bulk(n, "values_storage", v, 4)
 #define READ(n, v) orpheus_control_get_bulk(n, "values_storage", v, 4)
-#define PROCESS() (strcmp(mode, "task") == 0 ? orpheus_generated_process_task_task_clock(0) : orpheus_generated_process(strcmp(kind, "scalar") == 0 ? 32 : 480))
+#define PROCESS() (strcmp(mode, "task") == 0 ? orpheus_generated_process_task_task_clock(0) : orpheus_generated_process(strcmp(kind, "scalar") == 0 || strcmp(kind, "independent") == 0 ? 32 : 480))
 #ifdef ORPHEUS_TEST_SCOPE
 #define OTHER() orpheus_generated_process_task_task_other(0)
 #endif
@@ -36,7 +37,7 @@ int main(int argc, char** argv) {
 #define GET(n, k, v) runtime.get_parameter(n, k, v)
 #define WRITE(n, v) runtime.write_bulk(n, "values_storage", v, 4)
 #define READ(n, v) runtime.get_bulk(n, "values_storage", v, 4)
-#define PROCESS() (strcmp(mode, "task") == 0 ? runtime.process_task("task_clock", 0) : runtime.process_block(strcmp(kind, "scalar") == 0 ? 32 : 480))
+#define PROCESS() (strcmp(mode, "task") == 0 ? runtime.process_task("task_clock", 0) : runtime.process_block(strcmp(kind, "scalar") == 0 || strcmp(kind, "independent") == 0 ? 32 : 480))
 #define OTHER() runtime.process_task("task_other", 0)
 #endif
 
@@ -49,6 +50,8 @@ int main(int argc, char** argv) {
             CHECK(fabsf(source.value.f32 - 0.25f) < 1e-6f);
             CHECK(source.value.f32 == target.value.f32);
         }
+    } else if (strcmp(kind, "independent") == 0) {
+        for (int step = 0; step < 4; ++step) CHECK(PROCESS() == ORPHEUS_OK);
     } else if (strcmp(kind, "scope") == 0) {
 #if !defined(ORPHEUS_TEST_GENERATED) || defined(ORPHEUS_TEST_SCOPE)
         const float input[4] = {9, 8, 7, 6};

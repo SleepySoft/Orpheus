@@ -91,8 +91,15 @@ struct TaskConfig {
     uint32_t schedule_tick = 0;
     std::vector<std::string> nodes;
     std::vector<std::string> execution_order;
+    std::vector<std::string> entry_nodes;
     std::map<std::string, uint32_t> periods;
     std::map<std::string, uint32_t> phases;
+};
+
+struct CallConfig {
+    std::string node;
+    uint32_t every = 1;
+    uint32_t phase = 0;
 };
 
 struct Plan {
@@ -107,6 +114,8 @@ struct Plan {
     std::vector<TaskConfig> tasks;
     std::vector<std::string> nodes;
     std::vector<std::string> execution_order;
+    std::vector<std::string> entry_nodes;
+    std::map<std::string, std::vector<CallConfig>> call_graph;
     std::map<std::string, NodeConfig> node_configs;
     std::map<std::string, BufferConfig> buffers;
     std::vector<ConnectionConfig> connections;

@@ -64,10 +64,10 @@ static int process(void* state,const OrpheusProcessContext* context) {
         return ORPHEUS_ERR_INVALID_ARG;
     const FrameEnergyState* s=(const FrameEnergyState*)state;
     if (!s->channels || !s->frames) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     const OrpheusBuffer* in=context->inputs[0];OrpheusBuffer* out=context->outputs[0];
     if (!valid(in,s->channels,s->frames,true)) return ORPHEUS_ERR_INVALID_ARG;
-    if (!out) return ORPHEUS_OK;
+    if (!out) return orpheus_process_next(context);
     if (!valid(out,1,1,false) ||
         overlap(in->data,(size_t)s->channels*s->frames*sizeof(float),out->data,sizeof(float)))
         return ORPHEUS_ERR_INVALID_ARG;
@@ -84,7 +84,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         }
         total=total+row;
     }
-    float result=total;memcpy(out->data,&result,sizeof(float));out->frame_count=1;return ORPHEUS_OK;
+    float result=total;memcpy(out->data,&result,sizeof(float));out->frame_count=1;return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

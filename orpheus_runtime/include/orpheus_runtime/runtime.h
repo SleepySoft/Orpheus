@@ -2,6 +2,7 @@
 #define ORPHEUS_RUNTIME_RUNTIME_H
 
 #include "orpheus_abi.h"
+#include "orpheus_chain.h"
 #include "orpheus_runtime/loader.h"
 #include "orpheus_runtime/plan.h"
 
@@ -197,11 +198,25 @@ private:
     int prepare_instance(Instance& inst, const NodeConfig& cfg);
     void commit_bulk(const std::string* task_id = nullptr);
     int control_tick_for_task(const std::string* task_id, const std::string* before_node = nullptr);
-    int process_nodes(const std::vector<std::string>& execution_order,
-                      const std::map<std::string, uint32_t>* periods,
-                      uint64_t counter, uint32_t frame_count,
-                      uint32_t timeline_flags, bool task_mode = false,
-                      const std::map<std::string, uint32_t>* phases = nullptr);
+    struct ChainBinding {
+        OrpheusChainNode node{};
+        Runtime* runtime = nullptr;
+        Instance* instance = nullptr;
+        const NodeConfig* config = nullptr;
+        std::vector<OrpheusChainLink> children;
+    };
+    struct ChainScope {
+        std::map<std::string, ChainBinding> bindings;
+        std::vector<OrpheusChainNode*> entries;
+    };
+    ChainScope global_chain_;
+    std::map<std::string, ChainScope> task_chains_;
+    int build_chain(ChainScope& scope, const std::vector<std::string>& nodes,
+                    const std::map<std::string, uint32_t>* periods = nullptr,
+                    const std::map<std::string, uint32_t>* phases = nullptr);
+    static int invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run);
+    static int publish_chain(OrpheusChainNode* node, const OrpheusChainRun* run);
+    int process_chain(ChainScope& scope, const OrpheusChainRun& run);
     void task_bridge_push(TaskBridge& bridge);
     void task_bridge_pop(TaskBridge& bridge);
     void update_task_bridge_probes(TaskBridge& bridge);

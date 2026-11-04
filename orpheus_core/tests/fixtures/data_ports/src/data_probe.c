@@ -118,7 +118,7 @@ static int process(void* opaque, const OrpheusProcessContext* ctx) {
     state->metrics[3] = (float)ctx->valid_frames;
     state->metrics[7] = state->fallback;
     if (call <= 24) state->metrics[7 + call] = result;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int set_parameter(void* opaque, const char* key, const OrpheusValue* value) {

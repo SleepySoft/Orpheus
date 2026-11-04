@@ -3,7 +3,7 @@ name: 前后衰减
 category: 音效/空间与声像
 description: 内部分频前后衰减，或外部分频与四组显式幂次包络混合
 version: 1.1.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: FadeState
 sources:

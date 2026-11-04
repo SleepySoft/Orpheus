@@ -3,7 +3,7 @@ name: 任意阶直接型IIR
 category: 高级/滤波器
 description: 归一化直接型II转置IIR，保持多项式阶数与状态递推，不转为双二阶级联
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: IirState
 sources:

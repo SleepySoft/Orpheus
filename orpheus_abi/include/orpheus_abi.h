@@ -13,8 +13,9 @@ extern "C" {
    v2: 资源槽注册（register_slots）+ 实例内存块下发（OrpheusConfig.state_block）。
    v3: 接口表尾部追加统一 hook（外部注册 hook 优先于组件 hook）。
     v4: OrpheusProcessContext 尾部追加绝对帧时间线（frame_index/epoch/flags）。
+   v6: 组件显式续接下游（continuation），不再由宿主遍历节点调用。
    组件接口表尾部追加字段，旧 DLL 由 Runtime 按版本号规避访问。 */
-#define ORPHEUS_ABI_VERSION 5
+#define ORPHEUS_ABI_VERSION 6
 
 /* 平台导出宏 */
 #ifndef ORPHEUS_API
@@ -324,6 +325,12 @@ typedef enum {
 } OrpheusTimelineFlags;
 
 typedef struct {
+    void* user;
+    int (*call)(void* user, uint32_t branch);
+    uint32_t count;
+} OrpheusContinuation;
+
+typedef struct {
     void* state;
     const OrpheusBuffer* const* inputs;
     OrpheusBuffer** outputs;
@@ -338,7 +345,23 @@ typedef struct {
     uint64_t epoch;          /* reset/seek/restart 后递增；0 表示未提供 */
     uint32_t valid_frames;   /* 本块有效帧数；通常等于 frame_count */
     uint32_t timeline_flags; /* OrpheusTimelineFlags 位图 */
+    const OrpheusContinuation* continuation; /* v6：仅在本次 process 调用内有效 */
 } OrpheusProcessContext;
+
+/* 不调用即停止传播；无宿主续接的组件单元测试仍可独立运行。 */
+static inline int orpheus_process_next(const OrpheusProcessContext* ctx) {
+    if (!ctx) return ORPHEUS_ERR_INVALID_ARG;
+    if (ctx->continuation && !ctx->continuation->call) return ORPHEUS_ERR_INVALID_ARG;
+    return ctx->continuation
+        ? ctx->continuation->call(ctx->continuation->user, UINT32_MAX) : ORPHEUS_OK;
+}
+
+static inline int orpheus_process_branch(const OrpheusProcessContext* ctx, uint32_t branch) {
+    if (!ctx || !ctx->continuation || !ctx->continuation->call ||
+        branch >= ctx->continuation->count)
+        return ORPHEUS_ERR_INVALID_ARG;
+    return ctx->continuation->call(ctx->continuation->user, branch);
+}
 
 /* 配置上下文（prepare 时传入） */
 typedef struct {

@@ -150,7 +150,7 @@ static int sm_process(void* state, const OrpheusProcessContext* ctx) {
             if (++s->table_index == (uint32_t)s->table_length) s->table_index = 0;
         }
         out->frame_count = frames;
-        return ORPHEUS_OK;
+        return orpheus_process_next(ctx);
     }
     float depth = s->depth < 0.0f ? 0.0f : (s->depth > 1.0f ? 1.0f : s->depth);
     for (uint32_t i = 0; i < frames * ch; ++i) {
@@ -161,7 +161,7 @@ static int sm_process(void* state, const OrpheusProcessContext* ctx) {
         if (s->phase >= TWO_PI) s->phase -= TWO_PI;
     }
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int sm_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

@@ -38,7 +38,7 @@ static int process(void* state, const OrpheusProcessContext* context) {
         memcpy(output->dst, input->data,
                (size_t)context->frame_count * output->channels * sizeof(float));
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static int set_parameter(void* state, const char* id, const OrpheusValue* value) {
     (void)state; (void)id; (void)value; return ORPHEUS_ERR_UNSUPPORTED;

@@ -1,7 +1,7 @@
 id: orpheus.test.data_probe
 name: 数据链路验收探针
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: DataProbeState
 sources: [src/data_probe.c]

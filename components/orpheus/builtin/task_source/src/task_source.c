@@ -64,7 +64,7 @@ static int reset(void* state) {
 }
 
 static int process(void* state, const OrpheusProcessContext* ctx) {
-    return state && ctx ? ORPHEUS_OK : ORPHEUS_ERR_INVALID_ARG;
+    return state && ctx ? orpheus_process_next(ctx) : ORPHEUS_ERR_INVALID_ARG;
 }
 
 static int get_parameter(void* state, const char* id, OrpheusValue* value) {

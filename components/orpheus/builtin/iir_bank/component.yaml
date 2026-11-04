@@ -3,7 +3,7 @@ name: N级IIR滤波器组
 category: 高级/滤波器组
 description: 可配置级数的级联 DF2T 双二阶 IIR 滤波器组，系数顺序 [b0,b1,b2,a1,a2]
 version: 1.5.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: IirBankState
 sources:

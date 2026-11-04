@@ -166,7 +166,7 @@ static int im3d_process(void* state, const OrpheusProcessContext* ctx) {
         }
     }
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 /* ---- 参数 ---- */

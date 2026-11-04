@@ -2,7 +2,7 @@ id: orpheus.builtin.complementary_coefficients
 name: 互补系数展开
 category: 基础/计算数据
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: ComplementaryCoefficientsState
 description: >-

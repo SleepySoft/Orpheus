@@ -151,7 +151,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         (base && (!base->data || base->channels != s->channels_out || base->frame_capacity < frames)) ||
         (out && (!out->data || out->channels != s->channels_out || out->frame_capacity < frames)))
         return ORPHEUS_ERR_INVALID_ARG;
-    if (!out) return ORPHEUS_OK;
+    if (!out) return orpheus_process_next(ctx);
     float* destination = (float*)out->data;
     int64_t total = (int64_t)s->channels_a+s->channels_b;
     for (uint32_t c = 0; c < s->channels_out; ++c) {
@@ -177,7 +177,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         }
     }
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 static int set_parameter(void* state, const char* key, const OrpheusValue* value) {
     if (!state || !key || !value) return ORPHEUS_ERR_INVALID_ARG;

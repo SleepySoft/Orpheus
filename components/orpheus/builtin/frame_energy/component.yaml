@@ -6,7 +6,7 @@ description: >-
   平方、通道加法、帧加法分别舍入；总和初值负零，不平均、不转dB、不广播、不跨调用累计。
   输入为交错f32音频，窗口尺寸独立于调用节拍。NULL输出仍校验输入；零处理量不写输出。
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: FrameEnergyState
 sources: [src/frame_energy.c]

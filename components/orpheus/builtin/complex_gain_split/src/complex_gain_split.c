@@ -77,7 +77,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
     const ComplexGainSplitState* s=(const ComplexGainSplitState*)state;
     const OrpheusBuffer* in=context->inputs[0]; const OrpheusBuffer* gain=context->inputs[1];
     if (!in || !gain) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     if (!s->channels || !valid(in,s->channels,s->elements*2,true) || !valid(gain,s->channels,s->elements,true))
         return ORPHEUS_ERR_INVALID_ARG;
     const size_t bytes=(size_t)s->elements*s->channels*2*sizeof(float);
@@ -102,7 +102,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
     }
     if (impulse) impulse->frame_count=s->elements*2;
     if (reverb) reverb->frame_count=s->elements*2;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

@@ -2,7 +2,7 @@ id: orpheus.builtin.indexed_tone
 name: 索引式音调控制
 category: 音效/均衡
 version: 1.1.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: IndexedToneState
 sources: [src/indexed_tone.c]

@@ -115,7 +115,7 @@ static bool overlap(const void* a,size_t a_bytes,const void* b,size_t b_bytes) {
 static int process(void* state,const OrpheusProcessContext* context) {
     if (!state || !context || !context->inputs || !context->outputs ||
         context->input_count<1 || context->output_count<1) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     BulkGuardedSlewState* s=(BulkGuardedSlewState*)state;
     const OrpheusBuffer* in=context->inputs[0];const OrpheusBuffer* bound=context->input_count>1?context->inputs[1]:NULL;
     OrpheusBuffer* out=context->outputs[0];size_t count=(size_t)s->channels*s->elements,bytes=count*4;
@@ -138,7 +138,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         h->value=next;h->delta=delta;h->change=change;
     }
     s->initialized=true;if (out) out->frame_count=s->elements;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,.process=process,

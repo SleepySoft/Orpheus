@@ -196,6 +196,7 @@ def test_data_payload_can_differ_from_processing_quantum(compiler):
 def test_spectral_roundtrip_dynamic_generated_global_and_task(
     compiler, tmp_path, batch, legacy, channels,
 ):
+    from array_graph_runner import use_linear_call_chain
     from test_generated_double_bank import _build
 
     project = spectral_project(batch, legacy=legacy, channels=channels)
@@ -229,6 +230,7 @@ def test_spectral_roundtrip_dynamic_generated_global_and_task(
         stream.writeframes(b"".join(struct.pack(f"<{channels}h", *sample) for sample in samples))
     project.graph.nodes = dict(reversed(list(project.graph.nodes.items())))
     plan = compiler.compile(project)
+    use_linear_call_chain(plan)
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
     generated = tmp_path / "generated"

@@ -24,7 +24,7 @@ class Buffer(ctypes.Structure):
 
 
 class Config(ctypes.Structure):
-    _fields_ = [("sample_rate", ctypes.c_uint32), ("block_size", ctypes.c_uint32), ("channels", ctypes.c_uint32),
+    _fields_ = [("sample_rate", ctypes.c_double), ("block_size", ctypes.c_uint32), ("channels", ctypes.c_uint32),
                 ("param_ids", ctypes.POINTER(ctypes.c_char_p)), ("param_values", ctypes.POINTER(Value)),
                 ("param_count", ctypes.c_uint32), ("state_block", ctypes.c_void_p)]
 
@@ -33,9 +33,10 @@ class Context(ctypes.Structure):
     _fields_ = [("state", ctypes.c_void_p), ("inputs", ctypes.POINTER(ctypes.POINTER(Buffer))),
                 ("outputs", ctypes.POINTER(ctypes.POINTER(Buffer))), ("input_count", ctypes.c_uint32),
                 ("output_count", ctypes.c_uint32), ("frame_count", ctypes.c_uint32),
-                ("sample_rate", ctypes.c_uint32), ("scratch", ctypes.c_void_p), ("scratch_size", ctypes.c_size_t),
+                ("sample_rate", ctypes.c_double), ("scratch", ctypes.c_void_p), ("scratch_size", ctypes.c_size_t),
                 ("timestamp", ctypes.c_double), ("frame_index", ctypes.c_uint64), ("epoch", ctypes.c_uint64),
-                ("valid_frames", ctypes.c_uint32), ("timeline_flags", ctypes.c_uint32)]
+                ("valid_frames", ctypes.c_uint32), ("timeline_flags", ctypes.c_uint32),
+                ("continuation", ctypes.c_void_p)]
 
 
 CREATE = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(Config))

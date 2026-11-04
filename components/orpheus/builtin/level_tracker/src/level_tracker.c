@@ -118,7 +118,7 @@ static int tracker_process(void* state,const OrpheusProcessContext* context) {
         if (!scalar_valid(context->outputs[i],context->frame_count)) return ORPHEUS_ERR_INVALID_ARG;
     if (context->input_count>4 && context->inputs[4] && context->inputs[2])
         return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     float values[]={s->rms_db,s->peak_db,s->volume_db,s->trigger};
     for (unsigned i=0;i<context->input_count && i<4;++i)
         if (context->inputs[i]) values[i]=((const float*)context->inputs[i]->data)[0];
@@ -150,7 +150,7 @@ static int tracker_process(void* state,const OrpheusProcessContext* context) {
         ((float*)output->data)[0]=i ? s->envelope_db : s->level_db_spl;
         output->frame_count=1;
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static int tracker_set(void* state,const char* key,const OrpheusValue* value) {
     if (!state || !key || !value || value->type!=ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;

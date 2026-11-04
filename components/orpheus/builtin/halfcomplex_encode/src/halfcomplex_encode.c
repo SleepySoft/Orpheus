@@ -82,7 +82,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
     const HalfcomplexEncodeState* s=(const HalfcomplexEncodeState*)state;
     const OrpheusBuffer* in=context->inputs[0];
     if (!in) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     uint32_t input_frames=s->bins*2*s->batches,output_frames=s->fft_size*s->batches;
     if (!s->channels || !in->data || in->format!=ORPHEUS_FORMAT_F32 || !in->interleaved ||
         in->channels!=s->channels || in->frame_count!=input_frames || in->frame_capacity<input_frames)
@@ -119,7 +119,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
             }
         out->frame_count=output_frames;
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

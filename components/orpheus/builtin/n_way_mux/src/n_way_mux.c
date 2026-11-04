@@ -123,7 +123,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         if (inA) memcpy(out_data, inA->data, (size_t)frames * ch * sizeof(float));
         else memset(out_data, 0, (size_t)frames * ch * sizeof(float));
         out->frame_count = frames;
-        return ORPHEUS_OK;
+        return orpheus_process_next(ctx);
     }
 
     for (uint32_t n = 0; n < frames; ++n) {
@@ -149,7 +149,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     }
     s->select_pos = pos;
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int set_param(void* state, const char* id, const OrpheusValue* v) {

@@ -101,7 +101,7 @@ static int nd_process(void* state,const OrpheusProcessContext* ctx){
     { char* p=s->json_detail; size_t rem=sizeof(s->json_detail);
       int L=snprintf(p,rem,"{\"flatness\":%.3f,\"noise_floor_db\":%.2f,\"clicks\":%u,\"clip_pct\":%.4f}"
         ,(double)s->flatness,(double)s->noise_floor_db,s->clicks,(double)s->clip_ratio); (void)L; }
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 static int nd_set(void* st,const char* id,const OrpheusValue* v){(void)st;(void)id;(void)v;return ORPHEUS_ERR_UNSUPPORTED;}
 static int nd_get(void* state,const char* id,OrpheusValue* v){

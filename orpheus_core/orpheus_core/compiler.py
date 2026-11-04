@@ -53,6 +53,8 @@ class ExecutionPlan:
     buffer_size: int = 0
     nodes: list[str] = field(default_factory=list)
     execution_order: list[str] = field(default_factory=list)
+    call_graph: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    entry_nodes: list[str] = field(default_factory=list)
     node_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
     buffers: dict[str, dict[str, Any]] = field(default_factory=dict)
     connections: list[dict[str, str]] = field(default_factory=list)
@@ -65,9 +67,7 @@ class ExecutionPlan:
     # 控制链路：编译期校验通过的参数驱动关系（运行时块边界两相快照投递）
     control_links: list[dict[str, Any]] = field(default_factory=list)
     ignored_nodes: list[str] = field(default_factory=list)  # debug_mode 裁剪但仍保留在工程中的节点
-    # 静态调度表：主步长 tick（图速率帧）+ 每节点触发周期 period（= 节点间隔 / tick）。
-    # 宿主按 tick 推进；runtime/生成路径按 (block_counter+1) % period == 0 触发。
-    # 单速率图下 tick==block_size、period==divisor，与旧行为逐字节一致。
+    # 节拍分析：宿主按 tick 推进 Task 入口，内部组件只沿直接调用边执行。
     schedule: dict[str, Any] | None = None
     bridge_identity: dict[str, int] = field(default_factory=dict)
     clock_domains: list[dict[str, Any]] = field(default_factory=list)
@@ -817,7 +817,7 @@ class GraphCompiler:
 
         # 4. Build execution plan
         plan = ExecutionPlan(
-            abi_version=1,
+            abi_version=6,
             sample_rate=resolved_task.sample_rate,
             block_size=resolved_task.block_size,
             buffer_size=project.buffer_size,
@@ -1235,6 +1235,37 @@ class GraphCompiler:
                     } if task_flow else {}),
                 }
             )
+
+        # 调用边按声明顺序保存，不展开为执行表，也不对会合节点去重。
+        plan.call_graph = {nid: [] for nid in execution_order}
+        edges = (
+            [(e.from_ref.node_id, e.to_ref.node_id, e.every, e.phase)
+             for e in project.drive_connections]
+            if task_flow else
+            [(e.from_ref.node_id, e.to_ref.node_id, 1, 0) for e in graph.connections]
+        )
+        for src, dst, every, phase in edges:
+            if src not in plan.call_graph or dst not in plan.call_graph:
+                continue
+            if plan.node_configs[src]["task"] != plan.node_configs[dst]["task"]:
+                continue
+            if not task_flow:
+                # 数据流声明的节拍在编译期落到调用边；不由输出就绪隐式触发。
+                if periods[dst] < periods[src]:
+                    continue
+                if periods[dst] % periods[src]:
+                    raise CompileError(f"调用节拍不能整分频：{src} → {dst}")
+                every = periods[dst] // periods[src]
+                phase = every - 1
+            edge = {"node": dst, "every": every, "phase": phase}
+            if edge not in plan.call_graph[src]:
+                plan.call_graph[src].append(edge)
+        children = {edge["node"] for targets in plan.call_graph.values() for edge in targets}
+        plan.entry_nodes = [nid for nid in execution_order if nid not in children]
+        for task in plan.tasks:
+            task["entry_nodes"] = [
+                nid for nid in plan.entry_nodes if nid in task["nodes"]
+            ]
 
         # 离线运行时长：无文件输入时，宿主按时钟源声明的时长跑（信号发生器/扫频发生器/扫频记录
         # 的 duration_s），否则固定 10s 会截断长信号（60s 只跑 10s，或跟着 1s 的 wav 只跑 1s）。

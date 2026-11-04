@@ -4,7 +4,7 @@ category: 音效/动态
 order: 1
 description: RMS 节目电平自动均衡（非标准 LUFS）：小声缓慢抬升、大声快速压低，带静音门与增益上下限
 version: 1.0.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: LoudnessNormalizerState
 sources:

@@ -1,7 +1,7 @@
 id: orpheus.test.spectral_gate
 name: 频谱时间量子验收
 version: 1.0.0
-abi_version: 5
+abi_version: 6
 package_type: source
 state_type: SpectralGateState
 sources: [src/spectral_gate.c]

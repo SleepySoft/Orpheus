@@ -60,7 +60,7 @@ static int square_process(void* state, const OrpheusProcessContext* ctx) {
     float* out_data = (float*)out->data;
     for (uint32_t i = 0; i < n; ++i) out_data[i] = in_data[i] * in_data[i];
     out->frame_count = ctx->frame_count;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int square_get_parameter(void* state, const char* param_id, OrpheusValue* value) {

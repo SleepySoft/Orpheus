@@ -155,7 +155,7 @@ static int ndnlms_process(void* state, const OrpheusProcessContext* ctx) {
             s->clicks, (double)s->residue_pk);
         (void)len;
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int ndnlms_get_parameter(void* state, const char* id, OrpheusValue* v) {

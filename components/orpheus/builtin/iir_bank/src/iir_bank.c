@@ -221,7 +221,7 @@ static int ib_process(void* state, const OrpheusProcessContext* ctx) {
     if (!s->processing_enabled) {
         memset(out->data, 0, (size_t)ctx->frame_count * s->channels * sizeof(float));
         out->frame_count = ctx->frame_count;
-        return ORPHEUS_OK;
+        return orpheus_process_next(ctx);
     }
     if (in == NULL || in->data == NULL) return ORPHEUS_ERR_INVALID_ARG;
 
@@ -273,7 +273,7 @@ static int ib_process(void* state, const OrpheusProcessContext* ctx) {
     }
 
     out->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 /* ---- 参数 ---- */

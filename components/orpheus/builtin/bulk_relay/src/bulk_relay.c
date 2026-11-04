@@ -84,7 +84,7 @@ static int relay_reset(void* state) { (void)state; return ORPHEUS_OK; }
 static int relay_process(void* state, const OrpheusProcessContext* context) {
     (void)state;
     (void)context;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 
 static int relay_get_parameter(void* state, const char* id, OrpheusValue* value) {

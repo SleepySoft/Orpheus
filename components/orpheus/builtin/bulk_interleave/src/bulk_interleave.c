@@ -62,7 +62,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
     const BulkInterleaveState* s=(const BulkInterleaveState*)state;
     if (!s->channels || !s->elements || context->input_count<s->channels || context->output_count<1)
         return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     OrpheusBuffer* out=context->outputs[0];size_t mono=(size_t)s->elements*sizeof(float);
     if (out && !valid(out,s->channels,s->elements,false)) return ORPHEUS_ERR_INVALID_ARG;
     for (unsigned c=0;c<s->channels;++c) {
@@ -70,7 +70,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         if (in && (!valid(in,1,s->elements,true) || (out && overlap(in->data,mono,out->data,mono*s->channels))))
             return ORPHEUS_ERR_INVALID_ARG;
     }
-    if (!out) return ORPHEUS_OK;
+    if (!out) return orpheus_process_next(context);
     unsigned char* dst=(unsigned char*)out->data;
     for (unsigned c=0;c<s->channels;++c) for (unsigned i=0;i<s->elements;++i) {
         void* target=dst+((size_t)i*s->channels+c)*sizeof(float);
@@ -78,7 +78,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         if (in) memcpy(target,(const unsigned char*)in->data+(size_t)i*sizeof(float),sizeof(float));
         else memset(target,0,sizeof(float));
     }
-    out->frame_count=s->elements;return ORPHEUS_OK;
+    out->frame_count=s->elements;return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

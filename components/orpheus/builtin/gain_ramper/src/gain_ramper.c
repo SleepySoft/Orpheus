@@ -359,7 +359,7 @@ static int gr_process(void* state,const OrpheusProcessContext* ctx) {
                    s->execution_mode>0 ? s->current_gains[group] : s->rampers[group].currentGain;
         ((float*)observed->data)[0]=gain; observed->frame_count=1;
     }
-    return result;
+    return result == ORPHEUS_OK ? orpheus_process_next(ctx) : result;
 }
 
 static int gr_set_parameter(void* state, const char* param_id, const OrpheusValue* value) {

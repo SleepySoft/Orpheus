@@ -3,7 +3,7 @@ name: N路选择
 category: 基础/路由
 description: N 路输入选 1 路输出。输入路数由 inputs 决定（引脚 in0..inN-1）；select 选第几路（1 起），ramp_ms>0 时线性交叉淡化，ramp_ms=0 时立即逐字节拷贝所选输入，不混入未选分支
 version: 1.2.0
-abi_version: 1
+abi_version: 6
 package_type: source
 state_type: NWayMuxState
 sources:

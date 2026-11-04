@@ -16,8 +16,12 @@ tags: [orpheus/how]
 2. 展开 subcomponents。
 3. 解析 alter 和平台可达性。
 4. 校验端口、类型、速率、Task 和控制链路。
-5. 分配 buffer 与生成调度。
-6. 产出 topology、schedule、tasks、control_links 和元数据。
+5. 分配 buffer，分析入口节拍与直接调用连接。
+6. 产出 call_graph、entry_nodes、tasks、control_links 和元数据。
+
+`execution_order` 仅用于编译分析、内存布局与展示；运行时不遍历它调用组件。
+`schedule` 用于宿主入口节拍，分频连接则按实际调用局部计数。
+调用边及其顺序、入口和 ABI 版本均纳入 Bridge 身份哈希。
 
 Plan 是动态 Runtime 和代码生成路径共享的事实来源。
 

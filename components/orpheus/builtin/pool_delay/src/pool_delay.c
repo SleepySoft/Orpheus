@@ -127,7 +127,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     if (!s->enabled) {
         memcpy(output, input, bytes);
         out->frame_count = frames;
-        return ORPHEUS_OK;
+        return orpheus_process_next(ctx);
     }
     for (uint32_t c = 0; c < s->channels; ++c) {
         if (s->delays_i32[c] < 0 || (uint32_t)s->delays_i32[c] > s->pool_size)
@@ -160,7 +160,7 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         base = advance(base, delay, s->pool_size);
     }
     ctx->outputs[0]->frame_count = frames;
-    return ORPHEUS_OK;
+    return orpheus_process_next(ctx);
 }
 
 static int set_parameter(void* state, const char* key, const OrpheusValue* value) {

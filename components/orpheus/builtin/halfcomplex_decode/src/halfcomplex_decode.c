@@ -90,7 +90,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
     OrpheusBuffer* out=context->outputs[0];
     OrpheusBuffer* tick=context->output_count>1 ? context->outputs[1] : NULL;
     if (!in || (audio && spectrum)) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     const uint32_t input_frames=s->fft_size*s->batches,output_frames=s->bins*2*s->batches;
     if (!s->channels || !in->data || in->format!=ORPHEUS_FORMAT_F32 || !in->interleaved ||
         in->channels!=s->channels || in->frame_count!=input_frames || in->frame_capacity<input_frames)
@@ -128,7 +128,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         memcpy(tick->data,&completed,4);
         tick->frame_count=1;
     }
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,

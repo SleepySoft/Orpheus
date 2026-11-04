@@ -91,7 +91,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
         context->input_count<1 || context->output_count<2) return ORPHEUS_ERR_INVALID_ARG;
     const ComplexPowerState* s=(const ComplexPowerState*)state;const OrpheusBuffer* in=context->inputs[0];
     if (!in) return ORPHEUS_ERR_INVALID_ARG;
-    if (!context->frame_count) return ORPHEUS_OK;
+    if (!context->frame_count) return orpheus_process_next(context);
     unsigned frames=s->bins*s->batches;
     if (!s->channels || !valid(in,s->channels,frames*2,true)) return ORPHEUS_ERR_INVALID_ARG;
     unsigned sizes[]={frames,s->batches};
@@ -121,7 +121,7 @@ static int process(void* state,const OrpheusProcessContext* context) {
     }
     if (power) power->frame_count=frames;
     if (energy) energy->frame_count=s->batches;
-    return ORPHEUS_OK;
+    return orpheus_process_next(context);
 }
 static const OrpheusComponentInterface interface={
     .get_descriptor=get_descriptor,.create=create,.destroy=destroy,.prepare=prepare,.reset=reset,
