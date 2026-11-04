@@ -30,6 +30,32 @@ tags: [orpheus/how]
 每个可独立验收的改动通过对应验证后立即提交，再开始下一项。
 提交只包含本次改动，不混入用户已有的工作树修改。文档单独修改无需重复运行代码测试。
 
+### 模型蒸馏的验收与断点记录
+
+- 数值正确性与执行一致性分开验证：先以原代码或独立参考核对算法，再比较动态全局、
+  动态Task、生成全局、生成Task四入口。仅四入口相等，不能证明原算法已还原。
+- 状态组件按实际契约覆盖首次调用、非零跨块、参数更新、停用/恢复及reset。
+  停用冻结不能以末端干湿选择代替；输出后初始化不能提前成输出前初始化。
+- 逐位/逐字节断言、输出长度和必要的非零/变化断言均须明确；宿主WAV量化比较若使用
+  PCM容差，单独记录，不把它描述为与原浮点结果逐位相等。
+- 工程内的`analysis/index.yaml`保留来源索引、TODO、依赖指纹和局部验收范围；
+  `analysis/source_units.json`关联源单元，`notes.md`记录阶段统计、提交与继续入口。
+  组件DLL需要持久构建，不能仅在临时测试工程生成后便宣称工程可直接调用。
+- 占位数量、已实现职责切片和当前有效证明是不同指标。父图或依赖变更会使旧证明过期，
+  不等于数值回归；保留待复核状态，不能修改指纹冒充重新执行。
+- 参数入口、算法核、原RTC请求/响应事务和完整模型生命周期分别验收；
+  局部TODO完成不代表完整模型通过。
+
+近期状态组件的窄验收示例（Windows，研究工程需已存在于本机）：
+
+```powershell
+python -m pytest orpheus_core\tests\test_pool_delay.py -q
+python -m pytest workspace\ExperimentalModel\baf_skeleton\tests\test_output_delay_leaf.py workspace\ExperimentalModel\baf_skeleton\tests\test_hf_noise_hold_leaf.py -q
+```
+
+阶段结果见[实施日志](implementation-log.md)，具体研究工程断点见其`notes.md`；
+上述命令只验收相关叶子，不是全模型回归。
+
 ## 前端
 
 `cd ui; npm test -- --watchAll=false` 覆盖纯函数和图工具。
