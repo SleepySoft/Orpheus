@@ -57,11 +57,11 @@ def _build(gen_dir: Path, cwd: Path) -> Path:
         if line.startswith("CMAKE_C_COMPILER:") and "=" in line:
             args.append(f"-DCMAKE_C_COMPILER={line.split('=', 1)[1]}")
     cfg = run_cmake_with_msvc_env(args, cwd=cwd, build_dir=ROOT / "build")
-    assert cfg.returncode == 0, cfg.stderr
+    assert cfg.returncode == 0, cfg.stdout + cfg.stderr
     b = run_cmake_with_msvc_env(
         ["cmake", "--build", str(build_dir)], cwd=cwd, build_dir=ROOT / "build"
     )
-    assert b.returncode == 0, b.stderr
+    assert b.returncode == 0, b.stdout + b.stderr
     return build_dir / "orpheus_generated_cli.exe"
 
 

@@ -16,6 +16,20 @@ from orpheus_core.registry import Registry
 from orpheus_core.bridge.identity import wire_map_entries
 
 
+_C_CPP_KEYWORDS = frozenset("""
+alignas alignof and and_eq asm auto bitand bitor bool break case catch char
+char16_t char32_t class compl const constexpr const_cast continue decltype default
+delete do double dynamic_cast else enum explicit export extern false float for
+friend goto if inline int long mutable namespace new noexcept not not_eq nullptr
+operator or or_eq private protected public register reinterpret_cast restrict
+return short signed sizeof static static_assert static_cast struct switch template
+this thread_local throw true try typedef typeid typename union unsigned using
+virtual void volatile wchar_t while xor xor_eq
+_Alignas _Alignof _Atomic _Bool _Complex _Generic _Imaginary _Noreturn
+_Static_assert _Thread_local
+""".split())
+
+
 class CodeGenerator:
     def __init__(self, registry: Registry, project_root: Path):
         self.registry = registry
@@ -34,7 +48,12 @@ class CodeGenerator:
     def _sanitized_node_id(self, node_id: str) -> str:
         # 节点 id 可能来自用户/子组件展开（如 "fx__g"、"my.node"），
         # 必须清洗成合法 C 标识符，否则生成代码编译失败。
-        return re.sub(r"[^A-Za-z0-9_]", "_", node_id)
+        identifier = re.sub(r"[^A-Za-z0-9_]", "_", node_id)
+        # 同时转义保留前缀，避免 inline 与用户原有 orpheus_id_inline 撞名。
+        if (not identifier or identifier[0].isdigit() or identifier in _C_CPP_KEYWORDS
+                or identifier.startswith("orpheus_id_")):
+            return "orpheus_id_" + identifier
+        return identifier
 
     @staticmethod
     def _c_escape(value: str) -> str:
