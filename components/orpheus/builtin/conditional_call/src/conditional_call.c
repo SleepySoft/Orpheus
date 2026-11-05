@@ -6,12 +6,12 @@ static const OrpheusParameter params[] = {
      .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY}
 };
 static const OrpheusPort ports[] = {
-    {.id="in",.direction=ORPHEUS_PORT_INPUT,.type=ORPHEUS_PORT_AUDIO,.sample_format=ORPHEUS_FORMAT_F32,.channels=54,.block_size=32},
-    {.id="returned",.direction=ORPHEUS_PORT_INPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_F32,.channels=22,.block_size=32},
+    {.id="in",.direction=ORPHEUS_PORT_INPUT,.type=ORPHEUS_PORT_AUDIO,.sample_format=ORPHEUS_FORMAT_F32,.channels=54},
+    {.id="returned",.direction=ORPHEUS_PORT_INPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_F32,.channels=22},
     {.id="returned_gains",.direction=ORPHEUS_PORT_INPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_F32,.channels=80,.block_size=1},
     {.id="enable",.direction=ORPHEUS_PORT_INPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_I32,.channels=1,.block_size=1},
-    {.id="out",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_AUDIO,.sample_format=ORPHEUS_FORMAT_F32,.channels=54,.block_size=32},
-    {.id="result",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_AUDIO,.sample_format=ORPHEUS_FORMAT_F32,.channels=22,.block_size=32},
+    {.id="out",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_AUDIO,.sample_format=ORPHEUS_FORMAT_F32,.channels=54},
+    {.id="result",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_AUDIO,.sample_format=ORPHEUS_FORMAT_F32,.channels=22},
     {.id="gains",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_F32,.channels=80,.block_size=1}
 };
 static const OrpheusComponentDescriptor descriptor = {
@@ -57,11 +57,12 @@ static int process(void* state,const OrpheusProcessContext* c) {
     if (!state || !c || !c->inputs || !c->outputs || c->input_count<3 || c->output_count<3 ||
         !c->continuation || c->continuation->count!=2) return ORPHEUS_ERR_INVALID_ARG;
     if (!c->frame_count) return 0;
-    if (c->frame_count!=32 || !valid(c->inputs[0],54,32,true)) return ORPHEUS_ERR_INVALID_ARG;
-    const unsigned counts[]={54,22,80},frames[]={32,32,1};
+    unsigned quantum=c->frame_count;
+    if (!valid(c->inputs[0],54,quantum,true)) return ORPHEUS_ERR_INVALID_ARG;
+    const unsigned counts[]={54,22,80},frames[]={quantum,quantum,1};
     for (unsigned i=0;i<3;++i)
         if (c->outputs[i] && !valid(c->outputs[i],counts[i],frames[i],false)) return ORPHEUS_ERR_INVALID_ARG;
-    if (c->outputs[0]) {memcpy(c->outputs[0]->data,c->inputs[0]->data,54*32*4);c->outputs[0]->frame_count=32;}
+    if (c->outputs[0]) {memcpy(c->outputs[0]->data,c->inputs[0]->data,(size_t)54*quantum*4);c->outputs[0]->frame_count=quantum;}
     int32_t enabled=((ConditionalCallState*)state)->enabled;
     if (c->input_count>3 && c->inputs[3]) {
         const OrpheusBuffer* b=c->inputs[3];
@@ -71,11 +72,11 @@ static int process(void* state,const OrpheusProcessContext* c) {
     }
     if (enabled) {
         int r=orpheus_process_branch(c,0);if (r) return r;
-        if (!valid(c->inputs[1],22,32,true) || !valid(c->inputs[2],80,1,true)) return ORPHEUS_ERR_INVALID_ARG;
+        if (!valid(c->inputs[1],22,quantum,true) || !valid(c->inputs[2],80,1,true)) return ORPHEUS_ERR_INVALID_ARG;
         for (unsigned i=1;i<3;++i) if (c->outputs[i])
-            memcpy(c->outputs[i]->data,c->inputs[i]->data,counts[i]*frames[i]*4);
+            memcpy(c->outputs[i]->data,c->inputs[i]->data,(size_t)counts[i]*frames[i]*4);
     } else {
-        for (unsigned i=1;i<3;++i) if (c->outputs[i]) memset(c->outputs[i]->data,0,counts[i]*frames[i]*4);
+        for (unsigned i=1;i<3;++i) if (c->outputs[i]) memset(c->outputs[i]->data,0,(size_t)counts[i]*frames[i]*4);
     }
     for (unsigned i=1;i<3;++i) if (c->outputs[i]) c->outputs[i]->frame_count=frames[i];
     return orpheus_process_branch(c,1);

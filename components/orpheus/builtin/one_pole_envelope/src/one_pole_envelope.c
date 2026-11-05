@@ -10,12 +10,14 @@ static const OrpheusPort ports[] = {
     VECTOR("start",ORPHEUS_PORT_INPUT),VECTOR("target",ORPHEUS_PORT_INPUT),
     {.id="alpha",.direction=ORPHEUS_PORT_INPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_F32,.channels=1,.block_size=1},
     {.id="freeze",.direction=ORPHEUS_PORT_INPUT,.type=ORPHEUS_PORT_BULK,.sample_format=ORPHEUS_FORMAT_I32,.channels=1,.block_size=1},
+    {.id="in",.direction=ORPHEUS_PORT_INPUT,.type=ORPHEUS_PORT_AUDIO,.sample_format=ORPHEUS_FORMAT_F32,.is_variable=true,.channels_param="channels"},
     {.id="out",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_AUDIO,.sample_format=ORPHEUS_FORMAT_F32,.is_variable=true,.channels_param="channels"},
-    VECTOR("gains",ORPHEUS_PORT_OUTPUT)
+    VECTOR("gains",ORPHEUS_PORT_OUTPUT),
+    {.id="audio",.direction=ORPHEUS_PORT_OUTPUT,.type=ORPHEUS_PORT_AUDIO,.sample_format=ORPHEUS_FORMAT_F32,.is_variable=true,.channels_param="channels"}
 };
 static const OrpheusComponentDescriptor descriptor = {
     .id="orpheus.builtin.one_pole_envelope",.version="1.0.0",.abi_version=ORPHEUS_ABI_VERSION,
-    .params=params,.param_count=1,.ports=ports,.port_count=6,.state_size=sizeof(OnePoleEnvelopeState),.alignment=8,.realtime_safe=true
+    .params=params,.param_count=1,.ports=ports,.port_count=8,.state_size=sizeof(OnePoleEnvelopeState),.alignment=8,.realtime_safe=true
 };
 static const OrpheusComponentDescriptor* get_descriptor(void) {return &descriptor;}
 static int create(void** state,const OrpheusConfig* config) {
@@ -43,13 +45,17 @@ static bool valid(const OrpheusBuffer* b,unsigned n,unsigned frames,OrpheusSampl
         b->frame_capacity>=frames && (!ready || b->frame_count==frames);
 }
 static int process(void* state,const OrpheusProcessContext* c) {
-    if (!state || !c || !c->inputs || !c->outputs || c->input_count<4 || c->output_count<2) return ORPHEUS_ERR_INVALID_ARG;
+    if (!state || !c || !c->inputs || !c->outputs || c->input_count<5 || c->output_count<3) return ORPHEUS_ERR_INVALID_ARG;
     if (!c->frame_count) return orpheus_process_next(c);
-    unsigned n=(unsigned)((OnePoleEnvelopeState*)state)->channels,frames=c->frame_count;
+    if (!c->inputs[4]) return ORPHEUS_ERR_INVALID_ARG;
+    unsigned n=(unsigned)((OnePoleEnvelopeState*)state)->channels,frames=c->inputs[4]->frame_count;
+    if (!frames || frames!=c->frame_count || !valid(c->inputs[4],n,frames,ORPHEUS_FORMAT_F32,true))
+        return ORPHEUS_ERR_INVALID_ARG;
     for (unsigned i=0;i<4;++i)
         if (!valid(c->inputs[i],i<2?n:1,1,i==3?ORPHEUS_FORMAT_I32:ORPHEUS_FORMAT_F32,true)) return ORPHEUS_ERR_INVALID_ARG;
     if ((c->outputs[0] && !valid(c->outputs[0],n,frames,ORPHEUS_FORMAT_F32,false)) ||
-        (c->outputs[1] && !valid(c->outputs[1],n,1,ORPHEUS_FORMAT_F32,false))) return ORPHEUS_ERR_INVALID_ARG;
+        (c->outputs[1] && !valid(c->outputs[1],n,1,ORPHEUS_FORMAT_F32,false)) ||
+        (c->outputs[2] && !valid(c->outputs[2],n,frames,ORPHEUS_FORMAT_F32,false))) return ORPHEUS_ERR_INVALID_ARG;
     float alpha;int32_t freeze;memcpy(&alpha,c->inputs[2]->data,4);memcpy(&freeze,c->inputs[3]->data,4);
     float gains[128];memcpy(gains,c->inputs[0]->data,n*4);const float* targets=c->inputs[1]->data;
     float* out=c->outputs[0]?(float*)c->outputs[0]->data:NULL;
@@ -62,6 +68,7 @@ static int process(void* state,const OrpheusProcessContext* c) {
     }
     if (c->outputs[0]) c->outputs[0]->frame_count=frames;
     if (c->outputs[1]) {memcpy(c->outputs[1]->data,gains,n*4);c->outputs[1]->frame_count=1;}
+    if (c->outputs[2]) {memcpy(c->outputs[2]->data,c->inputs[4]->data,(size_t)n*frames*4);c->outputs[2]->frame_count=frames;}
     return orpheus_process_next(c);
 }
 static const OrpheusComponentInterface api = {

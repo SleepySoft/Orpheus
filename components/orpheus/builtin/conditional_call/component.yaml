@@ -9,12 +9,12 @@ sources: [src/conditional_call.c]
 headers: [include/orpheus_conditional_call.h]
 description: 严格两分支ABI6边界，branch0为完整区域，branch1为区域外后继。停用不调用branch0，清零22路音频与80项读回；重启不复位子状态。returned必须latest，必须在branch0返回后发布。
 ports:
-  - {id: in, direction: input, type: audio, sample_format: f32, channels: 54, block_size: 32}
-  - {id: returned, direction: input, type: bulk, sample_format: f32, channels: 22, block_size: 32, timing: latest}
+  - {id: in, direction: input, type: audio, sample_format: f32, channels: 54}
+  - {id: returned, direction: input, type: bulk, sample_format: f32, channels: 22, block_size: "in:block_size", timing: latest}
   - {id: returned_gains, direction: input, type: bulk, sample_format: f32, channels: 80, block_size: 1, timing: latest}
   - {id: enable, direction: input, type: bulk, sample_format: i32, channels: 1, block_size: 1}
-  - {id: out, direction: output, type: audio, sample_format: f32, channels: 54, block_size: 32}
-  - {id: result, direction: output, type: audio, sample_format: f32, channels: 22, block_size: 32}
+  - {id: out, direction: output, type: audio, sample_format: f32, channels: 54}
+  - {id: result, direction: output, type: audio, sample_format: f32, channels: 22}
   - {id: gains, direction: output, type: bulk, sample_format: f32, channels: 80, block_size: 1}
 parameters:
   - {id: enabled, name: 区域使能, type: int, default: 1, update_policy: block_boundary}
