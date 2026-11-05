@@ -73,6 +73,8 @@ add_executable(pool_delay_runner pool_delay_runner.cpp)
 target_link_libraries(pool_delay_runner PRIVATE orpheus_runtime_lib)
 add_executable(task_flow_runner task_flow_runner.cpp)
 target_link_libraries(task_flow_runner PRIVATE orpheus_runtime_lib)
+add_executable(host_audio_runner host_audio_runner.cpp)
+target_link_libraries(host_audio_runner PRIVATE orpheus_runtime_lib)
 add_executable(message_bounds_runner message_bounds_runner.cpp)
 target_link_libraries(message_bounds_runner PRIVATE orpheus_runtime_lib)
 

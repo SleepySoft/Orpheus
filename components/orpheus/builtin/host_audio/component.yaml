@@ -1,0 +1,25 @@
+id: orpheus.builtin.host_audio
+name: 宿主音频缓冲接口
+category: 平台/平台
+version: 1.0.0
+abi_version: 6
+package_type: source
+state_type: HostAudioState
+description: >-
+  mode=0由宿主在块边界写入完整samples数组并置ready，再复制到图输出且消费ready；
+  缺少新块明确报错，不用静音冒充设备数据。mode=1将输入复制到samples供宿主读取。
+  非时钟源，调用完全由所属Task决定；交错f32、不做路由/变采样或设备IO。
+  宿主须在同一Task的两次调用之间完成数据提交，不能并发写处理中的状态。
+  NULL图输出仍消费输入并续调，零处理量不续调；reset清除ready/valid和缓冲。
+sources: [src/host_audio.c]
+headers: [include/orpheus_host_audio.h]
+ports:
+  - {id: in, direction: input, type: audio, sample_format: f32, channels: "param:channels", optional: true}
+  - {id: out, direction: output, type: audio, sample_format: f32, channels: "param:channels"}
+parameters:
+  - {id: mode, name: "方向(0宿主输入/1宿主输出)", type: int, default: 0, range: [0, 1], update_policy: restart_required}
+  - {id: channels, name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: ready, name: 宿主已提交完整新块, type: bool, default: false, update_policy: immediate, readback: true}
+  - {id: valid, name: 已捕获输出块, type: bool, default: false, update_policy: immediate, readback: true}
+  - {id: missing_blocks, name: 缺失输入块次数, type: int, default: 0, update_policy: immediate, readback: true}
+execution: {realtime_safe: true, supports_inplace: false}
