@@ -1,0 +1,23 @@
+id: orpheus.builtin.sequence_envelope_state
+name: 序列包络状态
+category: 基础/状态
+version: 1.0.0
+abi_version: 6
+package_type: source
+state_type: SequenceEnvelopeState
+sources: [src/sequence_envelope_state.c]
+headers: [include/orpheus_sequence_envelope_state.h]
+description: 首次从目标初始化当前值和目标并锁存系数；奇序列冻结，变化的偶序列接受目标并抬高当前值下界。主动续调返回后提交feedback，无块末额外延迟。
+ports:
+  - {id: targets, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1}
+  - {id: sequence, direction: input, type: bulk, sample_format: i32, channels: 1, block_size: 1}
+  - {id: coefficient, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1}
+  - {id: feedback, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1, timing: latest}
+  - {id: start, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1}
+  - {id: accepted, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1}
+  - {id: alpha, direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1}
+  - {id: freeze, direction: output, type: bulk, sample_format: i32, channels: 1, block_size: 1}
+parameters:
+  - {id: channels, name: 包络通道数, type: int, default: 20, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  - {id: silent, name: 新偶序列增益下界, type: float, default: 5.0118723e-7, update_policy: restart_required}
+execution: {realtime_safe: true, supports_inplace: false}

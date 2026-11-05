@@ -1,0 +1,17 @@
+id: orpheus.builtin.audio_bulk_snapshot
+name: 调用返回音频快照
+category: 基础/数据适配
+version: 1.0.0
+abi_version: 6
+package_type: source
+state_type: AudioBulkSnapshotState
+sources: [src/audio_bulk_snapshot.c]
+headers: [include/orpheus_audio_bulk_snapshot.h]
+description: 显式将同次调用音频块复制为只读计算数据快照，以便ABI6父组件在子调用返回后消费。位型与交错布局不变，无额外块延迟，不是音频时钟或控制参数链。
+ports:
+  - {id: in, direction: input, type: audio, sample_format: f32, channels: "param:channels"}
+  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 22, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  - {id: elements, name: 样本数, type: int, default: 32, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+execution: {realtime_safe: true, supports_inplace: false}

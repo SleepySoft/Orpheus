@@ -1,0 +1,17 @@
+id: orpheus.builtin.sample_product
+name: 逐样本乘法
+category: 基础/计算
+version: 1.0.0
+abi_version: 6
+package_type: source
+state_type: SampleProductState
+sources: [src/sample_product.c]
+headers: [include/orpheus_sample_product.h]
+description: 两路同shape音频逐样本相乘，不存储包络或控制历史。
+ports:
+  - {id: in, direction: input, type: audio, sample_format: f32, channels: "param:channels"}
+  - {id: gain, direction: input, type: audio, sample_format: f32, channels: "param:channels"}
+  - {id: out, direction: output, type: audio, sample_format: f32, channels: "param:channels"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 20, range: [1, 128], update_policy: restart_required, affects_signature: true}
+execution: {realtime_safe: true, supports_inplace: false}

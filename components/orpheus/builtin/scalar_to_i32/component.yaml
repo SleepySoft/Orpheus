@@ -1,0 +1,15 @@
+id: orpheus.builtin.scalar_to_i32
+name: 标量整数转换
+category: 基础/计算数据
+version: 1.0.0
+abi_version: 6
+package_type: source
+state_type: ScalarToI32State
+description: 有限且在int32范围内的f32按C截断为i32；无状态，不隐式判真，非法值报错。
+sources: [src/scalar_to_i32.c]
+headers: [include/orpheus_scalar_to_i32.h]
+ports:
+  - {id: in, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1}
+  - {id: out, direction: output, type: bulk, sample_format: i32, channels: 1, block_size: 1}
+parameters: []
+execution: {realtime_safe: true, supports_inplace: false}
