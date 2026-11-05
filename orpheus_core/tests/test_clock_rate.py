@@ -431,10 +431,11 @@ def test_generator_sanitized_node_id():
     assert gen._sanitized_node_id("fx__g") == "fx__g"
     assert gen._sanitized_node_id("my.gain") == "my_gain"
     assert gen._sanitized_node_id("a-b c") == "a_b_c"
-    assert gen._sanitized_node_id("inline") == "orpheus_id_inline"
-    assert gen._sanitized_node_id("class") == "orpheus_id_class"
-    assert gen._sanitized_node_id("7stage") == "orpheus_id_7stage"
-    assert gen._sanitized_node_id("orpheus_id_inline") == "orpheus_id_orpheus_id_inline"
+    assert gen._sanitized_node_id("default") == "default"
+    assert gen._arena_member_id("inline") == "orpheus_id_inline"
+    assert gen._arena_member_id("class") == "orpheus_id_class"
+    assert gen._arena_member_id("7stage") == "orpheus_id_7stage"
+    assert gen._arena_member_id("orpheus_id_inline") == "orpheus_id_orpheus_id_inline"
     assert gen._arena_member_chain("pilot__inline__class") == "pilot.orpheus_id_inline.orpheus_id_class"
 
 

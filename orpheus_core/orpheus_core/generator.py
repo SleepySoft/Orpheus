@@ -46,9 +46,11 @@ class CodeGenerator:
         return [f'orpheus_{component_id.replace("orpheus.builtin.", "")}.h']
 
     def _sanitized_node_id(self, node_id: str) -> str:
-        # 节点 id 可能来自用户/子组件展开（如 "fx__g"、"my.node"），
-        # 必须清洗成合法 C 标识符，否则生成代码编译失败。
-        identifier = re.sub(r"[^A-Za-z0-9_]", "_", node_id)
+        # 带前缀的符号片段保持稳定，裸成员名另行转义关键字。
+        return re.sub(r"[^A-Za-z0-9_]", "_", node_id)
+
+    def _arena_member_id(self, node_id: str) -> str:
+        identifier = self._sanitized_node_id(node_id)
         # 同时转义保留前缀，避免 inline 与用户原有 orpheus_id_inline 撞名。
         if (not identifier or identifier[0].isdigit() or identifier in _C_CPP_KEYWORDS
                 or identifier.startswith("orpheus_id_")):
@@ -102,7 +104,7 @@ class CodeGenerator:
 
     def _arena_member_chain(self, node_id: str) -> str:
         """叶子在嵌套 arena 中的成员链（模块段.叶子段），如 front.eq_bank.bq。"""
-        return ".".join(self._sanitized_node_id(seg) for seg in node_id.split("__"))
+        return ".".join(self._arena_member_id(seg) for seg in node_id.split("__"))
 
     def _state_ref(self, node_id: str, plan: ExecutionPlan) -> str | None:
         """叶子状态表达式：&g_arena.<成员链>；无公开状态结构体时返回 None。"""
@@ -125,7 +127,7 @@ class CodeGenerator:
         return "OrpheusArena" if not path else "OrpheusMod_" + self._camel(path)
 
     def _module_member(self, path: str) -> str:
-        return self._sanitized_node_id(path.split("__")[-1])
+        return self._arena_member_id(path.split("__")[-1])
 
     def _ctype_of(self, ptype: str) -> str:
         return {"float": "float", "int": "int32_t", "bool": "bool",
@@ -2696,7 +2698,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
                 st = self._state_type(leaf["node"], plan)
                 if st:
                     arena_lines.append(
-                        f'    {st} {self._sanitized_node_id(leaf["node"].split("__")[-1])};'
+                        f'    {st} {self._arena_member_id(leaf["node"].split("__")[-1])};'
                     )
             for child in self._module_children(modules, path):
                 arena_lines.append(
@@ -2710,7 +2712,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             st = self._state_type(leaf["node"], plan)
             if st:
                 arena_lines.append(
-                    f'    {st} {self._sanitized_node_id(leaf["node"].split("__")[-1])};'
+                    f'    {st} {self._arena_member_id(leaf["node"].split("__")[-1])};'
                 )
         for child in self._module_children(modules, ""):
             arena_lines.append(
@@ -2811,7 +2813,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             if not path:
                 continue
             mod = modules[path]
-            chain = ".".join(self._sanitized_node_id(seg) for seg in path.split("__"))
+            chain = self._arena_member_chain(path)
             mod_type = self._module_type_name(path)
             map_c.append(
                 f'    {{ ORPHEUS_MODULE_{self._camel(path)}, "{self._camel(path)}", '
