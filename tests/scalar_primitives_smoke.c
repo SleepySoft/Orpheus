@@ -1,6 +1,7 @@
 #include "orpheus_scalar_math.h"
 #include "orpheus_bulk_constant.h"
 #include "orpheus_bulk_lookup.h"
+#include "orpheus_scalar_memory.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,7 @@
 const OrpheusComponentInterface* scalar_api(void);
 const OrpheusComponentInterface* constant_api(void);
 const OrpheusComponentInterface* lookup_api(void);
+const OrpheusComponentInterface* memory_api(void);
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%d: %s\n", __LINE__, #x); return 1; } } while (0)
 static unsigned calls;
 static int downstream;
@@ -25,7 +27,79 @@ static OrpheusBuffer buffer(void* data, unsigned count) {
 static bool same(float a, float b) {
     return (isnan(a) && isnan(b)) || !memcmp(&a, &b, sizeof(a));
 }
+typedef struct { OrpheusBuffer* input; float* old; float* candidate; } Feedback;
+static int feedback_next(void* user, uint32_t branch) {
+    Feedback* f=(Feedback*)user; ++calls;
+    if (branch!=UINT32_MAX) return 99;
+    if (downstream) return downstream;
+    *f->candidate=*f->old+2.0f; f->input->frame_count=1;
+    return 0;
+}
+static int memory_contract(void) {
+    const OrpheusComponentInterface* api=memory_api();
+    ScalarMemoryState state;
+    const char* keys[]={"initial", "write_after_call"};
+    OrpheusValue params[]={{.type=ORPHEUS_VALUE_FLOAT,.value.f32=3},
+                          {.type=ORPHEUS_VALUE_BOOL,.value.b=true}};
+    OrpheusConfig config={.state_block=&state,.param_count=2,.param_ids=keys,.param_values=params};
+    void* handle=NULL;
+    CHECK(api->create(&handle,&config)==0 && handle==&state && api->prepare(handle,&config)==0);
+    float candidate=99,old=99,initial=10; int32_t update=1;
+    OrpheusBuffer in=buffer(&candidate,1),gate=buffer(&update,1),seed=buffer(&initial,1),out=buffer(&old,1);
+    gate.format=ORPHEUS_FORMAT_I32;
+    int32_t gate_value=-99; OrpheusBuffer forwarded=buffer(&gate_value,1); forwarded.format=ORPHEUS_FORMAT_I32;
+    const OrpheusBuffer* inputs[]={&in,&gate,NULL}; OrpheusBuffer* outputs[]={&out,&forwarded};
+    Feedback f={&in,&old,&candidate};
+    OrpheusContinuation continuation={.call=feedback_next,.user=&f,.count=1};
+    OrpheusProcessContext context={.inputs=inputs,.outputs=outputs,.input_count=3,.output_count=2,
+        .frame_count=64,.continuation=&continuation};
+    in.frame_count=0; calls=0;
+    CHECK(api->process(handle,&context)==0 && calls==1 && old==3 && state.value==5 && state.initialized && gate_value==1);
+    CHECK(api->process(handle,&context)==0 && old==5 && state.value==7);
+    update=0; CHECK(api->process(handle,&context)==0 && old==7 && state.value==7 && gate_value==0);
+    update=1; downstream=-77;
+    CHECK(api->process(handle,&context)==-77 && state.value==7); downstream=0;
+    CHECK(api->reset(handle)==0 && !state.initialized && state.value==0);
+    inputs[2]=&seed; CHECK(api->process(handle,&context)==0 && old==10 && state.value==12);
+    initial=-9; CHECK(api->process(handle,&context)==0 && old==12 && state.value==14);
+    CHECK(api->reset(handle)==0);
+    gate.format=ORPHEUS_FORMAT_F32; calls=0;
+    CHECK(api->process(handle,&context)!=0 && calls==0 && !state.initialized);
+    gate.format=ORPHEUS_FORMAT_I32; out.data=&candidate;
+    CHECK(api->process(handle,&context)!=0); out.data=&old;
+    forwarded.data=&update; CHECK(api->process(handle,&context)!=0); forwarded.data=&gate_value;
+    forwarded.data=&old; CHECK(api->process(handle,&context)!=0); forwarded.data=&gate_value;
+    params[0].value.f32=NAN;
+    CHECK(api->prepare(handle,&config)!=0 && state.write_after_call && !state.initialized);
+    params[0].value.f32=3; params[1].value.b=false;
+    CHECK(api->prepare(handle,&config)==0); continuation.call=next;
+    update=0; CHECK(api->process(handle,&context)==0 && old==0 && !state.initialized); update=1;
+    candidate=NAN; CHECK(api->process(handle,&context)==0 && isnan(old) && isnan(state.value));
+    update=0; candidate=5;
+    CHECK(api->process(handle,&context)==0 && isnan(old) && isnan(state.value));
+    update=1; candidate=-0.0f; outputs[0]=NULL; calls=0;
+    CHECK(api->process(handle,&context)==0 && calls==1 && signbit(state.value));
+    in.frame_count=0; CHECK(api->process(handle,&context)!=0 && signbit(state.value));
+    in.frame_count=1; context.frame_count=0; calls=0;
+    CHECK(api->process(handle,&context)==0 && calls==0);
+    context.frame_count=64; candidate=17; downstream=-77;
+    CHECK(api->process(handle,&context)==-77 && state.value==17); downstream=0;
+    params[1].value.b=true; CHECK(api->prepare(handle,&config)==0);
+    inputs[2]=NULL; params[0].value.f32=-4;
+    CHECK(api->set_parameter(handle,"initial",params)==0);
+    OrpheusValue readback={0};
+    CHECK(api->get_parameter(handle,"initial",&readback)==0 && readback.value.f32==-4);
+    CHECK(api->set_parameter(handle,"write_after_call",params+1)!=0);
+    update=-2; candidate=17; in.frame_count=1;
+    CHECK(api->process(handle,&context)==0 && state.value==17 && gate_value==-2);
+    CHECK(api->reset(handle)==0);
+    continuation.call=feedback_next; outputs[0]=&out; in.frame_count=0;
+    CHECK(api->process(handle,&context)==0 && old==-4 && state.value==-2);
+    CHECK(api->destroy(handle)==0);
+    return 0;
+}
 int main(void) {
+    CHECK(memory_contract()==0);
     OrpheusConfig config={0};
     OrpheusContinuation continuation={.call=next, .count=1};
     float data[]={-0.0f, NAN, 13.0f}, result=99;
@@ -44,6 +118,16 @@ int main(void) {
         calls=0;
         CHECK(api->process(state, &context)==0 && calls==1 && same(result, expected[op]));
     }
+    data[0]=6; data[1]=2;
+    for (int op=6; op<12; ++op) {
+        const float expected[]={8,4,12,3,6,log10f(6)};
+        operation.value.i32=op; CHECK(api->set_parameter(state,"operation",&operation)==0);
+        CHECK(api->process(state,&context)==0 && same(result,expected[op-6]));
+    }
+    operation.value.i32=9; CHECK(api->set_parameter(state,"operation",&operation)==0);
+    data[1]=0; CHECK(api->process(state,&context)==0 && isinf(result));
+    operation.value.i32=11; CHECK(api->set_parameter(state,"operation",&operation)==0);
+    data[0]=-1; CHECK(api->process(state,&context)==0 && isnan(result));
     operation.value.i32=4; CHECK(api->set_parameter(state, "operation", &operation)==0);
     data[0]=NAN; data[1]=-7;
     CHECK(api->process(state, &context)==0 && result==-7);

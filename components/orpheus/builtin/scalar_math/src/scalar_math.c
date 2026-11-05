@@ -5,7 +5,7 @@
 
 static const OrpheusParameter params[] = {
     {.id="operation", .name="基础运算", .type=ORPHEUS_VALUE_INT,
-     .default_value={.type=ORPHEUS_VALUE_INT, .value.i32=5}, .min_i32=0, .max_i32=5,
+     .default_value={.type=ORPHEUS_VALUE_INT, .value.i32=5}, .min_i32=0, .max_i32=11,
      .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY, .readback=true},
     {.id="a", .name="未连接a的值", .type=ORPHEUS_VALUE_FLOAT,
      .default_value={.type=ORPHEUS_VALUE_FLOAT, .value.f32=0},
@@ -25,7 +25,7 @@ static const OrpheusPort ports[] = {
 };
 #undef PORT
 static const OrpheusComponentDescriptor descriptor = {
-    .id="orpheus.builtin.scalar_math", .version="1.0.0", .abi_version=ORPHEUS_ABI_VERSION,
+    .id="orpheus.builtin.scalar_math", .version="1.1.0", .abi_version=ORPHEUS_ABI_VERSION,
     .ports=ports, .port_count=4, .params=params, .param_count=4,
     .state_size=sizeof(ScalarMathState), .alignment=8, .realtime_safe=true, .supports_inplace=false
 };
@@ -47,7 +47,7 @@ static int set_parameter(void* state, const char* key, const OrpheusValue* value
     if (!state || !key || !value) return ORPHEUS_ERR_INVALID_ARG;
     ScalarMathState* s=(ScalarMathState*)state;
     if (!strcmp(key, "operation")) {
-        if (value->type!=ORPHEUS_VALUE_INT || value->value.i32<0 || value->value.i32>5)
+        if (value->type!=ORPHEUS_VALUE_INT || value->value.i32<0 || value->value.i32>11)
             return ORPHEUS_ERR_INVALID_ARG;
         s->operation=value->value.i32;
     } else {
@@ -89,7 +89,7 @@ static int process(void* state, const OrpheusProcessContext* context) {
         context->input_count<3 || context->output_count<1) return ORPHEUS_ERR_INVALID_ARG;
     if (!context->frame_count) return ORPHEUS_OK;
     const ScalarMathState* s=(const ScalarMathState*)state;
-    if (s->operation<0 || s->operation>5) return ORPHEUS_ERR_INVALID_ARG;
+    if (s->operation<0 || s->operation>11) return ORPHEUS_ERR_INVALID_ARG;
     float v[3]; memcpy(v, s->values, sizeof(v));
     OrpheusBuffer* out=context->outputs[0];
     if (out && !valid(out, false)) return ORPHEUS_ERR_INVALID_ARG;
@@ -110,6 +110,12 @@ static int process(void* state, const OrpheusProcessContext* context) {
         case 2: result=v[0]>v[1] ? 1.0f : 0.0f; break;
         case 3: result=v[0]!=v[1] ? 1.0f : 0.0f; break;
         case 4: result=v[0]!=0.0f ? v[1] : v[2]; break;
+        case 6: result=v[0]+v[1]; break;
+        case 7: result=v[0]-v[1]; break;
+        case 8: result=v[0]*v[1]; break;
+        case 9: result=v[0]/v[1]; break;
+        case 10: result=fabsf(v[0]); break;
+        case 11: result=log10f(v[0]); break;
         default: result=v[0]; break;
     }
     if (out) { memcpy(out->data, &result, sizeof(result)); out->frame_count=1; }

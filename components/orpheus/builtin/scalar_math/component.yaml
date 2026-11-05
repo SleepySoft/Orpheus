@@ -1,13 +1,14 @@
 id: orpheus.builtin.scalar_math
 name: 标量基础运算
 category: 基础/计算数据
-version: 1.0.0
+version: 1.1.0
 abi_version: 6
 package_type: source
 state_type: ScalarMathState
 description: >-
   单个f32 BULK的基础运算：0最小值fminf(a,b)，1最大值fmaxf(a,b)，
   2大于(a>b)，3不相等(a!=b)，4选择(a!=0时取b否则取c)，5常量/直通a。
+  6加、7减、8乘、9除、10绝对值、11常用对数；算术保留IEEE NaN/Inf，不隐式夹界。
   每个未连接输入使用同名参数；比较输出为f32的0或1。无历史、无额外块延迟，
   不平滑、不把选择改成乘法。NULL输出仍续调，零处理量不续调。
 sources: [src/scalar_math.c]
@@ -18,7 +19,7 @@ ports:
   - {id: c, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, optional: true}
   - {id: out, direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1}
 parameters:
-  - {id: operation, name: "运算(0最小/1最大/2大于/3不等/4选择/5直通)", type: int, default: 5, range: [0, 5], update_policy: block_boundary, readback: true}
+  - {id: operation, name: "运算(0最小/1最大/2大于/3不等/4选择/5直通/6加/7减/8乘/9除/10绝对值/11对数)", type: int, default: 5, range: [0, 11], update_policy: block_boundary, readback: true}
   - {id: a, name: 未连接a的值, type: float, default: 0.0, update_policy: block_boundary, readback: true}
   - {id: b, name: 未连接b的值, type: float, default: 0.0, update_policy: block_boundary, readback: true}
   - {id: c, name: 未连接c的值, type: float, default: 0.0, update_policy: block_boundary, readback: true}

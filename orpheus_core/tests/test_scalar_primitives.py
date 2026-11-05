@@ -20,7 +20,7 @@ def test_scalar_primitives_native_contract(tmp_path):
     includes = ["-I" + str(ROOT / "orpheus_abi/include")]
     objects = []
     for name, entry in (("scalar_math", "scalar_api"), ("bulk_constant", "constant_api"),
-                        ("bulk_lookup", "lookup_api")):
+                        ("bulk_lookup", "lookup_api"), ("scalar_memory", "memory_api")):
         directory = ROOT / "components/orpheus/builtin" / name
         includes += ["-I" + str(directory / "include")]
         target = tmp_path / (name + ".o")
@@ -71,3 +71,29 @@ def test_scalar_primitives_explicit_chain_four_entries(tmp_path):
         t = struct.unpack("<f", struct.pack("<f", x / 2))[0]
         expected = 0.0 if x > 2 else t * 6
         assert actual == struct.pack("<f", expected)
+
+
+def test_scalar_memory_feedback_four_entries(tmp_path):
+    registry = Registry([ROOT / "components"]); registry.scan()
+    registry.add_manifest(Path(__file__).parent / "fixtures/tensor_pair_capture/component.yaml")
+    nodes = {
+        "clock": Node("clock", "orpheus.builtin.task_source", params={"frequency_hz": 750}),
+        "memory": Node("memory", "orpheus.builtin.scalar_memory",
+                       params={"initial": 3.0, "write_after_call": True}),
+        "sum": Node("sum", "orpheus.builtin.scalar_math", params={"operation": 6, "b": 2.0}),
+        "capture": Node("capture", "orpheus.test.tensor_pair_capture",
+                        params={"channels_a": 1, "frames_a": 1, "channels_b": 1, "frames_b": 1}),
+    }
+    pairs = [("memory:out", "sum:a"), ("sum:out", "memory:in"),
+             ("memory:out", "capture:a"), ("sum:out", "capture:b")]
+    order = list(nodes)
+    project = Project(tasks={"default": Task("default", sample_rate=48000, block_size=64)},
+        flow_mode="task_sequence", graph=Graph(nodes=nodes, connections=[
+            Connection(PortRef.parse(a), PortRef.parse(b)) for a, b in pairs]),
+        drive_connections=[DriveConnection(PortRef(a, "out"), PortRef(b, "in"))
+                           for a, b in zip(order, order[1:])])
+    plan = GraphCompiler(registry).compile(project)
+    records = execute_array_graph(tmp_path, registry, plan, {"capture": (1, 1)}, blocks=24)["capture"]
+    for i, (old, new) in enumerate(records):
+        assert old == struct.pack("<f", 3.0 + 2 * i)
+        assert new == struct.pack("<f", 5.0 + 2 * i)

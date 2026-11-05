@@ -1,0 +1,27 @@
+id: orpheus.builtin.scalar_memory
+name: 标量门控存储
+category: 基础/计算数据
+version: 1.0.0
+abi_version: 6
+package_type: source
+state_type: ScalarMemoryState
+description: >-
+  单个f32存储单元；update未连或非零时更新，否则保持，reset清除初始化标志和值。
+  默认在续调前采样in并输出；write_after_call时先输出旧值（首次用initial端口/参数），
+  续调成功返回后才提交in，可显式连接同次调用内的反馈计算。in的latest仅允许这种明确顺序，
+  不是跨Task同步。延后写模式在下游失败时不提交；默认模式在续调前已提交。
+  未首次采样的默认模式输出0；initial热修改只影响尚未初始化的延后写模式。
+  NULL输出仍续调并更新，零处理量不续调。无效输入明确报错，不分配process内存。
+  enabled透传本次i32更新标志，供其它存储单元共享同一门控，不改变调用频率。
+sources: [src/scalar_memory.c]
+headers: [include/orpheus_scalar_memory.h]
+ports:
+  - {id: in, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, timing: latest}
+  - {id: update, direction: input, type: bulk, sample_format: i32, channels: 1, block_size: 1, optional: true}
+  - {id: initial, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, optional: true}
+  - {id: out, direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1}
+  - {id: enabled, direction: output, type: bulk, sample_format: i32, channels: 1, block_size: 1}
+parameters:
+  - {id: initial, name: 首次反馈读值, type: float, default: 0.0, update_policy: block_boundary, readback: true}
+  - {id: write_after_call, name: 续调返回后提交反馈, type: bool, default: false, update_policy: restart_required}
+execution: {realtime_safe: true, supports_inplace: false}
