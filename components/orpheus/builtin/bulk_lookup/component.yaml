@@ -1,0 +1,22 @@
+id: orpheus.builtin.bulk_lookup
+name: 数据线性查表
+category: 基础/计算数据
+version: 1.0.0
+abi_version: 6
+package_type: source
+state_type: BulkLookupState
+description: >-
+  f32标量x在axis/values数据表中线性插值。axis必须有限且严格单调，支持升序/降序；
+  超出范围或x为NaN时输出0，端点精确取表值，平坦段不做多余算术，
+  其它点按(1-t)*左值+t*右值计算。不隐式裁剪x，需限幅时在图上显式连接。
+  零处理量不续调，NULL输出仍校验输入并续调，无持久历史或process分配。
+sources: [src/bulk_lookup.c]
+headers: [include/orpheus_bulk_lookup.h]
+ports:
+  - {id: x, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1}
+  - {id: axis, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: "param:points"}
+  - {id: values, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: "param:points"}
+  - {id: out, direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1}
+parameters:
+  - {id: points, name: 表点数, type: int, default: 2, range: [2, 2048], update_policy: restart_required, affects_signature: true}
+execution: {realtime_safe: true, supports_inplace: false}
