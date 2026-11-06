@@ -118,6 +118,67 @@ def test_explicit_inline_or_external_layout_overlays_embedded_positions(tmp_path
     assert all("position" not in n for n in read(path)["graph"]["nodes"])
 
 
+@pytest.mark.parametrize("external", [False, True])
+def test_stale_node_bridge_and_subgraph_layout_entries_are_ignored(tmp_path, registry, external):
+    directory = tmp_path / "workspace" / "demo"
+    definition = directory / "definitions" / "chain.component.yaml"
+    manifest = composite_manifest("test.chain", "orpheus.builtin.gain", "gain")
+    component_layout = {"version": 1, "views": {"main": {"nodes": {
+        "gain": {"x": 1, "y": 2}, "deleted_component_node": {"x": 3, "y": 4},
+    }}}}
+    document = position_document()
+    document["imports"] = ["definitions/chain.component.yaml"]
+    document["subcomponents"] = [{
+        "id": "legacy", "ports": [],
+        "graph": {"nodes": [{"id": "inner", "component": "orpheus.builtin.gain",
+                             "params": {"channels": 1}}], "connections": []},
+    }]
+    layout = {"version": 1, "views": {
+        "main": {
+            "nodes": {"source": {"x": 10, "y": 20}, "deleted_node": {"x": 3, "y": 4}},
+            "bridges": {"device": {"x": 30, "y": 40}, "deleted_bridge": {"x": 3, "y": 4}},
+        },
+        "sub:legacy": {"nodes": {
+            "inner": {"x": 50, "y": 60}, "deleted_inner": {"x": 3, "y": 4},
+        }},
+        "sub:test.chain": {"nodes": {
+            "gain": {"x": 70, "y": 80}, "deleted_imported": {"x": 3, "y": 4},
+        }},
+        "sub:deleted_subgraph": {"nodes": {"missing": {"x": 3, "y": 4}}},
+    }}
+    if external:
+        write_yaml(directory / "project.layout.yaml", layout)
+        document["layout"] = {"file": "project.layout.yaml"}
+        write_yaml(definition.with_name("chain.component.layout.yaml"), component_layout)
+        manifest["layout"] = {"file": "chain.component.layout.yaml"}
+    else:
+        document["layout"] = layout
+        manifest["layout"] = component_layout
+    write_yaml(definition, manifest)
+    write_yaml(directory / "project.yaml", document)
+    manager = ProjectManager(tmp_path, registry)
+    project = manager.get("demo").project
+    assert set(project.graph.nodes) == {"source", "chain", "sink"}
+    assert project.graph.nodes["source"].position == {"x": 10, "y": 20}
+    assert [bridge.id for bridge in project.bridges] == ["device"]
+    assert project.bridges[0].position == {"x": 30, "y": 40}
+    subs = {sub.id: sub for sub in project.subcomponents}
+    assert set(subs) == {"legacy", "test.chain"}
+    assert set(subs["legacy"].graph.nodes) == {"inner"}
+    assert subs["legacy"].graph.nodes["inner"].position == {"x": 50, "y": 60}
+    assert set(subs["test.chain"].graph.nodes) == {"gain"}
+    assert subs["test.chain"].graph.nodes["gain"].position == {"x": 70, "y": 80}
+    manager.put("demo", manager.get_document("demo"))
+    manager.invalidate_cached_projects()
+    assert manager.get("demo").project.graph.nodes["source"].position == {"x": 10, "y": 20}
+    saved = read(directory / "project.layout.yaml")["views"]
+    assert set(saved) == {"main", "sub:legacy"}
+    assert set(saved["main"]["nodes"]) == {"source", "chain", "sink"}
+    assert set(saved["main"]["bridges"]) == {"device"}
+    assert set(saved["sub:legacy"]["nodes"]) == {"inner"}
+    assert set(read(definition.with_name("chain.component.layout.yaml"))["views"]["main"]["nodes"]) == {"gain"}
+
+
 def test_explicit_embedded_save_still_supported(tmp_path, registry):
     path = tmp_path / "project.yaml"
     write_yaml(path, position_document())
