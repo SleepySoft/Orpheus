@@ -11,6 +11,9 @@ export default function DriveEdge({
   const [every, setEvery] = React.useState('1');
   const [phase, setPhase] = React.useState('0');
   const [error, setError] = React.useState('');
+  const entryCount = data?.entryRefs?.length || 0;
+  const label = `驱动 →${driveTimingLabel(data) ? ` ${driveTimingLabel(data)}` : ''}`
+    + (entryCount ? ` · ${entryCount}个内部入口` : '');
   const [path, x, y] = getBezierPath({
     sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
   });
@@ -50,9 +53,9 @@ export default function DriveEdge({
           title="节点级驱动，不传输PCM；分频只选触发拍，不匹配Buffer">
           {data?.onTimingChange ? (
             <button type="button" className="drive-timing-button" onClick={beginEdit}>
-              驱动 →{driveTimingLabel(data) ? ` ${driveTimingLabel(data)}` : ''}
+              {label}
             </button>
-          ) : <>驱动 →{driveTimingLabel(data) ? ` ${driveTimingLabel(data)}` : ''}</>}
+          ) : label}
           {editing && (
             <form className="drive-timing-editor" onSubmit={save} onClick={(event) => event.stopPropagation()}>
               <strong>分频 / 选拍</strong>
@@ -65,6 +68,7 @@ export default function DriveEdge({
                   value={phase} onChange={(event) => setPhase(event.target.value)} />
               </label>
               <small>只选择触发拍，不改变PCM；Buffer由用户匹配。</small>
+              {entryCount > 0 && <small>此线汇总{entryCount}个内部入口，保存会同步修改其周期和相位。</small>}
               {error && <span role="alert">{error}</span>}
               <div>
                 <button type="submit">保存</button>

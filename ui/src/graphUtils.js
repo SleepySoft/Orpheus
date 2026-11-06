@@ -71,6 +71,8 @@ export function validateDriveConnection(nodes, edges, params, flowMode) {
   const driveEdges = edges.filter(isDriveEdge);
   if (driveEdges.some((edge) => edge.source === params.source && edge.target === params.target))
     return '执行连接已存在';
+  if (driveEdges.some((edge) => edge.target.startsWith(`${params.target}__`)))
+    return '目标组件已有内部驱动入口，请修改现有汇总线，不能重复启动内部实例';
   const pending = [params.target];
   const visited = new Set();
   while (pending.length) {
@@ -91,7 +93,7 @@ export function resolvedDriveEdges(nodes, edges) {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   for (const edge of edges) {
     if (isDriveEdge(edge) || edge.type === 'control' || explicitTargets.has(edge.target)
-      || pairs.has(`${edge.source}:${edge.target}`)) continue;
+      || edge.data?.propagate_drive === false || pairs.has(`${edge.source}:${edge.target}`)) continue;
     const sourcePort = byId.get(edge.source)?.data.ports?.find((port) => port.id === edge.sourceHandle);
     const targetPort = byId.get(edge.target)?.data.ports?.find((port) => port.id === edge.targetHandle);
     const propagates = (port) => port
@@ -146,7 +148,91 @@ export function driveMemberships(nodes, edges, flowMode, entryDomains = []) {
   return memberships;
 }
 
+function flattenedDriveMemberships(views, flowMode) {
+  const instances = new Map();
+  const flatNodes = [];
+  const flatEdges = [];
+  const contexts = [];
+  const childView = (node) => isSubRef(node.data.component || '')
+    ? node.data.component : subViewKey(node.data.component || '');
+  const visit = (viewId, prefix, lineage, stack) => {
+    if (stack.includes(viewId)) return;
+    const view = views[viewId];
+    contexts.push({ view, prefix });
+    for (const node of view.nodes) {
+      const id = prefix + node.id;
+      const path = [...lineage, { viewId, nodeId: node.id }];
+      const childId = childView(node);
+      instances.set(id, { node, path, childId: views[childId] ? childId : null });
+      if (views[childId]) visit(childId, `${id}__`, path, [...stack, viewId]);
+      else flatNodes.push({ ...node, id });
+    }
+  };
+  visit('main', '', [], []);
+  const endpoint = (id, portId, seen = []) => {
+    const instance = instances.get(id);
+    if (!instance || seen.includes(`${id}:${portId}`)) return null;
+    const port = instance.node.data.ports?.find((entry) => entry.id === portId);
+    if (!instance.childId) return { id, portId, blocked: port?.propagate_drive === false };
+    if (!port?.maps_to) return null;
+    const separator = port.maps_to.indexOf(':');
+    const inner = endpoint(`${id}__${port.maps_to.slice(0, separator)}`,
+      port.maps_to.slice(separator + 1), [...seen, `${id}:${portId}`]);
+    return inner && { ...inner, blocked: inner.blocked || port.propagate_drive === false };
+  };
+  const driveTargets = (id, direction) => {
+    const instance = instances.get(id);
+    if (!instance) return [];
+    if (!instance.childId) return [id];
+    const mapped = (instance.node.data.ports || []).filter((port) => port.direction === direction)
+      .map((port) => endpoint(id, port.id)?.id).filter(Boolean);
+    if (mapped.length) return [...new Set(mapped)];
+    const view = views[instance.childId];
+    const occupied = new Set(view.edges.filter((edge) => edge.type !== 'control')
+      .map((edge) => direction === 'input' ? edge.target : edge.source));
+    return view.nodes.filter((node) => !occupied.has(node.id))
+      .flatMap((node) => driveTargets(`${id}__${node.id}`, direction));
+  };
+  for (const { view, prefix } of contexts) {
+    for (const edge of view.edges) {
+      if (edge.type === 'control') continue;
+      const source = prefix + edge.source;
+      const target = prefix + edge.target;
+      if (isDriveEdge(edge)) {
+        for (const from of driveTargets(source, 'output')) {
+          for (const to of driveTargets(target, 'input')) {
+            flatEdges.push({ ...edge, source: from, target: to });
+          }
+        }
+      } else {
+        const from = endpoint(source, edge.sourceHandle);
+        const to = endpoint(target, edge.targetHandle);
+        if (from && to) flatEdges.push({
+          ...edge, source: from.id, target: to.id,
+          sourceHandle: from.portId, targetHandle: to.portId,
+          data: { ...edge.data, propagate_drive: !(from.blocked || to.blocked) },
+        });
+      }
+    }
+  }
+  const flatMarks = driveMemberships(flatNodes, flatEdges, flowMode);
+  const marks = Object.fromEntries(Object.entries(views).map(([id, view]) =>
+    [id, Object.fromEntries(view.nodes.map((node) => [node.id, []]))]));
+  for (const node of flatNodes) {
+    for (const { viewId, nodeId } of instances.get(node.id).path) {
+      for (const domain of flatMarks[node.id]) {
+        if (!marks[viewId][nodeId].some((entry) => entry.id === domain.id))
+          marks[viewId][nodeId].push(domain);
+      }
+    }
+  }
+  return marks;
+}
+
 export function driveMembershipsForViews(views, flowMode) {
+  if (flowMode === 'task_sequence' && views.main?.edges.some((edge) => isDriveEdge(edge)
+    && (edge.source.includes('__') || edge.target.includes('__'))))
+    return flattenedDriveMemberships(views, flowMode);
   const marks = Object.fromEntries(Object.entries(views).map(([id, view]) =>
     [id, driveMemberships(view.nodes, view.edges, flowMode)]));
   if (flowMode !== 'task_sequence') return marks;
@@ -184,6 +270,37 @@ export function driveMembershipsForViews(views, flowMode) {
   return marks;
 }
 
+/** 折叠视图只汇总绘制跨层入口；原始边与声明顺序始终留在工程视图中。 */
+export function projectDriveEdgesForView(nodes, edges) {
+  const ids = nodes.map((node) => node.id);
+  const direct = [];
+  const groups = new Map();
+  for (const edge of edges) {
+    if (!isDriveEdge(edge)) {
+      direct.push(edge);
+      continue;
+    }
+    const source = visibleDriveNodeId(edge.source, ids);
+    const target = visibleDriveNodeId(edge.target, ids);
+    if (source === edge.source && target === edge.target) {
+      direct.push(edge);
+      continue;
+    }
+    if (!source || !target || source === target) continue;
+    const every = edge.data?.every ?? 1;
+    const phase = edge.data?.phase ?? (every - 1);
+    const id = `drive-projection-${source}-${target}-${every}-${phase}`;
+    if (!groups.has(id)) groups.set(id, {
+      ...edge, id, source, target, selectable: false, deletable: false, updatable: false,
+      data: { every, phase, entryEdgeIds: [], entryRefs: [] },
+    });
+    const group = groups.get(id);
+    group.data.entryEdgeIds.push(edge.id);
+    group.data.entryRefs.push(edge.target);
+  }
+  return [...direct, ...groups.values()];
+}
+
 export function driveTimingFields(data = {}) {
   return {
     ...(data.every !== undefined ? { every: data.every } : {}),
@@ -212,12 +329,33 @@ export function flowDriveConnections(edges) {
   }));
 }
 
+function visibleDriveNodeId(id, ids) {
+  if (ids.includes(id)) return id;
+  return ids.filter((node) => id.startsWith(`${node}__`))
+    .sort((a, b) => b.length - a.length)[0];
+}
+
+export function removeFlowEdgesForNodes(nodes, edges, removedIds) {
+  const allIds = nodes.map((node) => node.id);
+  const removed = new Set(removedIds);
+  return edges.filter((edge) => {
+    const source = isDriveEdge(edge) ? visibleDriveNodeId(edge.source, allIds) : edge.source;
+    const target = isDriveEdge(edge) ? visibleDriveNodeId(edge.target, allIds) : edge.target;
+    return !removed.has(source) && !removed.has(target);
+  });
+}
+
 /** 复制选中子图时保留三类内部连线，粘贴时统一重映射节点与边 ID。 */
 export function copyFlowSelection(view, selectedIds) {
   const ids = new Set(selectedIds);
+  const allIds = view.nodes.map((node) => node.id);
   return JSON.parse(JSON.stringify({
     nodes: view.nodes.filter((node) => ids.has(node.id)),
-    edges: view.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)),
+    edges: view.edges.filter((edge) => {
+      const source = isDriveEdge(edge) ? visibleDriveNodeId(edge.source, allIds) : edge.source;
+      const target = isDriveEdge(edge) ? visibleDriveNodeId(edge.target, allIds) : edge.target;
+      return ids.has(source) && ids.has(target);
+    }),
   }));
 }
 
@@ -237,11 +375,20 @@ export function pasteFlowSelection(view, clipboard, offset = 40) {
   nodes.forEach((node) => {
     node.data.alters = (node.data.alters || []).filter((id) => mapping[id]).map((id) => mapping[id]);
   });
-  const edges = clipboard.edges.map((edge) => ({
-    ...edge,
-    id: `copy-${edge.type || 'audio'}-${mapping[edge.source]}:${edge.sourceHandle}-${mapping[edge.target]}:${edge.targetHandle}`,
-    source: mapping[edge.source], target: mapping[edge.target], selected: false,
-  }));
+  const oldIds = clipboard.nodes.map((node) => node.id);
+  const edges = clipboard.edges.map((edge) => {
+    const remap = (endpoint) => {
+      const owner = isDriveEdge(edge) ? visibleDriveNodeId(endpoint, oldIds) : endpoint;
+      return mapping[owner] + endpoint.slice(owner.length);
+    };
+    const source = remap(edge.source);
+    const target = remap(edge.target);
+    return {
+      ...edge,
+      id: `copy-${edge.type || 'audio'}-${source}:${edge.sourceHandle}-${target}:${edge.targetHandle}`,
+      source, target, selected: false,
+    };
+  });
   return {
     nodes: [...view.nodes.map((node) => ({ ...node, selected: false })), ...nodes],
     edges: [...view.edges, ...edges],

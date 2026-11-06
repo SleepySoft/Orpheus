@@ -38,6 +38,8 @@ import {
   pasteFlowSelection,
   reconnectDriveEdge,
   driveMembershipsForViews,
+  projectDriveEdgesForView,
+  removeFlowEdgesForNodes,
 } from './graphUtils';
 import OrpheusNode from './OrpheusNode';
 import AudioEdge from './AudioEdge';
@@ -587,7 +589,7 @@ const { screenToFlowPosition } = useReactFlow();
         return {
           nodes,
           edges: gone.size
-            ? v.edges.filter((e) => !gone.has(e.source) && !gone.has(e.target))
+            ? removeFlowEdgesForNodes(v.nodes, v.edges, gone)
             : v.edges,
         };
       });
@@ -611,7 +613,7 @@ const { screenToFlowPosition } = useReactFlow();
         v.nodes.filter((n) => !ids.includes(n.id)),
         gone
       ),
-      edges: v.edges.filter((e) => !ids.includes(e.source) && !ids.includes(e.target)),
+      edges: removeFlowEdgesForNodes(v.nodes, v.edges, gone),
     }));
     setSelectedIds([]);
     setSelectedId(null);
@@ -1173,7 +1175,7 @@ const { screenToFlowPosition } = useReactFlow();
           v.nodes.filter((nd) => nd.id !== nodeId),
           gone
         ),
-        edges: v.edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
+        edges: removeFlowEdgesForNodes(v.nodes, v.edges, gone),
       }));
       setSelectedId(null);
       setDirty(true);
@@ -1839,7 +1841,7 @@ const { screenToFlowPosition } = useReactFlow();
   // 开启时为控制边注入两端求值形状与失配标记（随参数变化自动刷新，失配标红不剪线）。
   const displayEdges = useMemo(
     () =>
-      view.edges
+      projectDriveEdgesForView(view.nodes, view.edges)
         .filter((e) => showControlLinks || e.type !== 'control')
         .filter((e) => !isDriveEdge(e) || flowMode === 'task_sequence')
         .map((e) => {
@@ -1850,7 +1852,7 @@ const { screenToFlowPosition } = useReactFlow();
               ...(!activeSub?.read_only ? { onTimingChange: (timing) => {
                 updateView(activeView, (currentView) => ({
                   ...currentView,
-                  edges: currentView.edges.map((edge) => edge.id === e.id
+                  edges: currentView.edges.map((edge) => edge.id === e.id || e.data?.entryEdgeIds?.includes(edge.id)
                     ? { ...edge, data: { ...edge.data, ...timing } } : edge),
                 }));
                 setDirty(true);

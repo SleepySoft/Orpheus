@@ -4,6 +4,8 @@ import {
   driveTimingLabel, reconnectDriveEdge,
   driveMemberships, driveMembershipsForViews, resolvedDriveEdges,
   subCatalogEntry, resolvePorts,
+  projectDriveEdgesForView,
+  removeFlowEdgesForNodes,
 } from './graphUtils';
 
 const catalog = [
@@ -25,6 +27,108 @@ const document = {
 };
 const connection = (source, target) => ({
   source, target, sourceHandle: DRIVE_OUT, targetHandle: DRIVE_IN,
+});
+
+describe('跨层源入口的实际归属与折叠投影', () => {
+  const typedCatalog = [
+    { id: 'test.clock', clock_source: true, ports: [] },
+    { id: 'test.gain', ports: [
+      { id: 'in', direction: 'input', type: 'audio' },
+      { id: 'out', direction: 'output', type: 'audio' },
+    ] },
+    { id: 'test.buffer', ports: [
+      { id: 'in', direction: 'input', type: 'audio', propagate_drive: false },
+      { id: 'out', direction: 'output', type: 'audio' },
+    ] },
+  ];
+  const deepDocument = {
+    flow_mode: 'task_sequence',
+    graph: {
+      nodes: [
+        { id: 'clock', component: 'test.clock' },
+        { id: 'wrapper', component: 'test.outer' },
+        { id: 'sink', component: 'test.gain' },
+      ],
+      connections: [{ from: 'wrapper:out', to: 'sink:in' }],
+    },
+    subcomponents: [
+      {
+        id: 'test.outer', ports: [
+          { id: 'in', direction: 'input', type: 'audio', maps_to: 'inner:in' },
+          { id: 'out', direction: 'output', type: 'audio', maps_to: 'inner:out' },
+        ],
+        graph: { nodes: [{ id: 'inner', component: 'test.inner' }], connections: [] },
+      },
+      {
+        id: 'test.inner', ports: [
+          { id: 'in', direction: 'input', type: 'audio', maps_to: 'a:in' },
+          { id: 'out', direction: 'output', type: 'audio', maps_to: 'b:out' },
+        ],
+        graph: {
+          nodes: [{ id: 'a', component: 'test.gain' }, { id: 'b', component: 'test.buffer' }],
+          connections: [{ from: 'a:out', to: 'b:in' }],
+        },
+      },
+    ],
+    drive_connections: [
+      { from: 'clock:out', to: 'wrapper__inner__a:in', every: 1, phase: 0 },
+      { from: 'clock:out', to: 'wrapper__inner__b:in', every: 13, phase: 12 },
+    ],
+  };
+
+  test('按完整实例入口计算内部周期，父层仅汇总，不把全部孩子染成父层周期', () => {
+    const { views } = docToViews(deepDocument, typedCatalog);
+    const marks = driveMembershipsForViews(views, 'task_sequence');
+    expect(marks['sub:test.inner'].a.map((domain) => domain.every)).toEqual([1]);
+    expect(marks['sub:test.inner'].b.map((domain) => domain.every)).toEqual([13]);
+    expect(marks.main.sink.map((domain) => domain.every)).toEqual([13]);
+    expect(new Set(marks.main.wrapper.map((domain) => domain.every))).toEqual(new Set([1, 13]));
+  });
+
+  test('公开输出截断在多层映射后仍生效', () => {
+    const doc = JSON.parse(JSON.stringify(deepDocument));
+    doc.subcomponents[0].ports[1].propagate_drive = false;
+    const { views } = docToViews(doc, typedCatalog);
+    const marks = driveMembershipsForViews(views, 'task_sequence');
+    expect(marks.main.sink).toEqual([]);
+    expect(marks['sub:test.inner'].b).toHaveLength(1);
+  });
+
+  test('已有内部入口时明确拒绝重复启动整个折叠模块', () => {
+    const { views } = docToViews(deepDocument, typedCatalog);
+    expect(validateDriveConnection(views.main.nodes, views.main.edges,
+      connection('clock', 'wrapper'), 'task_sequence')).toContain('已有内部驱动入口');
+  });
+
+  test('复制粘贴重映射跨层实例前缀，删除模块同时清除其内部入口', () => {
+    const { views } = docToViews(deepDocument, typedCatalog);
+    const clipboard = copyFlowSelection(views.main, ['clock', 'wrapper']);
+    expect(clipboard.edges.filter((edge) => edge.type === 'drive')).toHaveLength(2);
+    const pasted = pasteFlowSelection(views.main, clipboard);
+    expect(flowToGraph(pasted.nodes, pasted.edges).connections).toEqual(deepDocument.graph.connections);
+    expect(pasted.edges.filter((edge) => edge.source === 'clock_copy').map((edge) => edge.target))
+      .toEqual(['wrapper_copy__inner__a', 'wrapper_copy__inner__b']);
+    const remaining = removeFlowEdgesForNodes(views.main.nodes, views.main.edges, ['wrapper']);
+    expect(remaining).toEqual([]);
+  });
+
+  test('折叠入口按周期汇总绘制，往返不丢完整引用和原始调用顺序', () => {
+    const doc = JSON.parse(JSON.stringify(deepDocument));
+    doc.drive_connections.push({
+      from: 'clock:out', to: 'wrapper__inner__extra:in', every: 1, phase: 0,
+    });
+    const { views, subsMeta } = docToViews(doc, typedCatalog);
+    const original = JSON.stringify(views.main.edges);
+    const projections = projectDriveEdgesForView(views.main.nodes, views.main.edges)
+      .filter((edge) => edge.data?.entryRefs);
+    expect(projections).toHaveLength(2);
+    expect(projections[0]).toMatchObject({
+      source: 'clock', target: 'wrapper', selectable: false, deletable: false, updatable: false,
+      data: { every: 1, phase: 0, entryRefs: ['wrapper__inner__a', 'wrapper__inner__extra'] },
+    });
+    expect(JSON.stringify(views.main.edges)).toBe(original);
+    expect(viewsToDoc(views, subsMeta, doc).drive_connections).toEqual(doc.drive_connections);
+  });
 });
 
 describe('任务驱动执行图', () => {
