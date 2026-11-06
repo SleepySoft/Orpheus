@@ -13,8 +13,9 @@ const unwrap = (p) => p.then((r) => r.data);
 // 冒号在工程目录名中非法，可无歧义地将嵌套路径编码为一个 URL 段。
 export const projectPath = (name) => `/projects/${encodeURIComponent(name.replace(/\//g, ':'))}`;
 
-export const listComponents = () => unwrap(api.get('/components'));
-export const listProjectComponents = (name) => unwrap(api.get(`${projectPath(name)}/components`));
+export const listComponents = (config) => unwrap(api.get('/components', config));
+export const listProjectComponents = (name, config) =>
+  unwrap(api.get(`${projectPath(name)}/components`, config));
 export const rescanComponents = () => unwrap(api.post('/components/rescan'));
 export const getComponentReadme = (id, project = null) =>
   api
@@ -27,13 +28,13 @@ export const getComponentReadme = (id, project = null) =>
     .then((r) => r.data);
 export const deleteComponent = (id) => unwrap(api.delete(`/components/${id}`));
 export const promoteComponent = (id) => unwrap(api.post(`/components/${id}/promote`));
-export const listProjects = () => unwrap(api.get('/projects'));
-export const listExamples = () => unwrap(api.get('/examples'));
+export const listProjects = (config) => unwrap(api.get('/projects', config));
+export const listExamples = (config) => unwrap(api.get('/examples', config));
 export const createProject = (name, fromExample = null) =>
   unwrap(api.post('/projects', { name, from_example: fromExample }));
 export const importDistilled = (name, yamlText) =>
   unwrap(api.post(`${projectPath(name)}/distill`, { yaml: yamlText }));
-export const getProject = (name) => unwrap(api.get(projectPath(name)));
+export const getProject = (name, config) => unwrap(api.get(projectPath(name), config));
 export const saveProject = (name, doc) => unwrap(api.put(projectPath(name), doc));
 export const checkLesson = (name) => unwrap(api.post(`${projectPath(name)}/lesson/check`));
 export const getProjectNotes = (name) => unwrap(api.get(`${projectPath(name)}/notes`));

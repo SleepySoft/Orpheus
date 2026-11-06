@@ -375,7 +375,7 @@ export function flowToGraph(nodes, edges) {
  * project document -> { views, subsMeta }.
  * views: { main: {nodes, edges}, 'sub:<id>': {nodes, edges}, ... }
  */
-export function docToViews(doc, globalComponents) {
+function* documentViewEntries(doc, globalComponents) {
   const subsMeta = (doc.subcomponents || []).map((s) => ({
     id: s.id,
     name: s.name || s.id,
@@ -388,18 +388,58 @@ export function docToViews(doc, globalComponents) {
     mergedCatalog(globalComponents, subsMeta).map((c) => [c.id, c])
   );
   const subIds = new Set(subsMeta.map((sub) => sub.id));
-  const views = {
-    main: graphToFlow(
+  yield ['main', graphToFlow(
       graphToViewDocument(doc.graph, subIds), catalogById,
       doc.control_connections, doc.bridges, doc.algorithm_projection, doc.drive_connections
-    ),
-  };
+    )];
   for (const s of doc.subcomponents || []) {
-    views[subViewKey(s.id)] = graphToFlow(
+    yield [subViewKey(s.id), graphToFlow(
       graphToViewDocument(s.graph, subIds), catalogById, [], [], {}, s.graph?.drive_connections
-    );
+    )];
   }
-  return { views, subsMeta };
+  return subsMeta;
+}
+
+export function docToViews(doc, globalComponents) {
+  const entries = documentViewEntries(doc, globalComponents);
+  const views = {};
+  let entry = entries.next();
+  while (!entry.done) {
+    views[entry.value[0]] = entry.value[1];
+    entry = entries.next();
+  }
+  return { views, subsMeta: entry.value };
+}
+
+export async function docToViewsAsync(doc, globalComponents, { onProgress, signal } = {}) {
+  const views = {};
+  const total = 1 + (doc.subcomponents || []).length;
+  let completed = 0;
+  let nodeCount = 0;
+  const checkCancelled = () => {
+    if (signal?.aborted) throw new DOMException('工程载入已取消', 'AbortError');
+  };
+  const yieldForPaint = () =>
+    new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+  checkCancelled();
+  onProgress?.({ completed, total, nodeCount });
+  await yieldForPaint();
+  const entries = documentViewEntries(doc, globalComponents);
+  let lastYield = performance.now();
+  while (true) {
+    checkCancelled();
+    const entry = entries.next();
+    if (entry.done) return { views, subsMeta: entry.value };
+    const [key, view] = entry.value;
+    views[key] = view;
+    completed += 1;
+    nodeCount += view.nodes.length;
+    onProgress?.({ completed, total, nodeCount });
+    if (performance.now() - lastYield >= 8) {
+      await yieldForPaint();
+      lastYield = performance.now();
+    }
+  }
 }
 
 /** views + subsMeta + base document -> full project document. */

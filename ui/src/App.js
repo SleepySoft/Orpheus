@@ -15,7 +15,7 @@ import 'reactflow/dist/style.css';
 import './App.css';
 import * as api from './api';
 import {
-  docToViews,
+  docToViewsAsync,
   viewsToDoc,
   mergedCatalog,
   defaultParams,
@@ -54,6 +54,7 @@ import NotesPanel from './NotesPanel';
 import AlterGroupOverlay from './AlterGroupOverlay';
 import TodoPanel from './TodoPanel';
 import { PLACEHOLDER_ID, newTodo } from './placeholder';
+import ProjectLoading from './ProjectLoading';
 
 const nodeTypes = { orpheus: OrpheusNode };
 const edgeTypes = { audio: AudioEdge, control: ControlEdge, drive: DriveEdge };
@@ -139,6 +140,10 @@ function Editor() {
   const [serialBaud, setSerialBaud] = useState(921600);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(() => ({
+    stage: 'bootstrap', name: null, startedAt: Date.now(), completed: 0, total: 3,
+  }));
+  const loadControllerRef = useRef(null);
   const [autoSave, setAutoSave] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const clipboardRef = useRef(null);
@@ -258,8 +263,34 @@ const { screenToFlowPosition } = useReactFlow();
     }
   }, []);
 
-  const loadDocument = useCallback((name, document, comps) => {
-    const { views: v, subsMeta: sm } = docToViews(document, comps);
+  const startLoading = useCallback((name, stage = 'fetch') => {
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
+    setLoading({ name, stage, startedAt: Date.now(), completed: 0, total: stage === 'bootstrap' ? 3 : 2 });
+    return controller;
+  }, []);
+
+  const reportLoading = useCallback((controller, progress) => {
+    if (loadControllerRef.current !== controller || controller.signal.aborted) return;
+    setLoading((previous) => previous ? { ...previous, ...progress } : previous);
+  }, []);
+
+  const failLoading = useCallback((controller, message) => {
+    if (loadControllerRef.current !== controller || controller.signal.aborted) return;
+    controller.abort();
+    loadControllerRef.current = null;
+    setLoading(null);
+    setStatus(message);
+  }, []);
+
+  const loadDocument = useCallback(async (name, document, comps, controller) => {
+    const { views: v, subsMeta: sm } = await docToViewsAsync(document, comps, {
+      signal: controller.signal,
+      onProgress: (progress) => reportLoading(controller, { stage: 'convert', ...progress }),
+    });
+    if (loadControllerRef.current !== controller || controller.signal.aborted) return;
+    setCatalog(comps);
     setCurrent(name);
     setDoc(document);
     setViews(v);
@@ -274,36 +305,55 @@ const { screenToFlowPosition } = useReactFlow();
     setIdMap([]);
     setLog(null);
     setRt({ running: false, logs: [], probes: {} });
-  }, []);
+    reportLoading(controller, { stage: 'render', nodeCount: v.main.nodes.length });
+  }, [reportLoading]);
+
+  const fetchProject = useCallback(async (name, presetDoc, controller) => {
+    reportLoading(controller, { name, stage: 'fetch', completed: 0, total: 2 });
+    let completed = 0;
+    const received = (value) => {
+      reportLoading(controller, { completed: ++completed });
+      return value;
+    };
+    const config = { signal: controller.signal };
+    const [document, projectComponents] = await Promise.all([
+      (presetDoc ? Promise.resolve(presetDoc) : api.getProject(name, config)).then(received),
+      api.listProjectComponents(name, config).then(received),
+    ]);
+    await loadDocument(name, document, projectComponents, controller);
+  }, [loadDocument, reportLoading]);
 
   const openProject = useCallback(
     async (name, presetDoc = null) => {
+      const controller = startLoading(name);
       try {
         if (current && current !== name && rt.running) {
           await api.rtStop(current);
         }
-        const [document, projectComponents] = await Promise.all([
-          presetDoc ? Promise.resolve(presetDoc) : api.getProject(name),
-          api.listProjectComponents(name),
-        ]);
-        setCatalog(projectComponents);
-        loadDocument(name, document, projectComponents);
-        setStatus(`已打开工程 ${name}`);
+        await fetchProject(name, presetDoc, controller);
       } catch (e) {
-        setStatus(`打开工程失败: ${api.errorDetail(e)}`);
+        failLoading(controller, `打开工程失败: ${api.errorDetail(e)}`);
       }
     },
-    [catalog, current, loadDocument, rt.running]
+    [current, fetchProject, failLoading, rt.running, startLoading]
   );
 
   useEffect(() => {
+    const controller = startLoading(null, 'bootstrap');
     (async () => {
       try {
+        let completed = 0;
+        const received = (value) => {
+          reportLoading(controller, { completed: ++completed });
+          return value;
+        };
+        const config = { signal: controller.signal };
         const [comps, projs, exs] = await Promise.all([
-          api.listComponents(),
-          api.listProjects(),
-          api.listExamples(),
+          api.listComponents(config).then(received),
+          api.listProjects(config).then(received),
+          api.listExamples(config).then(received),
         ]);
+        if (controller.signal.aborted) return;
         setCatalog(comps);
         setProjects(projs);
         setExamples(exs);
@@ -323,19 +373,33 @@ const { screenToFlowPosition } = useReactFlow();
           })
           .catch(() => {});
         if (projs.length > 0) {
-          const [document, projectComponents] = await Promise.all([
-            api.getProject(projs[0].name),
-            api.listProjectComponents(projs[0].name),
-          ]);
-          setCatalog(projectComponents);
-          loadDocument(projs[0].name, document, projectComponents);
-          setStatus(`已打开工程 ${projs[0].name}`);
+          await fetchProject(projs[0].name, null, controller);
+        } else {
+          loadControllerRef.current = null;
+          setLoading(null);
         }
       } catch (e) {
-        setStatus(`后端连接失败: ${api.errorDetail(e)}（请先运行 orpheus-cli serve）`);
+        failLoading(controller, `后端连接失败: ${api.errorDetail(e)}（请先运行 orpheus-cli serve）`);
       }
     })();
-  }, [loadDocument]);
+    return () => controller.abort();
+  }, [failLoading, fetchProject, reportLoading, startLoading]);
+
+  useEffect(() => () => loadControllerRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (loading?.stage !== 'render' || (view.nodes.length && !nodesInitialized)) return undefined;
+    const controller = loadControllerRef.current;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        if (loadControllerRef.current !== controller || controller.signal.aborted) return;
+        loadControllerRef.current = null;
+        setLoading(null);
+        setStatus(`已打开工程 ${current}`);
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [current, loading, nodesInitialized, view.nodes.length]);
 
   // load per-node notes sidecar whenever the current project changes
   useEffect(() => {
@@ -450,7 +514,7 @@ const { screenToFlowPosition } = useReactFlow();
   // ---------------------------------------------------------- save
 
   const doSave = useCallback(async () => {
-    if (!current || !doc) return;
+    if (!current || !doc || loadControllerRef.current) return;
     setSaving(true);
     try {
       const document = viewsToDoc(views, subsMeta, doc);
@@ -474,14 +538,14 @@ const { screenToFlowPosition } = useReactFlow();
 
   // debounced auto-save: fire 1.5s after the last edit while dirty
   useEffect(() => {
-    if (!dirty || !autoSave || !current) return undefined;
+    if (!dirty || !autoSave || !current || loading) return undefined;
     const timer = setTimeout(doSave, AUTOSAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [dirty, autoSave, current, views, subsMeta, doSave]);
+  }, [dirty, autoSave, current, views, subsMeta, doSave, loading]);
 
   // debounced auto-save for per-node notes sidecar
   useEffect(() => {
-    if (!nodeNotesDirty || !current) return undefined;
+    if (!nodeNotesDirty || !current || loading) return undefined;
     const timer = setTimeout(async () => {
       try {
         await api.saveNodeNotes(current, nodeNotes);
@@ -491,7 +555,7 @@ const { screenToFlowPosition } = useReactFlow();
       }
     }, AUTOSAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [nodeNotesDirty, current, nodeNotes]);
+  }, [nodeNotesDirty, current, nodeNotes, loading]);
 
   // Ctrl+S
   useEffect(() => {
@@ -1805,7 +1869,8 @@ const { screenToFlowPosition } = useReactFlow();
   }, [openMenu]);
 
   return (
-    <div className="app">
+    <>
+    <div className="app" aria-busy={!!loading} inert={loading ? '' : undefined}>
       <div className="toolbar">
         <h1>Orpheus</h1>
         <span className="tb-group">
@@ -2365,6 +2430,8 @@ const { screenToFlowPosition } = useReactFlow();
         </div>
       )}
     </div>
+    {loading && <ProjectLoading progress={loading} />}
+    </>
   );
 }
 

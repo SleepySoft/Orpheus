@@ -13,6 +13,14 @@ jest.mock('axios', () => ({
 
 const client = axios.create.mock.results[0].value;
 
+test('工程载入请求传递中止信号', async () => {
+  const config = { signal: new AbortController().signal };
+  await api.getProject('demo', config);
+  expect(client.get).toHaveBeenLastCalledWith('/projects/demo', config);
+  await api.listProjectComponents('demo', config);
+  expect(client.get).toHaveBeenLastCalledWith('/projects/demo/components', config);
+});
+
 beforeEach(() => {
   for (const method of ['get', 'post', 'put', 'delete']) {
     client[method].mockResolvedValue({ data: {} });
