@@ -18,6 +18,7 @@ import {
   docToViewsAsync,
   viewsToDoc,
   mergedCatalog,
+  subCatalogEntry,
   defaultParams,
   resolvePorts,
   resolveShape,
@@ -29,11 +30,14 @@ import {
   subIdOf,
   subViewKey,
   isDriveHandle,
+  DRIVE_IN,
+  DRIVE_OUT,
   isDriveEdge,
   validateDriveConnection,
   copyFlowSelection,
   pasteFlowSelection,
   reconnectDriveEdge,
+  driveMembershipsForViews,
 } from './graphUtils';
 import OrpheusNode from './OrpheusNode';
 import AudioEdge from './AudioEdge';
@@ -169,6 +173,8 @@ function Editor() {
     return 200;
   });
   const [rightOpen, setRightOpen] = useState(true); // 参数面板/子组件面板
+  const [driveLinking, setDriveLinking] = useState(false);
+  const driveConnectionRef = useRef(null);
   const [highlightedExport, setHighlightedExport] = useState(null);
   // 「控制链路」显示开关（持久化）：关闭时控制 handle/控制边完全不渲染
   const [showControlLinks, setShowControlLinks] = useState(() => {
@@ -501,7 +507,7 @@ const { screenToFlowPosition } = useReactFlow();
               ...n,
               data: {
                 ...n.data,
-                ports: sub.ports.map((p) => ({ id: p.id, direction: p.direction })),
+                ports: resolvePorts(subCatalogEntry(sub), n.data.params),
               },
             };
           }),
@@ -710,8 +716,10 @@ const { screenToFlowPosition } = useReactFlow();
           setStatus(`执行连接被拒绝：${error}`);
           return;
         }
+        driveConnectionRef.current = null;
         replaceOrAdd(reconnectDriveEdge(replacedEdge, params));
         setDirty(true);
+        setStatus('已连接驱动入口；后续沿计算数据链传播，声明边界截断');
         return;
       }
       // 控制引脚只能连控制引脚，音频引脚只能连音频引脚（交叉拒绝）
@@ -745,6 +753,30 @@ const { screenToFlowPosition } = useReactFlow();
     },
     [activeView, updateView, view.edges, view.nodes, flowMode]
   );
+
+  const onConnectStart = useCallback((_event, connection) => {
+    driveConnectionRef.current = driveLinking && connection.handleType === 'source'
+      && connection.handleId === DRIVE_OUT
+      ? { source: connection.nodeId, sourceHandle: connection.handleId } : null;
+  }, [driveLinking]);
+
+  const onConnectEnd = useCallback((event) => {
+    const source = driveConnectionRef.current;
+    driveConnectionRef.current = null;
+    if (!source) return;
+    const point = 'changedTouches' in event ? event.changedTouches[0] : event;
+    if (!point) {
+      setStatus('驱动入口未连接：未收到有效落点');
+      return;
+    }
+    const target = document.elementFromPoint(point.clientX, point.clientY)
+      ?.closest('.react-flow__node')?.getAttribute('data-id');
+    if (!target) {
+      setStatus('驱动入口未连接：请拖向可执行组件本体');
+      return;
+    }
+    onConnect({ ...source, target, targetHandle: DRIVE_IN });
+  }, [onConnect]);
 
   const onDragOver = useCallback((event) => {
     event.preventDefault();
@@ -1837,9 +1869,13 @@ const { screenToFlowPosition } = useReactFlow();
     [view.edges, view.nodes, showControlLinks, flowMode, activeView, activeSub, updateView]
   );
 
+  const viewMemberships = useMemo(() => driveMembershipsForViews(views, flowMode),
+    [views, flowMode]);
+  const memberships = viewMemberships[activeView] || {};
   const displayNodes = useMemo(() => {
     if (!activeSub) return view.nodes.map((node) => ({
-      ...node, data: { ...node.data, flowMode, blockSize: doc?.block_size },
+      ...node, data: { ...node.data, flowMode, blockSize: doc?.block_size,
+        driveMemberships: memberships[node.id] },
     }));
     const audioByNode = {};
     const controlByNode = {};
@@ -1859,6 +1895,7 @@ const { screenToFlowPosition } = useReactFlow();
         data: {
           ...node.data,
           flowMode,
+          driveMemberships: memberships[node.id],
           blockSize: doc?.block_size,
           exportSubId: activeSub.id,
           exportedAudioPorts: audioByNode[node.id] || {},
@@ -1866,7 +1903,7 @@ const { screenToFlowPosition } = useReactFlow();
         },
       };
     });
-  }, [activeSub, view.nodes, flowMode, doc?.block_size]);
+  }, [activeSub, view.nodes, flowMode, doc?.block_size, memberships]);
 
   const revealSubExport = useCallback((subId, kind, id) => {
     const viewKey = subViewKey(subId);
@@ -1998,6 +2035,14 @@ const { screenToFlowPosition } = useReactFlow();
             />
             控制链路
           </label>
+          {flowMode === 'task_sequence' && (
+            <label className="autosave" title="从驱动源本体拖向组件本体；退出后恢复移动节点和普通数据连线">
+              <input type="checkbox" checked={driveLinking}
+                disabled={!current || !!activeSub?.read_only}
+                onChange={(event) => setDriveLinking(event.target.checked)} />
+              驱动连线
+            </label>
+          )}
           <label
             className={`autosave debug-toggle ${doc?.debug_mode ? 'active' : ''}`}
             title="忽略完全孤立节点和未接入有效时钟源的残留音频流；保留执行的有效链路仍执行完整类型、通道、Task 和平台校验"
@@ -2228,7 +2273,8 @@ const { screenToFlowPosition } = useReactFlow();
         )}
         <div className={`canvas ${showControlLinks ? 'control-links-visible' : ''}`} onDrop={onDrop} onDragOver={onDragOver}>
           <SignalLegend flowMode={flowMode} showControlLinks={showControlLinks} />
-          <NodeActionsContext.Provider value={{ showReadme: handleShowReadme, showControlLinks, revealSubExport }}>
+          <NodeActionsContext.Provider value={{ showReadme: handleShowReadme, showControlLinks, revealSubExport,
+            driveLinking: driveLinking && flowMode === 'task_sequence' && !activeSub?.read_only }}>
             <ReactFlow
             key={`${current || 'empty'}:${activeView}`}
             nodes={displayNodes}
@@ -2236,6 +2282,8 @@ const { screenToFlowPosition } = useReactFlow();
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onConnectStart={onConnectStart}
+            onConnectEnd={onConnectEnd}
             onEdgeUpdate={(edge, params) => onConnect(params, edge)}
             onNodeClick={(_, node) => setSelectedId(node.id)}
             onNodeDoubleClick={onNodeDoubleClick}

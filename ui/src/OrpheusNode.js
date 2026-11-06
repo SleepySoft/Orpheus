@@ -82,7 +82,7 @@ function noiseStatusClass(data) {
 }
 
 const BodyWidget = NODE_WIDGETS[data.component];
-  const { showReadme, showControlLinks, revealSubExport } = React.useContext(NodeActionsContext);
+  const { showReadme, showControlLinks, revealSubExport, driveLinking } = React.useContext(NodeActionsContext);
   const updateNodeInternals = useUpdateNodeInternals();
   const executionHandles = driveHandles(data, data.flowMode);
   const handleSignature = [
@@ -100,6 +100,23 @@ const BodyWidget = NODE_WIDGETS[data.component];
   // compiled rate badge, e.g. "48kHz" or "24kHz ÷2" (visible time tree)
   // 时钟源（信号/扫频/设备/wav 输入）显示 ⏱ 徽标：图采样率以它为准
   const clockSource = !!data.clockSource;
+  const driveDots = (
+    <span className="drive-domain-dots" aria-label="声明的驱动归属">
+      {(data.driveMemberships || []).map((domain) => (
+        <span key={domain.id} className="drive-domain-dot" title={domain.label}
+          style={{ backgroundColor: domain.color }} />
+      ))}
+    </span>
+  );
+  const driveRouting = executionHandles.map((handle) => (
+    <Handle key={handle} type={handle === DRIVE_IN ? 'target' : 'source'}
+      position={handle === DRIVE_IN ? Position.Top : Position.Right} id={handle}
+      className={`drive-body-anchor ${driveLinking ? 'drive-linking' : ''}`}
+      isConnectable={!!driveLinking && (handle === DRIVE_IN || clockSource)}
+      isConnectableStart={!!driveLinking && handle === DRIVE_OUT && clockSource}
+      isConnectableEnd={!!driveLinking && handle === DRIVE_IN}
+      style={{ opacity: 0, pointerEvents: driveLinking && (handle === DRIVE_IN || clockSource) ? 'auto' : 'none' }} />
+  ));
   const rateBadge = (() => {
     const r = data.rate;
     if (!r || !r.sample_rate) {
@@ -169,13 +186,10 @@ const BodyWidget = NODE_WIDGETS[data.component];
         title="纯触发标记，不传输PCM；从紫色锚点拖出箭头，指向目标节点顶部">
         <span className="drive-source-symbol">↗</span>
         <div>
-          <strong>{data.label}</strong>
+          <strong>{data.label}{driveDots}</strong>
           <div className="drive-source-caption">纯触发 · {data.params?.frequency_hz ?? 100} Hz</div>
         </div>
-        {executionHandles.includes(DRIVE_OUT) && (
-          <Handle type="source" position={Position.Right} id={DRIVE_OUT}
-            className="drive-source-handle" />
-        )}
+        {driveRouting}
       </div>
     );
   }
@@ -196,25 +210,12 @@ const BodyWidget = NODE_WIDGETS[data.component];
           color="#4cc9f0"
         />
       )}
-      <div className={`orpheus-node audio-node ${audioSource ? 'audio-drive-source' : ''} ${executionHandles.length ? 'has-drive-anchors' : ''} ${showControlLinks ? 'control-mode' : ''} ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${isBridge ? 'bridge-config-node' : ''} ${data.missing ? 'missing' : ''} ${platformTone ? `platform-${platformTone}` : ''} ${noiseStatusClass(data)}`}>
-      {executionHandles.length > 0 && (
-        <div className="node-drive-anchors">
-          {executionHandles.includes(DRIVE_IN) && (
-            <Handle type="target" position={Position.Top} id={DRIVE_IN}
-              className="drive-entry-anchor"
-              title="驱动入口：箭头指向节点，不是数据输入"
-              style={{ left: '25%' }} />
-          )}
-          <span className="drive-anchor-caption">{clockSource ? '触发 ↗' : '↓ 驱动入口 · 续调 ↗'}</span>
-          <Handle type="source" position={Position.Top} id={DRIVE_OUT}
-            className="drive-continuation-anchor"
-            title={clockSource ? '触发分支：可单独设置分频/选拍' : '组件续调：连接下游节点的驱动入口'}
-            style={{ left: '80%' }} />
-        </div>
-      )}
+      <div className={`orpheus-node audio-node ${audioSource ? 'audio-drive-source' : ''} ${showControlLinks ? 'control-mode' : ''} ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${isBridge ? 'bridge-config-node' : ''} ${data.missing ? 'missing' : ''} ${platformTone ? `platform-${platformTone}` : ''} ${noiseStatusClass(data)}`}>
+      {driveRouting}
       <div className="node-header">
         <div className="node-title">
           {data.label}
+          {driveDots}
           {data.missing && (
             <span className="missing-badge" title="该组件已被删除：请删除此节点或重新创建组件">
               组件缺失

@@ -186,7 +186,8 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
             <option value="task_sequence">显式驱动（节点级箭头）</option>
           </select>
           <span className="settings-hint">
-            紫色箭头指向节点顶部，不连接PCM端口；驱动源可分支，点击箭头标签设置分频/选拍。
+            驱动连线模式下从源本体拖向组件本体，不显示执行引脚；计算数据链默认传播，解耦端口声明截断。
+            圆点标记驱动归属，点击入口箭头标签设置分频/选拍。
             后续由组件主动续调，不扫描算法列表。数据线与参数线独立保存。
             切回数据流仅隐藏驱动箭头，所有已有连线均保留。
           </span>

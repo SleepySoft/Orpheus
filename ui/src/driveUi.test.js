@@ -10,8 +10,9 @@ import { NodeActionsContext } from './NodeActionsContext';
 
 jest.mock('./nodeWidgets', () => ({ NODE_WIDGETS: {} }));
 jest.mock('reactflow', () => ({
-  Handle: ({ id, type, position, className }) => <span data-handle={id}
-    data-direction={type} data-position={position} className={className} />,
+  Handle: ({ id, type, position, className, style, isConnectable }) => <span data-handle={id}
+    data-direction={type} data-position={position} data-connectable={String(isConnectable)}
+    className={className} style={style} />,
   Position: { Left: 'left', Right: 'right', Top: 'top' },
   NodeResizer: () => null,
   useUpdateNodeInternals: () => jest.fn(),
@@ -119,7 +120,7 @@ test('纯驱动源是无PCM端口的触发标记，不渲染普通算法节点',
   expect(container.querySelector('[data-handle="drv:out"]')).not.toBeNull();
 });
 
-test('驱动入口锚定节点顶部，与音频端口及Buffer展示独立', () => {
+test('驱动路由不可见，组件本体接收入口，音频端口及Buffer展示独立', () => {
   const render = (source) => act(() => root.render(
     <NodeActionsContext.Provider value={{ showControlLinks: false }}>
       <OrpheusNode id="audio" data={{ label: '音频源', component: source
@@ -131,10 +132,29 @@ test('驱动入口锚定节点顶部，与音频端口及Buffer展示独立', ()
   render(true);
   expect(container.querySelector('.source-buffer-summary').textContent).toContain('2ch × 32帧');
   expect(container.querySelector('[data-handle="out"]').dataset.direction).toBe('source');
-  expect(container.querySelector('[data-handle="drv:out"]').dataset.position).toBe('top');
+  expect(container.querySelector('[data-handle="drv:out"]').dataset.position).toBe('right');
+  expect(container.querySelector('[data-handle="drv:out"]').style.opacity).toBe('0');
   render(false);
   expect(container.querySelector('[data-handle="drv:in"]').dataset.position).toBe('top');
   expect(container.querySelector('.node-drive')).toBeNull();
+  expect(container.querySelector('.node-drive-anchors')).toBeNull();
+  expect(container.querySelector('.drive-entry-anchor')).toBeNull();
+});
+
+test('圆点标记归属，只有驱动连线模式允许连接到组件本体', () => {
+  const render = (driveLinking) => act(() => root.render(
+    <NodeActionsContext.Provider value={{ showControlLinks: false, driveLinking }}>
+      <OrpheusNode id="gain" data={{ component: 'orpheus.builtin.gain', flowMode: 'task_sequence',
+        driveMemberships: [{ id: 'clock:1:0', color: 'red', label: '100Hz入口' }] }} />
+    </NodeActionsContext.Provider>
+  ));
+  render(false);
+  expect(container.querySelector('.drive-domain-dot').title).toBe('100Hz入口');
+  expect(container.querySelector('.drive-domain-dot').style.backgroundColor).toBe('red');
+  expect(container.querySelector('[data-handle="drv:in"]').style.pointerEvents).toBe('none');
+  render(true);
+  expect(container.querySelector('[data-handle="drv:in"]').dataset.connectable).toBe('true');
+  expect(container.querySelector('[data-handle="drv:out"]').dataset.connectable).toBe('false');
 });
 
 test('驱动箭头编辑分频，拒绝非法相位并提交有效配置', () => {

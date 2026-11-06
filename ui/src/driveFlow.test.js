@@ -2,6 +2,8 @@ import {
   DRIVE_IN, DRIVE_OUT, BRIDGE_COMPONENT, copyFlowSelection, pasteFlowSelection,
   docToViews, viewsToDoc, driveHandles, flowToGraph, validateDriveConnection,
   driveTimingLabel, reconnectDriveEdge,
+  driveMemberships, driveMembershipsForViews, resolvedDriveEdges,
+  subCatalogEntry, resolvePorts,
 } from './graphUtils';
 
 const catalog = [
@@ -170,14 +172,90 @@ describe('任务驱动执行图', () => {
     const { views } = docToViews(document, catalog);
     const { nodes, edges } = views.main;
     expect(validateDriveConnection(nodes, edges, connection('clock', 'sink'), 'task_sequence')).toBeNull();
-    expect(validateDriveConnection(nodes, edges, connection('sink', 'gain'), 'task_sequence')).toMatch('循环');
-    expect(validateDriveConnection(nodes, edges, connection('sink', 'sink'), 'task_sequence')).toMatch('循环');
+    expect(validateDriveConnection(nodes, edges, connection('sink', 'gain'), 'task_sequence')).toMatch('驱动源本体');
+    expect(validateDriveConnection(nodes, edges, connection('sink', 'sink'), 'task_sequence')).toMatch('驱动源本体');
     expect(validateDriveConnection(nodes, edges, connection('clock', 'gain'), 'task_sequence')).toMatch('已存在');
     expect(validateDriveConnection(nodes, edges, connection('gain', 'clock'), 'task_sequence')).toMatch('时钟源');
     expect(validateDriveConnection(nodes, edges, {
       ...connection('clock', 'sink'), targetHandle: 'in',
     }, 'task_sequence')).toMatch('混连');
     expect(validateDriveConnection(nodes, edges, connection('clock', 'sink'), 'dataflow')).not.toBeNull();
+  });
+
+  describe('声明式传播与驱动域颜色', () => {
+    const port = (id, direction, extra = {}) => ({ id, direction, type: 'audio', ...extra });
+    const node = (id, clockSource = false) => ({ id, data: { label: id, clockSource,
+      ports: [port('in', 'input'), port('out', 'output')] } });
+    const wire = (source, target) => ({ source, target, sourceHandle: 'out', targetHandle: 'in' });
+
+    test('普通音频链自动传播，相同入口的颜色一致，不写入派生连线', () => {
+      const nodes = [node('source', true), node('a'), node('b')];
+      const edges = [wire('source', 'a'), wire('a', 'b')];
+      const before = JSON.stringify(edges);
+      const marks = driveMemberships(nodes, edges, 'task_sequence');
+      expect(marks.a).toEqual(marks.source);
+      expect(marks.b).toEqual(marks.source);
+      expect(marks.a).toHaveLength(1);
+      expect(JSON.stringify(edges)).toBe(before);
+      expect(driveMemberships(nodes, edges, 'dataflow').a).toEqual([]);
+    });
+
+    test('输出声明false截断，控制数据与参数控制边不传播', () => {
+      const nodes = [node('source', true), node('a'), node('b')];
+      const edges = [wire('source', 'a'), wire('a', 'b')];
+      nodes[1].data.ports[1].propagate_drive = false;
+      expect(driveMemberships(nodes, edges, 'task_sequence').b).toEqual([]);
+      delete nodes[1].data.ports[1].propagate_drive;
+      nodes[1].data.ports[1].type = 'control';
+      expect(driveMemberships(nodes, edges, 'task_sequence').b).toEqual([]);
+      nodes[1].data.ports[1].propagate_drive = true;
+      expect(driveMemberships(nodes, edges, 'task_sequence').b).toHaveLength(1);
+      edges[1].type = 'control';
+      expect(driveMemberships(nodes, edges, 'task_sequence').b).toEqual([]);
+    });
+
+    test('显式消费入口优先，异步输入不继承生产域，消费输出正常续传', () => {
+      const nodes = [node('producer', true), node('consumer', true), node('buffer'), node('sink')];
+      nodes[2].data.ports[0].propagate_drive = false;
+      const edges = [wire('producer', 'buffer'), wire('buffer', 'sink'),
+        { ...connection('consumer', 'buffer'), type: 'drive', data: { every: 4, phase: 3 } }];
+      const marks = driveMemberships(nodes, edges, 'task_sequence');
+      expect(marks.buffer[0].id).toBe('consumer:4:3');
+      expect(marks.sink).toEqual(marks.buffer);
+      expect(marks.buffer[0].color).not.toBe(marks.producer[0].color);
+      expect(resolvedDriveEdges(nodes, edges).filter((edge) => edge.target === 'buffer')).toHaveLength(1);
+      edges.pop();
+      expect(driveMemberships(nodes, edges, 'task_sequence').buffer).toEqual([]);
+    });
+
+    test('多入口用多个点，不依靠数据环无限传播', () => {
+      const nodes = [node('first', true), node('second', true), node('a'), node('b')];
+      const edges = [wire('a', 'b'), wire('b', 'a'),
+        { ...connection('first', 'a'), type: 'drive' },
+        { ...connection('second', 'a'), type: 'drive' }];
+      expect(driveMemberships(nodes, edges, 'task_sequence').a).toHaveLength(2);
+      expect(driveMemberships(nodes, edges, 'task_sequence').b).toHaveLength(2);
+    });
+
+    test('展开复合定义仍显示实例继承的驱动域，内部边界继续截断', () => {
+      const composite = node('pair');
+      composite.data.component = 'sub:pair';
+      const views = {
+        main: { nodes: [node('source', true), composite], edges: [wire('source', 'pair')] },
+        'sub:pair': { nodes: [node('a'), node('b')], edges: [wire('a', 'b')] },
+      };
+      const marks = driveMembershipsForViews(views, 'task_sequence');
+      expect(marks['sub:pair'].a).toEqual(marks.main.pair);
+      expect(marks['sub:pair'].b).toEqual(marks.main.pair);
+      views['sub:pair'].nodes[0].data.ports[1].propagate_drive = false;
+      expect(driveMembershipsForViews(views, 'task_sequence')['sub:pair'].b).toEqual([]);
+    });
+
+    test('复合实例端口刷新保留传播声明及内部映射', () => {
+      const ports = [{ id: 'out', direction: 'output', maps_to: 'inner:out', propagate_drive: false }];
+      expect(resolvePorts(subCatalogEntry({ id: 'pair', ports }), {}))
+        .toEqual([{ ...ports[0], type: 'audio' }]);
+    });
   });
 
   test('复制粘贴保持三类内部边并重映射节点；不复制跨边界连线', () => {

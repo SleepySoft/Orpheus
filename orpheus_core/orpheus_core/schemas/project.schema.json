@@ -197,7 +197,8 @@
               "properties": {
                 "id": { "type": "string" },
                 "direction": { "enum": ["input", "output"] },
-                "maps_to": { "type": "string" }
+                "maps_to": { "type": "string" },
+                "propagate_drive": { "type": "boolean" }
               }
             }
           },

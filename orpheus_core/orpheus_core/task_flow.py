@@ -1,13 +1,45 @@
-"""显式驱动图：调用关系独立于数据绑定，节拍只读取声明。"""
+"""驱动图：入口与端口声明确定续接，节拍只读取入口声明。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from fractions import Fraction
 
-from orpheus_core.compiler import CompileError, _resolve_value
-from orpheus_core.project import Project, Task
+from orpheus_core.compiler import CompileError, _expand_port_manifests, _resolve_value
+from orpheus_core.project import DriveConnection, PortRef, Project, Task
 from orpheus_core.registry import Registry
+
+
+def resolve_drive_connections(project: Project, registry: Registry) -> list[DriveConnection]:
+    """显式入口优先；只沿声明允许的计算数据端口派生续接。"""
+    edges = list(project.drive_connections)
+    inferred: list[DriveConnection] = []
+    explicit_targets = {edge.to_ref.node_id for edge in edges}
+    pairs = {(edge.from_ref.node_id, edge.to_ref.node_id) for edge in edges}
+    ports = {}
+    for node in project.graph.nodes.values():
+        info = registry.get(node.component)
+        if info is None:
+            raise CompileError(f"组件不存在：{node.component}（节点 {node.id}）")
+        task = project.tasks.get(node.task, project.get_default_task())
+        for port in _expand_port_manifests(node, info, task):
+            ports[f"{node.id}:{port['id']}"] = port
+    for connection in project.graph.connections:
+        src, dst = connection.from_ref.node_id, connection.to_ref.node_id
+        if dst in explicit_targets or (src, dst) in pairs:
+            continue
+        if (str(connection.from_ref), str(connection.to_ref)) in project.graph.drive_barriers:
+            continue
+        source_port = ports.get(str(connection.from_ref))
+        target_port = ports.get(str(connection.to_ref))
+        if source_port is None or target_port is None:
+            raise CompileError(f"数据连接引用不存在的端口：{connection.from_ref} → {connection.to_ref}")
+        if not all(port.get("propagate_drive", port["type"] in ("audio", "bulk"))
+                   for port in (source_port, target_port)):
+            continue
+        inferred.append(DriveConnection(PortRef(src, "out"), PortRef(dst, "in")))
+        pairs.add((src, dst))
+    return inferred + edges
 
 
 @dataclass
@@ -22,7 +54,7 @@ class TaskFlow:
         if self.first_calls[source] >= self.first_calls[target]:
             raise CompileError(
                 f"Task 顺序未声明：{source} 必须在 {target} 之前调用；"
-                "请连接显式驱动路径，数据线/参数线不会补充调用顺序"
+                "请检查驱动入口顺序与端口传播边界；参数控制线不会补充调用顺序"
             )
 
 
@@ -35,7 +67,8 @@ def build_task_flow(project: Project, registry: Registry) -> TaskFlow:
     incoming = {nid: [] for nid in nodes}
     outgoing = {nid: [] for nid in nodes}
     seen: set[tuple[str, str]] = set()
-    for edge in project.drive_connections:
+    effective_connections = resolve_drive_connections(project, registry)
+    for edge in effective_connections:
         src, dst = edge.from_ref.node_id, edge.to_ref.node_id
         if src not in nodes or dst not in nodes:
             raise CompileError(f"驱动连接引用不存在或不可执行的节点：{edge.from_ref} → {edge.to_ref}")
@@ -124,6 +157,7 @@ def build_task_flow(project: Project, registry: Registry) -> TaskFlow:
         first_calls[nid] = len(first_calls)
         stack.extend(e.to_ref.node_id for e in reversed(outgoing[nid]))
     project.tasks = tasks
+    project.drive_connections = effective_connections
     return TaskFlow(list(first_calls), roots, ancestors, cadences, first_calls)
 
 

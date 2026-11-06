@@ -336,6 +336,13 @@ def resolve_project(
                 conn.from_ref.node_id = active_map[conn.from_ref.node_id]
             if conn.to_ref.node_id in active_map:
                 conn.to_ref.node_id = active_map[conn.to_ref.node_id]
+        def remap_endpoint(endpoint: str) -> str:
+            node_id, port_id = endpoint.split(":")
+            return f"{active_map.get(node_id, node_id)}:{port_id}"
+        graph.drive_barriers = {
+            (remap_endpoint(source), remap_endpoint(target))
+            for source, target in graph.drive_barriers
+        }
         # 控制连接（顶层段，引用主图节点）同样重映射到激活成员
         if gi == 0:
             for cc in resolved.control_connections + resolved.drive_connections:

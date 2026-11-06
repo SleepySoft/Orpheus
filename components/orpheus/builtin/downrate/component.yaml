@@ -1,7 +1,7 @@
 id: orpheus.builtin.downrate
 name: 分频器
 category: 高级/多速率
-description: 同时钟域分频（重缓冲）：下游每 N 个块执行一次，每次处理 N×块长 的超块；适用于控制速率算法
+description: 音频组块：连续写入N个常规块形成超块；显式驱动模式下输出不传播驱动，消费入口自行设置分频
 version: 1.0.0
 abi_version: 6
 package_type: source
@@ -21,6 +21,7 @@ ports:
   - id: out
     direction: output
     type: audio
+    propagate_drive: false
     sample_format: f32
     channels: param:channels
     block_size: in:block_size*param:factor

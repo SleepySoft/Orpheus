@@ -33,6 +33,6 @@ graph:
 drive_connections:
   - {from: "trigger:out", to: "fast:in"}
   - {from: "trigger:out", to: "slow:in", every: 4, phase: 3}
-  - {from: "slow:out", to: "consumer:in"}
+  - {from: "trigger:out", to: "consumer:in", every: 4, phase: 3}
 control_connections:
   - {from: "slow:values", to: "consumer:values"}

@@ -399,6 +399,9 @@ class GraphCompiler:
         ):
             # 无效引用必须由常规校验明确报错，不能被调试裁剪静默吞掉。
             return prepared, []
+        if prepared.flow_mode == "task_sequence":
+            from orpheus_core.task_flow import resolve_drive_connections
+            flow_connections = resolve_drive_connections(prepared, self.registry)
         connected = {
             node_id
             for connection in flow_connections

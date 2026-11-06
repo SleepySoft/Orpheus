@@ -29,4 +29,3 @@ graph:
     - {from: "gain:out", to: "capture:in"}
 drive_connections:
   - {from: "source:out", to: "gain:in"}
-  - {from: "gain:out", to: "capture:in"}

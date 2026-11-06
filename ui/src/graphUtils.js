@@ -66,6 +66,8 @@ export function validateDriveConnection(nodes, edges, params, flowMode) {
   if (!driveHandles(source?.data, flowMode).includes(DRIVE_OUT)
     || !driveHandles(target?.data, flowMode).includes(DRIVE_IN))
     return '执行连接仅支持任务驱动模式下的可执行节点；时钟源没有执行输入';
+  if (!source.data.clockSource)
+    return '入口箭头必须从驱动源本体发出；普通组件沿数据连接自动传播驱动';
   const driveEdges = edges.filter(isDriveEdge);
   if (driveEdges.some((edge) => edge.source === params.source && edge.target === params.target))
     return '执行连接已存在';
@@ -79,6 +81,107 @@ export function validateDriveConnection(nodes, edges, params, flowMode) {
     driveEdges.filter((edge) => edge.source === id).forEach((edge) => pending.push(edge.target));
   }
   return null;
+}
+
+export function resolvedDriveEdges(nodes, edges) {
+  const calls = edges.filter(isDriveEdge);
+  const inferred = [];
+  const explicitTargets = new Set(calls.map((edge) => edge.target));
+  const pairs = new Set(calls.map((edge) => `${edge.source}:${edge.target}`));
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  for (const edge of edges) {
+    if (isDriveEdge(edge) || edge.type === 'control' || explicitTargets.has(edge.target)
+      || pairs.has(`${edge.source}:${edge.target}`)) continue;
+    const sourcePort = byId.get(edge.source)?.data.ports?.find((port) => port.id === edge.sourceHandle);
+    const targetPort = byId.get(edge.target)?.data.ports?.find((port) => port.id === edge.targetHandle);
+    const propagates = (port) => port
+      && (port.propagate_drive ?? ['audio', 'bulk'].includes(port.type));
+    if (!propagates(sourcePort) || !propagates(targetPort)) continue;
+    inferred.push({ source: edge.source, target: edge.target });
+    pairs.add(`${edge.source}:${edge.target}`);
+  }
+  return [...inferred, ...calls];
+}
+
+/** 圆点表示声明可达的入口/分频域，不表示本拍执行或会合去重。 */
+export function driveMemberships(nodes, edges, flowMode, entryDomains = []) {
+  const memberships = Object.fromEntries(nodes.map((node) => [node.id, []]));
+  if (flowMode !== 'task_sequence') return memberships;
+  const calls = resolvedDriveEdges(nodes, edges);
+  const outgoing = new Map(nodes.map((node) => [node.id, []]));
+  calls.forEach((edge) => outgoing.get(edge.source)?.push(edge));
+  const pending = nodes.filter((node) => node.data.clockSource).map((node) => ({
+    node: node.id, source: node, every: 1, phase: 0, path: [],
+  }));
+  entryDomains.forEach(({ node, domain }) => pending.push({
+    node, source: { id: domain.sourceId, data: { label: domain.sourceLabel } },
+    every: domain.every, phase: domain.phase, path: [],
+  }));
+  const seen = new Set();
+  while (pending.length) {
+    const current = pending.pop();
+    if (!memberships[current.node] || current.path.includes(current.node)) continue;
+    const domainId = `${current.source.id}:${current.every}:${current.phase}`;
+    const key = `${current.node}:${domainId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    let hash = 0;
+    for (const char of domainId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+    memberships[current.node].push({
+      id: domainId, color: `hsl(${hash % 360}, 75%, 55%)`,
+      label: `${current.source.data.label || current.source.id} · 每${current.every}拍 · 相位${current.phase}`,
+      sourceId: current.source.id, sourceLabel: current.source.data.label || current.source.id,
+      every: current.every, phase: current.phase,
+    });
+    for (const edge of outgoing.get(current.node) || []) {
+      const every = edge.data?.every ?? 1;
+      const phase = edge.data?.phase ?? (every - 1);
+      pending.push({
+        node: edge.target, source: current.source,
+        every: current.every * every, phase: current.phase + current.every * phase,
+        path: [...current.path, current.node],
+      });
+    }
+  }
+  return memberships;
+}
+
+export function driveMembershipsForViews(views, flowMode) {
+  const marks = Object.fromEntries(Object.entries(views).map(([id, view]) =>
+    [id, driveMemberships(view.nodes, view.edges, flowMode)]));
+  if (flowMode !== 'task_sequence') return marks;
+  const parents = {};
+  for (const [viewId, view] of Object.entries(views)) {
+    for (const node of view.nodes) {
+      const component = node.data.component || '';
+      const childId = isSubRef(component) ? component : subViewKey(component);
+      if (!views[childId]) continue;
+      (parents[childId] ||= []).push({
+        viewId, nodeId: node.id,
+        entries: (node.data.ports || []).filter((port) => port.direction === 'input' && port.maps_to)
+          .map((port) => port.maps_to.split(':')[0]),
+      });
+    }
+  }
+  for (let pass = 0; pass < Object.keys(views).length; pass++) {
+    let changed = false;
+    for (const [viewId, references] of Object.entries(parents)) {
+      const view = views[viewId];
+      const called = new Set(view.edges.filter((edge) => edge.type !== 'control').map((edge) => edge.target));
+      const entries = view.nodes.filter((node) => !called.has(node.id) && !node.data.clockSource);
+      const entryDomains = references.flatMap(({ viewId: parentId, nodeId, entries: mappedEntries }) =>
+        (mappedEntries.length ? mappedEntries : entries.map((node) => node.id)).flatMap((node) =>
+          (marks[parentId][nodeId] || []).map((domain) => ({ node, domain }))));
+      const next = driveMemberships(view.nodes, view.edges, flowMode,
+        entryDomains);
+      if (JSON.stringify(next) !== JSON.stringify(marks[viewId])) {
+        marks[viewId] = next;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return marks;
 }
 
 export function driveTimingFields(data = {}) {

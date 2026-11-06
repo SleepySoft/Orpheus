@@ -89,6 +89,7 @@ class Graph:
     nodes: dict[str, Node] = field(default_factory=dict)
     connections: list[Connection] = field(default_factory=list)
     drive_connections: list[DriveConnection] = field(default_factory=list)
+    drive_barriers: set[tuple[str, str]] = field(default_factory=set, repr=False)
 
 
 @dataclass
@@ -107,6 +108,7 @@ class SubPort:
     id: str
     direction: str  # "input" | "output"
     maps_to: str    # "inner_node:inner_port", must reference an atomic internal node
+    propagate_drive: bool | None = None
 
 
 @dataclass
@@ -415,7 +417,8 @@ def project_to_dict(
                 "description": s.description,
                 **({"read_only": True} if s.read_only else {}),
                 "ports": [
-                    {"id": p.id, "direction": p.direction, "maps_to": p.maps_to}
+                    {"id": p.id, "direction": p.direction, "maps_to": p.maps_to,
+                     **({"propagate_drive": p.propagate_drive} if p.propagate_drive is not None else {})}
                     for p in s.ports
                 ],
                 **({
@@ -508,7 +511,8 @@ def _subcomponent_from_manifest(info: ComponentInfo) -> Subcomponent:
         if not port.get("maps_to"):
             raise ValueError(f"composite {info.id}: port {port.get('id')!r} missing maps_to")
         ports.append(SubPort(
-            id=port["id"], direction=port["direction"], maps_to=port["maps_to"]
+            id=port["id"], direction=port["direction"], maps_to=port["maps_to"],
+            propagate_drive=port.get("propagate_drive"),
         ))
     public_parameters = []
     for parameter in manifest.get("parameters", []) or []:
@@ -789,7 +793,8 @@ class ProjectLoader:
                 name=s.get("name", s["id"]),
                 description=s.get("description", ""),
                 ports=[
-                    SubPort(id=p["id"], direction=p["direction"], maps_to=p["maps_to"])
+                    SubPort(id=p["id"], direction=p["direction"], maps_to=p["maps_to"],
+                            propagate_drive=p.get("propagate_drive"))
                     for p in s.get("ports", [])
                 ],
                 public_parameters=[

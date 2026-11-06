@@ -9,9 +9,11 @@ hierarchy (Simulink "virtual subsystem" style).
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 
 from orpheus_core.compiler import CompileError
 from orpheus_core.project import Connection, ControlConnection, DriveConnection, Graph, Node, PortRef, Project, Subcomponent
+from orpheus_core.registry import Registry
 
 SUB_PREFIX = "sub:"
 NODE_SEP = "__"
@@ -38,6 +40,8 @@ def _validate_subcomponent(sub: Subcomponent, subs: dict[str, Subcomponent]) -> 
         )
     seen: set[str] = set()
     for port in sub.ports:
+        if port.propagate_drive is not None and type(port.propagate_drive) is not bool:
+            raise CompileError(f"复合组件 {sub.id} 端口 {port.id}：propagate_drive 必须为布尔值")
         if port.id in seen:
             raise CompileError(f"subcomponent {sub.id}: duplicate port id {port.id!r}")
         seen.add(port.id)
@@ -132,6 +136,8 @@ def _expand_graph(
     subs: dict[str, Subcomponent],
     prefix: str,
     stack: tuple[str, ...],
+    context: Project,
+    registry: Registry | None,
 ) -> Graph:
     """Return a flattened copy of `graph` with all node ids prefixed."""
     flat = Graph()
@@ -159,7 +165,8 @@ def _expand_graph(
             raise CompileError(
                 f"node {node.id}: 子组件控制输出不可由实例赋值: {output_overrides}"
             )
-        inner = _expand_graph(sub.graph, subs, f"{prefix}{node.id}{NODE_SEP}", (*stack, sub_id))
+        inner = _expand_graph(sub.graph, subs, f"{prefix}{node.id}{NODE_SEP}", (*stack, sub_id),
+                              context, registry)
         for public in sub.public_parameters:
             if public.direction != "input":
                 continue
@@ -172,9 +179,23 @@ def _expand_graph(
         flat.nodes.update(inner.nodes)
         flat.connections.extend(inner.connections)
         flat.drive_connections.extend(inner.drive_connections)
-        called = {c.to_ref.node_id for c in inner.drive_connections}
-        callers = {c.from_ref.node_id for c in inner.drive_connections}
+        flat.drive_barriers.update(inner.drive_barriers)
+        boundary_connections = inner.drive_connections
+        if context.flow_mode == "task_sequence" and registry is not None:
+            from orpheus_core.task_flow import resolve_drive_connections
+            boundary_connections = resolve_drive_connections(
+                replace(context, graph=inner, drive_connections=inner.drive_connections), registry,
+            )
+        elif context.flow_mode == "task_sequence" and inner.connections and not boundary_connections:
+            raise CompileError("自动推导复合组件驱动入口需要组件 Registry；请传入 flatten_project(project, registry)")
+        called = {c.to_ref.node_id for c in inner.connections + inner.drive_connections}
+        callers = {c.from_ref.node_id for c in boundary_connections}
+        input_entries = [
+            f"{prefix}{node.id}{NODE_SEP}{_resolve_boundary_port(sub, port.id, subs).node_id}"
+            for port in sub.ports if port.direction == "input"
+        ]
         drive_boundaries[node.id] = (
+            list(dict.fromkeys(input_entries)) if input_entries else
             [nid for nid in inner.nodes if nid not in called],
             [nid for nid in inner.nodes if nid not in callers],
         )
@@ -190,10 +211,29 @@ def _expand_graph(
             port_id=inner.port_id,
         )
 
+    def boundary_blocks(ref: PortRef) -> bool:
+        node = graph.nodes.get(ref.node_id)
+        if node is None or not is_subcomponent_ref(node.component, subs):
+            return False
+        sub = subs[subcomponent_id(node.component)]
+        port = next(p for p in sub.ports if p.id == ref.port_id)
+        return port.propagate_drive is False or boundary_blocks_in_sub(sub, port.maps_to)
+
+    def boundary_blocks_in_sub(sub: Subcomponent, endpoint: str) -> bool:
+        ref = PortRef.parse(endpoint)
+        child_node = sub.graph.nodes[ref.node_id]
+        if not is_subcomponent_ref(child_node.component, subs):
+            return False
+        child = subs[subcomponent_id(child_node.component)]
+        port = next(p for p in child.ports if p.id == ref.port_id)
+        return port.propagate_drive is False or boundary_blocks_in_sub(child, port.maps_to)
+
     for conn in graph.connections:
-        flat.connections.append(
-            Connection(from_ref=map_endpoint(conn.from_ref), to_ref=map_endpoint(conn.to_ref))
-        )
+        mapped = Connection(from_ref=map_endpoint(conn.from_ref), to_ref=map_endpoint(conn.to_ref))
+        flat.connections.append(mapped)
+        if (boundary_blocks(conn.from_ref) or boundary_blocks(conn.to_ref)
+                or (str(conn.from_ref), str(conn.to_ref)) in graph.drive_barriers):
+            flat.drive_barriers.add((str(mapped.from_ref), str(mapped.to_ref)))
 
     for conn in graph.drive_connections:
         source = conn.from_ref.node_id
@@ -213,7 +253,7 @@ def _expand_graph(
     return flat
 
 
-def flatten_project(project: Project) -> Project:
+def flatten_project(project: Project, registry: Registry | None = None) -> Project:
     """Return a new Project whose graph contains only atomic components."""
     subs = {s.id: s for s in project.subcomponents}
     for sub in subs.values():
@@ -243,7 +283,8 @@ def flatten_project(project: Project) -> Project:
     flat = copy.copy(project)  # shallow: tasks/metadata shared, graph replaced
     graph = copy.copy(project.graph)
     graph.drive_connections = project.drive_connections
-    flat.graph = _expand_graph(graph, subs, prefix="", stack=())
+    flat.graph = _expand_graph(graph, subs, prefix="", stack=(),
+                               context=project, registry=registry or project.registry)
     flat.drive_connections = flat.graph.drive_connections
     flat.graph.drive_connections = []
     flat.bridges = copy.deepcopy(project.bridges)

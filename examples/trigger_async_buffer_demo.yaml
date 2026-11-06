@@ -1,0 +1,48 @@
+version: 0.1.0
+metadata:
+  name: 双驱动域与异步音频Buffer
+  description: >-
+    生产源每次写32帧，纯驱动源每次读48帧；异步桥输入声明不传播驱动。
+    数据跨域，颜色不跨域。用各Task入口独立推进，默认单源PC宿主不承诺多线程运行。
+flow_mode: task_sequence
+sample_rate: 48000
+block_size: 32
+graph:
+  nodes:
+    - id: producer
+      component: orpheus.builtin.signal_gen
+      label: 生产音频源 / 32帧
+      params: {channels: 2, frequency: 440.0, amplitude: 0.25, duration_s: 1.0}
+      position: {x: 80, y: 230}
+    - id: writer
+      component: orpheus.builtin.gain
+      label: 生产处理 / 写入缓冲
+      params: {channels: 2, gain_db: 0.0}
+      position: {x: 420, y: 230}
+    - id: consumer
+      component: orpheus.builtin.task_source
+      label: 消费驱动 / 1000Hz
+      params: {frequency_hz: 1000}
+      position: {x: 420, y: 30}
+    - id: buffer
+      component: orpheus.builtin.async_bridge
+      label: 异步Buffer / 消费侧读取
+      params: {channels: 2, capacity_frames: 192}
+      position: {x: 760, y: 230}
+    - id: reader
+      component: orpheus.builtin.gain
+      label: 消费处理 / 48帧
+      params: {channels: 2, gain_db: -6.0}
+      position: {x: 1100, y: 230}
+    - id: output
+      component: orpheus.builtin.wav_out
+      label: 消费输出
+      params: {channels: 2, sample_rate: 48000, file_path: outputs/trigger_async_buffer.wav}
+      position: {x: 1440, y: 230}
+  connections:
+    - {from: "producer:out", to: "writer:in"}
+    - {from: "writer:out", to: "buffer:in"}
+    - {from: "buffer:out", to: "reader:in"}
+    - {from: "reader:out", to: "output:in"}
+drive_connections:
+  - {from: "consumer:out", to: "buffer:in"}

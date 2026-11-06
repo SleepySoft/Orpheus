@@ -98,6 +98,10 @@
           "description": { "type": "string", "description": "数据含义、布局、单位及与参数共存时的优先级/未连接行为" },
           "direction": { "type": "string", "enum": ["input", "output"] },
           "type": { "type": "string", "enum": ["audio", "control", "bulk", "debug"] },
+          "propagate_drive": {
+            "type": "boolean",
+            "description": "是否沿该计算数据端口传播驱动；audio/bulk缺省true，control/debug缺省false。false声明执行解耦，不自动提供跨线程Buffer安全"
+          },
           "timing": {
             "type": "string",
             "enum": ["sync", "latest"],

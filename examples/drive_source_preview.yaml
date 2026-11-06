@@ -39,8 +39,7 @@ graph:
     - {from: "gain:out", to: "output:in"}
 drive_connections:
   - {from: "source:out", to: "gain:in"}
-  - {from: "gain:out", to: "output:in"}
   - {from: "source:out", to: "control:in", every: 4, phase: 3}
-  - {from: "control:out", to: "consumer:in"}
+  - {from: "source:out", to: "consumer:in", every: 4, phase: 3}
 control_connections:
   - {from: "control:values", to: "consumer:values"}

@@ -1850,30 +1850,20 @@ pre {
   font-size: 14px;
 }
 
-.node-drive-anchors {
-  position: relative;
-  height: 23px;
-  padding: 4px 12px;
-  color: #b197fc;
-  border-bottom: 1px solid #7950b8;
-  font-size: 11px;
-}
-.orpheus-node .react-flow__handle.drive-entry-anchor {
-  width: 16px;
-  height: 12px;
-  border-radius: 0;
-  clip-path: polygon(0 0, 100% 0, 50% 100%);
-  background: #b197fc;
+.orpheus-node .react-flow__handle.drive-body-anchor,
+.drive-source-marker .react-flow__handle.drive-body-anchor {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   border: none;
+  border-radius: inherit;
+  transform: none;
+  background: transparent;
 }
-.orpheus-node .react-flow__handle.drive-continuation-anchor,
-.drive-source-marker .react-flow__handle {
-  width: 12px;
-  height: 12px;
-  background: #7950b8;
-  border: 2px solid #d0bfff;
-  border-radius: 50%;
-}
+.drive-body-anchor.drive-linking { z-index: 10; }
+.drive-domain-dots { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
+.drive-domain-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
 .audio-drive-source {
   border-color: #3a9ba8;
 }
