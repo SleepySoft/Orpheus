@@ -5,7 +5,7 @@
 
 static const OrpheusParameter params[] = {
     {
-        .id = "frequency_hz", .name = "任务频率", .type = ORPHEUS_VALUE_INT,
+        .id = "frequency_hz", .name = "驱动频率", .type = ORPHEUS_VALUE_INT,
         .default_value = { .type = ORPHEUS_VALUE_INT, .value.i32 = 100 },
         .min_i32 = 1, .max_i32 = 192000, .unit = "Hz",
         .update_policy = ORPHEUS_UPDATE_RESTART_REQUIRED,

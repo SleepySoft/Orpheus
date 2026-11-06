@@ -23,6 +23,7 @@ export default function ParamPanel({
   onRenameNode,
   tasks,
   onTaskChange,
+  flowMode,
   ctx,
 }) {
   if (!node) {
@@ -67,13 +68,21 @@ export default function ParamPanel({
         <br />
         <span className="muted">{component}</span>
       </p>
-      {!node.data.bridgeConfig && (
+      {!node.data.bridgeConfig && flowMode !== 'task_sequence' && (
         <div className="param-field">
           <label>所属 Task</label>
           <select value={node.data.task || 'default'} onChange={(e) => onTaskChange(node.id, e.target.value)}>
             {(tasks || []).map((task) => <option key={task.id} value={task.id}>{task.name || task.id}</option>)}
           </select>
         </div>
+      )}
+      {flowMode === 'task_sequence' && !node.data.bridgeConfig && (
+        <p className="muted drive-panel-hint">
+          {node.data.clockSource
+            ? '驱动源：宿主推进入口；紫色分支可单独分频，不传输PCM。'
+            : '驱动箭头指向节点顶部；数据从独立绑定的输入端口读取。'}
+          {' '}点击紫色箭头标签可设置周期和相位。
+        </p>
       )}
       {universal.length > 0 && (
         <>

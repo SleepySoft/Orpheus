@@ -183,12 +183,12 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
           <label htmlFor="project-flow-mode">执行编排</label>
           <select id="project-flow-mode" value={flowMode} onChange={(event) => setFlowMode(event.target.value)}>
             <option value="dataflow">数据流（默认 / 兼容模式）</option>
-            <option value="task_sequence">任务驱动（显式执行顺序）</option>
+            <option value="task_sequence">显式驱动（节点级箭头）</option>
           </select>
           <span className="settings-hint">
-            任务驱动模式在原子节点与复合组件上提供紫色虚拟执行引脚，时钟源仅有输出。
-            执行连线由时钟源启动，当前仅支持无环图；数据线与参数控制线保持独立。
-            切回数据流仅隐藏执行连线，所有已有连线均保留。节拍声明暂由后端配置。
+            紫色箭头指向节点顶部，不连接PCM端口；驱动源可分支，点击箭头标签设置分频/选拍。
+            后续由组件主动续调，不扫描算法列表。数据线与参数线独立保存。
+            切回数据流仅隐藏驱动箭头，所有已有连线均保留。
           </span>
         </div>
 

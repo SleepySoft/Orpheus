@@ -9,9 +9,9 @@ import subprocess
 
 import pytest
 
-from orpheus_core.compiler import GraphCompiler
+from orpheus_core.compiler import CompileError, GraphCompiler
 from orpheus_core.generator import CodeGenerator
-from orpheus_core.project import Connection, DriveConnection, Graph, Node, PortRef, Project, Task
+from orpheus_core.project import Connection, DriveConnection, Graph, Node, PortRef, Project, ProjectLoader, Task
 from orpheus_core.registry import Registry
 from test_generated_double_bank import _build
 
@@ -26,6 +26,22 @@ def test_host_audio_native_contract(tmp_path):
     result = subprocess.run([match[1], "-std=c11", "-Wall", "-Wextra", "-Werror",
         "-DORPHEUS_BUILDING_COMPONENT", "-I" + str(ROOT / "orpheus_abi/include"), "-I" + str(directory / "include"),
         str(directory / "src/host_audio.c"), str(ROOT / "tests/host_audio_smoke.c"), "-o", str(executable)],
+        capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stdout + result.stderr
+    result = subprocess.run([str(executable)], capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_buffer_source_native_contract(tmp_path):
+    match = re.search(r"^CMAKE_C_COMPILER:[^=]+=(.+)$", (ROOT / "build/CMakeCache.txt").read_text(encoding="utf-8"), re.M)
+    assert match
+    directory = ROOT / "components/orpheus/builtin/buffer_source"
+    executable = tmp_path / "buffer_source_smoke.exe"
+    result = subprocess.run([match[1], "-std=c11", "-Wall", "-Wextra", "-Werror",
+        "-DORPHEUS_BUILDING_COMPONENT", "-I" + str(ROOT / "orpheus_abi/include"),
+        "-I" + str(directory / "include"),
+        "-I" + str(ROOT / "components/orpheus/builtin/host_audio/include"),
+        str(directory / "src/buffer_source.c"), str(ROOT / "tests/buffer_source_smoke.c"), "-o", str(executable)],
         capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
     result = subprocess.run([str(executable)], capture_output=True, text=True, encoding="utf-8")
@@ -101,3 +117,32 @@ def test_host_audio_bulk_commit_four_entries(tmp_path, channels):
     expected = [(((block*17+frame*3+channel*13) % 257)-128)*0.0009765625
                 for block in range(24) for frame in range(32) for channel in range(channels)]
     assert data == struct.pack("<" + str(len(expected)) + "f", *expected)
+
+
+def test_buffer_source_bulk_commit_four_entries(tmp_path):
+    registry = Registry([ROOT / "components"])
+    registry.scan()
+    project = ProjectLoader(registry).load(ROOT / "examples/buffer_source_demo.yaml")
+    plan = GraphCompiler(registry).compile(project)
+    assert plan.tasks[0]["source"] == "source"
+    assert plan.node_configs["source"]["input_ports"] == []
+    assert plan.node_configs["source"]["output_ports"] == ["out"]
+    data = execute_host_graph(tmp_path, registry, plan, {"source": 2}, {"capture": 2})
+    expected = [(((block*17+frame*3+channel*13) % 257)-128)*0.0009765625
+                for block in range(24) for frame in range(32) for channel in range(2)]
+    assert data == struct.pack("<" + str(len(expected)) + "f", *expected)
+
+
+def test_buffer_source_does_not_match_consumer_cadence():
+    registry = Registry([ROOT / "components"])
+    registry.scan()
+    project = ProjectLoader(registry).load(ROOT / "examples/buffer_source_demo.yaml")
+    project.drive_connections[0] = DriveConnection(PortRef("source", "out"), PortRef("gain", "in"), 4, 2)
+    plan = GraphCompiler(registry).compile(project)
+    assert plan.call_graph["source"] == [{"node": "gain", "every": 4, "phase": 2}]
+    assert plan.node_configs["gain"]["frames"] == 32
+    assert plan.node_configs["source"]["output_cadences"]["out"]["period"] == 1
+    assert plan.node_configs["gain"]["period"] == 4
+    project.flow_mode = "dataflow"
+    with pytest.raises(CompileError, match="flow_mode: task_sequence"):
+        GraphCompiler(registry).compile(project)

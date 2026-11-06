@@ -768,6 +768,11 @@ const { screenToFlowPosition } = useReactFlow();
       const short = isSubRef(componentId) ? subIdOf(componentId) : componentId.split('.').pop();
       const id = uniqueNodeId(view.nodes, short);
       const params = defaultParams(comp);
+      if (['orpheus.builtin.task_source', 'orpheus.builtin.buffer_source'].includes(componentId)
+        && flowMode !== 'task_sequence') {
+        setDoc((previous) => ({ ...previous, flow_mode: 'task_sequence' }));
+        setStatus('已启用显式驱动：紫色箭头指向节点顶部，PCM端口单独连线');
+      }
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       updateView(activeView, (v) => ({
         ...v,
@@ -798,7 +803,7 @@ const { screenToFlowPosition } = useReactFlow();
       setSelectedIds([id]);
       setDirty(true);
     },
-    [catalogById, activeView, view.nodes, screenToFlowPosition, updateView, doc]
+    [catalogById, activeView, view.nodes, screenToFlowPosition, updateView, doc, flowMode]
   );
 
   const onParamChange = useCallback(
@@ -1806,7 +1811,20 @@ const { screenToFlowPosition } = useReactFlow();
         .filter((e) => showControlLinks || e.type !== 'control')
         .filter((e) => !isDriveEdge(e) || flowMode === 'task_sequence')
         .map((e) => {
-          if (isDriveEdge(e)) return { ...e, type: 'drive' };
+          if (isDriveEdge(e)) return {
+            ...e, type: 'drive',
+            data: {
+              ...e.data,
+              ...(!activeSub?.read_only ? { onTimingChange: (timing) => {
+                updateView(activeView, (currentView) => ({
+                  ...currentView,
+                  edges: currentView.edges.map((edge) => edge.id === e.id
+                    ? { ...edge, data: { ...edge.data, ...timing } } : edge),
+                }));
+                setDirty(true);
+              } } : {}),
+            },
+          };
           if (e.type !== 'control') return { ...e, type: 'audio' };
           const src = controlEndpointInfo(view.nodes, e.source, e.sourceHandle);
           const dst = controlEndpointInfo(view.nodes, e.target, e.targetHandle);
@@ -1816,12 +1834,12 @@ const { screenToFlowPosition } = useReactFlow();
             data: { srcShape: src?.shape ?? null, dstShape: dst?.shape ?? null, mismatch },
           };
         }),
-    [view.edges, view.nodes, showControlLinks, flowMode, activeView]
+    [view.edges, view.nodes, showControlLinks, flowMode, activeView, activeSub, updateView]
   );
 
   const displayNodes = useMemo(() => {
     if (!activeSub) return view.nodes.map((node) => ({
-      ...node, data: { ...node.data, flowMode },
+      ...node, data: { ...node.data, flowMode, blockSize: doc?.block_size },
     }));
     const audioByNode = {};
     const controlByNode = {};
@@ -1841,13 +1859,14 @@ const { screenToFlowPosition } = useReactFlow();
         data: {
           ...node.data,
           flowMode,
+          blockSize: doc?.block_size,
           exportSubId: activeSub.id,
           exportedAudioPorts: audioByNode[node.id] || {},
           exportedControlParameters: controlByNode[node.id] || {},
         },
       };
     });
-  }, [activeSub, view.nodes, flowMode]);
+  }, [activeSub, view.nodes, flowMode, doc?.block_size]);
 
   const revealSubExport = useCallback((subId, kind, id) => {
     const viewKey = subViewKey(subId);
@@ -2275,6 +2294,7 @@ const { screenToFlowPosition } = useReactFlow();
               onRenameNode={onRenameNode}
               tasks={doc?.tasks || []}
               onTaskChange={onTaskChange}
+              flowMode={flowMode}
               ctx={paramCtx}
             />
           </div>

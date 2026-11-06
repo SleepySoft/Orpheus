@@ -1,13 +1,14 @@
 id: orpheus.builtin.task_source
-name: 任务驱动源
-category: 基础/信号源
+name: 纯驱动源
+category: 基础/驱动源
+order: 2
 version: 1.0.0
 abi_version: 6
 package_type: source
 state_type: TaskSourceState
 clock_source: true
 clock_domain: timer
-description: 仅提供驱动接口，不产生音频。PC 由宿主推进，嵌入式按生成的 Task 调用要求接入定时器或外部入口。
+description: 仅提供触发，不产生音频或分配PCM端口；在画布显示为紫色驱动标记，箭头指向目标节点顶部。PC由宿主推进，嵌入式绑定定时器或外部入口，不自行创建线程。
 sources:
   - src/task_source.c
 headers:
@@ -15,12 +16,13 @@ headers:
 ports: []
 parameters:
   - id: frequency_hz
-    name: 任务频率
+    name: 驱动频率
     type: int
     default: 100
     range: [1, 192000]
     unit: Hz
     readback: true
+    persistent: true
     update_policy: restart_required
 execution:
   realtime_safe: true

@@ -472,8 +472,8 @@ class GraphCompiler:
         if project.flow_mode not in ("dataflow", "task_sequence"):
             raise CompileError(f"未知流程模式：{project.flow_mode}")
         for node in project.graph.nodes.values():
-            if node.component == "orpheus.builtin.task_source" and project.flow_mode != "task_sequence":
-                raise CompileError("任务驱动源需要显式启用 flow_mode: task_sequence")
+            if node.component in ("orpheus.builtin.task_source", "orpheus.builtin.buffer_source") and project.flow_mode != "task_sequence":
+                raise CompileError("驱动源需要显式启用 flow_mode: task_sequence")
             comp = self.registry.get(node.component)
             if comp is None or comp.package_type != "placeholder":
                 continue
@@ -1146,30 +1146,6 @@ class GraphCompiler:
                         "period": period * relative_period,
                         "phase": phase + period * relative_phase,
                     }
-                for conn in rate_inputs[node_id]:
-                    src_id = conn.from_ref.node_id
-                    if graph.nodes[src_id].task != graph.nodes[node_id].task:
-                        continue
-                    produced = plan.node_configs[src_id]["output_cadences"][conn.from_ref.port_id]
-                    aligned = (produced["period"], produced["phase"]) == (period, phase)
-                    if scheduling.get("merge"):
-                        aligned = (
-                            period % produced["period"] == 0
-                            and phase % produced["period"] == produced["phase"]
-                        )
-                    elif scheduling.get("split"):
-                        factor = Fraction(cfg["block_size"], frames_n)
-                        aligned = (
-                            factor.denominator == 1
-                            and produced["period"] == period * factor
-                            and produced["phase"] == phase + period * (factor - 1)
-                        )
-                    if not aligned:
-                        raise CompileError(
-                            f"节点 {node_id} 输入 {conn.to_ref.port_id} 的交付周期/相位与调用不一致："
-                            f"源={produced}，调用=({period}, {phase})；"
-                            "请显式设置驱动连接 every/phase 或使用允许旧值的 latest 非音频输入"
-                        )
                 continue
             incoming = {
                 output_intervals[conn.from_ref.node_id]

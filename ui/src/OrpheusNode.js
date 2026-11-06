@@ -162,6 +162,30 @@ const BodyWidget = NODE_WIDGETS[data.component];
     );
   };
 
+  if (data.component === 'orpheus.builtin.task_source') {
+    return (
+      <div className={`drive-source-marker ${selected ? 'selected' : ''}`}
+        aria-label={`纯驱动源：${data.label}`}
+        title="纯触发标记，不传输PCM；从紫色锚点拖出箭头，指向目标节点顶部">
+        <span className="drive-source-symbol">↗</span>
+        <div>
+          <strong>{data.label}</strong>
+          <div className="drive-source-caption">纯触发 · {data.params?.frequency_hz ?? 100} Hz</div>
+        </div>
+        {executionHandles.includes(DRIVE_OUT) && (
+          <Handle type="source" position={Position.Right} id={DRIVE_OUT}
+            className="drive-source-handle" />
+        )}
+      </div>
+    );
+  }
+
+  const audioSource = clockSource && outputs.some((port) => port.type === 'audio');
+  const sourceFrames = data.rate?.frames || data.blockSize;
+  const sourceChannels = audioSource
+    ? resolveExprValue(outputs.find((port) => port.type === 'audio').channels, data.params, data)
+    : null;
+
   return (
     <>
       {selected && (
@@ -172,7 +196,22 @@ const BodyWidget = NODE_WIDGETS[data.component];
           color="#4cc9f0"
         />
       )}
-      <div className={`orpheus-node audio-node ${showControlLinks ? 'control-mode' : ''} ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${isBridge ? 'bridge-config-node' : ''} ${data.missing ? 'missing' : ''} ${platformTone ? `platform-${platformTone}` : ''} ${noiseStatusClass(data)}`}>
+      <div className={`orpheus-node audio-node ${audioSource ? 'audio-drive-source' : ''} ${executionHandles.length ? 'has-drive-anchors' : ''} ${showControlLinks ? 'control-mode' : ''} ${selected ? 'selected' : ''} ${isSub ? 'sub' : ''} ${isBridge ? 'bridge-config-node' : ''} ${data.missing ? 'missing' : ''} ${platformTone ? `platform-${platformTone}` : ''} ${noiseStatusClass(data)}`}>
+      {executionHandles.length > 0 && (
+        <div className="node-drive-anchors">
+          {executionHandles.includes(DRIVE_IN) && (
+            <Handle type="target" position={Position.Top} id={DRIVE_IN}
+              className="drive-entry-anchor"
+              title="驱动入口：箭头指向节点，不是数据输入"
+              style={{ left: '25%' }} />
+          )}
+          <span className="drive-anchor-caption">{clockSource ? '触发 ↗' : '↓ 驱动入口 · 续调 ↗'}</span>
+          <Handle type="source" position={Position.Top} id={DRIVE_OUT}
+            className="drive-continuation-anchor"
+            title={clockSource ? '触发分支：可单独设置分频/选拍' : '组件续调：连接下游节点的驱动入口'}
+            style={{ left: '80%' }} />
+        </div>
+      )}
       <div className="node-header">
         <div className="node-title">
           {data.label}
@@ -245,15 +284,11 @@ const BodyWidget = NODE_WIDGETS[data.component];
           )}
         </div>
       </div>
-      {executionHandles.length > 0 && (
-        <div className="node-drive port-row" title="框架虚拟执行引脚，不是组件数据端口">
-          {executionHandles.includes(DRIVE_IN) && (
-            <Handle type="target" position={Position.Left} id={DRIVE_IN}
-              className="drive-handle" style={{ ...handleStyle, left: -11 }} />
-          )}
-          <span>{data.clockSource ? '执行源 →' : '执行 →'}</span>
-          <Handle type="source" position={Position.Right} id={DRIVE_OUT}
-            className="drive-handle" style={{ ...handleStyle, right: -11 }} />
+      {audioSource && (
+        <div className="source-buffer-summary" title="PCM输出绑定与顶部触发分支相互独立；输入供数由具体源决定">
+          <span>音频 Buffer</span>
+          <strong>{sourceChannels || '?'}ch × {sourceFrames || '?'}帧</strong>
+          {data.component === 'orpheus.builtin.buffer_source' && <small>宿主提交 samples → ready → pump</small>}
         </div>
       )}
       <div className="node-body">

@@ -1850,20 +1850,108 @@ pre {
   font-size: 14px;
 }
 
-.node-drive {
+.node-drive-anchors {
   position: relative;
-  margin: 0 10px 6px;
-  padding: 4px 0;
+  height: 23px;
+  padding: 4px 12px;
   color: #b197fc;
   border-bottom: 1px solid #7950b8;
   font-size: 11px;
 }
-.orpheus-node .react-flow__handle.drive-handle {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
+.orpheus-node .react-flow__handle.drive-entry-anchor {
+  width: 16px;
+  height: 12px;
+  border-radius: 0;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
   background: #b197fc;
-  border-color: #7048e8;
+  border: none;
+}
+.orpheus-node .react-flow__handle.drive-continuation-anchor,
+.drive-source-marker .react-flow__handle {
+  width: 12px;
+  height: 12px;
+  background: #7950b8;
+  border: 2px solid #d0bfff;
+  border-radius: 50%;
+}
+.audio-drive-source {
+  border-color: #3a9ba8;
+}
+.source-buffer-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin: 8px;
+  padding: 8px;
+  border: 1px solid #247a87;
+  border-radius: 5px;
+  color: #a5e8ef;
+  background: #102a32;
+  font-size: 11px;
+}
+.source-buffer-summary small {
+  flex-basis: 100%;
+}
+.drive-source-marker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+  padding: 12px 20px 12px 12px;
+  border: 2px dashed #7950b8;
+  border-radius: 32px;
+  background: #241a36;
+  color: #e5dbff;
+  position: relative;
+}
+.drive-source-marker.selected {
+  border-color: #d0bfff;
+  box-shadow: 0 0 0 3px #7950b84d;
+}
+.drive-source-symbol {
+  font-size: 25px;
+}
+.drive-source-caption {
+  color: #b197fc;
+  margin-top: 4px;
+  font-size: 11px;
+}
+.drive-timing-button {
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font-size: inherit;
+  cursor: pointer;
+}
+.drive-timing-editor {
+  display: grid;
+  gap: 7px;
+  width: 210px;
+  margin-top: 7px;
+  padding: 10px;
+  border-top: 1px solid #7950b8;
+}
+.drive-timing-editor label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.drive-timing-editor input {
+  width: 65px;
+}
+.drive-timing-editor [role="alert"] {
+  color: #ffa8a8;
+}
+.drive-timing-editor button {
+  margin-right: 6px;
+}
+.drive-panel-hint {
+  padding: 8px;
+  border-left: 3px solid #7950b8;
+}
+.drive-edge-label:focus-within {
+  z-index: 20;
 }
 .drive-edge-label {
   position: absolute;
@@ -1873,7 +1961,7 @@ pre {
   background: #241a36;
   color: #d0bfff;
   font-size: 10px;
-  pointer-events: none;
+  pointer-events: all;
 }
 
 .task-settings-row {

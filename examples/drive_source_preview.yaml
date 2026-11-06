@@ -1,0 +1,46 @@
+version: 0.1.0
+metadata:
+  name: 音频驱动源预览（可直接运行）
+  description: >-
+    信号源提供音频Buffer与触发；PCM沿蓝线传递，紫色箭头指向节点顶部。
+    驱动源另分一路每4拍触发一次无音频控制链；点击紫色标签可编辑分频/选拍。
+flow_mode: task_sequence
+sample_rate: 48000
+block_size: 128
+graph:
+  nodes:
+    - id: source
+      component: orpheus.builtin.signal_gen
+      label: 音频驱动源 / 440Hz信号
+      params: {channels: 2, frequency: 440.0, amplitude: 0.25, duration_s: 1.0}
+      position: {x: 100, y: 180}
+    - id: gain
+      component: orpheus.builtin.gain
+      label: 音频增益
+      params: {channels: 2, gain_db: -6.0}
+      position: {x: 500, y: 180}
+    - id: output
+      component: orpheus.builtin.wav_out
+      label: WAV输出
+      params: {channels: 2, sample_rate: 48000, file_path: outputs/drive_source_preview.wav}
+      position: {x: 850, y: 180}
+    - id: control
+      component: orpheus.builtin.bulk_relay
+      label: 每4拍的控制入口 / 无PCM
+      params: {count: 2, initial_values: "1,2"}
+      position: {x: 500, y: 480}
+    - id: consumer
+      component: orpheus.builtin.bulk_relay
+      label: 控制消费者
+      params: {count: 2}
+      position: {x: 850, y: 480}
+  connections:
+    - {from: "source:out", to: "gain:in"}
+    - {from: "gain:out", to: "output:in"}
+drive_connections:
+  - {from: "source:out", to: "gain:in"}
+  - {from: "gain:out", to: "output:in"}
+  - {from: "source:out", to: "control:in", every: 4, phase: 3}
+  - {from: "control:out", to: "consumer:in"}
+control_connections:
+  - {from: "control:values", to: "consumer:values"}

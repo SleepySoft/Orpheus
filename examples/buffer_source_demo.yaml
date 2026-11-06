@@ -1,0 +1,32 @@
+version: 0.1.0
+metadata:
+  name: 音频驱动源（宿主Buffer＋触发）
+  description: >-
+    青色音频Buffer与紫色驱动箭头分离；宿主必须先写source.samples并置ready，再推进该入口。
+    本例不自动生成PCM，不直接连接声卡。无新数据运行会明确报错，不能用静音冒充。
+flow_mode: task_sequence
+sample_rate: 48000
+block_size: 32
+graph:
+  nodes:
+    - id: source
+      component: orpheus.builtin.buffer_source
+      label: 音频驱动源 / 宿主Buffer
+      params: {channels: 2}
+      position: {x: 120, y: 180}
+    - id: gain
+      component: orpheus.builtin.gain
+      label: 音频增益 / 0dB
+      params: {channels: 2, gain_db: 0.0}
+      position: {x: 480, y: 180}
+    - id: capture
+      component: orpheus.builtin.host_audio
+      label: 输出Buffer / 宿主读回
+      params: {mode: 1, channels: 2}
+      position: {x: 820, y: 180}
+  connections:
+    - {from: "source:out", to: "gain:in"}
+    - {from: "gain:out", to: "capture:in"}
+drive_connections:
+  - {from: "source:out", to: "gain:in"}
+  - {from: "gain:out", to: "capture:in"}

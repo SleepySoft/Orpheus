@@ -237,8 +237,9 @@ def test_source_drives_split_at_base_rate_after_divided_producer(registry):
     assert plan.node_configs["split"]["period"] == 1
     assert plan.call_graph["s"][-1] == {"node": "split", "every": 1, "phase": 0}
     source.drive_connections[-1] = drive("s", "split", 2)
-    with pytest.raises(CompileError, match="交付周期/相位"):
-        GraphCompiler(registry).compile(source)
+    divided = GraphCompiler(registry).compile(source)
+    assert divided.call_graph["s"][-1] == {"node": "split", "every": 2, "phase": 1}
+    assert divided.node_configs["split"]["frames"] == 32
 
 
 def test_declared_window_history_preserves_first_zero_padded_call(registry):

@@ -1,0 +1,38 @@
+version: 0.1.0
+metadata:
+  name: 纯驱动源（无音频）
+  description: >-
+    紫色胶囊是纯触发标记，不是普通音频节点，没有PCM端口。
+    100Hz源分别驱动100Hz和25Hz控制链；分频只选触发拍，参数数组独立交付。
+flow_mode: task_sequence
+sample_rate: 48000
+block_size: 480
+graph:
+  nodes:
+    - id: trigger
+      component: orpheus.builtin.task_source
+      label: 纯驱动源 / 宿主触发
+      params: {frequency_hz: 100}
+      position: {x: 80, y: 260}
+    - id: fast
+      component: orpheus.builtin.bulk_relay
+      label: 每拍执行 / 100Hz
+      params: {count: 2, initial_values: "1,2"}
+      position: {x: 480, y: 150}
+    - id: slow
+      component: orpheus.builtin.bulk_relay
+      label: 每4拍执行 / 25Hz
+      params: {count: 2, initial_values: "3,4"}
+      position: {x: 480, y: 430}
+    - id: consumer
+      component: orpheus.builtin.bulk_relay
+      label: 慢速控制消费者
+      params: {count: 2}
+      position: {x: 850, y: 430}
+  connections: []
+drive_connections:
+  - {from: "trigger:out", to: "fast:in"}
+  - {from: "trigger:out", to: "slow:in", every: 4, phase: 3}
+  - {from: "slow:out", to: "consumer:in"}
+control_connections:
+  - {from: "slow:values", to: "consumer:values"}

@@ -1,0 +1,24 @@
+id: orpheus.builtin.buffer_source
+name: 音频驱动源
+category: 基础/驱动源
+order: 1
+version: 1.0.0
+abi_version: 6
+package_type: source
+state_type: HostAudioState
+clock_source: true
+clock_domain: buffer
+deps: [orpheus.builtin.host_audio]
+description: >-
+  Buffer＋触发入口：宿主写入完整交错f32的samples并设置ready，再推进该源入口。
+  每拍消费一块，直接驱动下游；无新数据返回错误，不补零、不等待、不自动匹配吞吐。
+  PCM输出与节点顶部的紫色驱动箭头相互独立。不自行创建线程或定时器。
+sources: [src/buffer_source.c]
+headers: [include/orpheus_buffer_source.h]
+ports:
+  - {id: out, direction: output, type: audio, sample_format: f32, channels: "param:channels"}
+parameters:
+  - {id: channels, name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  - {id: ready, name: 新输入块已提交, type: bool, default: false, update_policy: immediate, readback: true}
+  - {id: missing_blocks, name: 缺失输入块次数, type: int, default: 0, update_policy: immediate, readback: true}
+execution: {realtime_safe: true, supports_inplace: false}

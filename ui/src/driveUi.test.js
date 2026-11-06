@@ -5,16 +5,18 @@ import ProjectSettings from './ProjectSettings';
 import OrpheusNode from './OrpheusNode';
 import DriveEdge from './DriveEdge';
 import SignalLegend from './SignalLegend';
+import ParamPanel from './ParamPanel';
 import { NodeActionsContext } from './NodeActionsContext';
 
 jest.mock('./nodeWidgets', () => ({ NODE_WIDGETS: {} }));
 jest.mock('reactflow', () => ({
-  Handle: ({ id, type }) => <span data-handle={id} data-direction={type} />,
-  Position: { Left: 'left', Right: 'right' },
+  Handle: ({ id, type, position, className }) => <span data-handle={id}
+    data-direction={type} data-position={position} className={className} />,
+  Position: { Left: 'left', Right: 'right', Top: 'top' },
   NodeResizer: () => null,
   useUpdateNodeInternals: () => jest.fn(),
   BaseEdge: () => null,
-  EdgeLabelRenderer: ({ children }) => <>{children}</>,
+  EdgeLabelRenderer: ({ children }) => <foreignObject>{children}</foreignObject>,
   getBezierPath: () => ['', 0, 0],
 }));
 
@@ -74,12 +76,12 @@ test('虚拟执行 Handle 随模式切换挂载；时钟源不出现执行输入
 });
 
 test('执行边显式展示非默认节拍与默认相位，默认边保持简洁', () => {
-  act(() => root.render(<DriveEdge id="drive" data={{ every: 2 }} />));
+  act(() => root.render(<svg><DriveEdge id="drive" data={{ every: 2 }} /></svg>));
   expect(container.textContent).toContain('每2次·相位1');
-  act(() => root.render(<DriveEdge id="drive" data={{ every: 3, phase: 0 }} />));
+  act(() => root.render(<svg><DriveEdge id="drive" data={{ every: 3, phase: 0 }} /></svg>));
   expect(container.textContent).toContain('每3次·相位0');
-  act(() => root.render(<DriveEdge id="drive" />));
-  expect(container.textContent).toBe('执行 →');
+  act(() => root.render(<svg><DriveEdge id="drive" /></svg>));
+  expect(container.textContent).toBe('驱动 →');
 });
 
 test('复合组件渲染可调用的执行输入和输出', () => {
@@ -96,12 +98,79 @@ test('执行图例仅在任务驱动模式显示，不依赖参数控制开关',
   act(() => root.render(<SignalLegend flowMode="dataflow" showControlLinks={false} />));
   expect(container.textContent).toBe('音频');
   act(() => root.render(<SignalLegend flowMode="task_sequence" showControlLinks={false} />));
-  expect(container.querySelector('.legend-drive').textContent).toBe('执行');
+  expect(container.querySelector('.legend-drive').textContent).toBe('驱动（节点级箭头）');
   expect(container.querySelector('.legend-control')).toBeNull();
   act(() => root.render(<SignalLegend flowMode="task_sequence" showControlLinks />));
-  expect(container.textContent).toBe('音频控制执行');
+  expect(container.textContent).toBe('音频控制驱动（节点级箭头）');
   act(() => root.render(<SignalLegend flowMode="dataflow" showControlLinks />));
   expect(container.textContent).toBe('音频控制');
+});
+
+test('纯驱动源是无PCM端口的触发标记，不渲染普通算法节点', () => {
+  act(() => root.render(
+    <NodeActionsContext.Provider value={{ showControlLinks: false }}>
+      <OrpheusNode id="trigger" data={{ label: '100Hz触发', component: 'orpheus.builtin.task_source',
+        flowMode: 'task_sequence', clockSource: true, params: { frequency_hz: 100 }, ports: [] }} />
+    </NodeActionsContext.Provider>
+  ));
+  expect(container.querySelector('.drive-source-marker').textContent).toContain('纯触发 · 100 Hz');
+  expect(container.querySelector('.orpheus-node')).toBeNull();
+  expect(container.querySelectorAll('[data-handle]')).toHaveLength(1);
+  expect(container.querySelector('[data-handle="drv:out"]')).not.toBeNull();
+});
+
+test('驱动入口锚定节点顶部，与音频端口及Buffer展示独立', () => {
+  const render = (source) => act(() => root.render(
+    <NodeActionsContext.Provider value={{ showControlLinks: false }}>
+      <OrpheusNode id="audio" data={{ label: '音频源', component: source
+        ? 'orpheus.builtin.buffer_source' : 'orpheus.builtin.gain',
+        flowMode: 'task_sequence', clockSource: source, blockSize: 32, params: { channels: 2 },
+        ports: [{ id: 'out', type: 'audio', direction: 'output', channels: 'param:channels' }] }} />
+    </NodeActionsContext.Provider>
+  ));
+  render(true);
+  expect(container.querySelector('.source-buffer-summary').textContent).toContain('2ch × 32帧');
+  expect(container.querySelector('[data-handle="out"]').dataset.direction).toBe('source');
+  expect(container.querySelector('[data-handle="drv:out"]').dataset.position).toBe('top');
+  render(false);
+  expect(container.querySelector('[data-handle="drv:in"]').dataset.position).toBe('top');
+  expect(container.querySelector('.node-drive')).toBeNull();
+});
+
+test('驱动箭头编辑分频，拒绝非法相位并提交有效配置', () => {
+  const onTimingChange = jest.fn();
+  act(() => root.render(<svg><DriveEdge id="drive" data={{ every: 2, phase: 1, onTimingChange }} /></svg>));
+  act(() => container.querySelector('.drive-timing-button').click());
+  const input = container.querySelector('[aria-label="驱动相位"]');
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  act(() => {
+    setValue.call(input, '2');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  act(() => container.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(onTimingChange).not.toHaveBeenCalled();
+  expect(container.querySelector('[role="alert"]')).not.toBeNull();
+  act(() => {
+    setValue.call(input, '0');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  act(() => container.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(onTimingChange).toHaveBeenCalledWith({ every: 2, phase: 0 });
+  expect(container.querySelector('form')).toBeNull();
+});
+
+test('显式驱动参数面板不再要求所属Task，纯驱动频率仍可编辑', () => {
+  act(() => root.render(<ParamPanel flowMode="task_sequence" viewKey="main" node={{
+    id: 'trigger', data: { component: 'orpheus.builtin.task_source', label: '纯驱动源',
+      clockSource: true, params: { frequency_hz: 100 }, parameters: [{
+        id: 'frequency_hz', name: '驱动频率', type: 'int', default: 100,
+        readback: true, persistent: true,
+      }],
+    },
+  }} onParamChange={jest.fn()} />));
+  expect(container.textContent).not.toContain('所属 Task');
+  expect(container.textContent).toContain('驱动源：宿主推进入口');
+  expect(container.querySelector('input[type="number"]').value).toBe('100');
 });
 
 test('SourceTask 提示随编排模式切换显示，兼容 Task 模板仍保留', () => {
