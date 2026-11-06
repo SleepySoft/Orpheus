@@ -15,6 +15,7 @@ import yaml
 
 from orpheus_core import schemas
 from orpheus_core.registry import ComponentInfo, Registry
+from orpheus_core.layout import load_document_layout, save_document
 
 
 @dataclass
@@ -210,6 +211,8 @@ class Project:
     imports: list[Any] = field(default_factory=list)
     root_dir: Path | None = field(default=None, repr=False, compare=False)
     component_manifests: list[Path] = field(default_factory=list, repr=False, compare=False)
+    layout_files: list[Path] = field(default_factory=list, repr=False, compare=False)
+    layout_reference: dict[str, str] | None = field(default=None, repr=False, compare=False)
     registry: Registry | None = field(default=None, repr=False, compare=False)
     resources: dict[str, dict[str, Any]] = field(default_factory=dict)
     # 控制连接（顶层段）：编译期校验后进入 plan.control_links，运行期块边界两相快照投递
@@ -343,6 +346,8 @@ def project_to_dict(
     }
     if project.imports:
         doc["imports"] = project.imports
+    if project.layout_reference:
+        doc["layout"] = copy.deepcopy(project.layout_reference)
     if project.resources:
         doc["resources"] = project.resources
     if project.clock_domains:
@@ -537,6 +542,27 @@ def _subcomponent_from_manifest(info: ComponentInfo) -> Subcomponent:
     )
 
 
+def readonly_layout_views(project: Project, document: dict[str, Any]) -> dict[str, Any]:
+    """只保留相对公共定义的坐标差异，避免冻结未编辑的默认布局。"""
+    views = {}
+    for sub in document.get("subcomponents", []) or []:
+        if not sub.get("read_only"):
+            continue
+        info = project.registry.get(sub["id"]) if project.registry is not None else None
+        defaults = {
+            node["id"]: node.get("position", {})
+            for node in (info.manifest.get("graph", {}).get("nodes", []) if info else [])
+        }
+        positions = {
+            node["id"]: copy.deepcopy(node.get("position", {}))
+            for node in sub.get("graph", {}).get("nodes", [])
+            if info is None or node.get("position", {}) != defaults.get(node["id"], {})
+        }
+        if positions:
+            views["sub:" + sub["id"]] = {"nodes": positions}
+    return views
+
+
 class ProjectLoader:
     def __init__(self, registry: Registry | None = None) -> None:
         self._schema = schemas.load_project_schema()
@@ -576,6 +602,8 @@ class ProjectLoader:
             seen_ids[info.id] = info.manifest_path
             if info.manifest_path not in project.component_manifests:
                 project.component_manifests.append(info.manifest_path)
+            if info.layout_path is not None and info.layout_path not in project.layout_files:
+                project.layout_files.append(info.layout_path)
             if info.package_type == "composite" and not any(
                 sub.id == info.id for sub in project.subcomponents
             ):
@@ -607,6 +635,7 @@ class ProjectLoader:
                 info = registry.get(component_id)
                 if info is None:
                     raise ValueError(f"global component import not found: {component_id}")
+                info = registry.add_manifest(info.manifest_path, replace=True)
                 if component_id in resolving_ids:
                     cycle = " -> ".join([*resolving_ids, component_id])
                     raise ValueError(f"component import cycle: {cycle}")
@@ -652,10 +681,14 @@ class ProjectLoader:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         schemas.validate(data, self._schema)
+        data, layout, layout_path = load_document_layout(data, path)
 
         project = Project(version=data.get("version", "0.1.0"))
         project.registry = self._registry.fork() if self._registry is not None else Registry()
         project.root_dir = path.parent
+        if layout_path is not None:
+            project.layout_files.append(layout_path)
+            project.layout_reference = copy.deepcopy(data["layout"])
         project.imports = list(data.get("imports", []) or [])
         project.resources = dict(data.get("resources", {}) or {})
         resource_values = _load_resource_values(project.resources, path.parent)
@@ -775,19 +808,28 @@ class ProjectLoader:
             )
             project.subcomponents.append(sub)
         self._load_imports(project, path, project.registry)
+        for sub in project.subcomponents:
+            positions = layout["views"].get("sub:" + sub.id, {}).get("nodes", {})
+            for node in sub.graph.nodes.values():
+                if node.id in positions:
+                    node.position = copy.deepcopy(positions[node.id])
         # 保留未知顶层字段（presets / model_tree 等），往返不丢
         known = {
             "version", "metadata", "sample_rate", "block_size", "buffer_size",
             "double_bank", "target", "debug_mode", "flow_mode", "drive_connections",
             "tasks", "clock_domains", "trigger_groups",
             "sport_bindings", "bridges", "graph", "subcomponents",
-            "control_connections", "imports", "resources",
+            "control_connections", "imports", "resources", "layout",
         }
         for key, value in data.items():
             if key not in known:
                 project.extra[key] = value
         return project
 
-    def save(self, project: Project, path: Path) -> None:
-        with open(path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(project_to_dict(project), f, sort_keys=False, allow_unicode=True)
+    def save(self, project: Project, path: Path, *, separate_layout: bool = True) -> None:
+        readonly_views = readonly_layout_views(project, project_to_dict(project, materialize_imports=True))
+        document = project_to_dict(project)
+        if not separate_layout:
+            document.pop("layout", None)
+        save_document(document, self._entry_path(path),
+                      separate_layout=separate_layout, extra_views=readonly_views)

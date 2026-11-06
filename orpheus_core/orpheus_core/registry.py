@@ -12,6 +12,7 @@ from typing import Any
 import yaml
 
 from orpheus_core import schemas
+from orpheus_core.layout import load_document_layout
 
 
 @dataclass
@@ -24,6 +25,7 @@ class ComponentInfo:
     root_dir: Path
     manifest: dict[str, Any] = field(repr=False)
     platforms: list[str] = field(default_factory=list)
+    layout_path: Path | None = None
 
 
 class Registry:
@@ -84,6 +86,7 @@ class Registry:
         if not isinstance(manifest, dict):
             raise ValueError("manifest is not a mapping")
         schemas.validate(manifest, self._schema)
+        manifest, _, layout_path = load_document_layout(manifest, manifest_path)
 
         comp_id = manifest["id"]
         version = manifest.get("version", "0.0.0")
@@ -99,6 +102,7 @@ class Registry:
             root_dir=manifest_path.parent,
             manifest=manifest,
             platforms=list(manifest.get("platforms", []) or []),
+            layout_path=layout_path,
         )
 
     def get(self, component_id: str) -> ComponentInfo | None:

@@ -17,8 +17,10 @@ component: external_model.spatial.fdp
 ```text
 my_project/
   project.yaml
+  project.layout.yaml
   definitions/
     signal_path.component.yaml
+    signal_path.component.layout.yaml
     algorithms/
       fdp.component.yaml
   native/
@@ -141,6 +143,39 @@ graph:
 5. flatten 为原子 Project 后交给现有 Compiler。
 
 API GET 会物化复合定义供 UI 编辑；PUT 按组件来源写回各自 manifest。新建的带命名空间组件自动保存到 `components/<id>.component.yaml`，不会回填进 `project.yaml`。
+
+### 结构与画布布局
+
+加载支持两种位置来源：原有节点/访问桥的内嵌 `position`，以及独立布局文件。**今后保存默认使用独立布局文件**；旧工程在下次保存时迁出坐标，不需要提前批量迁移。
+
+结构文件仅保留布局引用：
+
+```yaml
+layout:
+  file: project.layout.yaml
+```
+
+布局文件以视图和节点 ID 定位，不影响连线、参数、调用顺序或执行计划：
+
+```yaml
+version: 1
+views:
+  main:
+    nodes:
+      source: {x: 40, y: 80}
+    bridges:
+      device: {x: 400, y: 80}
+  sub:legacy:
+    nodes:
+      filter: {x: 120, y: 60}
+```
+
+- 默认命名为 `project.layout.yaml`、`foo.component.layout.yaml` 或 `component.layout.yaml`，与所属结构文件并置；也可以通过 `layout.file` 指定所属目录内的相对路径，不允许越界或覆盖结构文件。
+- 可写复合组件的默认布局写入自身旁文件，父工程和嵌套工程共享；只读/公共组件的位置调整写入当前工程布局的 `sub:<组件ID>` 视图，不修改公共定义。
+- 外部布局或显式内嵌 `layout: {version: 1, views: ...}` 优先于旧 `position`，未列出的节点回退到原位置；空坐标 `{}` 表示清空位置。不存在的节点 ID 不会新增节点，下次保存时会清理。
+- 内存/API 继续提供节点 `position`，UI 无需感知存储格式。缓存监控结构及布局文件，外部修改布局后重新读取即可生效；引用丢失、格式错误或非有限坐标会明确报错，不静默忽略。
+- 首次迁移可能规范化结构字段；之后仅移动节点时，结构 YAML 的字节、注释和修改时间保持不变，组件 manifest 的结构哈希也不随拖动改变。图连线、驱动连接、任务、参数和说明等仍属于结构。
+- Python `ProjectLoader.save(..., separate_layout=False)` 可明确选择内嵌保存。完整工程 ZIP 包含布局旁文件，复制工程时应一起保留。
 
 ## 不变边界
 

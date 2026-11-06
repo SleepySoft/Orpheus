@@ -10,6 +10,7 @@
     "order": { "type": "integer", "description": "叶内排序权重（小的在前，缺省按名字排）；用于基础桶的教学顺序" },
     "description": { "type": "string" },
     "version": { "type": "string" },
+    "layout": { "type": "object", "description": "复合组件默认布局，支持内嵌或相对file引用" },
     "abi_version": { "type": "integer", "minimum": 1 },
     "package_type": { "type": "string", "enum": ["source", "binary", "composite", "placeholder"], "default": "source" },
     "blockers": {

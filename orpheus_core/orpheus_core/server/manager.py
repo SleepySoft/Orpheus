@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+import jsonschema
 
 from orpheus_core import schemas
-from orpheus_core.project import Graph, Project, ProjectLoader, Task, project_to_dict
+from orpheus_core.project import Graph, Project, ProjectLoader, Task, project_to_dict, readonly_layout_views
+from orpheus_core.layout import apply_layout, reference_path, save_document, split_document_layout
 
 _INVALID_PATH_CHARS = re.compile(r'[<>:"\\|?*\x00-\x1f]')
 _RESERVED_PATH_NAME = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)", re.I)
@@ -59,6 +61,20 @@ class ProjectRecord:
     dirty: bool = False
     last_saved: float = field(default_factory=time.time)
     loaded_mtime_ns: int = 0
+    dependency_versions: dict[Path, tuple[int, int]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.dependency_versions = self.current_dependency_versions()
+
+    def current_dependency_versions(self) -> dict[Path, tuple[int, int]]:
+        versions = {}
+        for path in {self.path, *self.project.component_manifests, *self.project.layout_files}:
+            if path.is_file():
+                stat = path.stat()
+                versions[path] = (stat.st_mtime_ns, stat.st_size)
+            else:
+                versions[path] = (0, 0)
+        return versions
 
     @property
     def directory(self) -> Path:
@@ -75,7 +91,7 @@ class ProjectManager:
         self._loader = ProjectLoader(registry)
         self._schema = schemas.load_project_schema()
         self._records: dict[str, ProjectRecord] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     # ------------------------------------------------------------------ paths
 
@@ -252,10 +268,10 @@ class ProjectManager:
             rec = self._records.get(name)
             if rec is not None:
                 current_mtime_ns = rec.path.stat().st_mtime_ns if rec.path.is_file() else 0
-                if not rec.dirty and current_mtime_ns != rec.loaded_mtime_ns:
+                if not rec.dirty and rec.current_dependency_versions() != rec.dependency_versions:
                     rec = ProjectRecord(
                         name=name,
-                        project=self._loader.load(rec.path),
+                        project=self._load_project(rec.path),
                         path=rec.path,
                         loaded_mtime_ns=current_mtime_ns,
                     )
@@ -263,7 +279,7 @@ class ProjectManager:
                 return rec
             if not yaml_path.is_file():
                 raise ProjectNotFoundError(f"project not found: {name}")
-            project = self._loader.load(yaml_path)
+            project = self._load_project(yaml_path)
             rec = ProjectRecord(
                 name=name,
                 project=project,
@@ -272,6 +288,12 @@ class ProjectManager:
             )
             self._records[name] = rec
             return rec
+
+    def _load_project(self, path: Path) -> Project:
+        try:
+            return self._loader.load(path)
+        except (ValueError, OSError, yaml.YAMLError, jsonschema.ValidationError) as exc:
+            raise ProjectValidationError(f"加载工程或布局失败：{exc}") from exc
 
     def invalidate_cached_projects(self) -> int:
         """Drop loaded projects so Registry forks rebuild on next access.
@@ -361,8 +383,7 @@ class ProjectManager:
             manifest = self._merge_composite_manifest(existing, sub)
             schemas.validate(manifest, schemas.load_component_manifest_schema())
             source_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(source_path, "w", encoding="utf-8", newline="\n") as stream:
-                yaml.safe_dump(manifest, stream, sort_keys=False, allow_unicode=True)
+            save_document(manifest, source_path)
         if imports:
             root_document["imports"] = imports
         else:
@@ -383,16 +404,15 @@ class ProjectManager:
                 schemas.validate(doc, self._schema)
             except Exception as exc:
                 raise ProjectValidationError(f"invalid project document: {exc}") from exc
-            current_record = self._records.get(name)
-            current = (
-                current_record.project
-                if current_record is not None
-                else self._loader.load(yaml_path)
-            )
-            persistent_doc = self._persist_composite_definitions(name, doc, current)
-            with open(yaml_path, "w", encoding="utf-8", newline="\n") as f:
-                yaml.safe_dump(persistent_doc, f, sort_keys=False, allow_unicode=True)
+            current = self.get(name).project
             try:
+                # 在改写任何定义前校验全部坐标；公共定义仅在工程布局中保存位置覆盖。
+                _, layout = split_document_layout(doc)
+                doc = apply_layout(doc, layout)
+                reference_path(doc, yaml_path)
+                persistent_doc = self._persist_composite_definitions(name, doc, current)
+                readonly_views = readonly_layout_views(current, doc)
+                save_document(persistent_doc, yaml_path, extra_views=readonly_views)
                 project = self._loader.load(yaml_path)
             except Exception as exc:
                 raise ProjectValidationError(f"invalid project document: {exc}") from exc

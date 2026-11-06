@@ -5,6 +5,7 @@
   "required": ["version", "graph"],
   "properties": {
     "version": { "type": "string" },
+    "layout": { "type": "object", "description": "内嵌布局或相对file引用；默认保存为独立布局文件" },
     "metadata": {
       "type": "object",
       "properties": {

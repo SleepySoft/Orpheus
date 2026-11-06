@@ -498,7 +498,7 @@ def discover_project_files(paths: list[Path]) -> list[Path]:
             files.update(
                 candidate.resolve()
                 for candidate in path.rglob("*.yaml")
-                if not candidate.name.endswith(".component.yaml")
+                if not candidate.name.endswith((".component.yaml", ".layout.yaml"))
                 and candidate.name != "component.yaml"
                 and candidate.name != "project.yaml"
                 and not inside_directory_project(candidate.resolve())
@@ -506,7 +506,7 @@ def discover_project_files(paths: list[Path]) -> list[Path]:
             files.update(
                 candidate.resolve()
                 for candidate in path.rglob("*.yml")
-                if not candidate.name.endswith(".component.yml")
+                if not candidate.name.endswith((".component.yml", ".layout.yml"))
                 and candidate.name != "component.yml"
                 and not inside_directory_project(candidate.resolve())
             )

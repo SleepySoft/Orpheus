@@ -26,6 +26,10 @@ def load_project_schema() -> dict[str, Any]:
     return _load_schema("project.schema.json")
 
 
+def load_layout_schema() -> dict[str, Any]:
+    return _load_schema("layout.schema.json")
+
+
 def load_algorithm_index_schema() -> dict[str, Any]:
     return _load_schema("algorithm_index.schema.json")
 
