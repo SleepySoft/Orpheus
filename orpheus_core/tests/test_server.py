@@ -107,6 +107,44 @@ def test_component_rescan_refreshes_cached_project_registry(tmp_path):
         assert any(item["id"] == "test.dynamic.component" for item in refreshed.json())
 
 
+def test_project_catalog_distinguishes_local_imports_from_global_snapshot(tmp_path):
+    project_dir = tmp_path / "workspace" / "demo"
+    for directory, identifier in (
+        (tmp_path / "components" / "shared", "test.shared"),
+        (tmp_path / "components" / "removable", "test.removable"),
+        (project_dir / "native", "test.local"),
+    ):
+        directory.mkdir(parents=True)
+        (directory / "component.yaml").write_text(
+            f"id: {identifier}\nname: 测试组件\ncategory: 基础/测试\n"
+            "version: 1.0.0\nabi_version: 1\npackage_type: source\n"
+            "ports: []\nparameters: []\n"
+            + ("user_owned: true\n" if identifier != "test.local" else ""),
+            encoding="utf-8",
+        )
+    (project_dir / "project.yaml").write_text(
+        "version: 0.1.0\nimports: [native/component.yaml, {component: test.shared}]\n"
+        "graph: {nodes: [], connections: []}\n",
+        encoding="utf-8",
+    )
+    with TestClient(create_app(tmp_path)) as local_client:
+        response = local_client.get("/api/projects/demo/components")
+        assert response.status_code == 200, response.text
+        catalog = {item["id"]: item for item in response.json()}
+        assert catalog["test.local"]["project_local"] is True
+        assert catalog["test.shared"]["project_local"] is False
+        assert not catalog["test.local"]["user_owned"]
+        assert not any(item["id"] == "test.local" for item in local_client.get("/api/components").json())
+        assert catalog["test.shared"]["user_owned"]
+        assert local_client.post("/api/components/test.shared/promote").status_code == 200
+        refreshed = {item["id"]: item for item in local_client.get("/api/projects/demo/components").json()}
+        assert not refreshed["test.shared"]["user_owned"]
+        assert refreshed["test.local"]["project_local"]
+        assert local_client.delete("/api/components/test.removable").status_code == 200
+        refreshed = {item["id"]: item for item in local_client.get("/api/projects/demo/components").json()}
+        assert "test.removable" not in refreshed and refreshed["test.local"]["project_local"]
+
+
 def test_project_lifecycle(client, project):
     # listed
     names = [p["name"] for p in client.get("/api/projects").json()]

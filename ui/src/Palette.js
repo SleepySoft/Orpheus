@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { subCatalogEntry } from './graphUtils';
+import { subCatalogEntry, subViewKey } from './graphUtils';
 import { fuzzyMatch } from './fuzzy';
 
 // preferred display order for top-level categories; unknown ones go last (alphabetical)
@@ -49,11 +49,25 @@ function flattenItems(node) {
 
 /** Left-hand palette: project subcomponents + category tree of global components. */
 export default function Palette({ components, subsMeta, onDeleteSub, onDeleteComponent, onPromoteComponent, onShowReadme }) {
-  const [collapsed, setCollapsed] = useState({});
+  const [collapsed, setCollapsed] = useState({ '@project-subs': true, '@project-custom': true });
   const [query, setQuery] = useState('');
 
-  const visibleComponents = useMemo(() => components.filter((component) => !component.ui_hidden), [components]);
-  const tree = useMemo(() => buildTree(visibleComponents), [visibleComponents]);
+  const projectSubs = useMemo(
+    () => subsMeta.map((sub) => ({ item: subCatalogEntry(sub), deletable: !sub.read_only })),
+    [subsMeta]
+  );
+  const visibleComponents = useMemo(() => {
+    const subIds = new Set(projectSubs.map(({ item }) => item.id));
+    return components.filter((component) => !component.ui_hidden && !subIds.has(subViewKey(component.id)));
+  }, [components, projectSubs]);
+  const projectCustom = useMemo(
+    () => visibleComponents.filter((component) => component.project_local || component.user_owned).sort(leafSort),
+    [visibleComponents]
+  );
+  const tree = useMemo(
+    () => buildTree(visibleComponents.filter((component) => !component.project_local && !component.user_owned)),
+    [visibleComponents]
+  );
 
   const onDragStart = (event, componentId) => {
     event.dataTransfer.setData('application/orpheus-component', componentId);
@@ -65,10 +79,11 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
   // 模糊搜索：中文显示名 / 英文 id / 分类路径 / 描述均参与匹配；命中时平铺展示结果
   const flat = useMemo(
     () => [
-      ...subsMeta.map((s) => ({ item: subCatalogEntry(s), deletable: !s.read_only, sub: true })),
+      ...projectSubs,
+      ...projectCustom.map((item) => ({ item, deletable: false })),
       ...flattenItems(tree).map((c) => ({ item: c, deletable: false })),
     ],
-    [subsMeta, tree]
+    [projectSubs, projectCustom, tree]
   );
   const searching = query.trim().length > 0;
   const results = searching
@@ -118,7 +133,7 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
         </span>
       </div>
       <div className="palette-item-id">{c.id}</div>
-      {!c.sub && c.user_owned && (
+      {!c.sub && c.user_owned && !c.project_local && (
         <div className="palette-manage">
           <button
             title="提升为公共库组件（之后不可直接删除）"
@@ -141,6 +156,23 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
           </button>
         </div>
       )}
+    </div>
+  );
+
+  const renderProjectSection = (name, path, entries) => entries.length > 0 && (
+    <div className="palette-category" key={path}>
+      <button
+        type="button"
+        className="palette-category-header section"
+        aria-label={name}
+        aria-expanded={!collapsed[path]}
+        onClick={() => toggle(path)}
+      >
+        <span className="palette-caret">{collapsed[path] ? '▶' : '▼'}</span>
+        {name}
+        <span className="palette-count">{entries.length}</span>
+      </button>
+      {!collapsed[path] && entries.map(({ item, deletable }) => renderItem(item, deletable))}
     </div>
   );
 
@@ -190,23 +222,14 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
         <div className="palette-category">
           <div className="palette-category-header static">搜索结果（{results.length}）</div>
           {results.length === 0 && <p className="muted">无匹配组件</p>}
-          {results.map(({ item, deletable, sub }) =>
-            renderItem(
-              sub ? { ...item, sub: true, user_owned: false } : item,
-              deletable
-            )
-          )}
+          {results.map(({ item, deletable }) => renderItem(item, deletable))}
         </div>
       ) : (
         <>
-      {subsMeta.length > 0 && (
-        <div className="palette-category">
-          <div className="palette-category-header static">工程子组件</div>
-          {subsMeta.map((s) => renderItem(subCatalogEntry(s), true))}
-        </div>
-      )}
+      {renderProjectSection('工程子组件', '@project-subs', projectSubs)}
+      {renderProjectSection('工程定制组件', '@project-custom', projectCustom.map((item) => ({ item, deletable: false })))}
       {tree.children.size > 0 && renderNode(tree, '', 0)}
-      {visibleComponents.length === 0 && <p className="muted">后端未连接或无组件</p>}
+      {visibleComponents.length === 0 && projectSubs.length === 0 && <p className="muted">后端未连接或无组件</p>}
         </>
       )}
     </div>

@@ -1378,13 +1378,13 @@ const { screenToFlowPosition } = useReactFlow();
       if (!window.confirm(`确认删除自定义组件「${componentId}」？将移除其源码目录，此操作不可撤销。`)) return;
       try {
         await api.deleteComponent(componentId);
-        setCatalog(await api.listComponents());
+        setCatalog(await (current ? api.listProjectComponents(current) : api.listComponents()));
         setStatus(`已删除自定义组件 ${componentId}`);
       } catch (e) {
         setStatus(`删除组件失败: ${api.errorDetail(e)}`);
       }
     },
-    []
+    [current]
   );
 
   const onPromoteComponent = useCallback(
@@ -1392,13 +1392,13 @@ const { screenToFlowPosition } = useReactFlow();
       if (!window.confirm(`确认把「${componentId}」提升为公共库组件？提升后不能再从界面删除。`)) return;
       try {
         await api.promoteComponent(componentId);
-        setCatalog(await api.listComponents());
+        setCatalog(await (current ? api.listProjectComponents(current) : api.listComponents()));
         setStatus(`已提升为公共库组件 ${componentId}`);
       } catch (e) {
         setStatus(`提升组件失败: ${api.errorDetail(e)}`);
       }
     },
-    []
+    [current]
   );
 
   const addSubPort = useCallback(

@@ -580,6 +580,15 @@
   cursor: default;
 }
 
+.palette-category-header.section {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #dee2e6;
+  border-radius: 0;
+  text-align: left;
+}
+
 .palette-category-header.sub {
   font-size: 12px;
   font-weight: 500;

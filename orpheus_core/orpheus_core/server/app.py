@@ -379,7 +379,14 @@ def create_app(project_root: Path, *,
         except ProjectError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         project_registry = project.registry or registry
-        return [_component_to_dict(info) for info in project_registry.list_components()]
+        global_manifests = {
+            info.id: info.manifest_path.resolve() for info in registry.list_components()
+        }
+        return [
+            {**_component_to_dict(info),
+             "project_local": global_manifests.get(info.id) != info.manifest_path.resolve()}
+            for info in project_registry.list_components()
+        ]
 
     @app.get("/api/components/{component_id}/readme")
     def get_component_readme(component_id: str) -> FileResponse:
@@ -445,6 +452,7 @@ def create_app(project_root: Path, *,
             )
         shutil.rmtree(info.root_dir)
         registry.scan()
+        manager.invalidate_cached_projects()
         return {"deleted": component_id}
 
     @app.post("/api/components/{component_id}/promote")
@@ -459,6 +467,7 @@ def create_app(project_root: Path, *,
         with open(yaml_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
         registry.scan()
+        manager.invalidate_cached_projects()
         return {"promoted": component_id}
 
     @app.get("/api/link/ports")
