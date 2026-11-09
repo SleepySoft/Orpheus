@@ -5,7 +5,7 @@ import { resolveExprValue, resolveShape, shapeText, CTL_PREFIX, driveHandles, DR
 import { NODE_WIDGETS } from './nodeWidgets';
 import { NodeActionsContext } from './NodeActionsContext';
 import { PLACEHOLDER_ID } from './placeholder';
-import { interfaceState, portSignature, bindingStatus, accessText, canEditDesignParameter } from './interfaceModel';
+import { interfaceState, portSignature, bindingStatus, accessText, canEditDesignParameter, isInitializationParameter } from './interfaceModel';
 
 /** Custom React Flow node: ports come from the component manifest (resolved). */
 export default function OrpheusNode({ id, data, selected }) {
@@ -13,6 +13,9 @@ export default function OrpheusNode({ id, data, selected }) {
   const interfaces = data.interfaces || interfaceState({ id, data });
   const ports = (data.ports || []).filter((port) => interfaces.exposedPorts.includes(port.id));
   const visibleParameters = (data.parameters || []).filter((p) => interfaces.exposedParameters.includes(p.id));
+  const initializationParameters = visibleParameters.filter(isInitializationParameter);
+  const runtimeParameters = visibleParameters.filter((p) => !isInitializationParameter(p));
+  const visibleBulkSlots = (data.bulkSlots || []).filter((slot) => interfaces.exposedBulkSlots.includes(slot.id));
   const inputs = ports.filter((p) => p.direction === 'input');
   const outputs = ports.filter((p) => p.direction === 'output');
   const isSub = (data.component || '').startsWith('sub:');
@@ -39,6 +42,36 @@ export default function OrpheusNode({ id, data, selected }) {
   // Each handle is anchored to its own port row (position: relative in CSS),
   // so pins never overlap and each wire lands on a labeled, distinct pin.
   const handleStyle = { top: '50%', transform: 'translateY(-50%)' };
+  const renderParameterRow = (p) => {
+    const exported = data.exportedControlParameters?.[p.id];
+    const initialization = isInitializationParameter(p);
+    const targetAllowed = !initialization && p.bindable && canEditDesignParameter(p, data);
+    const sourceAllowed = !initialization && p.control_source && p.access !== 'write';
+    const exportedClass = !exported ? '' : initialization ? 'export-config-pin'
+      : `export-control-pin ${exported.direction === 'input' ? 'export-control-input' : 'export-control-output'}`;
+    return (
+      <div key={p.id} data-parameter={p.id}
+        className={`port-row ${initialization ? 'initial-config-row' : 'ctl-row'} ${p.control_source && !p.bindable ? 'src' : ''} ${exportedClass}`}
+        onClick={exported ? (event) => revealExport(event, 'control', exported.id) : undefined}
+        title={exported ? `公开${initialization ? '初始化配置' : '运行期参数'} ${exported.id}：点击定位接口定义` : undefined}>
+        {(targetAllowed || interfaces.connectedControlTargets?.includes(p.id)) && (
+          <Handle type="target" position={Position.Left} id={`${CTL_PREFIX}${p.id}`}
+            isConnectable={!!targetAllowed} className={exported && !initialization ? 'export-control-handle' : ''}
+            style={{ ...handleStyle, left: exported && !initialization ? -50 : -11 }} />
+        )}
+        <span className="ctl-name">{p.name || p.id}</span>
+        <span className="shape-badge">
+          {shapeText(resolveShape(p.shape || [], data.params, { parameters: data.parameters }))}
+        </span>
+        {initialization && <span className="initial-config-badge">初始化</span>}
+        {(sourceAllowed || interfaces.connectedControlSources?.includes(p.id)) && (
+          <Handle type="source" position={Position.Right} id={`${CTL_PREFIX}${p.id}`}
+            isConnectable={!!sourceAllowed} className={exported && !initialization ? 'export-control-handle' : ''}
+            style={{ ...handleStyle, right: exported && !initialization ? -50 : -11 }} />
+        )}
+      </div>
+    );
+  };
 
   // resolved channel count badge, e.g. "out0 · 1ch"
   const channelBadge = (p) => <span className="ch-badge">{portSignature(p, data)}</span>;
@@ -312,56 +345,21 @@ const BodyWidget = NODE_WIDGETS[data.component];
         <div className="node-ports outputs">{outputs.map((p) => renderRow(p, false))}</div>
       </div>
       {/* 参数显露不授予控制权限；已有旧线保留不可连接锚点。 */}
-      {visibleParameters.length > 0 && (
-          <div className="node-controls">
-            <div className="control-dock-title">参数接口</div>
-            {visibleParameters
-              .map((p) => {
-                const exported = data.exportedControlParameters?.[p.id];
-                const targetAllowed = p.bindable && canEditDesignParameter(p, data)
-                  && !p.affects_signature && p.update_policy !== 'restart_required';
-                const sourceAllowed = p.control_source && p.access !== 'write';
-                return (
-                  <div
-                  key={p.id}
-                  className={`port-row ctl-row ${p.control_source && !p.bindable ? 'src' : ''} ${exported ? `export-control-pin ${exported.direction === 'input' ? 'export-control-input' : 'export-control-output'}` : ''}`}
-                  onClick={exported ? (event) => revealExport(event, 'control', exported.id) : undefined}
-                  title={exported ? `导出控制${exported.direction === 'input' ? '输入' : '输出'} ${exported.id}：点击定位接口定义` : undefined}
-                >
-                  {(targetAllowed || interfaces.connectedControlTargets?.includes(p.id)) && (
-                    <Handle
-                      type="target"
-                      position={Position.Left}
-                      id={`${CTL_PREFIX}${p.id}`}
-                      isConnectable={!!targetAllowed}
-                      className={exported ? 'export-control-handle' : ''}
-                      style={{ ...handleStyle, left: exported ? -50 : -11 }}
-                    />
-                  )}
-      {(data.bulkSlots || []).filter((slot) => interfaces.exposedBulkSlots.includes(slot.id)).map((slot) => (
-                  <div className="port-row bulk-interface-row" key={slot.id}>
-                    Buffer：{slot.name || slot.id} · {accessText(slot)}
-                  </div>
-      ))}
-                  <span className="ctl-name">{p.name || p.id}</span>
-                  <span className="shape-badge">
-                    {shapeText(resolveShape(p.shape || [], data.params, { parameters: data.parameters }))}
-                  </span>
-                  {(sourceAllowed || interfaces.connectedControlSources?.includes(p.id)) && (
-                    <Handle
-                      type="source"
-                      position={Position.Right}
-                      id={`${CTL_PREFIX}${p.id}`}
-                      isConnectable={!!sourceAllowed}
-                      className={exported ? 'export-control-handle' : ''}
-                      style={{ ...handleStyle, right: exported ? -50 : -11 }}
-                    />
-                  )}
-                  </div>
-                );
-              })}
+      {initializationParameters.length > 0 && <div className="node-initial-config">
+        <div className="initial-config-title">初始化配置</div>
+        {initializationParameters.map(renderParameterRow)}
+      </div>}
+      {runtimeParameters.length > 0 && <div className="node-controls">
+        <div className="control-dock-title">运行期接口</div>
+        {runtimeParameters.map(renderParameterRow)}
+      </div>}
+      {visibleBulkSlots.length > 0 && <div className="node-bulk-interfaces">
+        {visibleBulkSlots.map((slot) => (
+          <div className="port-row bulk-interface-row" key={slot.id}>
+            Buffer：{slot.name || slot.id} · {accessText(slot)}
           </div>
-        )}
+        ))}
+      </div>}
       {BodyWidget && <BodyWidget data={data} />}
         {enlarged &&
           createPortal(

@@ -1,7 +1,7 @@
 import React from 'react';
 import ParamField from './widgets';
 import { NodeTodos, isRunnablePlaceholder } from './TodoPanel';
-import { accessText, canEditParameter, canEditDesignParameter, portSignature, bindingStatus } from './interfaceModel';
+import { accessText, canEditParameter, canEditDesignParameter, isInitializationParameter, portSignature, bindingStatus } from './interfaceModel';
 import { isHostDeliveryStatus } from './graphUtils';
 
 // Universal params (channel count, sample rate, ...) always go on top,
@@ -41,15 +41,17 @@ export default function ParamPanel({
 
   const schemaIds = new Set((parameters || []).map((p) => p.id));
   const extraKeys = Object.keys(params || {}).filter((k) => !schemaIds.has(k));
-  const universal = (parameters || []).filter(isUniversalParam);
-  const specific = (parameters || []).filter((p) => !isUniversalParam(p));
+  const ordered = [...(parameters || []).filter(isUniversalParam), ...(parameters || []).filter((p) => !isUniversalParam(p))];
+  const initialization = ordered.filter(isInitializationParameter);
+  const runtime = ordered.filter((p) => !isInitializationParameter(p) && canEditDesignParameter(p, node.data));
+  const observations = ordered.filter((p) => !isInitializationParameter(p) && !canEditDesignParameter(p, node.data));
   const interfaces = node.data.interfaces || {};
   const exposure = (field, id, locked = false) => (
     <label className="interface-exposure">
       <input type="checkbox" aria-label={`显露 ${field}:${id}`}
-        checked={(interfaces[field] || []).includes(id)} disabled={locked || todosReadOnly}
+        checked={(interfaces[field] || []).includes(id)} disabled={locked}
         onChange={(event) => onInterfaceChange?.(field, id, event.target.checked)} />
-      图上显露{locked ? '（已连接/已导出）' : ''}
+      图上显露{locked ? field === 'exposedParameters' ? '（已连接）' : '（已连接/已导出）' : ''}
     </label>
   );
 
@@ -77,6 +79,12 @@ export default function ParamPanel({
         {schema.control_source ? ' · 控制源' : ''}
         {schema.readback ? ' · 支持回读' : ''}
       </small>
+      {isInitializationParameter(schema) && <small>
+        初始化配置：启动前注入；运行后修改需重新准备，不作为运行期控制端口。
+      </small>}
+      {node.data.exportedControlParameters?.[schema.id] && <small>
+        外层公开：{node.data.exportedControlParameters[schema.id].id}；隐藏图上显示不删除公开映射。
+      </small>}
       {isHostDeliveryStatus(schema, node.data) && <small>
         宿主交付状态：{node.data.probe?.[schema.id] === undefined ? '未观测' : String(node.data.probe[schema.id])}；
         设计初始化为 false，由完整 PCM 提交原子更新，此面板不直接写入。
@@ -114,13 +122,16 @@ export default function ParamPanel({
           {' '}点击紫色箭头标签可设置周期和相位。
         </p>
       )}
-      {universal.length > 0 && (
-        <InterfaceSection title="通用" count={universal.length}>
-          {universal.map(renderField)}
+      {initialization.length > 0 && (
+        <InterfaceSection title="初始化配置" count={initialization.length}>
+          {initialization.map(renderField)}
         </InterfaceSection>
       )}
-      {specific.length > 0 && <InterfaceSection title="组件参数" count={specific.length}>
-        {specific.map(renderField)}
+      {runtime.length > 0 && <InterfaceSection title="运行期参数" count={runtime.length}>
+        {runtime.map(renderField)}
+      </InterfaceSection>}
+      {observations.length > 0 && <InterfaceSection title="观测 / 交付状态" count={observations.length}>
+        {observations.map(renderField)}
       </InterfaceSection>}
       <InterfaceSection title="声明的 Buffer 资源" count={(node.data.bulkSlots || []).length}>
       {(node.data.bulkSlots || []).map((slot) => (

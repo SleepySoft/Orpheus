@@ -248,6 +248,12 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
 
   await exportedOutput.click();
   await expect(page.locator('.subport-row.export-highlight').filter({ hasText: 'out' })).toBeVisible();
+  await expect(internalGain.locator('.export-control-input')).toHaveCount(0);
+  await internalGain.locator('.node-title').click();
+  const gainExposure = page.getByRole('checkbox', { name: '显露 exposedParameters:gain_db', exact: true });
+  await expect(gainExposure).toBeEnabled();
+  await expect(gainExposure).not.toBeChecked();
+  await gainExposure.check();
   const exportedControlInput = internalGain.locator('.export-control-input .export-control-handle');
   const controlInputBox = await exportedControlInput.boundingBox();
   expect((internalGainBox.x - (controlInputBox.x + controlInputBox.width / 2)) / flowScale).toBeGreaterThan(30);
@@ -256,7 +262,11 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   await expect(page.locator('.control-export-row.export-highlight').filter({ hasText: 'gain' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('control-export-revealed.png'), fullPage: true });
 
-  const controlOutputRow = page.locator('.react-flow__node[data-id="observer"] .export-control-output');
+  const observer = page.locator('.react-flow__node[data-id="observer"]');
+  await expect(observer.locator('.export-control-output')).toHaveCount(0);
+  await observer.locator('.node-title').click();
+  await page.getByRole('checkbox', { name: '显露 exposedParameters:level', exact: true }).check();
+  const controlOutputRow = observer.locator('.export-control-output');
   await controlOutputRow.locator('.export-control-handle').click();
   await expect(page.locator('.control-export-row.export-highlight').filter({ hasText: 'level' })).toBeVisible();
   for (let step = 0; step < 8; step += 1) {

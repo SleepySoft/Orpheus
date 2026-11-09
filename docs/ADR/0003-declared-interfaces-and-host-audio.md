@@ -4,6 +4,8 @@
 - 决策日期：2026-11-09
 - 记录日期：2026-11-09
 - 关联：[ADR-0001](0001-component-owned-continuation.md)、[ADR-0002](0002-drive-and-buffer-separation.md)
+- 部分取代：第 4 项中“已导出参数强制显露”由 [ADR-0004](0004-parameter-lifecycle-and-visibility.md) 取代；
+  参数公开映射与显示选择分离，其余决定继续生效。
 
 ## 背景与问题
 

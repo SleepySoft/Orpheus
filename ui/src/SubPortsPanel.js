@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { isSubRef, resolvePorts } from './graphUtils';
-import { canEditDesignParameter } from './interfaceModel';
+import { canEditDesignParameter, isInitializationParameter } from './interfaceModel';
 
 /**
  * Interface port editor shown in subcomponent views: list external ports and
@@ -91,12 +91,13 @@ export default function SubPortsPanel({
           <span className={`subport-dir ${p.direction}`}>{p.direction === 'input' ? '参入' : '参出'}</span>
           <span className="subport-id">{p.id}</span>
           <span className="subport-maps">→ {p.maps_to}</span>
+          <small>{isInitializationParameter(p) ? '初始化配置' : p.direction === 'output' ? '观测 / 控制输出' : '运行期参数'}</small>
           <button className="subport-del" title="删除公开参数" onClick={() => onRemoveParameter(p.id)}>×</button>
         </div>
       ))}
       <div className="subport-add">
         <select value={paramDirection} onChange={(e) => { setParamDirection(e.target.value); setParamMapsTo(''); }}>
-          <option value="input">公开配置 / 控制输入</option>
+          <option value="input">公开配置 / 运行期参数</option>
           <option value="output">控制输出</option>
         </select>
         <select value={paramMapsTo} onChange={(e) => setParamMapsTo(e.target.value)}>

@@ -1745,6 +1745,36 @@ button.danger {
   text-transform: uppercase;
 }
 
+.node-initial-config,
+.node-bulk-interfaces {
+  margin: 4px 5px 5px;
+  padding: 5px 0 7px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #f1f3f5;
+}
+
+.initial-config-title {
+  padding: 0 8px 3px;
+  color: #495057;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.initial-config-row {
+  color: #495057;
+  font-size: 11px;
+}
+
+.initial-config-badge {
+  font-size: 9px;
+  color: #868e96;
+}
+
+.export-config-pin {
+  cursor: pointer;
+}
+
 .orpheus-node.control-mode:has(.node-controls) {
   box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.24), 0 3px 8px rgba(0, 0, 0, 0.1);
 }

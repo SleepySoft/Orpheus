@@ -92,7 +92,7 @@ test('完整参数/Buffer/签名审查、独立显露保存重载及上游宿主
   await expect(panel.locator('[data-interface="port:out"]')).toContainText('s16 · 6ch · 16帧');
   await expect(panel.locator('[data-interface="port:samples"]')).toContainText('写入不触发 Task');
   await expect(panel.locator('[data-interface="port:samples"]')).toContainText('未观测交付状态');
-  const parameterGroup = panel.locator('.interface-section').filter({ has: page.getByText('组件参数（7）', { exact: true }) });
+  const parameterGroup = panel.locator('.interface-section').filter({ has: page.getByText('运行期参数（4）', { exact: true }) });
   await parameterGroup.locator('summary').click();
   await expect(panel.locator('[data-interface="parameter:samples"]')).not.toBeVisible();
   await parameterGroup.locator('summary').click();

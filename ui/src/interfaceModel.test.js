@@ -5,7 +5,7 @@ import ParamPanel from './ParamPanel';
 import OrpheusNode from './OrpheusNode';
 import SubPortsPanel from './SubPortsPanel';
 import ParamBrowser from './ParamBrowser';
-import { interfaceState, portSignature, bindingStatus, canEditParameter, canEditDesignParameter } from './interfaceModel';
+import { interfaceState, portSignature, bindingStatus, canEditParameter, canEditDesignParameter, isInitializationParameter } from './interfaceModel';
 import { docToViews, docToViewsAsync, viewsToDoc, subCatalogEntry, copyFlowSelection, pasteFlowSelection } from './graphUtils';
 
 jest.mock('./nodeWidgets', () => ({ NODE_WIDGETS: {} }));
@@ -73,7 +73,7 @@ test('默认不画接口；同名配置、数据、Buffer 分开显露，不提�
   expect(canEditParameter(parameters[1])).toBe(true);
 });
 
-test('已连线/导出接口强制显露，关闭控制开关不产生幽灵连接', () => {
+test('实际参数连线和公开音频端口强制显露，公开参数不锁定显示', () => {
   const decorated = { ...node, data: { ...node.data, exportedAudioPorts: { out: { id: 'export' } },
     exportedControlParameters: { ready: { id: 'ready' } } } };
   decorated.data.interfaces = interfaceState(decorated, [
@@ -87,7 +87,76 @@ test('已连线/导出接口强制显露，关闭控制开关不产生幽灵连�
   expect(container.querySelector('[data-handle="ctl:level"]')).not.toBeNull();
   expect(container.querySelector('[aria-label="显露 exposedPorts:samples"]').disabled).toBe(true);
   expect(container.querySelector('[aria-label="显露 exposedParameters:level"]').disabled).toBe(true);
+  expect(container.querySelector('[aria-label="显露 exposedParameters:ready"]').disabled).toBe(false);
+  expect(container.querySelector('[aria-label="显露 exposedParameters:ready"]').checked).toBe(false);
   expect(container.textContent).toContain('上游供数，禁止宿主写入');
+});
+
+test('公开参数默认不铺到画布，保留映射及完整审查', () => {
+  const data = { ...node.data, exportedControlParameters: {
+    samples: { id: 'public_samples', direction: 'input' }, legacy: { id: 'public_legacy', direction: 'input' },
+  } };
+  const state = interfaceState({ id: node.id, data });
+  expect(state.exposedParameters).toEqual([]);
+  expect(state.lockedParameters).toEqual([]);
+  act(() => root.render(<><OrpheusNode id={node.id} data={data} /><ParamPanel node={{ ...node, data }} viewKey="main" /></>));
+  expect(container.querySelectorAll('.node-controls')).toHaveLength(0);
+  expect(container.querySelectorAll('[data-interface^="parameter:"]')).toHaveLength(parameters.length);
+  expect(container.querySelector('[data-interface="parameter:samples"]').textContent).toContain('外层公开：public_samples');
+  expect(container.querySelector('[aria-label="显露 exposedParameters:samples"]').disabled).toBe(false);
+  expect(data.exportedControlParameters.samples.id).toBe('public_samples');
+});
+
+test('只读定义的显露属于工程布局，公开参数仍可选择显示', () => {
+  const onInterfaceChange = jest.fn();
+  const data = { ...node.data, exportedControlParameters: { legacy: { id: 'public_legacy', direction: 'input' } } };
+  act(() => root.render(<ParamPanel node={{ ...node, data }} viewKey="sub:readonly" todosReadOnly
+    onInterfaceChange={onInterfaceChange} />));
+  const toggle = container.querySelector('[aria-label="显露 exposedParameters:legacy"]');
+  expect(toggle.disabled).toBe(false);
+  act(() => toggle.click());
+  expect(onInterfaceChange).toHaveBeenCalledWith('exposedParameters', 'legacy', true);
+  expect(container.querySelector('[aria-label="显露 exposedBulkSlots:samples"]').disabled).toBe(false);
+});
+
+test('初始化配置独立审查，显露后不出现运行期方块或橙色引线', () => {
+  const schemas = [
+    { id: 'select', name: '选择映射', type: 'string', update_policy: 'restart_required', bindable: true, control_source: true },
+    { id: 'channels', type: 'int', affects_signature: true },
+    { id: 'override', type: 'string', update_policy: 'block_boundary' },
+    { id: 'level', type: 'float', access: 'read', control_source: true },
+  ];
+  const data = { component: 'test.router', parameters: schemas, params: { select: '1,2' },
+    interfaceUi: { exposedParameters: ['select', 'channels', 'override', 'level'] },
+    exportedControlParameters: { select: { id: 'base_select', direction: 'input' } } };
+  act(() => root.render(<><OrpheusNode id="router" data={data} />
+    <ParamPanel node={{ id: 'router', data }} viewKey="main" /></>));
+  expect(schemas.map(isInitializationParameter)).toEqual([true, true, false, false]);
+  expect(container.querySelectorAll('.initial-config-row')).toHaveLength(2);
+  expect(container.querySelectorAll('.ctl-row')).toHaveLength(2);
+  expect(container.querySelector('.export-config-pin')).not.toBeNull();
+  expect(container.querySelector('.export-control-pin')).toBeNull();
+  expect(container.querySelector('[data-handle="ctl:select"]')).toBeNull();
+  expect(container.querySelector('[data-handle="ctl:channels"]')).toBeNull();
+  expect(container.querySelector('[data-handle="ctl:override"]')).toBeNull();
+  expect(container.querySelector('[data-handle="ctl:level"]')).not.toBeNull();
+  const groups = [...container.querySelectorAll('.interface-section > summary')].map((element) => element.textContent);
+  expect(groups).toContain('初始化配置（2）');
+  expect(groups).toContain('运行期参数（1）');
+  expect(groups).toContain('观测 / 交付状态（1）');
+  expect(container.querySelector('[data-interface="parameter:select"]').textContent).toContain('启动前注入');
+});
+
+test('显露 Buffer 独立于参数显示，不因多参数重复绘制', () => {
+  const data = { ...node.data, interfaceUi: { exposedBulkSlots: ['samples'] } };
+  act(() => root.render(<OrpheusNode id={node.id} data={data} />));
+  expect(container.querySelectorAll('.bulk-interface-row')).toHaveLength(1);
+  expect(container.querySelectorAll('.ctl-row')).toHaveLength(0);
+  act(() => root.render(<OrpheusNode id={node.id} data={{ ...data, interfaceUi: {
+    ...data.interfaceUi, exposedParameters: ['samples', 'legacy'],
+  } }} />));
+  expect(container.querySelectorAll('.bulk-interface-row')).toHaveLength(1);
+  expect(container.querySelectorAll('.ctl-row')).toHaveLength(2);
 });
 
 test('宿主条件和交付观测准确，不伪造 ready/valid 或触发', () => {

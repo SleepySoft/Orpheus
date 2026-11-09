@@ -8,10 +8,13 @@ export const canEditParameter = (parameter) => parameter.access !== 'read' && !p
 export const canEditDesignParameter = (parameter, data) => canEditParameter(parameter)
   && !isHostDeliveryStatus(parameter, data);
 
-/** 显露是表现状态；连线和导出强制显露，但不授予连接权限。 */
+export const isInitializationParameter = (parameter) => parameter.update_policy === 'restart_required'
+  || !!parameter.affects_signature;
+
+/** 参数只因实际连线强制显露；公开映射不决定画布显示，也不授予连接权限。 */
 export function interfaceState(node, edges = []) {
   const data = node.data;
-  const lockedParameters = new Set(Object.keys(data.exportedControlParameters || {}));
+  const lockedParameters = new Set();
   const lockedPorts = new Set(Object.keys(data.exportedAudioPorts || {}));
   const connectedControlSources = new Set();
   const connectedControlTargets = new Set();
