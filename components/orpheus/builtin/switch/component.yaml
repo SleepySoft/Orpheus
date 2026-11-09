@@ -1,6 +1,6 @@
 id: orpheus.builtin.switch
-name: 开关
-category: 基础/增益与混音
+name: "通断渐变"
+category: "增益与动态"
 order: 4
 description: 音频开关（enable=1 直通 / 0 静音），斜坡过渡消除咔哒声
 version: 1.0.0

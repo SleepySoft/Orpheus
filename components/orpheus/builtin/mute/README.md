@@ -1,4 +1,4 @@
-# orpheus.builtin.mute — 静音
+# orpheus.builtin.mute — 静音渐变
 
 ## 功能
 

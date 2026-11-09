@@ -1,6 +1,7 @@
 id: orpheus.builtin.signal_gen
-name: 信号发生器
-category: 基础/信号源
+name: "正弦信号源"
+category: "输入与输出"
+description: "按频率、幅度、采样率和时长产生多通道正弦音频；不是任意波形发生器，需要扫频时使用sweep_gen。"
 order: 1
 version: 1.0.0
 abi_version: 6

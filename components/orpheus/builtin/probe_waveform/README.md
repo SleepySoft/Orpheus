@@ -1,4 +1,4 @@
-# orpheus.builtin.probe_waveform — 波形监视器
+# orpheus.builtin.probe_waveform — 波形观察
 
 ## 功能
 

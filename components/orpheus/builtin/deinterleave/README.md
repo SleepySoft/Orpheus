@@ -1,4 +1,4 @@
-# orpheus.builtin.deinterleave — 反交错器
+# orpheus.builtin.deinterleave — 音频通道拆分
 
 ## 功能
 

@@ -1,6 +1,7 @@
 id: orpheus.builtin.embed_in
-name: 嵌入输入
-category: 平台/平台
+name: "嵌入式音频输入"
+category: "输入与输出"
+description: "嵌入式平台输入边界：由生成宿主或platform_io适配层提供交错音频；不是声卡采集实现，实际硬件读入须由平台集成。"
 platforms: [dsp]
 version: 1.0.0
 abi_version: 6

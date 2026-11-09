@@ -1,6 +1,6 @@
 id: orpheus.builtin.channel_selector
-name: 双源通道选择与增益叠加
-category: 基础/路由
+name: "双源通道选择"
+category: "路由与混音"
 description: 按运行期整数索引从A后接B的逻辑通道空间选路，可选逐通道线性增益。无效或未接输入直接输出正零，不执行乘法。
 version: 1.1.0
 abi_version: 6

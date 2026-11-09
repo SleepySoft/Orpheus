@@ -1,6 +1,7 @@
 id: orpheus.builtin.sweep_record
-name: 扫频记录
-category: 基础/监控
+name: "扫频响应记录"
+category: "频域与分析"
+description: "按配置的扫频时间线将首通道输入的RMS分配到频率箱并记录响应曲线；须由上游提供匹配的扫频激励，本组件不产生激励。音频直通，不是WAV文件录制或标准传递函数测量。"
 order: 6
 version: 1.0.0
 abi_version: 6

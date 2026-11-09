@@ -1,4 +1,4 @@
-# orpheus.builtin.interp_lut — 查表插值
+# orpheus.builtin.interp_lut — 参数查表插值
 
 ## 功能
 

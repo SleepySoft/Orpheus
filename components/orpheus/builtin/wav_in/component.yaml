@@ -1,6 +1,7 @@
 id: orpheus.builtin.wav_in
 name: WAV 文件输入
-category: 基础/文件
+category: "输入与输出"
+description: "离线WAV文件音频源，准备阶段读入文件后逐块输出；配置文件路径和通道数。组件自身不执行采样率转换，文件采样率须与图的输入时间线匹配。"
 order: 1
 version: 1.1.0
 abi_version: 6

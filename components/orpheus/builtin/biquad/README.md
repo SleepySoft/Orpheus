@@ -1,4 +1,4 @@
-# orpheus.builtin.biquad — 双二阶滤波器
+# orpheus.builtin.biquad — 二阶滤波器（Biquad）
 
 ## 功能
 

@@ -1,4 +1,4 @@
-# orpheus.builtin.embed_out — 嵌入输出
+# orpheus.builtin.embed_out — 嵌入式音频输出
 
 ## 功能
 

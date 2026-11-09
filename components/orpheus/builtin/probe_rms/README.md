@@ -1,4 +1,4 @@
-# orpheus.builtin.probe_rms — 电平表
+# orpheus.builtin.probe_rms — RMS电平表
 
 ## 功能
 

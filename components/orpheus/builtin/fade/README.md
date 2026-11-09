@@ -1,4 +1,4 @@
-# orpheus.builtin.fade — 前后衰减
+# orpheus.builtin.fade — 前后声道平衡
 
 ## 功能
 

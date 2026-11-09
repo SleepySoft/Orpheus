@@ -1,4 +1,4 @@
-# orpheus.builtin.signal_gen — 信号发生器
+# orpheus.builtin.signal_gen — 正弦信号源
 
 ## 功能
 

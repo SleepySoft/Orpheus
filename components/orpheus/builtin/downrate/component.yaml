@@ -1,7 +1,7 @@
 id: orpheus.builtin.downrate
-name: 分频器
-category: 高级/多速率
-description: 音频组块：连续写入N个常规块形成超块；显式驱动模式下输出不传播驱动，消费入口自行设置分频
+name: "音频组块器"
+category: "驱动与缓冲"
+description: "连续接收N个音频块并原样拼成一个大块，采样率不变。输出截断驱动传播，消费者由自己的任务入口触发；不分频、不重采样，也不因写满自动调用消费者。"
 version: 1.0.0
 abi_version: 6
 package_type: source

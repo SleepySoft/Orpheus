@@ -1,4 +1,4 @@
-# orpheus.builtin.probe_spectrum — 频谱分析仪
+# orpheus.builtin.probe_spectrum — FFT频谱观察
 
 ## 功能
 

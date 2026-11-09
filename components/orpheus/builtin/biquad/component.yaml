@@ -1,6 +1,7 @@
 id: orpheus.builtin.biquad
-name: 双二阶滤波器
-category: 基础/滤波
+name: "二阶滤波器（Biquad）"
+category: "滤波与均衡"
+description: "单段二阶IIR滤波，支持低通、高通、带通、陷波、峰值及搁架响应；频率、Q和增益确定系数，可选DF1或DF2T结构。Biquad表示分子与分母均为二次式，不是两段二阶滤波。"
 order: 1
 version: 1.1.0
 abi_version: 6

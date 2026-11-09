@@ -1,4 +1,4 @@
-# orpheus.builtin.bass — 低音
+# orpheus.builtin.bass — 低频音调控制
 
 ## 功能
 

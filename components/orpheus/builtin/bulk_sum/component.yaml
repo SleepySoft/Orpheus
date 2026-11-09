@@ -1,6 +1,6 @@
 id: orpheus.builtin.bulk_sum
-name: 计算数据有序求和
-category: 基础/计算数据
+name: "数组有序求和"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

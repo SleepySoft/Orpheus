@@ -1,4 +1,4 @@
-# orpheus.builtin.square — 平方器
+# orpheus.builtin.square — 逐样本平方
 
 ## 功能
 

@@ -1,8 +1,8 @@
 id: orpheus.builtin.loudness_gain_control
-name: 响度增益控制器
-category: 基础/控制
+name: "RMS自动增益控制"
+category: "增益与动态"
 order: 1
-description: 将线性 RMS 电平转换为目标 dB 增益：检测平滑、静音门、增益限幅和快压慢抬；音频端口仅直通以保持同一时间线
+description: "依据线性RMS电平生成目标dB增益，包含检测平滑、静音门、上下限和快压慢抬；音频仅直通，增益需由下游应用。不是标准LUFS响度控制。"
 version: 1.0.0
 abi_version: 6
 package_type: source

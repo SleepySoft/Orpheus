@@ -1,6 +1,7 @@
 id: orpheus.builtin.indexed_tone
-name: 索引式音调控制
-category: 音效/均衡
+name: "索引控制均衡"
+category: "滤波与均衡"
+description: "将外部索引映射为提升或衰减增益，以一阶或二阶原始滤波支路实现y=x+(G-1)f(x)，并平滑过渡；boost/cut系数可独立配置，不绑定车型或模型。"
 version: 1.1.0
 abi_version: 6
 package_type: source

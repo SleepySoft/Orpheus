@@ -1,6 +1,6 @@
 id: orpheus.builtin.audio_bulk_snapshot
-name: 调用返回音频快照
-category: 基础/数据适配
+name: "音频数据快照"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

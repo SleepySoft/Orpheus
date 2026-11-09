@@ -1,6 +1,6 @@
 id: orpheus.builtin.fir_bank
 name: 多通道FIR滤波器组
-category: 高级/滤波器
+category: "滤波与均衡"
 description: 共享或每通道独立系数、异构有效抽头数、块边界系数更新；暂停输出正零并冻结历史
 version: 1.1.0
 abi_version: 6

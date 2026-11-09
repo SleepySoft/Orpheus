@@ -1,4 +1,4 @@
-# orpheus.builtin.loudness_gain_control - 响度增益控制器
+# orpheus.builtin.loudness_gain_control - RMS自动增益控制
 
 这是 `loudness_normalizer` 内部控制算法的教学原子：输入线性 RMS，输出应施加的 dB 增益。它不测量音频，也不施加增益；音频端口只做逐样本直通，让控制器与检测器、增益器处在同一 Task 和时间线上。
 

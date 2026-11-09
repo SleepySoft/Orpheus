@@ -1,6 +1,7 @@
 id: orpheus.builtin.bulk_deinterleave
-name: 计算数据通道拆分
-category: 基础/计算数据
+name: "数组通道拆分"
+category: "路由与混音"
+description: "将交错f32数组按通道拆为多路单通道数组；每路保留elements项及其顺序，不做音频重采样或改变调用周期。"
 version: 1.1.0
 abi_version: 6
 package_type: source

@@ -1,4 +1,4 @@
-# orpheus.builtin.downrate — 分频器
+# orpheus.builtin.downrate — 音频组块器
 
 ## 功能
 

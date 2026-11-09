@@ -1,4 +1,4 @@
-# orpheus.builtin.uart_link — 串口链路（生成代码的串口控制通道）
+# orpheus.builtin.uart_link — 串口访问桥（旧入口）（生成代码的串口控制通道）
 
 > 兼容入口：新工程请使用「访问桥」配置节点。旧 `uart_link` 在编译时自动映射为顶层 `bridges[].transport: uart`，首次经 UI 保存后完成迁移。
 

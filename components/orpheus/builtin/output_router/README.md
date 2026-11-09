@@ -1,4 +1,4 @@
-# orpheus.builtin.output_router — 输出路由
+# orpheus.builtin.output_router — 静态矩阵路由
 
 ## 功能
 

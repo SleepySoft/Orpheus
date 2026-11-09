@@ -1,6 +1,6 @@
 id: orpheus.builtin.bulk_relay
-name: BULK 控制中继
-category: 基础/控制
+name: "数组控制中继"
+category: "数学与控制"
 description: 固定容量、块边界原子提交的 float 数组控制源/目标
 version: 1.0.0
 abi_version: 6

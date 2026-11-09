@@ -1,6 +1,6 @@
 id: orpheus.builtin.frame_energy
-name: 音频帧总能量
-category: 高级/估计与统计
+name: "音频窗口总能量"
+category: "频域与分析"
 description: >-
   固定窗口内逐帧按通道声明顺序累加平方，再按帧顺序累加为一个f32 BULK标量。
   平方、通道加法、帧加法分别舍入；总和初值负零，不平均、不转dB、不广播、不跨调用累计。

@@ -1,4 +1,4 @@
-# orpheus.builtin.balance — 左右平衡
+# orpheus.builtin.balance — 左右声道平衡
 
 ## 功能
 

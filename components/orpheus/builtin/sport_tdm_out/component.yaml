@@ -1,6 +1,6 @@
 id: orpheus.builtin.sport_tdm_out
 name: SPORT/TDM 输出
-category: 平台/ADI DSP
+category: "平台与通信"
 description: 图内交错 f32 到 SPORT/TDM DMA slot 的输出边界；物理 slot 映射和格式由工程顶层 sport_bindings 配置
 platforms: [adsp21593]
 version: 1.0.0

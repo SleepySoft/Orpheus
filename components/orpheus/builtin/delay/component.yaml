@@ -1,6 +1,7 @@
 id: orpheus.builtin.delay
-name: 延迟
-category: 基础/延迟
+name: "音频延迟与干湿混合"
+category: "驱动与缓冲"
+description: "以毫秒设置音频延迟，所有通道采用同一延迟量；mix控制干声与延迟声的混合。与逐通道独立延迟及共享池延迟的存储模型不同。"
 version: 1.0.1
 abi_version: 6
 package_type: source

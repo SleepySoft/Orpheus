@@ -1,6 +1,7 @@
 id: orpheus.builtin.probe_spectrum
-name: 频谱分析仪
-category: 基础/监控
+name: "FFT频谱观察"
+category: "频域与分析"
+description: "对音频窗口作FFT并读回观察频谱，音频直通；用于界面观测，不向下游提供频域算法数据端口。"
 order: 4
 version: 1.0.0
 abi_version: 6

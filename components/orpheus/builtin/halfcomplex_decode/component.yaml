@@ -1,6 +1,6 @@
 id: orpheus.builtin.halfcomplex_decode
 name: 半复数频谱解包
-category: 高级/频域
+category: "频域与分析"
 version: 1.0.0
 abi_version: 6
 package_type: source

@@ -1,4 +1,4 @@
-# orpheus.builtin.treble — 高音
+# orpheus.builtin.treble — 高频音调控制
 
 ## 功能
 

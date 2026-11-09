@@ -1,7 +1,7 @@
 id: orpheus.builtin.sleeping_beauty
-name: 响度补偿
-category: 音效/动态与塑形
-description: SleepingBeauty 响度补偿算法 - 锥度增益LUT + 非对称L/R平衡锥度 + 4路指数增益斜坡
+name: "声道分组平衡渐变"
+category: "增益与动态"
+description: "将增益索引查表后计算非对称左右平衡目标，再由左右、中央、单声道四组指数斜坡作用到映射通道。不测量输入响度，不是通用响度均衡；表和通道映射可配置。"
 version: 1.2.0
 abi_version: 6
 package_type: source

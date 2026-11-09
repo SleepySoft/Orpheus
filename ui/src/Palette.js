@@ -2,8 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { subCatalogEntry, subViewKey } from './graphUtils';
 import { fuzzyMatch } from './fuzzy';
 
-// preferred display order for top-level categories; unknown ones go last (alphabetical)
-const TOP_ORDER = ['基础', '音效', '高级', '平台'];
+// 通用组件按功能排列，工程分组始终置顶；未知分类仍可显示。
+const TOP_ORDER = [
+  '输入与输出', '驱动与缓冲', '路由与混音', '增益与动态', '滤波与均衡',
+  '频域与分析', '自适应与降噪', '数学与控制', '平台与通信',
+];
 
 function topSort(a, b) {
   const ia = TOP_ORDER.indexOf(a);
@@ -20,7 +23,7 @@ function leafSort(a, b) {
   return (a.name || a.id).localeCompare(b.name || b.id, 'zh');
 }
 
-// category 为 '/' 分隔的多级路径（如 基础/滤波），递归建树，深度不限
+// 导入组件仍可使用多级分类；通用库按功能平铺，避免碎片化目录。
 function buildTree(components) {
   const root = { name: '', children: new Map(), items: [] };
   for (const c of components) {

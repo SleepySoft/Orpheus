@@ -1,4 +1,4 @@
-# orpheus.builtin.delay — 通用延迟 + 干/湿混音
+# orpheus.builtin.delay — 通用音频延迟与干湿混合 + 干/湿混音
 
 ## 功能
 

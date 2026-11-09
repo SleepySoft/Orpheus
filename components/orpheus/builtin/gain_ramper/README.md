@@ -1,4 +1,4 @@
-# gain_ramper - 多通道增益斜坡器
+# gain_ramper - 声道分组增益斜坡
 
 > Orpheus 通用原语组件（L0），对应外部模型的 Rgainx/Rgainy 块。
 

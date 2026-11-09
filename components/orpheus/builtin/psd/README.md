@@ -1,4 +1,4 @@
-# orpheus.builtin.psd — 功率谱估计
+# orpheus.builtin.psd — 平滑功率谱估计
 
 ## 功能
 

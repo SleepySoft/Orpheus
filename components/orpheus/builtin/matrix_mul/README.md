@@ -1,4 +1,4 @@
-# orpheus.builtin.matrix_mul — 矩阵乘法
+# orpheus.builtin.matrix_mul — 系数矩阵混音
 
 ## 功能
 

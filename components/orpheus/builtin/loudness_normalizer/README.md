@@ -1,4 +1,4 @@
-# orpheus.builtin.loudness_normalizer - 节目响度均衡器
+# orpheus.builtin.loudness_normalizer - RMS音量均衡
 
 面向视频、播客和普通节目播放的 RMS 自动电平控制：小声内容缓慢抬升，大声内容快速压低，使不同节目听起来更接近同一水平。
 

@@ -1,6 +1,7 @@
 id: orpheus.builtin.indexed_gain
-name: 索引式增益
-category: 基础/增益与动态
+name: "查表增益渐变"
+category: "增益与动态"
+description: "将外部索引通过自定义dB表转换为共享音频增益，并逐样本指数渐变；支持偏置、增益上限、冻结和显式冷启动值，不绑定具体音量表或模型。"
 version: 1.0.0
 abi_version: 6
 package_type: source

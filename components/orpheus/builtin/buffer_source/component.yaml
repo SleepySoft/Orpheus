@@ -1,6 +1,6 @@
 id: orpheus.builtin.buffer_source
-name: 音频驱动源
-category: 基础/驱动源
+name: "音频缓冲驱动源"
+category: "驱动与缓冲"
 order: 1
 version: 1.0.0
 abi_version: 6

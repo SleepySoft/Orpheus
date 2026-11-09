@@ -1,6 +1,6 @@
 id: orpheus.builtin.sequence_envelope_state
-name: 序列包络状态
-category: 基础/状态
+name: "序列锁存增益状态"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

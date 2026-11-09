@@ -1,4 +1,4 @@
-# bulk_relay - BULK 控制中继
+# bulk_relay - 数组控制中继
 
 ## 功能
 

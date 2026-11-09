@@ -81,3 +81,20 @@ test('只有子组件时不误报后端无组件', () => {
   expect(section('工程子组件')).not.toBeNull();
   expect(container.textContent).not.toContain('后端未连接');
 });
+
+test('通用组件按功能顺序排列，未知分类仍可显示在末尾', () => {
+  const categories = [
+    '输入与输出', '驱动与缓冲', '路由与混音', '增益与动态', '滤波与均衡',
+    '频域与分析', '自适应与降噪', '数学与控制', '平台与通信',
+  ];
+  const items = [...categories].reverse().map((category, index) => ({
+    id: `test.category${index}`, name: category, category,
+  }));
+  render({ components: [{ id: 'test.unknown', name: '外部', category: '外部扩展' }, ...items], subsMeta: [] });
+  const headers = Array.from(
+    container.querySelectorAll('.palette > .palette-category > .palette-category-header'),
+    (node) => Array.from(node.childNodes).filter((child) => child.nodeType === Node.TEXT_NODE)
+      .map((child) => child.textContent).join('').trim()
+  );
+  expect(headers).toEqual([...categories, '外部扩展']);
+});

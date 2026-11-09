@@ -1,4 +1,4 @@
-# orpheus.builtin.mixer — 混音器
+# orpheus.builtin.mixer — 双路加权混音
 
 ## 功能
 

@@ -1,4 +1,4 @@
-# orpheus.builtin.switch — 开关
+# orpheus.builtin.switch — 通断渐变
 
 ## 功能
 

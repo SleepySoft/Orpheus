@@ -1,8 +1,10 @@
-# orpheus.builtin.spectral_reduce — 谱减聚合
+# orpheus.builtin.spectral_reduce — 频谱聚合统计
 
 ## 功能
 
 STFT 分析链的收尾组件：把"每块 `num_frames` 帧 × 每帧 `fft_size` 个槽位"的展平频谱流，按通道聚合成**单一标量**（sum / mean / min / max），再把该标量**广播填满整个输出块**。
+
+`reduce`在此表示归约统计，不是减法。本组件不估计或减去噪声谱；若用于谱减算法，仍需另外连接噪声估计和相减模块。
 
 ```
 输入布局（每通道）：[ 帧0: bin0..binN | 帧1: bin0..binN | ... ]  每帧步长 fft_size

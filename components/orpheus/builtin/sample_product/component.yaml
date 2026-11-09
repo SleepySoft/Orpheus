@@ -1,6 +1,6 @@
 id: orpheus.builtin.sample_product
 name: 逐样本乘法
-category: 基础/计算
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

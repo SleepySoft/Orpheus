@@ -1,6 +1,6 @@
 id: orpheus.builtin.dual_trapezoid_smooth
-name: 双速梯形向量平滑
-category: 基础/计算数据
+name: "双系数梯形平滑"
+category: "数学与控制"
 version: 1.1.0
 abi_version: 6
 package_type: source

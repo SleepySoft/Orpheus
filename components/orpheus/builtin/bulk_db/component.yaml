@@ -1,6 +1,6 @@
 id: orpheus.builtin.bulk_db
-name: 数据dB桥接
-category: 基础/计算数据
+name: "线性与dB换算"
+category: "数学与控制"
 description: >-
   同shape实数数据的功率/幅值dB换算。mode=0计算log10f(x+epsilon)*factor；
   mode=1计算expf((x*2.30258512F)/factor)，不改写为powf。

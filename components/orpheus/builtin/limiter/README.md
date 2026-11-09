@@ -1,4 +1,4 @@
-# orpheus.builtin.limiter — 峰值限幅
+# orpheus.builtin.limiter — 峰值增益限幅
 
 ## 功能
 

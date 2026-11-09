@@ -1,6 +1,6 @@
 id: orpheus.builtin.host_audio
 name: 宿主音频缓冲接口
-category: 平台/平台
+category: "输入与输出"
 version: 1.0.0
 abi_version: 6
 package_type: source

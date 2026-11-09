@@ -1,7 +1,7 @@
 id: orpheus.builtin.input_mixer_3d
-name: 3D输入混音器
-category: 高级/矩阵与混音
-description: 加权矩阵混音器（输入通道->输出通道），BULK权重直写，覆盖InputMixer3D/DownmixToStereo
+name: "矩阵混音与输出增益"
+category: "路由与混音"
+description: "按权重矩阵将M路音频混为N路，可附加共享输出增益；BULK权重采用固定行步长布局。没有HRTF或三维空间处理，与matrix_mul的系数布局及增益接口不同。"
 version: 1.0.0
 abi_version: 6
 package_type: source

@@ -1,6 +1,6 @@
 id: orpheus.builtin.block_split
 name: 音频拆块器
-category: 高级/多速率
+category: "驱动与缓冲"
 description: 同采样率大块转小块；首次完整输入到达前输出零，之后按节拍依次交付，不丢弃或重复样本
 version: 1.0.0
 abi_version: 6

@@ -1,6 +1,6 @@
 id: orpheus.builtin.pool_delay
-name: 共享池整数延迟
-category: 高级/滤波器组
+name: "共享池声道延迟"
+category: "驱动与缓冲"
 description: >-
   通道按当前延迟前缀和定位共享循环池；变长重解释旧池，不等同于独立通道历史。
   enabled默认true保持原行为；false时逐字节输出干声且冻结整个池/游标，重新启用从旧历史继续。

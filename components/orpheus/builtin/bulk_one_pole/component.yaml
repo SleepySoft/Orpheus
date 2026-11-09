@@ -1,6 +1,6 @@
 id: orpheus.builtin.bulk_one_pole
-name: 计算数据一阶指数平滑
-category: 基础/计算数据
+name: "数组指数平滑"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

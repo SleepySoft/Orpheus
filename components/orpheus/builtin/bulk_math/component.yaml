@@ -1,6 +1,6 @@
 id: orpheus.builtin.bulk_math
-name: 同形数组基础二元运算
-category: 基础/计算数据
+name: "数组逐元素运算"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

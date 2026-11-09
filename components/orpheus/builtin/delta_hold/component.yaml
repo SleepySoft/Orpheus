@@ -1,6 +1,6 @@
 id: orpheus.builtin.delta_hold
-name: 增量触发与计次保持
-category: 基础/计算数据
+name: "增量触发保持"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

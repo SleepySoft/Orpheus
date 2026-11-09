@@ -1,6 +1,6 @@
 id: orpheus.builtin.bulk_guarded_slew
-name: 数据方向保持与阈值限速
-category: 基础/计算数据
+name: "数组方向保持限速"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

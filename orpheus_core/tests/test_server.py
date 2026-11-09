@@ -63,9 +63,9 @@ def test_components_have_chinese_name_and_category(client):
     for c in comps:
         assert c["name"] and c["name"] != c["id"], f"{c['id']} missing display name"
         assert c["category"] and c["category"] != "未分类", f"{c['id']} missing category"
-        # 顶层分类可扩展，面板中的优先排序列表不是分类白名单。
+        # 通用库为单级功能分类，外部导入仍可使用多级路径。
         segs = [s.strip() for s in c["category"].split("/") if s.strip()]
-        assert len(segs) >= 2, f"{c['id']} category 应为多级路径: {c['category']}"
+        assert segs, f"{c['id']} category 应为非空功能路径: {c['category']}"
 
 
 def test_component_rescan_refreshes_cached_project_registry(tmp_path):

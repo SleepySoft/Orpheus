@@ -1,7 +1,7 @@
 id: orpheus.builtin.matrix_mul
-name: 矩阵乘法
-category: 高级/矩阵与混音
-description: 矩阵乘音频块（out[rows] = M(rows×cols) · in[cols]，M 为 BULK 系数）
+name: "系数矩阵混音"
+category: "路由与混音"
+description: "以行优先BULK系数矩阵乘每帧音频向量，将cols路混为rows路；不内置系数渐变或额外输出增益，也不是任意两个数据矩阵相乘。"
 version: 1.1.0
 abi_version: 6
 package_type: source

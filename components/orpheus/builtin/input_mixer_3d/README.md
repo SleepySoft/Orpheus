@@ -1,6 +1,6 @@
-# input_mixer_3d - 3D输入混音器
+# input_mixer_3d - 矩阵混音与输出增益
 
-> Orpheus 专用扩展组件（L1），对应外部模型的 InputMixer3D + DownmixToStereo 块。
+> 通用矩阵混音组件；历史ID保留`input_mixer_3d`，但没有三维空间或HRTF处理。
 
 ## 功能
 
@@ -30,7 +30,9 @@
 |-------|------|------|------|
 | `weights` | float | 1024 | 权重矩阵 `32×32` 行优先，双缓冲 |
 
-实际使用前 `output_channels × input_channels` 个 float，按行优先填充 `[out0_in0, out0_in1, ..., out1_in0, ...]`。行间距为 `IM3D_MAX_CHANNELS=32`（固定步长，便于 BULK 边界对齐）。双缓冲保证权重原子切换。
+`weights`配置字符串按紧凑的`output_channels × input_channels`排列，准备阶段展开到固定行步长32。
+直接写BULK槽时，第`o`行第`i`列位于`o*32+i`，不能把紧凑矩阵直接写入槽后当作多行矩阵。
+双缓冲保证权重原子切换。与`matrix_mul`的紧凑行优先矩阵不同，本组件另有共享输出增益。
 
 ## 算法
 

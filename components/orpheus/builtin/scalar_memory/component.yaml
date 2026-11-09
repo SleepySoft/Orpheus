@@ -1,6 +1,6 @@
 id: orpheus.builtin.scalar_memory
-name: 标量门控存储
-category: 基础/计算数据
+name: "标量采样保持"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

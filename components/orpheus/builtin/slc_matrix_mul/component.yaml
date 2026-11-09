@@ -1,7 +1,7 @@
 id: orpheus.builtin.slc_matrix_mul
-name: N表插值斜坡混音矩阵
-category: 高级/矩阵与混音
-description: N表插值请求，或奇偶序列锁存目标的一阶IIR渐变矩阵
+name: "插值与平滑矩阵混音"
+category: "路由与混音"
+description: "音频矩阵混音并逐样本一阶平滑系数；可从多张系数表插值生成目标，或按奇偶序列接收外部目标。奇序列冻结，变化的偶序列锁存目标；不是普通静态矩阵乘法。"
 version: 1.1.0
 abi_version: 6
 package_type: source

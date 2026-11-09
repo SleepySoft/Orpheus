@@ -1,4 +1,4 @@
-# orpheus.builtin.sweep_record — 扫频记录
+# orpheus.builtin.sweep_record — 扫频响应记录
 
 ## 功能
 

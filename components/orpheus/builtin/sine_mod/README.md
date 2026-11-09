@@ -1,4 +1,4 @@
-# orpheus.builtin.sine_mod — 正弦调制器
+# orpheus.builtin.sine_mod — 正弦与周期表调制
 
 ## 功能
 

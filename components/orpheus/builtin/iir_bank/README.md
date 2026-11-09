@@ -1,10 +1,10 @@
-# iir_bank - N级IIR滤波器组
+# iir_bank - 级联二阶滤波器组
 
 > Orpheus 通用 IIR 组件（L1），可承接 pooliir / GLXP IIR 系数转换后的软件实现。
 
 ## 功能
 
-可配置级数的级联双二阶（biquad）IIR 滤波器组。系数通过 BULK 槽连续直写，支持运行时热更新。是 pooliir 硬件加速器的软件近似实现。
+可配置级数的级联二阶节（biquad）IIR滤波器组。系数通过BULK槽连续直写，支持运行时热更新。是pooliir硬件加速器的软件近似实现。
 
 ## 端口
 

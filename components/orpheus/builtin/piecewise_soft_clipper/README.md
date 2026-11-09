@@ -1,4 +1,4 @@
-# orpheus.builtin.piecewise_soft_clipper - 二次分段软削波
+# orpheus.builtin.piecewise_soft_clipper - 分段二次软削波
 
 ## 功能
 

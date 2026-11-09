@@ -1,10 +1,12 @@
-# sleeping_beauty - 响度补偿
+# sleeping_beauty - 声道分组平衡渐变
 
-> Orpheus 高级组合组件（L2），对应外部模型的 FullRateSleepingBeauty 子系统。
+> 通用声道分组平衡构件；历史ID保留`sleeping_beauty`，实现来源为FullRateSleepingBeauty。
 
 ## 功能
 
-SleepingBeauty 响度补偿算法。根据音量位置（gain_index）应用非对称 L/R 增益锥度，经 4 路指数斜坡器平滑输出。核心是"低音量提升、高音量衰减"的响度曲线 + 平衡位置的非对称衰减。
+根据索引`gain_index`查表计算非对称左右平衡目标，经左右、中央、单声道四组指数斜坡作用于映射通道。
+查找表、通道映射和中央/单声道策略均可配置。不分析输入的响度，也没有低频或高频响度补偿滤波。
+历史名称不能被理解为自动响度均衡或“低音量自动提升”算法。
 
 ## 端口
 

@@ -1,4 +1,4 @@
-# orpheus.builtin.noise_slew — 变化率限幅
+# orpheus.builtin.noise_slew — 音频变化率限幅
 
 ## 功能
 

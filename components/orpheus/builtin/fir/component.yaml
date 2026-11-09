@@ -1,6 +1,7 @@
 id: orpheus.builtin.fir
 name: FIR 滤波器
-category: 基础/滤波
+category: "滤波与均衡"
+description: "所有通道使用同一组系数的FIR卷积，保存各通道历史；taps确定抽头数。需要逐通道系数或异构抽头数时使用fir_bank。"
 order: 2
 version: 1.0.0
 abi_version: 6

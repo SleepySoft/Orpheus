@@ -1,4 +1,4 @@
-# 噪声检测(NLMS残差) 组件说明
+# NLMS残差分析 组件说明
 > 组件 ID `orpheus.builtin.noise_detector_nlms` · 类型：纯观测（直通输出，不处理）
 > 双端 A/B：用 **NLMS 自适应滤波器**学习 `ref → in` 的线性冲击响应，把“线性可解释部分”剥离后剩下的残差就是噪声/失真。
 

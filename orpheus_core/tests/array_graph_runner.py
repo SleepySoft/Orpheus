@@ -11,6 +11,16 @@ from orpheus_core.generator import CodeGenerator
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def partition_component_sources(registry, plan):
+    shared, imported = [], []
+    for component in sorted({cfg["component"] for cfg in plan.node_configs.values()}):
+        info = registry.get(component)
+        assert info is not None
+        target = shared if info.root_dir.resolve().is_relative_to(ROOT / "components") else imported
+        target.append(component)
+    return shared, imported
+
+
 def use_linear_call_chain(plan):
     # 已声明的调用不改写；旧数值夹具按节拍分段，段内续调，入口只驱动各段。
     if plan.flow_mode == "task_sequence":
@@ -41,6 +51,7 @@ def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3):
         raise ValueError("数组数值夹具需要且仅支持一个Task。")
     step = plan.schedule["tick"]
     generated = tmp_path / "generated"
+    components, imported = partition_component_sources(registry, plan)
     generator = CodeGenerator(registry, ROOT)
     generator.generate(plan, generated)
     task_symbol = generator._sanitized_node_id(plan.tasks[0]["id"])
@@ -50,8 +61,7 @@ def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3):
                    "target_compile_definitions(array_test PRIVATE ORPHEUS_TEST_GENERATED "
                    f"ORPHEUS_TEST_TASK_FUNCTION=orpheus_generated_process_task_{task_symbol})\n"
                    "target_link_libraries(array_test PRIVATE orpheus_graph)\n")
-        for component in sorted({cfg["component"] for cfg in plan.node_configs.values()
-                                 if not cfg["component"].startswith("orpheus.builtin.")}):
+        for component in imported:
             info = registry.get(component)
             assert info is not None
             target = component.replace(".", "_")+"_dynamic"
@@ -62,8 +72,6 @@ def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3):
                        f'set_target_properties({target} PROPERTIES PREFIX "lib" OUTPUT_NAME "{component.replace(".", "_")}" '
                        'WINDOWS_EXPORT_ALL_SYMBOLS ON RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components" '
                        'LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components")\n')
-    components = sorted({cfg["component"] for cfg in plan.node_configs.values()
-                         if cfg["component"].startswith("orpheus.builtin.")})
     result = subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", "halfcomplex_runner",
                              *[component.replace(".", "_") for component in components]],
                             capture_output=True, text=True, encoding="utf-8")

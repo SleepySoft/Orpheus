@@ -1,6 +1,6 @@
 id: orpheus.builtin.sine_mod
-name: 正弦调制器
-category: 音效/调制
+name: "正弦与周期表调制"
+category: "增益与动态"
 description: 默认AM/颤音；可选逐帧同步的周期表纯乘法，支持有符号载波
 version: 1.1.0
 abi_version: 6

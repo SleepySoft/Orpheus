@@ -1,6 +1,7 @@
 id: orpheus.builtin.trapezoid_ratio
 name: 双路梯形平滑比值
-category: 基础/计算数据
+category: "数学与控制"
+description: "对分子与分母数组分别作梯形递推平滑，再计算平滑分子/(平滑分母+epsilon)；可选直接除法或先倒数再乘。各元素保存独立历史，不做重采样。"
 version: 1.1.0
 abi_version: 6
 package_type: source

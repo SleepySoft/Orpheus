@@ -1,16 +1,16 @@
-# slc_matrix_mul - N 表插值斜坡混音矩阵
+# slc_matrix_mul - 插值与平滑矩阵混音
 
-> Orpheus 专用组件，对应外部模型 Part3 MixingControl + RampProcessing 的一体化实现。
+> 通用矩阵混音核；历史实现来自Part3 MixingControl与RampProcessing，矩阵尺寸和目标生产方式可配置。
 
 ## 功能
 
 将 **N 表插值**、**一阶 IIR 斜坡渐变**、**矩阵乘法**三个紧密耦合的操作封装在单个组件内，逐样本执行。
 
-核心解决的问题：用户控制信号（如环绕声等级 `surround_index`）需要在多张预调增益表之间插值出目标矩阵，再经 IIR 平滑过渡后用于音频混音。这三步在同一个样本循环内交替执行（先更新增益、再用更新后的增益做矩阵乘），无法拆分为多个组件。
+目标系数可以由内部多表插值产生，也可由外部图提交。本组件在每个样本先更新平滑系数，再混音，避免将逐样本渐变误写为每块更新一次。
 
 ## 设计背景
 
-### 为什么不能拆分
+### 与基础构件的关系
 
 外部模型的 Part3 混音使用三组斜坡渐变混音矩阵（Cs 13x2、Left 7x10、Right 7x10），每组有 Min/Detent/Max 三张预调表。完整处理链路：
 
@@ -21,13 +21,17 @@ surround_index(0-255, 用户控制)
     -> 矩阵乘(out = active * in)
 ```
 
-拆分为多组件不可行的原因：
+框架已有逐样本包络和乘法构件，不能以“组件按块通信”推论算法一律不可拆。
+不过，现有`matrix_mul`每块使用同一份系数矩阵；简单把插值、平滑和该组件串接，不能保持此处逐样本更新矩阵的行为。
+若展开为图，需要明确表达逐样本系数及原有锁存、冻结、反馈次序，不能用带一块延迟的参数控制链替代。
+本组件保留可配置的完整矩阵核，不绑定上述三个矩阵的尺寸或系数表。
 
-1. **逐样本耦合**：IIR 渐变和矩阵乘在同一个 sample 循环内交替执行。Orpheus 组件间按块（32样本）通信，无法实现逐样本的数据传递。
-2. **无连续 control-rate 端口**：Orpheus 已支持参数级 `control_connections`（块边界两相快照，每链 1 块延迟），但尚未实现逐样本 control-rate 缓冲端口。166 个矩阵系数也不能在每个样本间通过参数链重写。
-3. **时序与数据量不匹配**：`interp_index` 是块边界标量控制值，矩阵系数是 bulk 数组；即使参数控制链可用，也不能替代同一 sample loop 内的插值、IIR 渐变和矩阵乘。
+### 目标生产方式
 
-因此仍需一体化组件。`interp_index` 可从图外通过 `SET` 注入，也可在 manifest 声明为 bindable 后由参数控制链在块边界驱动；插值/渐变/乘法继续在 `process` 内逐样本完成。
+- `execution_mode=0`：由`tables/interp_x/interp_index`生成目标，`freeze`控制平滑。
+- `execution_mode=1`：从`requested_gains`接收外部目标；奇数`sequence`冻结，变化的偶数序列锁存目标。
+- `requested_gains`、`accepted_targets`、`active_gains`分别表示待接收、已接收和实际当前矩阵，可通过BULK接口访问。
+- `sequence`为块边界更新；`last_sequence/initialized`为状态探针。
 
 ## 端口
 
@@ -61,7 +65,7 @@ SET <node_id> interp_index 128.0
 SET <node_id> freeze 1
 ```
 
-其余参数为 `restart_required`，修改后需重新编译/加载。
+表格中的其余参数为`restart_required`。序列模式另外使用块边界`sequence`和BULK目标提交，不能与插值模式的`freeze`混为一谈。
 
 ## 算法
 

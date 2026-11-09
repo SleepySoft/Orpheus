@@ -1,6 +1,7 @@
 id: orpheus.builtin.gain
 name: 增益
-category: 基础/增益与混音
+category: "增益与动态"
+description: "音频增益处理：支持共享dB增益、共享线性目标或逐通道线性系数，并按所选模式平滑；不测量响度，也不自动计算补偿目标。"
 order: 1
 version: 1.2.0
 abi_version: 6

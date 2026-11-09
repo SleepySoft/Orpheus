@@ -1,6 +1,6 @@
 id: orpheus.builtin.one_pole_envelope
-name: 逐样本一阶包络
-category: 基础/计算
+name: "逐样本增益包络"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

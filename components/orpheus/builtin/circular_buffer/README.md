@@ -1,4 +1,4 @@
-# orpheus.builtin.circular_buffer — 循环缓冲分帧
+# orpheus.builtin.circular_buffer — 重叠音频分帧
 
 ## 功能
 

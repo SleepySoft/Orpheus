@@ -1,14 +1,15 @@
-# rate_sync
+# rate_sync — 双路缓冲合流
 
-多速率异步合流（multi-rate async merge）同步缓冲组件。
+同采样率音频的双路FIFO缓冲合流，对齐读取后逐样本相加；不执行采样率转换。
+本组件不提供跨线程SPSC同步，不能与`async_bridge`的异步任务边界混为一谈。
 
 ## 用途
 
-当两条（或多条）音频路径被各自降采样到**同一绝对采样率、同一 tick 块长**，
-但来自不同基块速率/不同调度除数时，不能直接进一个普通 mixer（编译器会因
+当两条音频路径处于**同一绝对采样率**，但交付块长不同，
+不能直接进一个普通mixer（编译器会因
 "rate mismatch" 或 "block size mismatch" 拒绝）。
 
-`rate_sync` 通过 manifest 的 `scheduling.merge: true` 声明"接受异步多速率输入"，
+`rate_sync`通过manifest的`scheduling.merge: true`声明允许多速率块长合流，
 编译器据此放行跨除数合流，并把本节点的输出块长设为各输入块长的 **LCM（公倍数）**，
 由组件内部的 FIFO 在公共 tick 上做时间对齐后合流输出。
 
@@ -23,7 +24,7 @@
 ## 端口
 
 - `in0` / `in1`：两组输入（audio, f32, 通道= `channels`）
-- `out`：对齐后的合流输出（audio, f32）
+- `out`：两路对齐后相加的音频（audio, f32），不是选择一路或通道拼接
 
 ## 示例 Diff
 

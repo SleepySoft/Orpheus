@@ -1,4 +1,4 @@
-# orpheus.builtin.device_in — 音频采集
+# orpheus.builtin.device_in — 声卡音频输入
 
 ## 功能
 

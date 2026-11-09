@@ -1,6 +1,7 @@
 id: orpheus.builtin.device_in
-name: 音频采集
-category: 基础/设备
+name: "声卡音频输入"
+category: "输入与输出"
+description: "由PC宿主提供声卡采集或回环音频，作为设备时钟输入边界；设备名称、通道数和采样率由参数配置，组件自身不执行设备IO。"
 order: 1
 platforms: [win]
 version: 1.0.0

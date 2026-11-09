@@ -1,4 +1,4 @@
-# orpheus.builtin.midrange — 中音
+# orpheus.builtin.midrange — 中频音调控制
 
 ## 功能
 

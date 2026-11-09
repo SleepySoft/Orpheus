@@ -1,6 +1,7 @@
 id: orpheus.builtin.probe_rms
-name: 电平表
-category: 基础/监控
+name: "RMS电平表"
+category: "频域与分析"
+description: "对音频块所有通道的样本合并计算一个线性RMS，经rms读回；不是逐通道电平表。音频直通，不做dB换算、LUFS测量或自动音量均衡。"
 order: 1
 version: 1.0.0
 abi_version: 6

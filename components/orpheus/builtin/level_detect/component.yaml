@@ -1,6 +1,6 @@
 id: orpheus.builtin.level_detect
-name: 电平检测
-category: 基础/监控
+name: "RMS与峰值检测"
+category: "频域与分析"
 order: 5
 description: >-
   execution_mode=0保持原平滑峰值/RMS包络；execution_mode=1无平滑，按通道从首样本起顺序累加均方，

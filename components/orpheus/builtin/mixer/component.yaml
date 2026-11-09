@@ -1,6 +1,7 @@
 id: orpheus.builtin.mixer
-name: 混音器
-category: 基础/增益与混音
+name: "双路加权混音"
+category: "路由与混音"
+description: "两路同通道音频分别乘gain0、gain1后相加；这是双输入加权混音，不是任意通道矩阵路由。"
 order: 2
 version: 1.0.0
 abi_version: 6

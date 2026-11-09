@@ -1,6 +1,6 @@
 id: orpheus.builtin.access_bridge
 name: 访问桥
-category: 平台/通信
+category: "平台与通信"
 order: 10
 description: 无音频端口的外部访问桥配置入口；保存为工程顶层 bridges，不参与音频执行
 version: 1.0.0

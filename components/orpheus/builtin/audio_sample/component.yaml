@@ -1,6 +1,6 @@
 id: orpheus.builtin.audio_sample
-name: 音频指定帧取样
-category: 基础/计算数据
+name: "音频帧取样"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

@@ -1,4 +1,4 @@
-# indexed_tone - 索引式音调控制
+# indexed_tone - 索引控制均衡
 
 通用 raw-filter tone 原语：把 0..255 索引映射到 boost/cut dB，使用逐样本指数 ramp 平滑增益，并执行：
 

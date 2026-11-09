@@ -1,6 +1,6 @@
 id: orpheus.builtin.level_tracker
-name: dB保持衰减跟踪
-category: 分析/电平
+name: "dB电平保持衰减"
+category: "频域与分析"
 version: 1.1.0
 abi_version: 4
 description: >-

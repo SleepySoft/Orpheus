@@ -1,6 +1,7 @@
 id: orpheus.builtin.probe_waveform
-name: 波形监视器
-category: 基础/监控
+name: "波形观察"
+category: "频域与分析"
+description: "保存音频块波形供界面观察，音频直通；不是文件录制、延迟线或算法反馈存储。"
 order: 3
 version: 1.0.0
 abi_version: 6

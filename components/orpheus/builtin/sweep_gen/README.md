@@ -1,4 +1,4 @@
-# orpheus.builtin.sweep_gen — 扫频发生器
+# orpheus.builtin.sweep_gen — 扫频信号源
 
 ## 功能
 

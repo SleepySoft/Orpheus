@@ -1,6 +1,7 @@
 id: orpheus.builtin.sweep_gen
-name: 扫频发生器
-category: 基础/信号源
+name: "扫频信号源"
+category: "输入与输出"
+description: "产生线性或对数扫频正弦音频，报告进度和当前频率；起止频率、时长、幅度和采样率可配置。"
 order: 2
 version: 1.0.0
 abi_version: 6

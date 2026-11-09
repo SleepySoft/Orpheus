@@ -1,6 +1,6 @@
 id: orpheus.builtin.sport_tdm_in
 name: SPORT/TDM 输入
-category: 平台/ADI DSP
+category: "平台与通信"
 description: SPORT/TDM DMA slot 到图内交错 f32 的输入边界；物理 slot 映射和格式由工程顶层 sport_bindings 配置
 platforms: [adsp21593]
 version: 1.0.0

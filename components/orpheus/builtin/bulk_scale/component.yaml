@@ -1,6 +1,6 @@
 id: orpheus.builtin.bulk_scale
-name: 数据标量乘法
-category: 基础/计算数据
+name: "数组标量缩放"
+category: "数学与控制"
 description: >-
   同shape实数向量乘一个显式标量。gain为f32，integer_gain为i32，二者必须且只能连接一个。
   整数先按C转换为f32再相乘，不按非零判真，不把零因子改成置零选择器；

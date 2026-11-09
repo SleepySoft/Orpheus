@@ -1,6 +1,7 @@
 id: orpheus.builtin.probe_peak
-name: 峰值表
-category: 基础/监控
+name: "峰值电平表"
+category: "频域与分析"
+description: "对音频块所有通道的样本取一个绝对峰值，经peak读回；不是逐通道电平表。音频直通，不施加限幅或增益控制。"
 order: 2
 version: 1.0.0
 abi_version: 6

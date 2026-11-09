@@ -1,6 +1,6 @@
 id: orpheus.builtin.bulk_constant
-name: 数据常量表
-category: 基础/计算数据
+name: "浮点数组常量"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

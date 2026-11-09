@@ -1,6 +1,6 @@
 id: orpheus.builtin.async_bridge
 name: 异步任务桥
-category: 基础/路由与时序
+category: "驱动与缓冲"
 description: 跨 Task 的固定容量 SPSC 缓冲边界；生产任务写入，消费任务按自身块长读取
 version: 1.0.0
 abi_version: 6

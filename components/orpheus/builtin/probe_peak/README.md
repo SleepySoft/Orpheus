@@ -1,4 +1,4 @@
-# orpheus.builtin.probe_peak — 峰值表
+# orpheus.builtin.probe_peak — 峰值电平表
 
 ## 功能
 

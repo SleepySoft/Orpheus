@@ -1,6 +1,6 @@
 id: orpheus.builtin.scalar_math
 name: 标量基础运算
-category: 基础/计算数据
+category: "数学与控制"
 version: 1.1.0
 abi_version: 6
 package_type: source

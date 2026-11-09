@@ -1,6 +1,6 @@
 id: orpheus.builtin.complex_gain_split
-name: 复数增益与互补分流
-category: 基础/计算数据
+name: "复数增益与差值分流"
+category: "频域与分析"
 version: 1.0.0
 abi_version: 6
 package_type: source

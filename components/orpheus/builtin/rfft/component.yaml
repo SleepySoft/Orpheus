@@ -1,6 +1,6 @@
 id: orpheus.builtin.rfft
 name: 实数FFT
-category: 高级/频域
+category: "频域与分析"
 description: 实数FFT，支持独立FFT点数和多帧批次。spectrum为未归一化的半复数计算数据；旧音频out仍由output_mode选择半复数/幅度/功率。
 version: 1.1.0
 abi_version: 6

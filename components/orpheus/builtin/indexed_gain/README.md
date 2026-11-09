@@ -1,4 +1,4 @@
-# indexed_gain - 索引式增益
+# indexed_gain - 查表增益渐变
 
 将 0..255 等外部索引通过自定义 dB 表转换为共享线性增益，并以逐样本指数 ramp 作用到多通道音频。支持 dB offset、最大增益、freeze、dB/s 或 ms 时长，以及独立的冷启动线性增益。
 

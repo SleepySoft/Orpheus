@@ -1,4 +1,4 @@
-# orpheus.builtin.embed_in — 嵌入输入
+# orpheus.builtin.embed_in — 嵌入式音频输入
 
 ## 功能
 

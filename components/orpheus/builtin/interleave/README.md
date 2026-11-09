@@ -1,4 +1,4 @@
-# orpheus.builtin.interleave — 交错器
+# orpheus.builtin.interleave — 音频通道合并
 
 ## 功能
 

@@ -1,6 +1,6 @@
 id: orpheus.builtin.task_source
-name: 纯驱动源
-category: 基础/驱动源
+name: "纯任务驱动源"
+category: "驱动与缓冲"
 order: 2
 version: 1.0.0
 abi_version: 6

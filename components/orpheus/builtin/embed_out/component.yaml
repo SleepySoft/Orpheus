@@ -1,6 +1,7 @@
 id: orpheus.builtin.embed_out
-name: 嵌入输出
-category: 平台/平台
+name: "嵌入式音频输出"
+category: "输入与输出"
+description: "嵌入式平台输出边界：将图内交错音频交给生成宿主或platform_io适配层；不在组件内实现硬件输出。"
 platforms: [dsp]
 version: 1.0.0
 abi_version: 6

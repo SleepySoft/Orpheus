@@ -1,6 +1,7 @@
 id: orpheus.builtin.biquad_bank
-name: 双二阶滤波器组
-category: 高级/滤波器组
+name: "双段二阶滤波器"
+category: "滤波与均衡"
+description: "两段级联二阶滤波，每段独立设置频率、Q和增益，也可提交五项原始系数；支持DF1或DF2T结构。与可配置级数的iir_bank不同，本组件固定两段。"
 version: 1.1.0
 abi_version: 6
 package_type: source

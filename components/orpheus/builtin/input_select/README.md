@@ -1,4 +1,4 @@
-# orpheus.builtin.input_select — 输入选择
+# orpheus.builtin.input_select — 固定索引通道选择
 
 ## 功能
 

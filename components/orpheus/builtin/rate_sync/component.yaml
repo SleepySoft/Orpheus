@@ -1,7 +1,7 @@
 id: orpheus.builtin.rate_sync
-name: 同步缓冲
-category: 基础/路由与时序
-description: 多路已降到同一慢速的流按公倍数对齐合流；支持自动计算缓冲长度（LCM）或手动指定
+name: "双路缓冲合流"
+category: "驱动与缓冲"
+description: "对两路已处于同一采样率的音频作FIFO缓冲，在可用时对齐读取并相加；缓冲长度可按块长公倍数推导或显式设置。不是采样率转换，也不是跨Task异步桥。"
 version: 1.0.0
 abi_version: 6
 package_type: source

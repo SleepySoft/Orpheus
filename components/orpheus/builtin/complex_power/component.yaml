@@ -1,6 +1,6 @@
 id: orpheus.builtin.complex_power
-name: 复数模平方与分批dB能量
-category: 基础/计算数据
+name: "复数功率与dB能量"
+category: "频域与分析"
 version: 1.0.0
 abi_version: 6
 package_type: source

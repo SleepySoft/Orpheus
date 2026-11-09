@@ -1,6 +1,6 @@
 id: orpheus.builtin.scalar_to_i32
-name: 标量整数转换
-category: 基础/计算数据
+name: "浮点转32位整数"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

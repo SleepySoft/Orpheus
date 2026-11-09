@@ -1,6 +1,7 @@
 id: orpheus.builtin.device_out
-name: 设备输出
-category: 基础/设备
+name: "声卡音频输出"
+category: "输入与输出"
+description: "将图内音频交给PC宿主的声卡播放端；通道数和采样率须匹配设备配置，实际设备IO由宿主完成。"
 order: 2
 platforms: [win]
 version: 1.0.0

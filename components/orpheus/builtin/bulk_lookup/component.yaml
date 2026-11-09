@@ -1,6 +1,6 @@
 id: orpheus.builtin.bulk_lookup
-name: 数据线性查表
-category: 基础/计算数据
+name: "数据表线性插值"
+category: "数学与控制"
 version: 1.0.0
 abi_version: 6
 package_type: source

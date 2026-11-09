@@ -1,6 +1,6 @@
 id: orpheus.builtin.adaptive_fir
-name: 自适应FIR(FxLMS核心)
-category: 高级/自适应与降噪
+name: "FxLMS自适应FIR核心"
+category: "自适应与降噪"
 description: 自适应 FIR 核心：x 读取输出原始参考、deriv 供 filtered-x 更新、err 为误差。组合 delay/gain 即构成前馈 FxLMS 主动降噪。
 version: 1.0.0
 abi_version: 6
@@ -64,7 +64,7 @@ parameters:
     range: [0.000000000001, 1.0]
     update_policy: restart_required
   - id: secondary_gain
-    name: 次级路径市益
+    name: 次级路径增益
     type: float
     default: 1.0
     range: [0.0, 10.0]

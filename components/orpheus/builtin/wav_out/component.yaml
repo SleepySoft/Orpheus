@@ -1,6 +1,7 @@
 id: orpheus.builtin.wav_out
 name: WAV 文件输出
-category: 基础/文件
+category: "输入与输出"
+description: "离线WAV文件输出端，缓存输入音频并在宿主收尾阶段写文件；文件路径、通道数和采样率可配置，不作为实时声卡输出。"
 order: 2
 version: 1.1.0
 abi_version: 6

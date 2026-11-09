@@ -1,4 +1,4 @@
-# orpheus.builtin.device_out — 设备输出
+# orpheus.builtin.device_out — 声卡音频输出
 
 ## 功能
 

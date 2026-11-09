@@ -1,7 +1,7 @@
 version: "0.1.0"
 metadata:
   name: headphone_music_player
-  description: 电脑耳机音乐播放链路：系统声音（Loopback）→ 参考级耳机调音 + 响度补偿 + 净空保护
+  description: 电脑耳机音乐播放链路：系统声音（Loopback）→ 耳机调音 + 声道分组平衡 + 净空保护
 sample_rate: 48000
 block_size: 128
 tasks:

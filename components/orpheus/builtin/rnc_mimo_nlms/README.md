@@ -1,8 +1,10 @@
-# orpheus.builtin.rnc_mimo_nlms - RNC 多参考 NLMS
+# orpheus.builtin.rnc_mimo_nlms - 多参考多输出NLMS
 
 ## 功能
 
-实现外部 ASM RNC `AdaptFilter` 的多参考、多扬声器时域 NLMS 核心。每个输出都由全部参考通道的 FIR 权值共同生成，并使用上游提供的 filtered error 更新权值。
+通用多参考、多输出时域NLMS核心。每个输出由全部参考通道的FIR权值共同生成，并使用上游提供的filtered error更新权值。
+当前容量上限为12路参考、8路输出、125抽头；可在范围内配置尺寸、步长及初始权值。
+以下ASM RNC `AdaptFilter`映射说明实现来源，不要求通用工程采用同一传感器、扬声器或TOP表。
 
 权值索引为：
 

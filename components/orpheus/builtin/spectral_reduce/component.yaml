@@ -1,7 +1,7 @@
 id: orpheus.builtin.spectral_reduce
-name: 谱减聚合
-category: 高级/频域
-description: 对每通道 STFT 功率/幅度谱做帧内/块内聚合，输出每通道单一标量并广播到整个输出块。支持 sum/mean/min/max。
+name: "频谱聚合统计"
+category: "频域与分析"
+description: "对每通道的频谱帧作求和、均值、最小值或最大值归约，得到一个标量并广播到输出块。不估计噪声、不作谱减降噪。"
 version: 1.0.0
 abi_version: 6
 package_type: source

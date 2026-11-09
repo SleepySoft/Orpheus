@@ -1,6 +1,6 @@
 id: orpheus.builtin.gain_ramper
-name: 多通道增益斜坡器
-category: 高级/滤波器组
+name: "声道分组增益斜坡"
+category: "增益与动态"
 description: >-
   块级dB请求、显式逐样本递推或帧内幂次包络，通道映射与旁路/静音。
   gain_output=1时gain0为所选gain_channel的块末已应用线性增益（1×1控制数据）；

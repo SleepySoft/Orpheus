@@ -1,4 +1,4 @@
-# orpheus.builtin.level_detect — 电平检测
+# orpheus.builtin.level_detect — RMS与峰值检测
 
 ## 功能
 
