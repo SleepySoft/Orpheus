@@ -6,6 +6,10 @@ const projectName = `e2e_multitask_${Date.now()}`;
 let createdProject = false;
 
 async function expectControlLeadAtBorder(row, direction) {
+  const inactiveContent = await row.evaluate((element, side) => (
+    getComputedStyle(element, side === 'input' ? '::after' : '::before').content
+  ), direction);
+  expect(inactiveContent).toBe('none');
   const error = await row.evaluate((element, side) => {
     const nodeBox = element.closest('.orpheus-node').getBoundingClientRect();
     const rowBox = element.getBoundingClientRect();

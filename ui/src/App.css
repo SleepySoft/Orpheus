@@ -1772,8 +1772,8 @@ button.danger {
 
 /* 引线接到节点外沿；左侧补偿控制坞的 5px margin、4px 边框和节点自身边框。 */
 .export-control-pin { cursor: pointer; }
-.export-control-pin::before,
-.export-control-pin::after {
+.export-control-input::before,
+.export-control-output::after {
   content: '';
   position: absolute;
   top: 50%;
