@@ -36,3 +36,19 @@ test('TODO 往返包含未实例化子图，已完成不能掩盖占位模块', 
 test('TODO id 可在删除和添加后保持唯一', () => {
   expect(newTodo([{ id: 'todo-1' }, { id: 'todo-3' }]).id).toBe('todo-2');
 });
+
+test('活动范围递归包含实际引用子图，共享定义去重且不会遍历未使用定义', () => {
+  const pending = { ...newTodo(), title: '实际待办' };
+  const leaf = (id) => ({ id, data: { component: 'test.leaf', todos: [pending] } });
+  const sub = (id, component) => ({ id, data: { component } });
+  const views = {
+    main: { nodes: [sub('first', 'sub:shared'), sub('second', 'sub:shared')] },
+    'sub:shared': { nodes: [leaf('live'), sub('nested', 'deep')] },
+    'sub:deep': { nodes: [leaf('deep-live'), sub('cycle', 'sub:shared')] },
+    'sub:unused': { nodes: [leaf('unused')] },
+  };
+  expect(collectViewTodos(views, false, false).map((todo) => todo.location)).toEqual([
+    'sub:shared/live#todo-1', 'sub:deep/deep-live#todo-1',
+  ]);
+  expect(collectViewTodos(views)).toHaveLength(3);
+});

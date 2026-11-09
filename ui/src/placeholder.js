@@ -38,9 +38,25 @@ export function newTodo(todos = []) {
   };
 }
 
-export function collectViewTodos(views, includeDone = false) {
+export function collectViewTodos(views, includeDone = false, includeUnused = true) {
   const items = [];
+  const referenced = new Set(['main']);
+  if (!includeUnused) {
+    const pending = ['main'];
+    while (pending.length) {
+      const view = pending.pop();
+      for (const node of views[view]?.nodes || []) {
+        const component = node.data.component || '';
+        const child = component.startsWith('sub:') ? component : `sub:${component}`;
+        if (views[child] && !referenced.has(child)) {
+          referenced.add(child);
+          pending.push(child);
+        }
+      }
+    }
+  }
   for (const [view, graph] of Object.entries(views)) {
+    if (!includeUnused && !referenced.has(view)) continue;
     for (const node of graph.nodes || []) {
       const records = [...(node.data.todos || [])];
       const isPlaceholder = node.data.component === PLACEHOLDER_ID || node.data.packageType === 'placeholder';

@@ -361,6 +361,7 @@
 .side-panel {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   width: 200px;
   background: #f1f3f5;
   border-right: 1px solid #dee2e6;
@@ -2686,5 +2687,20 @@ pre {
 }
 .todo-item label, .todo-item strong { display: block; margin: 4px 0; }
 .todo-item textarea, .todo-item select { width: 100%; box-sizing: border-box; }
+.sidebar.todo-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  border-left: none;
+  overflow: hidden;
+}
+.todo-panel-header { flex-shrink: 0; }
+.todo-panel-header label { display: block; margin: 4px 0; }
+.todo-panel-list { flex: 1; min-height: 0; overflow-y: auto; }
+.todo-panel .todo-item button { max-width: 100%; white-space: normal; text-align: left; }
 .placeholder-port-row { display: flex; gap: 4px; align-items: center; margin: 4px 0; }
 .placeholder-port-row input { min-width: 0; width: 70px; }

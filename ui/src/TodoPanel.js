@@ -92,24 +92,34 @@ export function PlaceholderPortsWidget({ schema, value, onChange, disabled }) {
 
 export default function TodoPanel({ views, onLocate }) {
   const [includeDone, setIncludeDone] = useState(false);
-  const items = collectViewTodos(views, includeDone);
+  const [includeUnused, setIncludeUnused] = useState(false);
+  const allItems = collectViewTodos(views, includeDone);
+  const items = includeUnused ? allItems : collectViewTodos(views, includeDone, false);
+  const unusedCount = allItems.length - items.length;
   return (
-    <div className="sidebar">
-      <h3>工程 TODO</h3>
-      <p className="muted">主图及全部子图定义（含未实例化定义）；共享定义只列一次，包含尚未保存的编辑。</p>
-      <label><input type="checkbox" checked={includeDone} onChange={(event) => setIncludeDone(event.target.checked)} /> 显示已完成</label>
-      <p>未完成 {items.filter((todo) => todo.status !== 'done').length} / 当前显示 {items.length}</p>
-      {items.map((todo) => (
-        <div key={todo.location} className="todo-item">
-          <button onClick={() => onLocate(todo.view, todo.node)}>{todo.location}</button>
-          <strong>{STATUS[todo.status]}：{todo.title}</strong>
-          {todo.source_ref && <p>索引：{todo.source_ref}</p>}
-          {todo.next_step && <p>下一步：{todo.next_step}</p>}
-          {todo.blocker && <p role="alert">阻塞：{todo.blocker}</p>}
-          {todo.synthetic && <p className="muted">自动发现的未实现项；请选择节点补充结构化 TODO。</p>}
-        </div>
-      ))}
-      {!items.length && <p>当前范围无 TODO。</p>}
+    <div className="sidebar todo-panel" role="region" aria-label="工程 TODO">
+      <div className="todo-panel-header">
+        <h3>工程 TODO</h3>
+        <p className="muted">{includeUnused ? '主图及全部子图定义（含未使用定义）' : '主图及实际引用的子图定义'}；
+          共享定义只列一次，包含尚未保存的编辑。</p>
+        <label><input type="checkbox" checked={includeDone} onChange={(event) => setIncludeDone(event.target.checked)} /> 显示已完成</label>
+        <label><input type="checkbox" checked={includeUnused} onChange={(event) => setIncludeUnused(event.target.checked)} /> 包含未使用子图</label>
+        <p>未完成 {items.filter((todo) => todo.status !== 'done').length} / 当前显示 {items.length}</p>
+        {!includeUnused && unusedCount > 0 && <p className="muted">另有 {unusedCount} 条未使用子图记录未显示。</p>}
+      </div>
+      <div className="todo-panel-list">
+        {items.map((todo) => (
+          <div key={todo.location} className="todo-item">
+            <button onClick={() => onLocate(todo.view, todo.node)}>{todo.location}</button>
+            <strong>{STATUS[todo.status]}：{todo.title}</strong>
+            {todo.source_ref && <p>索引：{todo.source_ref}</p>}
+            {todo.next_step && <p>下一步：{todo.next_step}</p>}
+            {todo.blocker && <p role="alert">阻塞：{todo.blocker}</p>}
+            {todo.synthetic && <p className="muted">自动发现的未实现项；请选择节点补充结构化 TODO。</p>}
+          </div>
+        ))}
+        {!items.length && <p>当前范围无 TODO。</p>}
+      </div>
     </div>
   );
 }
