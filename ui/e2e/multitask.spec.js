@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 test.use({ viewport: { width: 1920, height: 1080 } });
 
 const projectName = `e2e_multitask_${Date.now()}`;
+let createdProject = false;
 
 async function expectControlLeadAtBorder(row, direction) {
   const error = await row.evaluate((element, side) => {
@@ -86,10 +87,12 @@ const project = {
       {
         id: 'gain', name: '增益', direction: 'input', maps_to: 'gain:gain_db',
         type: 'float', default: -6, update_policy: 'smoothed',
+        bindable: true,
       },
       {
         id: 'level', name: '电平', direction: 'output', maps_to: 'observer:level',
         type: 'float', update_policy: 'immediate',
+        control_source: true,
       },
     ],
     graph: {
@@ -100,7 +103,7 @@ const project = {
         },
         {
           id: 'observer', component: 'orpheus.builtin.level_detect', task: 'producer',
-          params: { channels: 1 }, position: { x: 420, y: 120 },
+          params: { channels: 1 }, position: { x: 700, y: 120 },
         },
       ],
       connections: [{ from: 'gain:out', to: 'observer:in' }],
@@ -109,17 +112,41 @@ const project = {
 };
 
 test.beforeAll(async ({ request }) => {
+  const existing = await request.get(`/api/projects/${projectName}`);
+  expect(existing.status()).toBe(404);
   const created = await request.post('/api/projects', { data: { name: projectName } });
   expect(created.ok()).toBeTruthy();
+  createdProject = true;
   const saved = await request.put(`/api/projects/${projectName}`, { data: project });
   expect(saved.ok()).toBeTruthy();
 });
 
 test.afterAll(async ({ request }) => {
-  await request.delete(`/api/projects/${projectName}`);
+  if (!createdProject) return;
+  const deleted = await request.delete(`/api/projects/${projectName}`);
+  expect(deleted.ok()).toBeTruthy();
+  expect((await request.get(`/api/projects/${projectName}`)).status()).toBe(404);
 });
 
 test('配置 Task、区分链路并定位导出引脚', async ({ page, request }, testInfo) => {
+  const blockedRequests = [];
+  await page.route('**/api/**', async (route) => {
+    const { pathname } = new URL(route.request().url());
+    const method = route.request().method();
+    if (pathname === '/api/projects' && method === 'GET') {
+      await route.fulfill({ json: [{ name: projectName }] });
+      return;
+    }
+    const ownProject = pathname === `/api/projects/${projectName}`
+      || pathname.startsWith(`/api/projects/${projectName}/`);
+    if ((pathname.startsWith('/api/projects/') && !ownProject)
+      || (!['GET', 'HEAD'].includes(method) && !ownProject)) {
+      blockedRequests.push(`${method} ${pathname}`);
+      await route.abort();
+      return;
+    }
+    await route.continue();
+  });
   await page.goto('/');
   await page.locator('.toolbar select').first().selectOption(projectName);
   await expect(page.getByText(`已打开工程 ${projectName}`)).toBeVisible();
@@ -127,7 +154,7 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   await paletteSearch.fill('访问桥');
   await expect(page.locator('.palette-item').filter({ hasText: '访问桥' })).toBeVisible();
   await paletteSearch.fill('orpheus.builtin.uart_link');
-  await expect(page.locator('.palette-item')).toHaveCount(0);
+  await expect(page.locator('.palette-item-id').filter({ hasText: /^orpheus\.builtin\.uart_link$/ })).toHaveCount(0);
   await paletteSearch.fill('');
   const bridgeNode = page.locator('.react-flow__node').filter({ hasText: 'debug_uart' });
   await expect(bridgeNode).toBeVisible();
@@ -181,10 +208,10 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
 
   const controlToggle = page.locator('label.autosave').filter({ hasText: '控制链路' }).locator('input');
   await expect(controlToggle).not.toBeChecked();
-  await expect(page.locator('.control-edge-path')).toHaveCount(0);
+  await expect(page.locator('.control-edge-path')).toHaveCount(1);
   await page.screenshot({ path: testInfo.outputPath('control-links-off.png'), fullPage: true });
   await controlToggle.check();
-  await expect(page.locator('.node-controls')).toHaveCount(3);
+  await expect(page.locator('.node-controls')).toHaveCount(2);
   await expect(page.locator('.legend-control')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('control-links-on.png'), fullPage: true });
   await expect(page.locator('.control-edge-path')).toHaveCount(1);
@@ -193,6 +220,9 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   await expect(chainInstance.locator('.export-pin, .export-control-pin')).toHaveCount(0);
   await chainInstance.dblclick();
   await expect(page.locator('.tab.active').filter({ hasText: 'Gain Chain' })).toBeVisible();
+  await page.getByRole('button', { name: 'fit view', exact: true }).click();
+  await page.getByRole('button', { name: 'zoom out', exact: true }).click();
+  await page.getByRole('button', { name: 'zoom out', exact: true }).click();
 
   const internalGain = page.locator('.react-flow__node').filter({ hasText: 'gain' });
   const exportedInput = internalGain.locator('.export-input .export-handle');
@@ -231,7 +261,12 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
     const previousZoom = await page.locator('.react-flow__viewport').evaluate(
       (element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).a
     );
-    await page.getByRole('button', { name: 'zoom out', exact: true }).click();
+    const zoomOut = page.getByRole('button', { name: 'zoom out', exact: true });
+    if (previousZoom <= 0.5001) {
+      await expect(zoomOut).toBeDisabled();
+      break;
+    }
+    await zoomOut.click();
     await expect.poll(() => page.locator('.react-flow__viewport').evaluate(
       (element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).a
     )).toBeCloseTo(Math.max(0.5, previousZoom / 1.2), 3);
@@ -247,4 +282,5 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
       (node, name) => node.classList.remove(`platform-${name}`), platform
     );
   }
+  expect(blockedRequests).toEqual([]);
 });

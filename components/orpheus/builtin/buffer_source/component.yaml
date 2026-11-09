@@ -2,7 +2,7 @@ id: orpheus.builtin.buffer_source
 name: "音频缓冲驱动源"
 category: "驱动与缓冲"
 order: 1
-version: 1.0.0
+version: 1.1.0
 abi_version: 6
 package_type: source
 state_type: HostAudioState
@@ -17,9 +17,11 @@ description: >-
 sources: [src/buffer_source.c]
 headers: [include/orpheus_buffer_source.h]
 ports:
-  - {id: out, direction: output, type: audio, sample_format: f32, channels: "param:channels"}
+  - {id: out, direction: output, type: audio, sample_format: f32, channels: "param:channels", host_binding: {slot: samples, access: write, status: ready}}
 parameters:
   - {id: channels, name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
-  - {id: ready, name: 新输入块已提交, type: bool, default: false, update_policy: immediate, readback: true}
-  - {id: missing_blocks, name: 缺失输入块次数, type: int, default: 0, update_policy: immediate, readback: true}
+  - {id: ready, name: 新输入块已提交, type: bool, kind: setting, access: read_write, default: false, update_policy: immediate, readback: true}
+  - {id: missing_blocks, name: 缺失输入块次数, type: int, kind: probe, access: read, default: 0, update_policy: immediate, readback: true}
+bulk_slots:
+  - {id: samples, name: 音频端口存储, type: float, count: 8192, shape: ["config:frames", "param:channels"], access: read_write, double_bank: true}
 execution: {realtime_safe: true, supports_inplace: false}

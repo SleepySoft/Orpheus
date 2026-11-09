@@ -8,6 +8,7 @@ handled by the Registry.
 
 from __future__ import annotations
 
+import copy
 import os
 import re
 import shutil
@@ -22,7 +23,7 @@ import jsonschema
 
 from orpheus_core import schemas
 from orpheus_core.project import Graph, Project, ProjectLoader, Task, project_to_dict, readonly_layout_views
-from orpheus_core.layout import apply_layout, reference_path, save_document, split_document_layout
+from orpheus_core.layout import apply_layout, filter_node_ui, reference_path, save_document, split_document_layout
 
 _INVALID_PATH_CHARS = re.compile(r'[<>:"\\|?*\x00-\x1f]')
 _RESERVED_PATH_NAME = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)", re.I)
@@ -412,7 +413,11 @@ class ProjectManager:
                 reference_path(doc, yaml_path)
                 persistent_doc = self._persist_composite_definitions(name, doc, current)
                 readonly_views = readonly_layout_views(current, doc)
-                save_document(persistent_doc, yaml_path, extra_views=readonly_views)
+                node_ui = filter_node_ui(doc, layout.get("node_ui", current.node_ui))
+                if current.layout_reference and "file" not in doc.get("layout", {}):
+                    persistent_doc["layout"] = copy.deepcopy(current.layout_reference)
+                save_document(persistent_doc, yaml_path, extra_views=readonly_views,
+                              extra_node_ui=node_ui)
                 project = self._loader.load(yaml_path)
             except Exception as exc:
                 raise ProjectValidationError(f"invalid project document: {exc}") from exc

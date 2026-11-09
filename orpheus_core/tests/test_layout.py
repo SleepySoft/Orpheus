@@ -22,6 +22,82 @@ from test_component_imports import composite_manifest, project_document, write_y
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_interface_visibility_loader_roundtrip_is_layout_only(tmp_path, registry):
+    path = tmp_path / "project.yaml"
+    document = position_document()
+    document["layout"] = {"file": "views/custom.yaml"}
+    visibility = {"main": {
+        "chain": {"exposedParameters": ["gain_db"], "exposedPorts": [], "exposedBulkSlots": []},
+        "deleted": {"exposedPorts": ["out"]},
+    }}
+    write_yaml(tmp_path / "views/custom.yaml", {"version": 1, "views": {}, "node_ui": visibility})
+    write_yaml(path, document)
+    loader = ProjectLoader(registry)
+    project = loader.load(path)
+    before = GraphCompiler(registry).compile(flatten_project(project))
+    assert "deleted" not in project.node_ui["main"]
+    loader.save(project, path)
+    baseline = path.read_bytes()
+    project.node_ui["main"]["chain"]["exposedPorts"] = ["in", "out"]
+    loader.save(project, path)
+    assert path.read_bytes() == baseline
+    assert read(path)["layout"] == {"file": "views/custom.yaml"}
+    restored = loader.load(path)
+    assert restored.node_ui == project.node_ui
+    assert before == GraphCompiler(registry).compile(flatten_project(restored))
+    assert project_to_dict(restored, materialize_imports=True)["layout"]["node_ui"] == restored.node_ui
+    exported = tmp_path / "embedded.yaml"
+    loader.save(restored, exported, separate_layout=False)
+    assert loader.load(exported).node_ui == restored.node_ui
+
+
+def test_interface_visibility_imported_views_are_project_overrides(tmp_path, registry):
+    directory = tmp_path / "workspace" / "demo"
+    definition = directory / "definitions/chain.component.yaml"
+    save_document(composite_manifest("test.chain", "orpheus.builtin.gain", "gain"), definition)
+    write_yaml(directory / "project.yaml", project_document(
+        ["definitions/chain.component.yaml"], "test.chain"))
+    manager = ProjectManager(tmp_path, registry)
+    doc = manager.get_document("demo")
+    manager.put("demo", doc)
+    baseline = {p: p.read_bytes() for p in (directory / "project.yaml", definition)}
+    doc = manager.get_document("demo")
+    doc["layout"] = {"version": 1, "views": {}, "node_ui": {
+        "main": {"chain": {"exposedPorts": ["in"]}},
+        "sub:test.chain": {"gain": {"exposedParameters": ["gain_db"], "exposedPorts": []}},
+        "sub:deleted": {"bad": {"exposedPorts": ["out"]}},
+    }}
+    manager.put("demo", doc)
+    manager.invalidate_cached_projects()
+    restored = manager.get_document("demo")["layout"]["node_ui"]
+    assert restored["sub:test.chain"]["gain"]["exposedPorts"] == []
+    assert "sub:deleted" not in restored
+    assert all(p.read_bytes() == data for p, data in baseline.items())
+    restored["sub:test.chain"]["gain"]["exposedParameters"] = []
+    manager.put("demo", manager.get_document("demo") | {
+        "layout": {"version": 1, "views": {}, "node_ui": restored}})
+    assert manager.get_document("demo")["layout"]["node_ui"]["sub:test.chain"]["gain"]["exposedParameters"] == []
+
+
+def test_interface_visibility_api_validates_and_preserves_empty_arrays(tmp_path):
+    with TestClient(create_app(tmp_path)) as client:
+        document = client.post("/api/projects", json={"name": "demo"}).json()["document"]
+        document["graph"] = {"nodes": [{"id": "node", "component": "test.node"}], "connections": []}
+        document["layout"] = {"version": 1, "views": {}, "node_ui": {
+            "main": {"node": {"exposedParameters": [], "exposedPorts": ["out"], "exposedBulkSlots": []}}}}
+        assert client.put("/api/projects/demo", json=document).status_code == 200
+        restored = client.get("/api/projects/demo").json()
+        assert restored["layout"]["node_ui"] == document["layout"]["node_ui"]
+        assert client.put("/api/projects/demo", json=restored).status_code == 200
+        baseline = (tmp_path / "workspace/demo/project.yaml").read_bytes()
+        restored["layout"]["node_ui"]["main"]["node"]["exposedPorts"] = []
+        assert client.put("/api/projects/demo", json=restored).status_code == 200
+        assert client.get("/api/projects/demo").json()["layout"]["node_ui"]["main"]["node"]["exposedPorts"] == []
+        assert (tmp_path / "workspace/demo/project.yaml").read_bytes() == baseline
+        restored["layout"]["node_ui"]["main"]["node"]["exposedPorts"] = ["out", "out"]
+        assert client.put("/api/projects/demo", json=restored).status_code == 400
+
+
 @pytest.fixture(scope="module")
 def registry():
     result = Registry([ROOT / "components"])

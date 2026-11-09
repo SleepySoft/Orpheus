@@ -48,11 +48,12 @@ def test_buffer_source_native_contract(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("component,channels,frames", [
-    ("host_audio", 3, 32), ("host_audio", 30, 96),
-    ("buffer_source", 3, 32), ("buffer_source", 30, 96),
+@pytest.mark.parametrize("component,channels,frames,double_bank", [
+    ("host_audio", 3, 32, "auto"), ("host_audio", 30, 96, "auto"),
+    ("buffer_source", 3, 32, "auto"), ("buffer_source", 30, 96, "auto"),
+    ("host_audio", 3, 32, "off"),
 ])
-def test_generated_host_buffer_api_and_adapter_todos(tmp_path, component, channels, frames):
+def test_generated_host_buffer_api_and_adapter_todos(tmp_path, component, channels, frames, double_bank):
     registry = Registry([ROOT / "components"])
     registry.scan()
     nodes = {
@@ -66,7 +67,7 @@ def test_generated_host_buffer_api_and_adapter_todos(tmp_path, component, channe
     project = Project(tasks={"default": Task("default", sample_rate=48000, block_size=frames)},
         flow_mode="task_sequence", graph=Graph(nodes=nodes, connections=[
             Connection(PortRef("host_in", "out"), PortRef("host_out", "in"))]),
-        drive_connections=drives)
+        drive_connections=drives, double_bank=double_bank)
     plan = GraphCompiler(registry).compile(project)
     generator = CodeGenerator(registry, ROOT)
     generated = tmp_path / "generated"
@@ -81,6 +82,7 @@ def test_generated_host_buffer_api_and_adapter_todos(tmp_path, component, channe
 #include <assert.h>
 #include <string.h>
 #include "orpheus_graph.h"
+#include "orpheus_control.h"
 int main(void) {
     float input[ORPHEUS_HOST_AUDIO_host_in_SAMPLES];
     float output[ORPHEUS_HOST_AUDIO_host_out_SAMPLES];
@@ -109,6 +111,13 @@ int main(void) {
     assert(TASK_FUNCTION(ORPHEUS_GRAPH_TICK) == ORPHEUS_OK);
     assert(orpheus_host_audio_read_host_out(output, EXPECTED_SAMPLES) == ORPHEUS_OK);
     assert(memcmp(input, output, sizeof(input)) == 0);
+    OrpheusBridgeBulkTarget target;
+    assert(orpheus_control_bridge_target(INPUT_SAMPLES_ID, &target) == ORPHEUS_OK);
+    memcpy(target.active, input, sizeof(input));
+    assert(orpheus_host_audio_submit_host_in(target.active, EXPECTED_SAMPLES) == ORPHEUS_OK);
+    assert(TASK_FUNCTION(ORPHEUS_GRAPH_TICK) == ORPHEUS_OK);
+    assert(orpheus_host_audio_read_host_out(output, EXPECTED_SAMPLES) == ORPHEUS_OK);
+    assert(memcmp(input, output, sizeof(input)) == 0);
     orpheus_graph_teardown();
     assert(orpheus_host_audio_submit_host_in(input, EXPECTED_SAMPLES) == ORPHEUS_ERR_PROCESSING);
     assert(orpheus_host_audio_read_host_out(output, EXPECTED_SAMPLES) == ORPHEUS_ERR_PROCESSING);
@@ -116,9 +125,11 @@ int main(void) {
 }
 '''
     (generated / "src/host_api_test.c").write_text(harness, encoding="utf-8", newline="\n")
+    input_id = next(e["id"] for e in plan.id_map if e["node"] == "host_in" and e["key"] == "samples")
     with (generated / "CMakeLists.txt").open("a", encoding="utf-8", newline="\n") as file:
         file.write("\nadd_executable(host_api_test src/host_api_test.c)\n"
             f"target_compile_definitions(host_api_test PRIVATE EXPECTED_SAMPLES={channels * frames} "
+            f"INPUT_SAMPLES_ID=0x{input_id:08X}u "
             f"TASK_FUNCTION=orpheus_generated_process_task_{symbol})\n"
             "target_link_libraries(host_api_test PRIVATE orpheus_graph)\n")
     _build(generated, tmp_path)
@@ -185,7 +196,12 @@ def execute_host_graph(tmp_path, registry, plan, inputs, outputs, *, blocks=24):
             if library.suffix in (".dll", ".so", ".dylib"): shutil.copy2(library, libraries / library.name)
     plan_path = tmp_path / "plan.json"; plan_path.write_text(json.dumps(asdict(plan)), encoding="utf-8", newline="\n")
     specs = [v for direction, nodes in (("I", inputs), ("O", outputs)) for node, channels in nodes.items()
-             for v in (direction, node, str(channels))]
+             for v in (direction, node, str(channels), next(
+                 p["port"] for p in plan.node_configs[node]["host_ports"]
+                 if p["access"] == ("write" if direction == "I" else "read")))]
+    specs.extend(v for nid, cfg in plan.node_configs.items() for port in cfg.get("host_ports", [])
+                 if port["access"] == "write" and port["connected"]
+                 for v in ("X", nid, str(port["channels"]), port["port"]))
     step = plan.schedule["tick"]; results = []
     for generated_path in (False, True):
         executable = generated / "build/host_audio_test.exe" if generated_path else ROOT / "build/tests/host_audio_runner.exe"
@@ -246,4 +262,56 @@ def test_buffer_source_does_not_match_consumer_cadence():
     assert plan.node_configs["gain"]["period"] == 4
     project.flow_mode = "dataflow"
     with pytest.raises(CompileError, match="flow_mode: task_sequence"):
+        GraphCompiler(registry).compile(project)
+
+
+def test_connected_host_input_and_unequal_port_signatures_four_entries(tmp_path):
+    registry = Registry([ROOT / "components"])
+    registry.scan()
+    project = Project(flow_mode="task_sequence", tasks={
+        "default": Task("default", sample_rate=48000, block_size=32)
+    }, graph=Graph(nodes={
+        "clock": Node("clock", "orpheus.builtin.task_source", params={"frequency_hz": 1500}),
+        "host_in": Node("host_in", "orpheus.builtin.host_audio", params={"channels": 3}),
+        "route": Node("route", "orpheus.builtin.channel_router",
+                      params={"channels_in": 3, "channels_out": 1, "indices": "2"}),
+        "relay": Node("relay", "orpheus.builtin.host_audio", params={"channels": 1}),
+        "capture": Node("capture", "orpheus.builtin.host_audio", params={"channels": 1, "mode": 1}),
+    }, connections=[
+        Connection(PortRef("host_in", "out"), PortRef("route", "in")),
+        Connection(PortRef("route", "out"), PortRef("relay", "in")),
+        Connection(PortRef("relay", "out"), PortRef("capture", "in")),
+    ]), drive_connections=[DriveConnection(PortRef("clock", "out"), PortRef("host_in", "in"))])
+    plan = GraphCompiler(registry).compile(project)
+    assert plan.node_configs["route"]["port_signatures"]["in"]["channels"] == 3
+    assert plan.node_configs["route"]["port_signatures"]["out"]["channels"] == 1
+    assert plan.node_configs["relay"]["host_ports"][0]["connected"]
+    assert next(e for e in plan.id_map if e["node"] == "host_in" and e["key"] == "samples")["count"] == 96
+    assert next(e for e in plan.id_map if e["node"] == "host_in" and e["key"] == "ready")["kind"] == "RTC"
+    data = execute_host_graph(tmp_path, registry, plan, {"host_in": 3}, {"capture": 1})
+    expected = [(((block * 17 + frame * 3 + 2 * 13) % 257) - 128) * 0.0009765625
+                for block in range(24) for frame in range(32)]
+    assert data == struct.pack("<" + str(len(expected)) + "f", *expected)
+    main = (tmp_path / "generated/src/main.c").read_text(encoding="utf-8")
+    assert "TODO: 宿主输入 relay" not in main
+    assert 'orpheus_audio_submit("host_in", "in"' in main
+
+
+@pytest.mark.parametrize("change,reason", [
+    ({"slot": "missing"}, "BULK"),
+    ({"slot": "missing", "when": {"mode": 1}}, "BULK"),
+    ({"status": "channels"}, "bool"),
+    ({"status": "valid"}, "不可写"),
+    ({"when": {"ready": False}}, "重启生效"),
+])
+def test_host_port_binding_rejects_invalid_contract(change, reason):
+    registry = Registry([ROOT / "components"])
+    registry.scan()
+    info = registry.get("orpheus.builtin.host_audio")
+    info.manifest["ports"][0]["host_binding"].update(change)
+    project = Project(flow_mode="task_sequence", graph=Graph(nodes={
+        "clock": Node("clock", "orpheus.builtin.task_source", params={"frequency_hz": 1500}),
+        "pcm": Node("pcm", info.id, params={"channels": 2}),
+    }), drive_connections=[DriveConnection(PortRef("clock", "out"), PortRef("pcm", "in"))])
+    with pytest.raises(CompileError, match=reason):
         GraphCompiler(registry).compile(project)

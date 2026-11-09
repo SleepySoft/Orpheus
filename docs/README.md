@@ -17,4 +17,4 @@ tags: [orpheus/docs]
 - 想确认功能边界：[[WHAT/01-vision-and-users|愿景与用户]]
 - 想理解系统结构：[[HOW/01-architecture|架构与技术栈]]
 - 想追踪实现进度：[[HOW/implementation-log|实现日志]]
-
+- 想理解设计选择和演进：[架构决策记录（ADR）](ADR/README.md)

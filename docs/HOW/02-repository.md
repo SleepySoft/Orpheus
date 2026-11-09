@@ -56,6 +56,10 @@ HTTP API 的工程名占一个 URL 段，为避免嵌套目录名与 `/component
 
 ## 常用命令
 
+架构、接口、工程格式和交互语义的重要决定必须随代码落成
+[ADR](../ADR/README.md)。设计改变另写新记录并链接取代关系；实现进度与实测结果
+同步维护关联 HOW 文档和实施日志，不覆盖旧决定、也不把“已接受”误写成“已完成”。
+
 ```powershell
 python serve.py
 python -m orpheus_core.cli build

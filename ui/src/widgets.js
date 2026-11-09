@@ -144,15 +144,15 @@ export function inferWidget(schema) {
 }
 
 /** Render one parameter field using the widget registry. */
-export default function ParamField({ schema, value, onChange, ctx }) {
+export default function ParamField({ schema, value, onChange, ctx, disabled: explicitlyDisabled = false, disabledLabel = '只读' }) {
   const Widget = WIDGETS[inferWidget(schema)];
-  const disabled = Boolean(schema.readonly);
+  const disabled = explicitlyDisabled || Boolean(schema.readonly) || schema.access === 'read';
   return (
     <div className={`param-field ${disabled ? 'readonly' : ''}`}>
       <label>
         {schema.name || schema.id}
         {schema.unit ? ` (${schema.unit})` : ''}
-        {disabled && <span className="readonly-badge">只读</span>}
+        {disabled && <span className="readonly-badge">{disabledLabel}</span>}
       </label>
       <Widget schema={schema} value={value} onChange={onChange} disabled={disabled} ctx={ctx} />
     </div>

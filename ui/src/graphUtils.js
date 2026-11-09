@@ -24,6 +24,22 @@ export function defaultParams(component) {
   return params;
 }
 
+/** 宿主交付握手由完整 PCM 提交原子更新，不是可编辑的设计配置。 */
+export function isHostDeliveryStatus(parameter, data) {
+  return [...(data.manifestPorts || []), ...(data.ports || [])]
+    .some((port) => port.host_binding?.access === 'write'
+      && port.host_binding.status === parameter.id);
+}
+
+export function designParams(data) {
+  const params = { ...(data.params || {}) };
+  for (const parameter of data.parameters || []) {
+    if (isHostDeliveryStatus(parameter, data) && Object.prototype.hasOwnProperty.call(params, parameter.id))
+      params[parameter.id] = false;
+  }
+  return params;
+}
+
 /** Resolve a manifest expression like 'param:channels' against node params. */
 export function resolveExprValue(expr, params, component) {
   if (typeof expr === 'string' && expr.startsWith('param:')) {
@@ -458,8 +474,8 @@ export function subCatalogEntry(sub) {
     parameters: (sub.public_parameters || []).map((p) => ({
       ...p,
       ...(p.direction === 'input'
-        ? { bindable: true, update_policy: p.update_policy || 'immediate' }
-        : { control_source: true, readback: true }),
+        ? { update_policy: p.update_policy || 'immediate' }
+        : { readback: true }),
     })),
     sub: true,
   };
@@ -527,7 +543,9 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
         task: n.task || 'default',
         clockSource: !!comp?.clock_source,
         ports: resolvePorts(comp, n.params),
+        manifestPorts: comp?.ports || [],
         parameters: comp?.parameters || [],
+        bulkSlots: comp?.bulk_slots || [],
         packageType: comp?.package_type || 'source',
         blockers: comp?.blockers || [],
         todos: n.todos || [],
@@ -603,7 +621,7 @@ export function flowToGraph(nodes, edges) {
       id: n.id,
       component: isSubRef(n.data.component) ? subIdOf(n.data.component) : n.data.component,
         task: n.data.task || 'default',
-      params: n.data.params || {},
+      params: designParams(n.data),
       position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
       ...(n.data.label && n.data.label !== n.id ? { label: n.data.label } : {}),
       // alters 非空数组时写回节点，空则省略
@@ -655,6 +673,7 @@ export function docToViews(doc, globalComponents) {
   const views = {};
   let entry = entries.next();
   while (!entry.done) {
+    applyNodeUi(entry.value[1], doc.layout?.node_ui?.[entry.value[0]]);
     views[entry.value[0]] = entry.value[1];
     entry = entries.next();
   }
@@ -681,6 +700,7 @@ export async function docToViewsAsync(doc, globalComponents, { onProgress, signa
     const entry = entries.next();
     if (entry.done) return { views, subsMeta: entry.value };
     const [key, view] = entry.value;
+    applyNodeUi(view, doc.layout?.node_ui?.[key]);
     views[key] = view;
     completed += 1;
     nodeCount += view.nodes.length;
@@ -709,6 +729,14 @@ export function viewsToDoc(views, subsMeta, baseDoc) {
       )
     ),
   };
+  const nodeUi = {};
+  for (const [viewKey, view] of Object.entries(views)) {
+    nodeUi[viewKey] = Object.fromEntries(view.nodes.filter((node) => node.data.interfaceUi)
+      .map((node) => [node.id, node.data.interfaceUi]));
+  }
+  const inlineLayout = { ...baseDoc?.layout };
+  delete inlineLayout.file;
+  doc.layout = { version: 1, views: {}, ...inlineLayout, node_ui: nodeUi };
   if (bridgeNodes.length > 0) {
     doc.bridges = bridgeNodes.map((node) => {
       const params = { ...(node.data.params || {}) };
@@ -774,4 +802,10 @@ export function viewsToDoc(views, subsMeta, baseDoc) {
     delete doc.subcomponents;
   }
   return doc;
+}
+
+function applyNodeUi(view, saved) {
+  for (const node of view.nodes) {
+    if (saved?.[node.id]) node.data.interfaceUi = saved[node.id];
+  }
 }

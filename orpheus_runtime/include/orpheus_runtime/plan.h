@@ -8,6 +8,13 @@
 
 namespace orpheus {
 
+struct HostPortConfig {
+    std::string port, slot, status, access;
+    bool connected = false;
+    uint32_t channels = 0, frames = 0;
+    std::string sample_format;
+};
+
 struct NodeConfig {
     std::string id;
     std::string component;
@@ -16,6 +23,8 @@ struct NodeConfig {
     std::map<std::string, std::string> params; // all params as strings
     std::vector<std::string> input_ports;      // ordered port ids for buffer binding
     std::vector<std::string> output_ports;
+    std::vector<HostPortConfig> host_ports;
+    std::map<std::string, std::string> resource_access;
     std::map<std::string, uint32_t> output_port_block_sizes;
     std::map<std::string, uint32_t> output_port_channels;  // per-output-port resolved block size
     std::map<std::string, std::string> output_port_sample_formats;

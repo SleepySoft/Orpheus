@@ -91,13 +91,18 @@ class CodeGenerator:
     @staticmethod
     def _host_audio_nodes(plan: ExecutionPlan) -> list[tuple[str, bool]]:
         return [
-            (nid, cfg["component"] == "orpheus.builtin.buffer_source"
-             or int(cfg.get("params", {}).get("mode", 0)) == 0)
+            (nid, binding["access"] == "write")
             for nid in plan.execution_order
             if (cfg := plan.node_configs[nid])["component"] in (
                 "orpheus.builtin.host_audio", "orpheus.builtin.buffer_source"
             )
+            for binding in cfg.get("host_ports", [])
         ]
+
+    @staticmethod
+    def _host_audio_ports(plan: ExecutionPlan) -> list[tuple[str, dict]]:
+        return [(nid, port) for nid in plan.execution_order
+                for port in plan.node_configs[nid].get("host_ports", [])]
 
     @staticmethod
     def _signal_type(sample_format: str) -> tuple[str, str]:
@@ -326,6 +331,19 @@ class CodeGenerator:
                 for task in getattr(plan, "tasks", [])
             ],
         ]
+        gen_h.extend([
+            '/* 按节点/端口访问声明的宿主音频接口；样本数必须等于该端口有效尺寸。',
+            ' * 只交付/读取，不触发组件；与所属Task串行，已接上游输入禁止宿主写入。 */',
+            'int orpheus_audio_submit(const char* node, const char* port, const float* samples, uint32_t sample_count);',
+            'int orpheus_audio_read(const char* node, const char* port, float* samples, uint32_t sample_count);',
+        ])
+        audio_macros: set[str] = set()
+        for nid, port in self._host_audio_ports(plan):
+            macro = f'ORPHEUS_AUDIO_{self._sanitized_node_id(nid)}_{self._sanitized_node_id(port["port"])}_SAMPLES'
+            if macro in audio_macros:
+                raise ValueError(f"宿主音频端口的生成符号重复：{nid}:{port['port']}")
+            audio_macros.add(macro)
+            gen_h.append(f'#define {macro} {port["channels"] * port["frames"]}u')
         if self._host_audio_nodes(plan):
             gen_h.append(
                 '/* 宿主PCM缓冲：交错f32，数量单位为样本；只提交/读取，不触发组件。'
@@ -816,29 +834,40 @@ class CodeGenerator:
         if embed_in_nodes or embed_out_nodes or sport_in_nodes or sport_out_nodes:
             lines.append('')
 
+        for operation, is_input in (("submit", True), ("read", False)):
+            lines.extend([
+                f'int orpheus_audio_{operation}(const char* node, const char* port, '
+                f'{"const " if is_input else ""}float* samples, uint32_t sample_count) {{',
+                '    int rc;',
+                '    const char* component = "";',
+                '    orpheus_graph_clear_error();',
+                '    if (node == NULL || port == NULL)',
+                f'        return orpheus_graph_fail("audio:{operation}", "", "", ORPHEUS_ERR_INVALID_ARG);',
+            ])
+            for nid in dict.fromkeys(nid for nid, _ in self._host_audio_ports(plan)):
+                lines.append(
+                    f'    if (strcmp(node, "{self._c_escape(nid)}") == 0) '
+                    f'component = "{self._c_escape(plan.node_configs[nid]["component"])}";'
+                )
+            lines.extend([
+                '    if (!g_graph_initialized)',
+                f'        return orpheus_graph_fail("audio:{operation}", node, component, ORPHEUS_ERR_PROCESSING);',
+                f'    rc = orpheus_control_{operation}_audio(node, port, samples, sample_count);',
+                '    if (rc != ORPHEUS_OK)',
+                f'        return orpheus_graph_fail("audio:{operation}", node, component, rc);',
+                '    return ORPHEUS_OK;',
+                '}',
+                '',
+            ])
         for nid, is_input in self._host_audio_nodes(plan):
             sym = self._sanitized_node_id(nid)
-            component = plan.node_configs[nid]["component"]
             operation = "submit" if is_input else "read"
-            flag = "ready" if is_input else "valid"
+            port = plan.node_configs[nid]["host_ports"][0]["port"]
             lines.extend([
                 f'int orpheus_host_audio_{operation}_{sym}(',
                 f'    {"const " if is_input else ""}float* samples, uint32_t sample_count) {{',
-                f'    HostAudioState* buffer = g_state_{sym};',
-                '    orpheus_graph_clear_error();',
-                '    if (!g_graph_initialized || buffer == NULL)',
-                f'        return orpheus_graph_fail("host_audio:{operation}", "{nid}", '
-                f'"{component}", ORPHEUS_ERR_PROCESSING);',
-                '    if (samples == NULL || sample_count != buffer->channels * buffer->frames)',
-                f'        return orpheus_graph_fail("host_audio:{operation}", "{nid}", '
-                f'"{component}", ORPHEUS_ERR_INVALID_ARG);',
-                f'    if ({"buffer->ready" if is_input else "!buffer->valid"})',
-                f'        return orpheus_graph_fail("host_audio:{operation}:{flag}", "{nid}", '
-                f'"{component}", ORPHEUS_ERR_PROCESSING);',
-                f'    memmove({"buffer->data, samples" if is_input else "samples, buffer->data"}, '
-                'sample_count * sizeof(float));',
-                f'    buffer->{flag} = {"true" if is_input else "false"};',
-                '    return ORPHEUS_OK;',
+                f'    return orpheus_audio_{operation}("{self._c_escape(nid)}", '
+                f'"{self._c_escape(port)}", samples, sample_count);',
                 '}',
                 '',
             ])
@@ -1327,6 +1356,12 @@ class CodeGenerator:
                 f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);'
             )
             lines.append('    }')
+            if cfg.get("host_ports"):
+                lines.extend([
+                    f'    rc = orpheus_control_validate_audio("{self._c_escape(node_id)}");',
+                    f'    if (rc != ORPHEUS_OK) return orpheus_graph_init_fail("host_ports", '
+                    f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);',
+                ])
         for nid in embed_in_nodes:
             s = self._sanitized_node_id(nid)
             cfg = plan.node_configs[nid]
@@ -1817,11 +1852,13 @@ class CodeGenerator:
             '',
             '/* 最小宿主示例。实际产品可删除本文件，在自己的 main/音频中断中调用图入口。 */',
         ]
-        for nid, is_input in self._host_audio_nodes(plan):
+        for nid, port in self._host_audio_ports(plan):
+            is_input = port["access"] == "write"
+            if is_input and port["connected"]:
+                continue
             sym = self._sanitized_node_id(nid)
             cfg = plan.node_configs[nid]
-            frames = int(cfg.get("frames") or plan.block_size)
-            channels = int(cfg.get("params", {}).get("channels", 2))
+            frames, channels = port["frames"], port["channels"]
             entries = [
                 f'orpheus_graph_process_task_{self._sanitized_node_id(task["id"])}'
                 for task in plan.tasks if nid in task["nodes"]
@@ -1830,8 +1867,9 @@ class CodeGenerator:
                 f'/* TODO: {"宿主输入" if is_input else "宿主输出"} {nid}：'
                 f'{channels}ch × {frames}帧，交错f32。',
                 f' * {"实际采集/排列PCM后，在组件真正被触发前提交" if is_input else "实际触发结束后读取有效块，并交付设备"}：',
-                f' * orpheus_host_audio_{"submit" if is_input else "read"}_{sym}'
-                f'(pcm, ORPHEUS_HOST_AUDIO_{sym}_SAMPLES);',
+                f' * 端口 {port["port"]}：orpheus_audio_{"submit" if is_input else "read"}'
+                f'("{self._c_escape(nid)}", "{self._c_escape(port["port"])}", pcm, '
+                f'ORPHEUS_AUDIO_{sym}_{self._sanitized_node_id(port["port"])}_SAMPLES);',
                 f' * 所属Task入口：{", ".join(entries)}。',
                 ' * 按组件实际触发节拍适配；缓冲提交不启动Task，不能填零冒充设备数据。',
                 ' * 本示例不实现设备IO；请在宿主边界完成适配，不在组件process中阻塞。',
@@ -3031,6 +3069,9 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             'int orpheus_control_write_bulk_id(uint32_t id, const void* data, size_t count);',
             'int orpheus_control_get_bulk(const char* node, const char* key, void* out, size_t count);',
             'int orpheus_control_get_bulk_id(uint32_t id, void* out, size_t count);',
+            'int orpheus_control_validate_audio(const char* node);',
+            'int orpheus_control_submit_audio(const char* node, const char* port, const float* data, size_t count);',
+            'int orpheus_control_read_audio(const char* node, const char* port, float* data, size_t count);',
             'int orpheus_control_bridge_target(uint32_t id, OrpheusBridgeBulkTarget* target);',
             'int orpheus_control_register_hook(uint32_t id, OrpheusHookFn fn, void* ctx);',
             'int orpheus_control_message(const uint8_t* in, size_t in_len, uint8_t* out, size_t out_cap, size_t* out_len);',
@@ -3136,12 +3177,128 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         c.append('    return NULL;')
         c.append('}')
         c.append('')
+        c.extend([
+            'typedef struct {',
+            '    const char* node; const char* port; const char* slot; const char* status;',
+            '    size_t count; int writable; int connected;',
+            '} OrpheusHostPort;',
+            'static const OrpheusHostPort g_audio_ports[] = {',
+        ])
+        audio_ports = self._host_audio_ports(plan)
+        for nid, port in audio_ports:
+            c.append(
+                f'    {{"{self._c_escape(nid)}", "{self._c_escape(port["port"])}", '
+                f'"{self._c_escape(port["slot"])}", "{self._c_escape(port["status"])}", '
+                f'{port["channels"] * port["frames"]}u, '
+                f'{int(port["access"] == "write")}, {int(port["connected"])}}},'
+            )
+        if not audio_ports:
+            c.append('    {NULL, NULL, NULL, NULL, 0u, 0, 0},')
+        c.extend([
+            '};',
+            f'static const size_t g_audio_port_count = {len(audio_ports)}u;',
+            'static const OrpheusHostPort* orpheus_control_audio_port(const char* node, const char* port) {',
+            '    if (!node || !port) return NULL;',
+            '    for (size_t i = 0; i < g_audio_port_count; ++i)',
+            '        if (strcmp(g_audio_ports[i].node, node) == 0 && strcmp(g_audio_ports[i].port, port) == 0)',
+            '            return &g_audio_ports[i];',
+            '    return NULL;',
+            '}',
+            'static int orpheus_control_host_writable(const char* node, const char* key) {',
+            '    if (!node || !key) return 0;',
+        ])
+        for nid, cfg in plan.node_configs.items():
+            for key, access in cfg.get("resource_access", {}).items():
+                if access == "read":
+                    c.append(f'    if (strcmp(node, "{self._c_escape(nid)}") == 0 && '
+                             f'strcmp(key, "{self._c_escape(key)}") == 0) return 0;')
+        c.extend([
+            '    for (size_t i = 0; i < g_audio_port_count; ++i) {',
+            '        const OrpheusHostPort* p = &g_audio_ports[i];',
+            '        if (strcmp(p->node, node) == 0 && (strcmp(p->slot, key) == 0 || strcmp(p->status, key) == 0))',
+            '            return p->writable && !p->connected;',
+            '    }',
+            '    return 1;',
+            '}',
+            'static int orpheus_control_resource_readable(const char* node, const char* key) {',
+            '    if (!node || !key) return 0;',
+        ])
+        for nid, cfg in plan.node_configs.items():
+            for key, access in cfg.get("resource_access", {}).items():
+                if access == "write":
+                    c.append(f'    if (strcmp(node, "{self._c_escape(nid)}") == 0 && '
+                             f'strcmp(key, "{self._c_escape(key)}") == 0) return 0;')
+        c.extend([
+            '    return 1;',
+            '}',
+            'int orpheus_control_validate_audio(const char* node) {',
+            '    if (!node) return ORPHEUS_ERR_INVALID_ARG;',
+            '    for (size_t i = 0; i < g_audio_port_count; ++i) {',
+            '        const OrpheusHostPort* p = &g_audio_ports[i];',
+            '        if (strcmp(p->node, node) != 0) continue;',
+            '        OrpheusGenSlot* data = orpheus_control_find(node, p->slot);',
+            '        OrpheusGenSlot* flag = orpheus_control_find(node, p->status);',
+            '        if (!data || !flag || data->kind != ORPHEUS_SLOT_BULK ||',
+            '            data->type != ORPHEUS_VALUE_FLOAT || data->size != sizeof(float) || data->count != p->count ||',
+            '            flag->type != ORPHEUS_VALUE_BOOL || flag->count != 1 || flag->size != sizeof(bool) ||',
+            '            (p->writable && flag->kind != ORPHEUS_SLOT_SETTING)) return ORPHEUS_ERR_INVALID_ARG;',
+            '        const OrpheusComponentDescriptor* desc = data->iface->get_descriptor();',
+            '        if (!desc || data->offset > desc->state_size || flag->offset > desc->state_size ||',
+            '            data->count * data->size > desc->state_size - data->offset ||',
+            '            flag->size > desc->state_size - flag->offset) return ORPHEUS_ERR_INVALID_ARG;',
+            '    }',
+            '    return ORPHEUS_OK;',
+            '}',
+            'int orpheus_control_submit_audio(const char* node, const char* port, const float* data, size_t count) {',
+            '    const OrpheusHostPort* p = orpheus_control_audio_port(node, port);',
+            '    if (!p) return ORPHEUS_ERR_NOT_FOUND;',
+            '    if (!p->writable || p->connected) return ORPHEUS_ERR_UNSUPPORTED;',
+            '    if (!data || count != p->count) return ORPHEUS_ERR_INVALID_ARG;',
+            '    OrpheusValue ready = {0};',
+            '    int rc = orpheus_control_get_value(node, p->status, &ready);',
+            '    if (rc != ORPHEUS_OK) return rc;',
+            '    if (ready.type != ORPHEUS_VALUE_BOOL) return ORPHEUS_ERR_INVALID_ARG;',
+            '    if (ready.value.b) return ORPHEUS_ERR_PROCESSING;',
+            '    rc = orpheus_control_write_bulk(node, p->slot, data, count);',
+            '    if (rc != ORPHEUS_OK) return rc;',
+            '    ready.value.b = true;',
+            '    return orpheus_control_set_value(node, p->status, ready);',
+            '}',
+            'int orpheus_control_read_audio(const char* node, const char* port, float* data, size_t count) {',
+            '    const OrpheusHostPort* p = orpheus_control_audio_port(node, port);',
+            '    if (!p) return ORPHEUS_ERR_NOT_FOUND;',
+            '    if (p->writable) return ORPHEUS_ERR_UNSUPPORTED;',
+            '    if (!data || count != p->count) return ORPHEUS_ERR_INVALID_ARG;',
+            '    OrpheusValue valid = {0};',
+            '    int rc = orpheus_control_get_value(node, p->status, &valid);',
+            '    if (rc != ORPHEUS_OK) return rc;',
+            '    if (valid.type != ORPHEUS_VALUE_BOOL) return ORPHEUS_ERR_INVALID_ARG;',
+            '    if (!valid.value.b) return ORPHEUS_ERR_PROCESSING;',
+            '    rc = orpheus_control_get_bulk(node, p->slot, data, count);',
+            '    if (rc != ORPHEUS_OK) return rc;',
+            '    OrpheusGenSlot* flag = orpheus_control_find(node, p->status);',
+            '    const bool consumed = false;',
+            '    memcpy((char*)flag->state + flag->offset, &consumed, sizeof(consumed));',
+            '    return ORPHEUS_OK;',
+            '}',
+            '',
+        ])
         c.append('size_t orpheus_control_bulk_count(const char* node, const char* key) {')
         c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
         c.append('    return s ? s->count : 0;')
         c.append('}')
         c.append('')
         c.append('int orpheus_control_write_bulk(const char* node, const char* key, const void* data, size_t count) {')
+        c.append('    if (!orpheus_control_host_writable(node, key)) return ORPHEUS_ERR_UNSUPPORTED;')
+        c.append('    for (size_t i = 0; i < g_audio_port_count; ++i) {')
+        c.append('        const OrpheusHostPort* p = &g_audio_ports[i];')
+        c.append('        if (strcmp(p->node, node) == 0 && strcmp(p->slot, key) == 0) {')
+        c.append('            OrpheusValue ready = {0};')
+        c.append('            int rc = orpheus_control_get_value(node, p->status, &ready);')
+        c.append('            if (rc != ORPHEUS_OK) return rc;')
+        c.append('            if (ready.value.b) return ORPHEUS_ERR_PROCESSING;')
+        c.append('        }')
+        c.append('    }')
         c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
         c.append('    if (!s || s->kind != ORPHEUS_SLOT_BULK) return -1;')
         c.append('    if (count > s->count) return -1;')
@@ -3156,15 +3313,16 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         c.append('    }')
         c.append('    size_t span = count * s->size;')
         c.append('    if (s->shadow) {')
-        c.append('        memcpy(s->shadow, data, span);')
+        c.append('        memmove(s->shadow, data, span);')
         c.append('        s->pending = 1;')
         c.append('    } else {')
-        c.append('        memcpy((char*)s->state + s->offset, data, span);')
+        c.append('        memmove((char*)s->state + s->offset, data, span);')
         c.append('    }')
         c.append('    return 0;')
         c.append('}')
         c.append('')
         c.append('int orpheus_control_get_bulk(const char* node, const char* key, void* out, size_t count) {')
+        c.append('    if (!orpheus_control_resource_readable(node, key)) return ORPHEUS_ERR_UNSUPPORTED;')
         c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
         c.append('    if (!s || s->kind != ORPHEUS_SLOT_BULK || !out) return -1;')
         c.append('    if (count > s->count) return -1;')
@@ -3265,12 +3423,14 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         c.append('}')
         c.append('')
         c.append('int orpheus_control_set_value(const char* node, const char* key, OrpheusValue v) {')
+        c.append('    if (!orpheus_control_host_writable(node, key)) return ORPHEUS_ERR_UNSUPPORTED;')
         c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
         c.append('    if (!s || s->kind == ORPHEUS_SLOT_PROBE || s->kind == ORPHEUS_SLOT_STATE) return -1;')
         c.append('    return orpheus_control_write_slot(s, v);')
         c.append('}')
         c.append('')
         c.append('int orpheus_control_get_value(const char* node, const char* key, OrpheusValue* out) {')
+        c.append('    if (!orpheus_control_resource_readable(node, key)) return ORPHEUS_ERR_UNSUPPORTED;')
         c.append('    if (!out) return -1;')
         c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
         c.append('    if (!s) return -1;')
@@ -3346,6 +3506,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             'int orpheus_control_bridge_target(uint32_t id, OrpheusBridgeBulkTarget* target) {',
             '    if (orpheus_control_bulk_count_id(id) == 0u) return ORPHEUS_ERR_NOT_FOUND;',
             '    OrpheusGenSlot* s = orpheus_control_find_by_id(id);',
+            '    if (s && !orpheus_control_resource_readable(s->node, s->key)) return ORPHEUS_ERR_UNSUPPORTED;',
             '    if (!target || !s || s->size != 4u ||',
             '        (s->kind != ORPHEUS_SLOT_BULK && s->kind != ORPHEUS_SLOT_PROBE))',
             '        return ORPHEUS_ERR_NOT_FOUND;',
@@ -3353,7 +3514,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             '    target->active = (char*)s->state + s->offset;',
             '    target->shadow = s->shadow; target->task = s->task;',
             '    target->count = s->count; target->type = s->type;',
-            '    target->writable = s->kind == ORPHEUS_SLOT_BULK &&',
+            '    target->writable = orpheus_control_host_writable(s->node, s->key) && s->kind == ORPHEUS_SLOT_BULK &&',
             '        (ORPHEUS_ID_KIND(id) == ORPHEUS_ID_RTC || ORPHEUS_ID_KIND(id) == ORPHEUS_ID_TUNE);',
             '    target->min_i32 = s->min_i32; target->max_i32 = s->max_i32;',
             '    target->pending = &s->pending; target->clear_pending = orpheus_control_clear_pending;',

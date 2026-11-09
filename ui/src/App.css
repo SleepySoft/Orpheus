@@ -2749,3 +2749,37 @@ pre {
 .todo-panel .todo-item button { max-width: 100%; white-space: normal; text-align: left; }
 .placeholder-port-row { display: flex; gap: 4px; align-items: center; margin: 4px 0; }
 .placeholder-port-row input { min-width: 0; width: 70px; }
+.declared-interface {
+  border-bottom: 1px solid #394052;
+  padding: 8px 0;
+}
+.declared-interface small {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #aab4c4;
+}
+.interface-exposure {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.audio-port-row small {
+  display: block;
+  max-width: 160px;
+  font-size: 10px;
+}
+.audio-port-row {
+  flex-wrap: wrap;
+  width: 160px;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+.audio-port-row .ch-badge,
+.audio-port-row small {
+  flex-basis: 100%;
+}
+.declared-interface small {
+  color: #68727f;
+}

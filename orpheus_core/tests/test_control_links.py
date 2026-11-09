@@ -112,6 +112,29 @@ def test_manifest_schema_accepts_control_fields():
         schemas.validate(bad, schema)
 
 
+@pytest.mark.parametrize("source_access,target_access,reason", [
+    ("write", "read_write", "不可读"),
+    ("read_write", "read", "只读"),
+])
+def test_explicit_access_cannot_be_upgraded_by_control_binding(
+    registry, source_access, target_access, reason
+):
+    reg = registry.fork()
+    add_stub_component(reg, "test.access_source", [{
+        "id": "value", "type": "float", "access": source_access,
+        "control_source": True, "readback": True,
+    }])
+    add_stub_component(reg, "test.access_target", [{
+        "id": "value", "type": "float", "access": target_access, "bindable": True,
+    }])
+    project = make_project({
+        "source": Node("source", "test.access_source"),
+        "target": Node("target", "test.access_target"),
+    }, [ctl("source:value", "target:value")])
+    with pytest.raises(CompileError, match=reason):
+        GraphCompiler(reg).compile(project)
+
+
 @pytest.mark.parametrize("field,value", [
     ("bindable", True), ("control_source", True),
     ("update_policy", "block_boundary"), ("bulk_slot", "values"),

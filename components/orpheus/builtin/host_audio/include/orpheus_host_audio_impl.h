@@ -34,9 +34,9 @@ static const OrpheusPort ports[] = {
 };
 static const OrpheusComponentDescriptor descriptor = {
 #ifdef ORPHEUS_BUFFER_SOURCE
-    .id="orpheus.builtin.buffer_source",.version="1.0.0",.abi_version=ORPHEUS_ABI_VERSION,
+    .id="orpheus.builtin.buffer_source",.version="1.1.0",.abi_version=ORPHEUS_ABI_VERSION,
 #else
-    .id="orpheus.builtin.host_audio",.version="1.0.0",.abi_version=ORPHEUS_ABI_VERSION,
+    .id="orpheus.builtin.host_audio",.version="1.1.0",.abi_version=ORPHEUS_ABI_VERSION,
 #endif
     .ports=ports,.port_count=sizeof(ports)/sizeof(ports[0]),
     .params=params,.param_count=sizeof(params)/sizeof(params[0]),.state_size=sizeof(HostAudioState),
@@ -133,8 +133,10 @@ static int process(void* state,const OrpheusProcessContext* ctx) {
         (in && (!valid(in,s,true) || overlaps(in->data,s->data,bytes))) ||
         (in && out && overlaps(in->data,out->data,bytes))) return ORPHEUS_ERR_INVALID_ARG;
     if (!s->mode) {
-        if (in) return ORPHEUS_ERR_INVALID_ARG;
-        if (!s->ready) {
+        if (in && s->ready) return ORPHEUS_ERR_INVALID_ARG;
+        if (in) {
+            memcpy(s->data,in->data,bytes);
+        } else if (!s->ready) {
             if (s->missing_blocks<INT_MAX) ++s->missing_blocks;
             return ORPHEUS_ERR_PROCESSING;
         }

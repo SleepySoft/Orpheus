@@ -23,19 +23,36 @@
 例如 BAF 的 `audio_in` 是 30ch × 32 帧输入 Buffer；驱动箭头只决定何时读取它，
 不会自动生成设备数据或在缓冲写满后启动 Task。
 
-生成工程的 `include/orpheus_graph.h` 提供逐实例的
-`orpheus_host_audio_submit_<实例>` / `orpheus_host_audio_read_<实例>`；
-参数是交错 f32 数组及样本数量（不是字节数），数量宏为
-`ORPHEUS_HOST_AUDIO_<实例>_SAMPLES`（后缀保留实例大小写，避免重名）。提交只写完整块并置 `ready`，
+2026-11-09 的统一接口决定见 [ADR-0003](../../ADR/0003-declared-interfaces-and-host-audio.md)。
+`host_audio` 的宿主输入是同一个 `in` 端口的供数方式：未连上游由宿主交付；
+连上游则从图输入读取，Runtime、生成代码及原始 BULK/状态写入口均拒绝宿主写入。
+组件本身也拒绝同时存在上游输入和未消费的 `ready`，不采用隐式覆盖优先级。
+
+组件定义的 `ports[].host_binding` 关联已声明 BULK 存储、读写方向、交付状态及
+重启配置启用条件。`samples` 的有效形状为 `[config:frames, param:channels]`，
+8192 是容量而非每次交付长度。编译器写出逐端口签名，加载/初始化时核对实际注册。
+每个输入/输出分别声明格式、通道数、块长和速率关系，不要求组件所有端口相同。
+
+动态 Runtime 提供 `submit_audio(node, port, samples, count)` /
+`read_audio(node, port, samples, count)`；生成工程的 `include/orpheus_graph.h` 提供
+`orpheus_audio_submit(node, port, samples, count)` / `orpheus_audio_read(...)`。
+例如输入为 `("audio_in", "in")`，宿主输出为 `("audio_out", "out")`；
+`buffer_source` 仍通过其 `"out"` 端口交付宿主填充的源输出。
+参数是交错 f32 数组及样本数量（不是字节数），生成数量宏为
+`ORPHEUS_AUDIO_<实例>_<端口>_SAMPLES`（后缀保留大小写，重名明确拒绝）。
+原逐实例 `orpheus_host_audio_submit/read_<实例>` 便捷函数转发统一接口，不再直接操作另一套存储。
+提交只写完整块并置 `ready`，
 拒绝覆盖未消费输入；读取要求 `valid`，复制后清除它，拒绝重复读取旧块。
 错误码同时记录到 `orpheus_graph_last_error()`。这些函数只访问缓冲，不推进执行；
 宿主必须与实际组件触发串行，跨线程交付仍需要独立的数据桥。
 `buffer_source` 同样提供提交接口，但它还承担驱动入口，不等同于纯 Buffer。
 
-生成的 `src/main.c` 为每个宿主 Buffer 写出适配 TODO，包括方向、尺寸、函数和
+生成的 `src/main.c` 为每个需要宿主适配的 Buffer 写出 TODO，包括端口、方向、尺寸、函数和
 所属 Task 入口。产品宿主在组件真正被触发前采集并提交，触发后读取并送到设备；
 分频入口必须按实际触发节拍供数，不能每个父拍覆盖未消费块。
 未适配时保留缺块报错，最小宿主输出具体失败节点，不用静音冒充设备数据。
+已经连接上游的输入不再生成宿主采集 TODO。此首轮接口仅要求调用者与 Task 串行，
+不实现音频设备采集或跨线程/Bridge 原子音频交付；现有 BULK 传输不是完整音频提交协议。
 
 `task_sequence` 中，未被显式入口指定的节点沿计算数据连接默认继承驱动：
 音频与计算用 bulk 端口默认传播，control/debug 端口和参数控制连线默认不传播。

@@ -61,6 +61,7 @@ import AlterGroupOverlay from './AlterGroupOverlay';
 import TodoPanel from './TodoPanel';
 import { PLACEHOLDER_ID, newTodo } from './placeholder';
 import ProjectLoading from './ProjectLoading';
+import { interfaceState, canEditDesignParameter } from './interfaceModel';
 
 const nodeTypes = { orpheus: OrpheusNode };
 const edgeTypes = { audio: AudioEdge, control: ControlEdge, drive: DriveEdge };
@@ -90,8 +91,10 @@ function validateControlConnection(nodes, params) {
   if (!dst) return `目标参数不存在：${params.target}:${ctlParamId(params.targetHandle)}`;
   if (!src.schema.control_source)
     return `参数 ${params.source}:${src.schema.id} 未声明 control_source，不能作为控制源`;
+  if (src.schema.access === 'write') return `控制源 ${src.schema.id} 仅允许写入，不能读取`;
   if (!dst.schema.bindable)
     return `参数 ${params.target}:${dst.schema.id} 未声明 bindable，不能作为控制目标`;
+  if (!canEditDesignParameter(dst.schema, dst.node.data)) return `目标参数 ${dst.schema.id} 不允许直接写入，不能作为控制目标`;
   if (dst.schema.affects_signature)
     return `目标参数 ${dst.schema.id} 影响端口签名（affects_signature），不能作为控制目标`;
   if (!CONTROL_TARGET_POLICIES.includes(dst.schema.update_policy))
@@ -826,7 +829,9 @@ const { screenToFlowPosition } = useReactFlow();
               task: doc?.tasks?.[0]?.id || 'default',
               clockSource: !!comp.clock_source,
               ports: resolvePorts(comp, params),
+              manifestPorts: comp.ports || [],
               parameters: comp.parameters || [],
+              bulkSlots: comp.bulk_slots || [],
               platforms: comp.platforms || [],
               bridgeConfig: !!comp.bridge_config,
               packageType: comp.package_type || 'source',
@@ -844,6 +849,9 @@ const { screenToFlowPosition } = useReactFlow();
 
   const onParamChange = useCallback(
     (paramId, value) => {
+      const editedNode = view.nodes.find((nd) => nd.id === selectedId);
+      const schema = editedNode?.data.parameters?.find((p) => p.id === paramId);
+      if (schema && !canEditDesignParameter(schema, editedNode.data)) return;
       // live-push to the running realtime session (unless recompile is required)
       if (rtRef.current.running && current && selectedId) {
         const node = view.nodes.find((nd) => nd.id === selectedId);
@@ -904,6 +912,7 @@ const { screenToFlowPosition } = useReactFlow();
     (viewKey, nodeId, paramId, value, flatId) => {
       const nd = (views[viewKey] && views[viewKey].nodes.find((n) => n.id === nodeId)) || null;
       const schema = (nd && nd.data.parameters || []).find((p) => p.id === paramId);
+      if (schema && !canEditDesignParameter(schema, nd.data)) return;
       if (rtRef.current.running && current && schema) {
         if (schema.update_policy !== 'restart_required') {
           api.rtSetParam(current, flatId || nodeId, paramId, value).catch(() => {});
@@ -993,9 +1002,12 @@ const { screenToFlowPosition } = useReactFlow();
               const item = items.find((it) => it.viewKey === key && it.nodeId === nd.id);
               if (!item) return nd;
               const params = { ...nd.data.params };
-              for (const [k, val] of Object.entries(item.values || {})) params[k] = val;
+              const allowed = (id) => nd.data.parameters?.some((p) => p.id === id && canEditDesignParameter(p, nd.data));
+              for (const [k, val] of Object.entries(item.values || {})) {
+                if (allowed(k)) params[k] = val;
+              }
               for (const [k, arr] of Object.entries(item.bulk || {})) {
-                params[k] = Array.isArray(arr) ? arr.join(', ') : String(arr);
+                if (allowed(k)) params[k] = Array.isArray(arr) ? arr.join(', ') : String(arr);
               }
               const comp = catalogById[nd.data.component];
               return {
@@ -1013,7 +1025,7 @@ const { screenToFlowPosition } = useReactFlow();
           for (const [k, val] of Object.entries(item.values || {})) {
             const nd = (views[item.viewKey] && views[item.viewKey].nodes.find((n) => n.id === item.nodeId)) || null;
             const schema = (nd && nd.data.parameters || []).find((p) => p.id === k);
-            if (schema && schema.update_policy !== 'restart_required') {
+            if (schema && canEditDesignParameter(schema, nd.data) && schema.update_policy !== 'restart_required') {
               api.rtSetParam(current, item.flatId, k, val).catch(() => {});
             }
           }
@@ -1457,8 +1469,8 @@ const { screenToFlowPosition } = useReactFlow();
     const schemas = publicParameters.map((parameter) => ({
       ...parameter,
       ...(parameter.direction === 'input'
-        ? { bindable: true, update_policy: parameter.update_policy || 'immediate' }
-        : { control_source: true, readback: true }),
+        ? { update_policy: parameter.update_policy || 'immediate' }
+        : { readback: true }),
     }));
     setViews((current) => Object.fromEntries(Object.entries(current).map(([key, currentView]) => [
       key,
@@ -1491,6 +1503,7 @@ const { screenToFlowPosition } = useReactFlow();
       id = `${base}_${suffix++}`;
     }
     const parameter = {
+      ...schema,
       id,
       direction,
       maps_to: mapsTo,
@@ -1499,6 +1512,9 @@ const { screenToFlowPosition } = useReactFlow();
       ...(schema.default !== undefined ? { default: schema.default } : {}),
       ...(schema.shape?.length ? { shape: schema.shape } : {}),
       ...(schema.update_policy ? { update_policy: schema.update_policy } : {}),
+      ...(schema.access ? { access: schema.access } : {}),
+      ...(schema.bindable ? { bindable: true } : {}),
+      ...(schema.control_source ? { control_source: true } : {}),
     };
     const next = [...(activeSub.public_parameters || []), parameter];
     setSubsMeta((current) => current.map((sub) => (
@@ -1837,14 +1853,11 @@ const { screenToFlowPosition } = useReactFlow();
 
   // ---------------------------------------------------------- render
 
-  const selectedNode = view.nodes.find((nd) => nd.id === selectedId) || null;
 
-  // 传给 ReactFlow 的边：开关关闭时过滤控制边（界面与纯音频图逐像素一致）；
-  // 开启时为控制边注入两端求值形状与失配标记（随参数变化自动刷新，失配标红不剪线）。
+  // 已连接接口始终可见；形状失配标红保留，显露不改变连线与驱动。
   const displayEdges = useMemo(
     () =>
       projectDriveEdgesForView(view.nodes, view.edges)
-        .filter((e) => showControlLinks || e.type !== 'control')
         .filter((e) => !isDriveEdge(e) || flowMode === 'task_sequence')
         .map((e) => {
           if (isDriveEdge(e)) return {
@@ -1870,17 +1883,13 @@ const { screenToFlowPosition } = useReactFlow();
             data: { srcShape: src?.shape ?? null, dstShape: dst?.shape ?? null, mismatch },
           };
         }),
-    [view.edges, view.nodes, showControlLinks, flowMode, activeView, activeSub, updateView]
+    [view.edges, view.nodes, flowMode, activeView, activeSub, updateView]
   );
 
   const viewMemberships = useMemo(() => driveMembershipsForViews(views, flowMode),
     [views, flowMode]);
   const memberships = viewMemberships[activeView] || {};
   const displayNodes = useMemo(() => {
-    if (!activeSub) return view.nodes.map((node) => ({
-      ...node, data: { ...node.data, flowMode, blockSize: doc?.block_size,
-        driveMemberships: memberships[node.id] },
-    }));
     const audioByNode = {};
     const controlByNode = {};
     const addExport = (table, exported) => {
@@ -1891,23 +1900,41 @@ const { screenToFlowPosition } = useReactFlow();
       if (!table[nodeId]) table[nodeId] = {};
       table[nodeId][endpointId] = { id: exported.id, direction: exported.direction };
     };
-    activeSub.ports.forEach((port) => addExport(audioByNode, port));
-    (activeSub.public_parameters || []).forEach((parameter) => addExport(controlByNode, parameter));
+    (activeSub?.ports || []).forEach((port) => addExport(audioByNode, port));
+    (activeSub?.public_parameters || []).forEach((parameter) => addExport(controlByNode, parameter));
     return view.nodes.map((node) => {
-      return {
+      const decorated = {
         ...node,
         data: {
           ...node.data,
           flowMode,
           driveMemberships: memberships[node.id],
           blockSize: doc?.block_size,
-          exportSubId: activeSub.id,
+          exportSubId: activeSub?.id,
           exportedAudioPorts: audioByNode[node.id] || {},
           exportedControlParameters: controlByNode[node.id] || {},
         },
       };
+      decorated.data.interfaces = interfaceState(decorated, view.edges);
+      return decorated;
     });
-  }, [activeSub, view.nodes, flowMode, doc?.block_size, memberships]);
+  }, [activeSub, view.nodes, view.edges, flowMode, doc?.block_size, memberships]);
+
+  const selectedNode = displayNodes.find((node) => node.id === selectedId) || null;
+  const onInterfaceChange = (field, id, exposed) => {
+    updateView(activeView, (currentView) => ({
+      ...currentView,
+      nodes: currentView.nodes.map((node) => {
+        if (node.id !== selectedId) return node;
+        const previous = node.data.interfaceUi || {};
+        const values = new Set(previous[field] || []);
+        if (exposed) values.add(id); else values.delete(id);
+        return { ...node, data: { ...node.data,
+          interfaceUi: { ...previous, [field]: [...values] } } };
+      }),
+    }));
+    setDirty(true);
+  };
 
   const revealSubExport = useCallback((subId, kind, id) => {
     const viewKey = subViewKey(subId);
@@ -2030,7 +2057,7 @@ const { screenToFlowPosition } = useReactFlow();
           </label>
           <label
             className="autosave"
-            title="显示控制参数链路：控制源（readback）→ 可绑定参数的虚线连接与形状标注"
+            title="控制链路图例：control_source → bindable；接口在参数页选择显露，已连线接口始终显示"
           >
             <input
               type="checkbox"
@@ -2348,6 +2375,7 @@ const { screenToFlowPosition } = useReactFlow();
               onTaskChange={onTaskChange}
               flowMode={flowMode}
               ctx={paramCtx}
+              onInterfaceChange={onInterfaceChange}
             />
           </div>
         )}

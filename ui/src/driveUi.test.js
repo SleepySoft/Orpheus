@@ -60,6 +60,7 @@ test('虚拟执行 Handle 随模式切换挂载；时钟源不出现执行输入
   const render = (flowMode, clockSource = false) => act(() => root.render(
     <NodeActionsContext.Provider value={{ showControlLinks: false }}>
       <OrpheusNode id="test" data={{ component: 'test.atomic', flowMode, clockSource,
+        interfaceUi: { exposedPorts: ['in', 'out'] },
         ports: [{ id: 'in', direction: 'input' }, { id: 'out', direction: 'output' }] }} />
     </NodeActionsContext.Provider>
   ));
@@ -140,19 +141,22 @@ test('纯宿主Buffer独立于时钟源呈现方向、通道和块长', () => {
   const render = (mode) => act(() => root.render(
     <OrpheusNode id="host" data={{ component: 'orpheus.builtin.host_audio',
       clockSource: false, flowMode: 'task_sequence', blockSize: 32,
+      interfaceUi: { exposedPorts: ['in', 'out'] },
       params: { channels: 30, mode }, ports: [
-        { id: 'in', type: 'audio', direction: 'input', channels: 'param:channels' },
-        { id: 'out', type: 'audio', direction: 'output', channels: 'param:channels' },
+        { id: 'in', type: 'audio', direction: 'input', channels: 'param:channels',
+          host_binding: { slot: 'samples', access: 'read', status: 'valid', when: { mode: 1 } } },
+        { id: 'out', type: 'audio', direction: 'output', channels: 'param:channels',
+          host_binding: { slot: 'samples', access: 'write', status: 'ready', when: { mode: 0 } } },
       ] }} />
   ));
   render(0);
   expect(container.querySelector('.source-buffer-summary').textContent).toContain('输入 Buffer30ch × 32帧');
-  expect(container.textContent).toContain('宿主 → Buffer → 图');
+  expect(container.textContent).toContain('无上游时可由宿主交付');
   expect(container.textContent).toContain('独立驱动');
   expect(container.textContent).toContain('生成代码含适配 TODO');
   render(1);
   expect(container.querySelector('.source-buffer-summary').textContent).toContain('输出 Buffer30ch × 32帧');
-  expect(container.textContent).toContain('图 → Buffer → 宿主');
+  expect(container.textContent).toContain('宿主读取');
   expect(container.textContent).not.toContain('时钟源');
 });
 
@@ -162,6 +166,7 @@ test('驱动路由不可见，组件本体接收入口，音频端口及Buffer�
       <OrpheusNode id="audio" data={{ label: '音频源', component: source
         ? 'orpheus.builtin.buffer_source' : 'orpheus.builtin.gain',
         flowMode: 'task_sequence', clockSource: source, blockSize: 32, params: { channels: 2 },
+        interfaceUi: { exposedPorts: ['out'] },
         ports: [{ id: 'out', type: 'audio', direction: 'output', channels: 'param:channels' }] }} />
     </NodeActionsContext.Provider>
   ));

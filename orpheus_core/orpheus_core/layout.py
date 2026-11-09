@@ -74,7 +74,21 @@ def load_document_layout(document: Document, owner: Path) -> tuple[Document, Doc
     return apply_layout(document, layout), layout, path
 
 
-def split_document_layout(document: Document, *, extra_views: Document | None = None) -> tuple[Document, Document]:
+def filter_node_ui(document: Document, node_ui: Document) -> Document:
+    graphs = {"main": document.get("graph", {})}
+    graphs.update({"sub:" + sub["id"]: sub.get("graph", {})
+                   for sub in document.get("subcomponents", [])})
+    return {
+        view: {node: copy.deepcopy(settings) for node, settings in settings_by_node.items()
+               if node in {n["id"] for n in graphs[view].get("nodes", [])}}
+        for view, settings_by_node in node_ui.items() if view in graphs
+    }
+
+
+def split_document_layout(
+    document: Document, *, extra_views: Document | None = None,
+    extra_node_ui: Document | None = None,
+) -> tuple[Document, Document]:
     layout = document.get("layout", {})
     if layout and "file" not in layout:
         validate_layout(layout)
@@ -96,6 +110,9 @@ def split_document_layout(document: Document, *, extra_views: Document | None = 
         views["sub:" + sub["id"]] = extract(sub.get("graph", {}))
     views.update(copy.deepcopy(extra_views or {}))
     result = {"version": 1, "views": views}
+    node_ui = extra_node_ui if extra_node_ui is not None else layout.get("node_ui")
+    if node_ui:
+        result["node_ui"] = copy.deepcopy(node_ui)
     validate_layout(result)
     return structure, result
 
@@ -113,7 +130,13 @@ def write_yaml_if_changed(path: Path, document: Document) -> None:
 def save_document(
     document: Document, owner: Path, *, separate_layout: bool = True,
     extra_views: Document | None = None,
+    extra_node_ui: Document | None = None,
 ) -> None:
+    existing_path = reference_path(document, owner)
+    if existing_path is not None and existing_path.is_file():
+        _, stored_layout, _ = load_document_layout(document, owner)
+        if extra_node_ui is None:
+            extra_node_ui = stored_layout.get("node_ui")
     if not separate_layout:
         if "layout" in document:
             _, layout, _ = load_document_layout(document, owner)
@@ -123,9 +146,14 @@ def save_document(
         inline.pop("layout", None)
         if extra_views:
             inline["layout"] = {"version": 1, "views": copy.deepcopy(extra_views)}
+        node_ui = extra_node_ui
+        if node_ui is None:
+            node_ui = document.get("layout", {}).get("node_ui")
+        if node_ui:
+            inline.setdefault("layout", {"version": 1, "views": {}})["node_ui"] = copy.deepcopy(node_ui)
         write_yaml_if_changed(owner, inline)
         return
-    structure, layout = split_document_layout(document, extra_views=extra_views)
+    structure, layout = split_document_layout(document, extra_views=extra_views, extra_node_ui=extra_node_ui)
     path = reference_path(document, owner)
     if path is None:
         default_name = owner.stem + ".layout.yaml"

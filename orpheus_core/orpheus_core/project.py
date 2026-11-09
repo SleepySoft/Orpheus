@@ -15,7 +15,7 @@ import yaml
 
 from orpheus_core import schemas
 from orpheus_core.registry import ComponentInfo, Registry
-from orpheus_core.layout import load_document_layout, save_document
+from orpheus_core.layout import filter_node_ui, load_document_layout, save_document
 
 
 @dataclass
@@ -215,6 +215,7 @@ class Project:
     component_manifests: list[Path] = field(default_factory=list, repr=False, compare=False)
     layout_files: list[Path] = field(default_factory=list, repr=False, compare=False)
     layout_reference: dict[str, str] | None = field(default=None, repr=False, compare=False)
+    node_ui: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
     registry: Registry | None = field(default=None, repr=False, compare=False)
     resources: dict[str, dict[str, Any]] = field(default_factory=dict)
     # 控制连接（顶层段）：编译期校验后进入 plan.control_links，运行期块边界两相快照投递
@@ -350,6 +351,8 @@ def project_to_dict(
         doc["imports"] = project.imports
     if project.layout_reference:
         doc["layout"] = copy.deepcopy(project.layout_reference)
+    if materialize_imports and project.node_ui:
+        doc["layout"] = {"version": 1, "views": {}, "node_ui": copy.deepcopy(project.node_ui)}
     if project.resources:
         doc["resources"] = project.resources
     if project.clock_domains:
@@ -818,6 +821,9 @@ class ProjectLoader:
             for node in sub.graph.nodes.values():
                 if node.id in positions:
                     node.position = copy.deepcopy(positions[node.id])
+        project.node_ui = filter_node_ui(
+            project_to_dict(project, materialize_imports=True), layout.get("node_ui", {})
+        )
         # 保留未知顶层字段（presets / model_tree 等），往返不丢
         known = {
             "version", "metadata", "sample_rate", "block_size", "buffer_size",
@@ -837,4 +843,5 @@ class ProjectLoader:
         if not separate_layout:
             document.pop("layout", None)
         save_document(document, self._entry_path(path),
-                      separate_layout=separate_layout, extra_views=readonly_views)
+                      separate_layout=separate_layout, extra_views=readonly_views,
+                      extra_node_ui=project.node_ui)

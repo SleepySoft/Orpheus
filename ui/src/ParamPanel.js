@@ -1,14 +1,13 @@
 import React from 'react';
 import ParamField from './widgets';
 import { NodeTodos, isRunnablePlaceholder } from './TodoPanel';
+import { accessText, canEditParameter, canEditDesignParameter, portSignature, bindingStatus } from './interfaceModel';
+import { isHostDeliveryStatus } from './graphUtils';
 
 // Universal params (channel count, sample rate, ...) always go on top,
 // separated from component-specific params.
 const UNIVERSAL_IDS = new Set(['channels', 'sample_rate']);
 const isUniversalParam = (p) => p.affects_signature || UNIVERSAL_IDS.has(p.id);
-// readback-only, non-persistent params are probe outputs (rms/peak/waveform),
-// not editable inputs. Persistent readbacks (e.g. file_path) stay editable.
-const isDisplayOnly = (p) => Boolean(p.readback) && !p.affects_signature && !p.persistent;
 
 /** Right-hand panel: edit the selected node's parameters per its manifest schema. */
 export default function ParamPanel({
@@ -25,6 +24,7 @@ export default function ParamPanel({
   onTaskChange,
   flowMode,
   ctx,
+  onInterfaceChange,
 }) {
   if (!node) {
     return (
@@ -41,9 +41,17 @@ export default function ParamPanel({
 
   const schemaIds = new Set((parameters || []).map((p) => p.id));
   const extraKeys = Object.keys(params || {}).filter((k) => !schemaIds.has(k));
-  const editable = (parameters || []).filter((p) => !isDisplayOnly(p));
-  const universal = editable.filter(isUniversalParam);
-  const specific = editable.filter((p) => !isUniversalParam(p));
+  const universal = (parameters || []).filter(isUniversalParam);
+  const specific = (parameters || []).filter((p) => !isUniversalParam(p));
+  const interfaces = node.data.interfaces || {};
+  const exposure = (field, id, locked = false) => (
+    <label className="interface-exposure">
+      <input type="checkbox" aria-label={`显露 ${field}:${id}`}
+        checked={(interfaces[field] || []).includes(id)} disabled={locked || todosReadOnly}
+        onChange={(event) => onInterfaceChange?.(field, id, event.target.checked)} />
+      图上显露{locked ? '（已连接/已导出）' : ''}
+    </label>
+  );
 
   const referenceField = (name, value) => (
     <label className="node-ref-field">
@@ -54,13 +62,27 @@ export default function ParamPanel({
   );
 
   const renderField = (schema) => (
-    <ParamField
-      key={schema.id}
-      schema={schema}
-      value={params?.[schema.id] ?? schema.default}
-      onChange={onParamChange}
-      ctx={ctx}
-    />
+    <div key={schema.id} className="declared-interface" data-interface={`parameter:${schema.id}`}>
+      <ParamField schema={schema}
+        value={isHostDeliveryStatus(schema, node.data) ? node.data.probe?.[schema.id]
+          : canEditParameter(schema) ? params?.[schema.id] ?? schema.default
+          : node.data.probe?.[schema.id] ?? params?.[schema.id] ?? schema.default}
+        disabled={!canEditDesignParameter(schema, node.data)}
+        disabledLabel={isHostDeliveryStatus(schema, node.data) ? '宿主交付' : '只读'}
+        onChange={onParamChange} ctx={ctx} />
+      <small>{schema.id} · {schema.type} · {accessText(schema)}
+        {' · '}更新：{schema.update_policy || '未声明'}
+        {' · '}shape：{JSON.stringify(schema.shape || [])}
+        {schema.bindable ? ' · 可绑定目标' : ''}
+        {schema.control_source ? ' · 控制源' : ''}
+        {schema.readback ? ' · 支持回读' : ''}
+      </small>
+      {isHostDeliveryStatus(schema, node.data) && <small>
+        宿主交付状态：{node.data.probe?.[schema.id] === undefined ? '未观测' : String(node.data.probe[schema.id])}；
+        设计初始化为 false，由完整 PCM 提交原子更新，此面板不直接写入。
+      </small>}
+      {exposure('exposedParameters', schema.id, interfaces.lockedParameters?.includes(schema.id))}
+    </div>
   );
 
   return (
@@ -101,6 +123,30 @@ export default function ParamPanel({
       )}
       {specific.length > 0 && universal.length > 0 && <div className="param-section">组件参数</div>}
       {specific.map(renderField)}
+      <div className="param-section">声明的 Buffer 资源</div>
+      {(node.data.bulkSlots || []).map((slot) => (
+        <div key={slot.id} className="declared-interface" data-interface={`bulk:${slot.id}`}>
+          <strong>{slot.name || slot.id}</strong>
+          <small>{slot.id} · {slot.type || slot.element_type || '类型未声明'} · {accessText(slot)}
+            {' · '}shape：{JSON.stringify(slot.shape || [])}
+            {' · '}容量：{String(slot.count ?? slot.capacity ?? '未声明')}</small>
+          {exposure('exposedBulkSlots', slot.id)}
+        </div>
+      ))}
+      <div className="param-section">数据端口签名（逐端口）</div>
+      {(node.data.ports || []).map((port) => (
+        <div key={port.id} className="declared-interface" data-interface={`port:${port.id}`}>
+          <strong>{port.id} · {port.direction === 'input' ? '输入' : '输出'}</strong>
+          <small>{portSignature(port, node.data)}</small>
+          {port.host_binding && <small>
+            {(node.data.bulkSlots || []).some((slot) => slot.id === port.host_binding.slot)
+              ? '绑定已声明资源' : '绑定资源未在目录声明'}：{port.host_binding.slot} · {port.host_binding.access} · {port.host_binding.status}
+            <br />{bindingStatus(port, node.data)}
+          </small>}
+          {exposure('exposedPorts', port.id, interfaces.lockedPorts?.includes(port.id))}
+        </div>
+      ))}
+      <p className="muted">仅展示 manifest 声明的接口，不枚举 C 私有状态。显露不改变访问或控制权限。</p>
       <NodeTodos todos={node.data.todos} onChange={onTodosChange} isPlaceholder={isRunnablePlaceholder(node)} readOnly={todosReadOnly} />
       <NodeNoteSection
         viewKey={viewKey}

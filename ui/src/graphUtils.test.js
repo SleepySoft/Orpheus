@@ -243,8 +243,8 @@ describe('docToViews → viewsToDoc 往返（含 control_connections）', () => 
         id: 'chain',
         ports: [],
         public_parameters: [
-          { id: 'level', direction: 'output', maps_to: 'meter:level', type: 'float' },
-          { id: 'gain', direction: 'input', maps_to: 'gain:gain_db', type: 'float', default: -6 },
+          { id: 'level', direction: 'output', maps_to: 'meter:level', type: 'float', control_source: true },
+          { id: 'gain', direction: 'input', maps_to: 'gain:gain_db', type: 'float', default: -6, bindable: true },
         ],
         graph: { nodes: [], connections: [] },
       }],

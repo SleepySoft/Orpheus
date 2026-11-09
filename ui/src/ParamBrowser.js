@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import ParamField from './widgets';
-import { isSubRef } from './graphUtils';
+import { isSubRef, isHostDeliveryStatus } from './graphUtils';
+import { accessText, canEditParameter } from './interfaceModel';
 
 /**
  * 全局参数面板（树形 + 按数据类型分类）
@@ -21,10 +22,10 @@ const KIND_META = {
   state: { label: '状态', icon: '🧩' },
 };
 
-/** 数据点类别：显式 kind 优先；否则按 readback 语义推断（与 ParamPanel 的 isDisplayOnly 一致）。 */
+/** 分类不由 readback 推断可写性。 */
 function kindOf(p) {
   if (p.kind) return p.kind;
-  if (p.readback && !p.persistent && !p.affects_signature) return 'probe';
+  if (p.access === 'read') return 'probe';
   return 'setting';
 }
 
@@ -95,11 +96,12 @@ function BulkRow({ schema, value, onChange }) {
       <input
         type="text"
         value={value ?? ''}
+        disabled={!canEditParameter(schema)}
         title="逗号或空格分隔的数值"
         onChange={(e) => onChange(schema.id, e.target.value)}
       />
       <span className="pb-bulk-count">{count} 个值</span>
-      <button onClick={() => fileRef.current && fileRef.current.click()}>从文件导入</button>
+      <button disabled={!canEditParameter(schema)} onClick={() => fileRef.current && fileRef.current.click()}>从文件导入</button>
       <button
         onClick={() =>
           downloadFile(`${schema.id}.json`, JSON.stringify(parseFloatList(value), null, 2))
@@ -160,6 +162,7 @@ function RuntimeBulkRow({ schema, running, onWrite }) {
 
   return (
     <div className="pb-bulk">
+      <span className="pb-meta">{accessText(schema)}{schema.hostBound ? ' · 宿主 PCM 接口：此面板不提交音频；交付不触发 Task' : ''}</span>
       <input
         type="text"
         placeholder={`${schema.count} 个数值，逗号/空格分隔`}
@@ -172,7 +175,7 @@ function RuntimeBulkRow({ schema, running, onWrite }) {
       <button onClick={() => fileRef.current && fileRef.current.click()}>从文件导入</button>
       <button
         className="pb-write"
-        disabled={!running || !countOk}
+        disabled={!running || !countOk || !canEditParameter(schema) || schema.hostBound}
         onClick={write}
         title={running ? '写入实时会话（BULK 协议直写槽内存）' : '仅实时会话可写'}
       >
@@ -271,10 +274,13 @@ export default function ParamBrowser({
         const params = (comp && comp.parameters) || [];
         const byKind = { setting: [], bulk: [], probe: [], command: [], state: [] };
         for (const p of params) {
-          (byKind[kindOf(p)] || byKind.setting).push(p);
+          (byKind[kindOf(p)] || byKind.setting).push({
+            ...p, hostDeliveryStatus: isHostDeliveryStatus(p, { manifestPorts: comp?.ports || [] }),
+          });
         }
         for (const bs of (comp && comp.bulk_slots) || []) {
-          byKind.bulk.push({ ...bs, runtime: true });
+          byKind.bulk.push({ ...bs, runtime: true,
+            hostBound: (comp.ports || []).some((port) => port.host_binding?.slot === bs.id) });
         }
         const nodePath = [...path, { id: nd.id, label: nd.data.label || nd.id }];
         entries.push({
@@ -342,7 +348,9 @@ export default function ParamBrowser({
       const params = nodeParams(e);
       const values = {};
       const bulk = {};
-      for (const p of e.byKind.setting || []) values[p.id] = params[p.id] ?? p.default;
+      for (const p of e.byKind.setting || []) {
+        if (!p.hostDeliveryStatus) values[p.id] = params[p.id] ?? p.default;
+      }
       for (const p of e.byKind.bulk || []) {
         if (!p.runtime) bulk[p.id] = parseFloatList(params[p.id]);
       }
@@ -516,7 +524,19 @@ export default function ParamBrowser({
                       <div className="pb-rows">
                         {(e.byKind[kind] || []).map((p) => {
                           const value = nodeParams(e)[p.id] ?? p.default;
-                          if (kind === 'probe') {
+                          if (p.hostDeliveryStatus) {
+                            const live = rt.probes?.[e.flatId]?.[p.id] ?? nodeProbe(e)[p.id];
+                            return (
+                              <div key={p.id} className="pb-row pb-delivery-status">
+                                <span className="pb-name">{p.name || p.id}</span>
+                                <span className="pb-probe-value">{fmtProbe(live)}</span>
+                                <span className="pb-meta">{accessText(p)} · 宿主交付状态；设计初始化 false，
+                                  由完整 PCM 提交原子更新，此面板不直接写入</span>
+                                {renderId(e.flatId, p.id)}
+                              </div>
+                            );
+                          }
+                          if (kind === 'probe' && !canEditParameter(p)) {
                             const live =
                               rt.probes?.[e.flatId]?.[p.id] ?? nodeProbe(e)[p.id];
                             return (
@@ -533,7 +553,7 @@ export default function ParamBrowser({
                           if (kind === 'bulk') {
                             if (p.runtime) {
                               return (
-                                <div key={p.id} className="pb-row">
+                                <div key={`bulk:${p.id}`} className="pb-row">
                                   <span className="pb-name">
                                     {p.name || p.id}
                                     <span className="pb-meta"> 运行期槽</span>

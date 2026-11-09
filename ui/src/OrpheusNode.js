@@ -5,11 +5,14 @@ import { resolveExprValue, resolveShape, shapeText, CTL_PREFIX, driveHandles, DR
 import { NODE_WIDGETS } from './nodeWidgets';
 import { NodeActionsContext } from './NodeActionsContext';
 import { PLACEHOLDER_ID } from './placeholder';
+import { interfaceState, portSignature, bindingStatus, accessText, canEditDesignParameter } from './interfaceModel';
 
 /** Custom React Flow node: ports come from the component manifest (resolved). */
 export default function OrpheusNode({ id, data, selected }) {
   const [enlarged, setEnlarged] = React.useState(false);
-  const ports = data.ports || [];
+  const interfaces = data.interfaces || interfaceState({ id, data });
+  const ports = (data.ports || []).filter((port) => interfaces.exposedPorts.includes(port.id));
+  const visibleParameters = (data.parameters || []).filter((p) => interfaces.exposedParameters.includes(p.id));
   const inputs = ports.filter((p) => p.direction === 'input');
   const outputs = ports.filter((p) => p.direction === 'output');
   const isSub = (data.component || '').startsWith('sub:');
@@ -38,10 +41,7 @@ export default function OrpheusNode({ id, data, selected }) {
   const handleStyle = { top: '50%', transform: 'translateY(-50%)' };
 
   // resolved channel count badge, e.g. "out0 · 1ch"
-  const channelBadge = (p) => {
-    const ch = resolveExprValue(p.channels, data.params, { parameters: data.parameters });
-    return typeof ch === 'number' && ch > 0 ? <span className="ch-badge">{ch}ch</span> : null;
-  };
+  const channelBadge = (p) => <span className="ch-badge">{portSignature(p, data)}</span>;
 
 
 /**
@@ -88,9 +88,10 @@ const BodyWidget = NODE_WIDGETS[data.component];
   const handleSignature = [
     ...executionHandles,
     ...ports.map((port) => `audio:${port.direction}:${port.id}:${data.exportedAudioPorts?.[port.id]?.id || ''}`),
-    ...(data.parameters || [])
-      .filter((parameter) => parameter.control_source || parameter.bindable)
+    ...visibleParameters
       .map((parameter) => `control:${parameter.control_source ? 'source' : ''}:${parameter.bindable ? 'target' : ''}:${parameter.id}:${data.exportedControlParameters?.[parameter.id]?.id || ''}`),
+    ...(interfaces.connectedControlSources || []).map((id) => `connected-source:${id}`),
+    ...(interfaces.connectedControlTargets || []).map((id) => `connected-target:${id}`),
   ].join('|');
 
   React.useEffect(() => {
@@ -166,6 +167,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
       )}
       <span>{p.id}</span>
       {channelBadge(p)}
+      {p.host_binding && <small>{bindingStatus(p, data)}</small>}
       {!isInput && (
         <Handle
           type="source"
@@ -198,11 +200,11 @@ const BodyWidget = NODE_WIDGETS[data.component];
     );
   }
 
-  const audioSource = clockSource && outputs.some((port) => port.type === 'audio');
+  const audioSource = clockSource && (data.ports || []).some((port) => port.direction === 'output' && port.type === 'audio');
   const hostBuffer = data.component === 'orpheus.builtin.host_audio';
   const hostOutput = hostBuffer && Number(data.params?.mode ?? 0) === 1;
-  const sourceFrames = data.rate?.frames || data.blockSize;
-  const bufferPort = (hostOutput ? inputs : outputs).find((port) => port.type === 'audio');
+  const bufferPort = (data.ports || []).find((port) => port.direction === (hostOutput ? 'input' : 'output') && port.type === 'audio');
+  const sourceFrames = resolveExprValue(bufferPort?.block_size ?? data.blockSize, data.params, data);
   const sourceChannels = (audioSource || hostBuffer) && bufferPort
     ? resolveExprValue(bufferPort.channels, data.params, data)
     : null;
@@ -292,33 +294,33 @@ const BodyWidget = NODE_WIDGETS[data.component];
           )}
         </div>
       </div>
-      {(audioSource || hostBuffer) && (
+      {(audioSource || (hostBuffer && ports.length > 0)) && (
         <div className="source-buffer-summary" title={hostBuffer
           ? '纯宿主音频缓冲，不产生驱动；宿主在实际Task调用边界交付或读取完整交错f32块'
           : 'PCM输出绑定与驱动入口相互独立；输入供数由具体源决定'}>
           <span>{hostBuffer ? hostOutput ? '输出 Buffer' : '输入 Buffer' : '音频 Buffer'}</span>
-          <strong>{sourceChannels || '?'}ch × {sourceFrames || '?'}帧</strong>
-          {hostBuffer && <small>{hostOutput
-            ? '图 → Buffer → 宿主 · valid 后读取'
-            : '宿主 → Buffer → 图 · samples → ready'}</small>}
+          <strong>{typeof sourceChannels === 'number' ? sourceChannels : '?'}ch × {typeof sourceFrames === 'number' ? sourceFrames : '?'}帧</strong>
+          {hostBuffer && (data.ports || []).filter((port) => port.host_binding).map((port) => (
+            <small key={port.id}>{bindingStatus(port, data)}</small>
+          ))}
           {hostBuffer && <small>交错 f32 · 独立驱动 · 生成代码含适配 TODO</small>}
-          {data.component === 'orpheus.builtin.buffer_source' && <small>宿主提交 samples → ready → pump</small>}
+          {data.component === 'orpheus.builtin.buffer_source' && <small>宿主交付与驱动独立；此界面不提交 PCM</small>}
         </div>
       )}
       <div className="node-body">
         <div className="node-ports inputs">{inputs.map((p) => renderRow(p, true))}</div>
         <div className="node-ports outputs">{outputs.map((p) => renderRow(p, false))}</div>
       </div>
-      {/* 控制区（仅「控制链路」开关开启时渲染）：control_source 参数出行尾源 handle，
-          bindable 参数出行首目标 handle；方形橙色 handle 与音频圆点区分 */}
-      {showControlLinks &&
-        (data.parameters || []).some((p) => p.control_source || p.bindable) && (
+      {/* 参数显露不授予控制权限；已有旧线保留不可连接锚点。 */}
+      {visibleParameters.length > 0 && (
           <div className="node-controls">
-            <div className="control-dock-title">控制</div>
-            {(data.parameters || [])
-              .filter((p) => p.control_source || p.bindable)
+            <div className="control-dock-title">参数接口</div>
+            {visibleParameters
               .map((p) => {
                 const exported = data.exportedControlParameters?.[p.id];
+                const targetAllowed = p.bindable && canEditDesignParameter(p, data)
+                  && !p.affects_signature && p.update_policy !== 'restart_required';
+                const sourceAllowed = p.control_source && p.access !== 'write';
                 return (
                   <div
                   key={p.id}
@@ -326,24 +328,31 @@ const BodyWidget = NODE_WIDGETS[data.component];
                   onClick={exported ? (event) => revealExport(event, 'control', exported.id) : undefined}
                   title={exported ? `导出控制${exported.direction === 'input' ? '输入' : '输出'} ${exported.id}：点击定位接口定义` : undefined}
                 >
-                  {p.bindable && (
+                  {(targetAllowed || interfaces.connectedControlTargets?.includes(p.id)) && (
                     <Handle
                       type="target"
                       position={Position.Left}
                       id={`${CTL_PREFIX}${p.id}`}
+                      isConnectable={!!targetAllowed}
                       className={exported ? 'export-control-handle' : ''}
                       style={{ ...handleStyle, left: exported ? -50 : -11 }}
                     />
                   )}
+      {(data.bulkSlots || []).filter((slot) => interfaces.exposedBulkSlots.includes(slot.id)).map((slot) => (
+                  <div className="port-row bulk-interface-row" key={slot.id}>
+                    Buffer：{slot.name || slot.id} · {accessText(slot)}
+                  </div>
+      ))}
                   <span className="ctl-name">{p.name || p.id}</span>
                   <span className="shape-badge">
                     {shapeText(resolveShape(p.shape || [], data.params, { parameters: data.parameters }))}
                   </span>
-                  {p.control_source && (
+                  {(sourceAllowed || interfaces.connectedControlSources?.includes(p.id)) && (
                     <Handle
                       type="source"
                       position={Position.Right}
                       id={`${CTL_PREFIX}${p.id}`}
+                      isConnectable={!!sourceAllowed}
                       className={exported ? 'export-control-handle' : ''}
                       style={{ ...handleStyle, right: exported ? -50 : -11 }}
                     />

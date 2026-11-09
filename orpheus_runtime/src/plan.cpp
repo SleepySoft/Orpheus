@@ -83,6 +83,7 @@ Plan Plan::load_from_file(const std::string& path) {
         cfg.component = it.value().value("component", "");
         cfg.version = it.value().value("version", "");
         cfg.task = it.value().value("task", "default");
+        cfg.resource_access = it.value().value("resource_access", std::map<std::string, std::string>{});
         json params_json = it.value().value("params", json::object());
         for (auto pit = params_json.begin(); pit != params_json.end(); ++pit) {
             if (pit.value().is_string()) {
@@ -96,6 +97,18 @@ Plan Plan::load_from_file(const std::string& path) {
         }
         for (const auto& pid : it.value().value("output_ports", json::array())) {
             cfg.output_ports.push_back(pid.get<std::string>());
+        }
+        for (const auto& hp : it.value().value("host_ports", json::array())) {
+            HostPortConfig port;
+            port.port = hp.at("port").get<std::string>();
+            port.slot = hp.at("slot").get<std::string>();
+            port.status = hp.at("status").get<std::string>();
+            port.access = hp.at("access").get<std::string>();
+            port.connected = hp.at("connected").get<bool>();
+            port.channels = hp.at("channels").get<uint32_t>();
+            port.frames = hp.at("frames").get<uint32_t>();
+            port.sample_format = hp.at("sample_format").get<std::string>();
+            cfg.host_ports.push_back(port);
         }
         {
             auto obs = it.value().value("output_port_block_sizes", json::object());

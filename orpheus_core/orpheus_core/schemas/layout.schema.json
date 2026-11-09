@@ -5,6 +5,22 @@
   "required": ["version", "views"],
   "properties": {
     "version": { "const": 1 },
+    "node_ui": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "exposedParameters": { "$ref": "#/definitions/interfaceIds" },
+            "exposedPorts": { "$ref": "#/definitions/interfaceIds" },
+            "exposedBulkSlots": { "$ref": "#/definitions/interfaceIds" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "description": "按视图/节点保存接口显露；只影响画布，不改变参数或执行计划"
+    },
     "views": {
       "type": "object",
       "additionalProperties": {
@@ -19,6 +35,11 @@
   },
   "additionalProperties": false,
   "definitions": {
+    "interfaceIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
     "positions": {
       "type": "object",
       "additionalProperties": {

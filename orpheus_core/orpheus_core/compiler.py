@@ -544,6 +544,11 @@ class GraphCompiler:
                         "codec": "olink",
                         "enabled": True,
                         "params": dict(node.params),
+                        "resource_access": {
+                            p["id"]: p["access"]
+                            for p in [*comp.manifest.get("parameters", []), *comp.manifest.get("bulk_slots", [])]
+                            if "access" in p
+                        },
                     })
                 elif decl_comp.manifest.get("bridge_config"):
                     params = dict(node.params)
@@ -1071,6 +1076,17 @@ class GraphCompiler:
                 # ordered port ids: runtime binds buffers by port id, not order
                 "input_ports": [p["id"] for p in port_manifests if p["direction"] == "input"],
                 "output_ports": [p["id"] for p in out_ports],
+                "port_signatures": {
+                    p["id"]: {
+                        "direction": p["direction"],
+                        "type": resolved_ports[f"{node.id}:{p['id']}"].type,
+                        "sample_format": resolved_ports[f"{node.id}:{p['id']}"].sample_format,
+                        "channels": resolved_ports[f"{node.id}:{p['id']}"].channels,
+                        "frames": resolved_ports[f"{node.id}:{p['id']}"].block_size,
+                        "sample_rate": float(resolved_ports[f"{node.id}:{p['id']}"].sample_rate),
+                    }
+                    for p in port_manifests
+                },
                 "output_port_block_sizes": {
                     p["id"]: resolved_ports[f"{node.id}:{p['id']}"].block_size
                     for p in out_ports
@@ -1088,6 +1104,59 @@ class GraphCompiler:
                     for p in port_manifests if p["direction"] == "input"
                 },
             }
+            cfg = plan.node_configs[node.id]
+            cfg["host_ports"] = []
+            params = {
+                p["id"]: node.params.get(p["id"], p.get("default"))
+                for p in comp.manifest.get("parameters", [])
+            }
+            slots = {s["id"]: s for s in comp.manifest.get("bulk_slots", [])}
+            statuses = {p["id"]: p for p in comp.manifest.get("parameters", [])}
+            bound_slots: set[str] = set()
+            for pm in port_manifests:
+                binding = pm.get("host_binding")
+                if not binding:
+                    continue
+                for key in binding.get("when", {}):
+                    if key not in statuses or statuses[key].get("update_policy") != "restart_required":
+                        raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 条件须引用重启生效参数：{key}")
+                slot = slots.get(binding["slot"])
+                status = statuses.get(binding["status"])
+                if slot is None or slot.get("type", "float") != "float":
+                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 缺少 float BULK 存储声明")
+                permitted = ("write", "read_write") if binding["access"] == "write" else ("read", "read_write")
+                if slot.get("access") not in permitted:
+                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 的存储访问权限不允许 {binding['access']}")
+                if status is None or status["type"] != "bool":
+                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 缺少 bool 交付状态声明")
+                if binding["access"] == "write" and status.get("access") != "read_write":
+                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 的提交状态不可写或不可读")
+                if binding["access"] == "read" and status.get("access") not in ("read", "read_write"):
+                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 的有效状态不可读")
+                if any(params[key] != value for key, value in binding.get("when", {}).items()):
+                    continue
+                if binding["slot"] in bound_slots:
+                    raise CompileError(f"节点 {node.id} 的宿主端口不能同时占用同一存储：{binding['slot']}")
+                bound_slots.add(binding["slot"])
+                signature = cfg["port_signatures"][pm["id"]]
+                if signature["sample_format"] != "f32":
+                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 当前只支持交错 f32")
+                shape_schema = {
+                    **slot,
+                    "shape": [cfg["frames"] if elem == "config:frames" else elem
+                              for elem in slot.get("shape", [])],
+                }
+                shape = self._resolve_param_shape(shape_schema, node, comp, nt)
+                count = math.prod(shape) if shape else int(slot["count"])
+                if count != signature["channels"] * signature["frames"] or count > slot["count"]:
+                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 的存储形状与端口签名不一致")
+                connected = any(str(c.to_ref) == f"{node.id}:{pm['id']}" for c in graph.connections)
+                cfg["host_ports"].append({
+                    "port": pm["id"], "slot": binding["slot"], "status": binding["status"],
+                    "access": binding["access"], "connected": connected,
+                    "channels": signature["channels"], "frames": signature["frames"],
+                    "sample_format": signature["sample_format"],
+                })
 
         # 4.5 静态调度表：每个节点的触发间隔统一折算为图采样率帧数
         #     I_n = frames_n × 图速率 / 节点流速率（整除不了立即报错，不静默掩盖），
@@ -1443,7 +1512,10 @@ class GraphCompiler:
                     f"控制连接源参数未声明 control_source：{src_ref}；"
                     f"请在组件 manifest 中为该参数加 control_source: true"
                 )
-            if not (src_param.get("readback") or src_param.get("kind") in _CONTROL_SOURCE_KINDS):
+            if src_param.get("access") == "write" or not (
+                src_param.get("access") in ("read", "read_write")
+                or src_param.get("readback") or src_param.get("kind") in _CONTROL_SOURCE_KINDS
+            ):
                 raise CompileError(
                     f"控制连接源参数不可读：{src_ref}；control_source 要求 readback: true 或 kind 为 probe/state"
                 )
@@ -1455,6 +1527,8 @@ class GraphCompiler:
                     f"控制连接目标参数不允许绑定：{dst_ref}；"
                     f"请在组件 manifest 中为该参数加 bindable: true"
                 )
+            if dst_param.get("access") == "read":
+                raise CompileError(f"控制连接目标参数只读，不允许绑定：{dst_ref}")
             if dst_param.get("affects_signature"):
                 raise CompileError(
                     f"控制连接目标参数影响端口签名（affects_signature），不允许绑定：{dst_ref}"
@@ -1558,7 +1632,12 @@ class GraphCompiler:
                         block_size=task_cfg.get("block_size", plan.block_size),
                     )
                     node = Node(id=nid, component=cfg["component"], params=cfg["params"])
-                    shape = self._resolve_param_shape(bs, node, info, task)
+                    shape_schema = {
+                        **bs,
+                        "shape": [cfg["frames"] if elem == "config:frames" else elem
+                                  for elem in bs["shape"]],
+                    }
+                    shape = self._resolve_param_shape(shape_schema, node, info, task)
                     count = math.prod(shape)
                     if count > int(bs["count"]):
                         raise CompileError(f"节点 {nid} BULK槽 {bs['id']} 形状超出声明容量")

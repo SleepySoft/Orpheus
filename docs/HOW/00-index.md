@@ -27,6 +27,7 @@ HOW 记录“怎么做”：架构、实现、验证和历史。
 
 ## 详细参考
 
+- [架构决策记录（ADR）：背景、选择、影响与演进](../ADR/README.md)
 - [[reference/what-legacy|原始 WHAT 全文]]
 - [[reference/how-legacy|原始 HOW 全文]]
 - [[reference/registry|组件注册与 ABI 细节]]

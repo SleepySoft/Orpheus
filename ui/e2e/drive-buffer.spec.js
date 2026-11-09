@@ -82,11 +82,22 @@ test('源本体连接普通组件本体，退出后仍可连接PCM，保存两�
   const output = page.locator('.react-flow__node[data-id="host_out"]');
   const gain = page.locator('.react-flow__node[data-id="gain"]');
   await expect(clock).toContainText('先勾选工具栏「驱动连线」');
+  await expect(input.locator('.audio-port-row')).toHaveCount(0);
+  await input.locator('.node-title').click();
+  await page.getByRole('checkbox', { name: '显露 exposedPorts:out', exact: true }).check();
+  await output.locator('.node-title').click();
+  await page.getByRole('checkbox', { name: '显露 exposedPorts:in', exact: true }).check();
+  await gain.locator('.node-title').click();
+  await page.getByRole('checkbox', { name: '显露 exposedPorts:in', exact: true }).check();
   await expect(input.locator('.source-buffer-summary')).toContainText('输入 Buffer');
   await expect(input.locator('.source-buffer-summary')).toContainText('30ch × 32帧');
   await expect(output.locator('.source-buffer-summary')).toContainText('输出 Buffer');
   await expect(output.locator('.source-buffer-summary')).toContainText('22ch × 32帧');
   await expect(input).toContainText('独立驱动');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect.poll(() => saved).toBeTruthy();
+  await expect(page.locator('.status')).toContainText('已保存 drive-buffer-preview');
+  saved = undefined;
 
   await page.getByRole('checkbox', { name: '驱动连线', exact: true }).check();
   await expect(clock).toContainText('拖向目标组件本体，松手连接');

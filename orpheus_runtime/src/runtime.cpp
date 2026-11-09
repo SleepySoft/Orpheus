@@ -555,6 +555,29 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         }
     }
 
+    for (const auto& cfg : plan_.node_configs) {
+        const Instance& inst = *instances_.at(cfg.first);
+        for (const auto& port : cfg.second.host_ports) {
+            auto data = inst.slot_index.find(port.slot);
+            auto status = inst.slot_index.find(port.status);
+            if (data == inst.slot_index.end() || status == inst.slot_index.end()) {
+                std::cerr << "[Runtime] 宿主端口缺少注册资源：" << cfg.first << ":" << port.port << "\n";
+                return ORPHEUS_ERR_INVALID_ARG;
+            }
+            const SlotEntry& buffer = inst.slots[data->second];
+            const SlotEntry& flag = inst.slots[status->second];
+            if (port.sample_format != "f32" || !port.channels || !port.frames ||
+                buffer.kind != ORPHEUS_SLOT_BULK || buffer.type != ORPHEUS_VALUE_FLOAT ||
+                buffer.size != sizeof(float) || buffer.count != size_t(port.channels) * port.frames ||
+                flag.type != ORPHEUS_VALUE_BOOL || flag.count != 1 || flag.size != sizeof(bool) ||
+                (port.access != "read" && port.access != "write") ||
+                (port.access == "write" && flag.kind != ORPHEUS_SLOT_SETTING)) {
+                std::cerr << "[Runtime] 宿主端口声明与注册签名不一致：" << cfg.first << ":" << port.port << "\n";
+                return ORPHEUS_ERR_INVALID_ARG;
+            }
+        }
+    }
+
     // BULK 双 bank（可选）：仅对「生效」的槽分配影子区（工程 auto/on/off × 组件声明）
     std::map<std::string, bool> db_enabled;
     for (const auto& e : plan_.id_map) {
@@ -747,7 +770,65 @@ int Runtime::prepare_instance(Instance& inst, const NodeConfig& cfg) {
     return inst.interface_->prepare(inst.state, &config);
 }
 
+const HostPortConfig* Runtime::host_port(const std::string& node_id, const std::string& port_id) const {
+    auto cfg = plan_.node_configs.find(node_id);
+    if (cfg == plan_.node_configs.end()) return nullptr;
+    for (const auto& port : cfg->second.host_ports)
+        if (port.port == port_id) return &port;
+    return nullptr;
+}
+
+bool Runtime::host_resource_writable(const std::string& node_id, const std::string& key) const {
+    auto cfg = plan_.node_configs.find(node_id);
+    if (cfg == plan_.node_configs.end()) return false;
+    auto access = cfg->second.resource_access.find(key);
+    if (access != cfg->second.resource_access.end() && access->second == "read") return false;
+    for (const auto& port : cfg->second.host_ports) {
+        if (port.slot == key || port.status == key)
+            return port.access == "write" && !port.connected;
+    }
+    return true;
+}
+
+int Runtime::submit_audio(const std::string& node_id, const std::string& port_id,
+                          const float* samples, size_t count) {
+    const HostPortConfig* port = host_port(node_id, port_id);
+    if (!port) return ORPHEUS_ERR_NOT_FOUND;
+    if (port->access != "write" || port->connected) return ORPHEUS_ERR_UNSUPPORTED;
+    if (!samples || count != size_t(port->channels) * port->frames) return ORPHEUS_ERR_INVALID_ARG;
+    OrpheusValue ready{};
+    int rc = get_parameter(node_id, port->status, &ready);
+    if (rc != ORPHEUS_OK) return rc;
+    if (ready.type != ORPHEUS_VALUE_BOOL) return ORPHEUS_ERR_INVALID_ARG;
+    if (ready.value.b) return ORPHEUS_ERR_PROCESSING;
+    rc = write_bulk(node_id, port->slot, samples, count);
+    if (rc != ORPHEUS_OK) return rc;
+    ready.value.b = true;
+    return set_parameter(node_id, port->status, ready);
+}
+
+int Runtime::read_audio(const std::string& node_id, const std::string& port_id,
+                        float* samples, size_t count) {
+    const HostPortConfig* port = host_port(node_id, port_id);
+    if (!port) return ORPHEUS_ERR_NOT_FOUND;
+    if (port->access != "read") return ORPHEUS_ERR_UNSUPPORTED;
+    if (!samples || count != size_t(port->channels) * port->frames) return ORPHEUS_ERR_INVALID_ARG;
+    OrpheusValue valid{};
+    int rc = get_parameter(node_id, port->status, &valid);
+    if (rc != ORPHEUS_OK) return rc;
+    if (valid.type != ORPHEUS_VALUE_BOOL) return ORPHEUS_ERR_INVALID_ARG;
+    if (!valid.value.b) return ORPHEUS_ERR_PROCESSING;
+    rc = get_bulk(node_id, port->slot, samples, count);
+    if (rc != ORPHEUS_OK) return rc;
+    Instance& inst = *instances_.at(node_id);
+    const SlotEntry& flag = inst.slots.at(inst.slot_index.at(port->status));
+    const bool consumed = false;
+    std::memcpy(static_cast<char*>(inst.state) + flag.offset, &consumed, sizeof(consumed));
+    return ORPHEUS_OK;
+}
+
 int Runtime::set_parameter(const std::string& node_id, const std::string& param_id, const OrpheusValue& value) {
+    if (!host_resource_writable(node_id, param_id)) return ORPHEUS_ERR_UNSUPPORTED;
     auto it = instances_.find(node_id);
     if (it == instances_.end()) return -1;
     Instance& inst = *it->second;
@@ -779,6 +860,12 @@ int Runtime::set_parameter(const std::string& node_id, const std::string& param_
 }
 
 int Runtime::get_parameter(const std::string& node_id, const std::string& param_id, OrpheusValue* value) {
+    auto cfg = plan_.node_configs.find(node_id);
+    if (cfg != plan_.node_configs.end()) {
+        auto access = cfg->second.resource_access.find(param_id);
+        if (access != cfg->second.resource_access.end() && access->second == "write")
+            return ORPHEUS_ERR_UNSUPPORTED;
+    }
     auto it = instances_.find(node_id);
     if (it == instances_.end()) return -1;
     Instance& inst = *it->second;
@@ -815,6 +902,14 @@ int Runtime::get_parameter(const std::string& node_id, const std::string& param_
 
 int Runtime::write_bulk(const std::string& node_id, const std::string& key,
                         const void* data, size_t count) {
+    if (!host_resource_writable(node_id, key)) return ORPHEUS_ERR_UNSUPPORTED;
+    for (const auto& port : plan_.node_configs.at(node_id).host_ports) {
+        if (port.slot != key) continue;
+        OrpheusValue ready{};
+        int rc = get_parameter(node_id, port.status, &ready);
+        if (rc != ORPHEUS_OK) return rc;
+        if (ready.value.b) return ORPHEUS_ERR_PROCESSING;
+    }
     auto it = instances_.find(node_id);
     if (it == instances_.end()) return -1;
     Instance& inst = *it->second;
@@ -830,16 +925,22 @@ int Runtime::write_bulk(const std::string& node_id, const std::string& key,
     auto sm = bulk_shadow_map_.find(node_id + "\x1f" + key);
     if (sm == bulk_shadow_map_.end()) {
         /* 未开启双 bank：直写 active（部署时内存受限路径） */
-        std::memcpy(static_cast<char*>(inst.state) + e.offset, data, span);
+        std::memmove(static_cast<char*>(inst.state) + e.offset, data, span);
         return ORPHEUS_OK;
     }
-    std::memcpy(sm->second, data, span);
+    std::memmove(sm->second, data, span);
     bulk_pending_[node_id + "\x1f" + key] = true;
     return ORPHEUS_OK;
 }
 
 int Runtime::get_bulk(const std::string& node_id, const std::string& key,
                       void* out, size_t count) {
+    auto cfg = plan_.node_configs.find(node_id);
+    if (cfg != plan_.node_configs.end()) {
+        auto access = cfg->second.resource_access.find(key);
+        if (access != cfg->second.resource_access.end() && access->second == "write")
+            return ORPHEUS_ERR_UNSUPPORTED;
+    }
     if (out == nullptr) return -1;
     auto it = instances_.find(node_id);
     if (it == instances_.end()) return -1;
@@ -871,6 +972,9 @@ int Runtime::bridge_bulk_target(uint32_t id, OrpheusBridgeBulkTarget* target) {
     OrpheusResolvedData data;
     if (resolve(id, &data) != ORPHEUS_OK || data.form != ORPHEUS_FORM_BULK ||
         data.node == nullptr || data.key == nullptr) return ORPHEUS_ERR_NOT_FOUND;
+    const auto& access = plan_.node_configs.at(data.node).resource_access;
+    auto permission = access.find(data.key);
+    if (permission != access.end() && permission->second == "write") return ORPHEUS_ERR_UNSUPPORTED;
     const Instance& inst = *instances_.at(data.node);
     const SlotEntry& slot = inst.slots.at(inst.slot_index.at(data.key));
     if (slot.size != 4u ||
@@ -881,7 +985,7 @@ int Runtime::bridge_bulk_target(uint32_t id, OrpheusBridgeBulkTarget* target) {
     target->task = plan_.node_configs.at(data.node).task.c_str();
     target->count = slot.count;
     target->type = slot.type;
-    target->writable = slot.kind == ORPHEUS_SLOT_BULK &&
+    target->writable = host_resource_writable(data.node, data.key) && slot.kind == ORPHEUS_SLOT_BULK &&
         (data.kind == ORPHEUS_ID_RTC || data.kind == ORPHEUS_ID_TUNE);
     target->min_i32 = slot.min_i32;
     target->max_i32 = slot.max_i32;

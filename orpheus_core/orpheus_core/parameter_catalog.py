@@ -45,7 +45,9 @@ def kind_of(param: dict[str, Any]) -> str:
     kind = param.get("kind")
     if kind:
         return kind
-    if param.get("readback") and not param.get("persistent") and not param.get("affects_signature"):
+    if param.get("access") == "read":
+        return "probe"
+    if not param.get("access") and param.get("readback") and not param.get("persistent") and not param.get("affects_signature"):
         return "probe"
     return "setting"
 
@@ -55,7 +57,7 @@ def id_kind_of(param: dict[str, Any]) -> str:
     - 命令 → RTC；探针 → PROBE；state → STATE；bulk 参数 → TUNE（形式为 bulk）；
     - 实时可调参数（immediate/block_boundary/smoothed/transactional）→ RTC；
     - 其余（restart_required / 影响签名 / 系数等配置）→ TUNE。"""
-    k = param.get("kind")
+    k = kind_of(param)
     if k == "probe":
         return "PROBE"
     if k == "state":
@@ -66,8 +68,6 @@ def id_kind_of(param: dict[str, Any]) -> str:
         return "TUNE"
     if k == "custom":
         return "CUSTOM"
-    if param.get("readback") and not param.get("persistent") and not param.get("affects_signature"):
-        return "PROBE"
     if param.get("update_policy") in ("immediate", "block_boundary", "smoothed", "transactional"):
         return "RTC"
     return "TUNE"

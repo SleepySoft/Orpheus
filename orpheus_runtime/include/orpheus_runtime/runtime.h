@@ -66,6 +66,11 @@ public:
     // v2.1 BULK 读回（active bank）：越界检查后仅 memcpy，体现高速大块特性。
     int get_bulk(const std::string& node_id, const std::string& key, void* out, size_t count);
     int get_bulk_id(uint32_t id, void* out, size_t count);
+    // 按声明端口交付/读取完整交错 f32 块；只访问数据，必须与 Task 串行。
+    int submit_audio(const std::string& node_id, const std::string& port_id,
+                     const float* samples, size_t count);
+    int read_audio(const std::string& node_id, const std::string& port_id,
+                   float* samples, size_t count);
     int bridge_bulk_target(uint32_t id, OrpheusBridgeBulkTarget* target);
     void attach_bulk_bridge(OrpheusBridgeBulkState* state) {
         bulk_bridge_.store(state, std::memory_order_release);
@@ -122,6 +127,8 @@ public:
     OrpheusBuffer* get_output_buffer(const std::string& node_id, const std::string& port_id);
 
 private:
+    const HostPortConfig* host_port(const std::string& node_id, const std::string& port_id) const;
+    bool host_resource_writable(const std::string& node_id, const std::string& key) const;
     std::atomic<OrpheusBridgeBulkState*> bulk_bridge_{nullptr};
     Plan plan_;
     ComponentLoader loader_;

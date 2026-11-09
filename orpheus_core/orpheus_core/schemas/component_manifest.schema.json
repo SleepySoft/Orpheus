@@ -125,6 +125,18 @@
           "frame_size": { "type": ["integer", "string"], "minimum": 0, "description": "非音频数组内部的分帧长度；须整除 block_size，0 表示整个数组为一帧；连接两端须相同" },
           "count": { "type": ["integer", "string"], "description": "Variable pin count expression, e.g. param:channels; port is replicated as <id>0..<id>N-1" },
           "optional": { "type": "boolean", "default": false, "description": "显式允许count=0时省略整个端口组；负数仍无效。不是未连接输入的运行期默认值。" },
+          "host_binding": {
+            "type": "object",
+            "required": ["slot", "access", "status"],
+            "properties": {
+              "slot": { "type": "string", "minLength": 1 },
+              "access": { "type": "string", "enum": ["write", "read"] },
+              "status": { "type": "string", "minLength": 1 },
+              "when": { "type": "object", "additionalProperties": { "type": ["integer", "boolean", "string", "number"] } }
+            },
+            "additionalProperties": false,
+            "description": "宿主访问此音频端口的已声明 BULK 存储；write 交付完整块并置提交状态，read 读取并消费有效状态。已连接上游的输入禁止宿主写入。when 仅引用重启生效的配置参数。"
+          },
           "is_variable": { "type": "boolean" },
           "channels_param": { "type": "string" },
           "maps_to": { "type": "string", "description": "Composite implementation boundary target: direct_child:port" },
@@ -134,6 +146,10 @@
           "bulk_slot": false
         },
         "allOf": [
+          {
+            "if": { "required": ["host_binding"] },
+            "then": { "properties": { "type": { "const": "audio" } } }
+          },
           {
             "if": { "required": ["cadence"] },
             "then": { "properties": { "direction": { "const": "output" } } }
@@ -163,6 +179,7 @@
           "id": { "type": "string" },
           "description": { "type": "string", "description": "参数用途、生效策略及与同功能数据输入共存时的仲裁规则" },
           "name": { "type": "string" },
+          "access": { "type": "string", "enum": ["read", "write", "read_write"], "description": "外部读写权限；readback 仅表示可读回，不代表只读" },
           "type": { "type": "string", "enum": ["float", "int", "bool", "string"] },
           "count": { "type": "integer", "minimum": 1, "description": "固定长度数组数据点；count > 1 时使用 BULK form 传输。" },
           "default": {},
@@ -300,6 +317,9 @@
           "name": { "type": "string" },
           "type": { "type": "string", "enum": ["float", "int", "bool", "string"] },
           "count": { "type": "integer", "minimum": 1 },
+          "access": { "type": "string", "enum": ["read", "write", "read_write"] },
+          "shape": { "type": "array", "items": { "type": ["integer", "string"] }, "description": "有效形状；config:frames 指节点处理帧数，param:xxx 引用配置参数；有效元素数不得超过 count 容量" },
+          "double_bank": { "type": "boolean" },
           "unit": { "type": "string" }
         }
       },
