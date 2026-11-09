@@ -47,6 +47,7 @@ import ControlEdge from './ControlEdge';
 import DriveEdge from './DriveEdge';
 import SignalLegend from './SignalLegend';
 import ParamPanel from './ParamPanel';
+import ParameterWorkspace from './ParameterWorkspace';
 import ParamBrowser from './ParamBrowser';
 import Palette from './Palette';
 import ProjectTree from './ProjectTree';
@@ -2341,14 +2342,7 @@ const { screenToFlowPosition } = useReactFlow();
           <AlterGroupOverlay nodes={displayNodes} />
           </NodeActionsContext.Provider>
         </div>
-        {rightOpen && (
-          <div className="rightbar">
-            <div className="side-panel-header">
-              <span>参数 / 子组件</span>
-              <button className="side-collapse" onClick={() => setRightOpen(false)} title="收起参数面板">
-                收起 »
-              </button>
-            </div>
+        <ParameterWorkspace open={rightOpen} onOpenChange={setRightOpen}>
             {activeSub && (
               <SubPortsPanel
                 sub={activeSub}
@@ -2377,8 +2371,7 @@ const { screenToFlowPosition } = useReactFlow();
               ctx={paramCtx}
               onInterfaceChange={onInterfaceChange}
             />
-          </div>
-        )}
+        </ParameterWorkspace>
         <button
           className="side-toggle side-toggle-right"
           onClick={() => setRightOpen((v) => !v)}

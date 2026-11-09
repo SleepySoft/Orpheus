@@ -453,11 +453,79 @@
 
 .rightbar {
   width: 300px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   border-left: 1px solid #dee2e6;
   overflow-y: auto;
   background: #f8f9fa;
+}
+
+.parameter-workspace {
+  display: flex;
+  min-height: 0;
+}
+
+.parameter-workspace[hidden] {
+  display: none;
+}
+
+.parameter-panel-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.parameter-window-error {
+  margin: 10px;
+  color: #c92a2a;
+  font-size: 13px;
+}
+
+.parameter-window-placeholder {
+  box-sizing: border-box;
+  padding: 16px;
+  gap: 10px;
+}
+
+body.parameter-window {
+  margin: 0;
+  background: #f8f9fa;
+}
+
+.parameter-window .rightbar {
+  width: 100%;
+  min-height: 100vh;
+  border: none;
+}
+
+.parameter-window .side-panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.interface-section {
+  margin: 12px 0;
+  border-top: 1px solid #dee2e6;
+}
+
+.interface-section > summary {
+  padding: 10px 0;
+  color: #495057;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.interface-section-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.parameter-window .interface-section-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  align-items: start;
 }
 
 .rightbar .sidebar {

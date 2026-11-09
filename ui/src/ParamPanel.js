@@ -115,15 +115,14 @@ export default function ParamPanel({
         </p>
       )}
       {universal.length > 0 && (
-        <>
-          <div className="param-section">通用</div>
+        <InterfaceSection title="通用" count={universal.length}>
           {universal.map(renderField)}
-          <hr className="param-divider" />
-        </>
+        </InterfaceSection>
       )}
-      {specific.length > 0 && universal.length > 0 && <div className="param-section">组件参数</div>}
-      {specific.map(renderField)}
-      <div className="param-section">声明的 Buffer 资源</div>
+      {specific.length > 0 && <InterfaceSection title="组件参数" count={specific.length}>
+        {specific.map(renderField)}
+      </InterfaceSection>}
+      <InterfaceSection title="声明的 Buffer 资源" count={(node.data.bulkSlots || []).length}>
       {(node.data.bulkSlots || []).map((slot) => (
         <div key={slot.id} className="declared-interface" data-interface={`bulk:${slot.id}`}>
           <strong>{slot.name || slot.id}</strong>
@@ -133,7 +132,8 @@ export default function ParamPanel({
           {exposure('exposedBulkSlots', slot.id)}
         </div>
       ))}
-      <div className="param-section">数据端口签名（逐端口）</div>
+      </InterfaceSection>
+      <InterfaceSection title="数据端口签名（逐端口）" count={(node.data.ports || []).length}>
       {(node.data.ports || []).map((port) => (
         <div key={port.id} className="declared-interface" data-interface={`port:${port.id}`}>
           <strong>{port.id} · {port.direction === 'input' ? '输入' : '输出'}</strong>
@@ -146,6 +146,7 @@ export default function ParamPanel({
           {exposure('exposedPorts', port.id, interfaces.lockedPorts?.includes(port.id))}
         </div>
       ))}
+      </InterfaceSection>
       <p className="muted">仅展示 manifest 声明的接口，不枚举 C 私有状态。显露不改变访问或控制权限。</p>
       <NodeTodos todos={node.data.todos} onChange={onTodosChange} isPlaceholder={isRunnablePlaceholder(node)} readOnly={todosReadOnly} />
       <NodeNoteSection
@@ -167,6 +168,15 @@ export default function ParamPanel({
         删除节点
       </button>
     </div>
+  );
+}
+
+function InterfaceSection({ title, count, children }) {
+  return (
+    <details className="interface-section" open>
+      <summary>{title}（{count}）</summary>
+      <div className="interface-section-grid">{children}</div>
+    </details>
   );
 }
 
