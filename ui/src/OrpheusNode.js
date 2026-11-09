@@ -95,7 +95,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
 
   React.useEffect(() => {
     updateNodeInternals(id);
-  }, [handleSignature, id, showControlLinks, updateNodeInternals]);
+  }, [handleSignature, id, showControlLinks, driveLinking, updateNodeInternals]);
 
   // compiled rate badge, e.g. "48kHz" or "24kHz ÷2" (visible time tree)
   // 时钟源（信号/扫频/设备/wav 输入）显示 ⏱ 徽标：图采样率以它为准
@@ -180,14 +180,18 @@ const BodyWidget = NODE_WIDGETS[data.component];
   };
 
   if (data.component === 'orpheus.builtin.task_source') {
+    const connectionHint = data.flowMode !== 'task_sequence'
+      ? '请在工程设置中启用显式驱动'
+      : driveLinking ? '拖向目标组件本体，松手连接' : '先勾选工具栏「驱动连线」，再拖动本体';
     return (
       <div className={`drive-source-marker ${selected ? 'selected' : ''}`}
         aria-label={`纯驱动源：${data.label}`}
-        title="纯触发标记，不传输PCM；从紫色锚点拖出箭头，指向目标节点顶部">
+        title={`纯触发标记，不传输PCM；${connectionHint}`}>
         <span className="drive-source-symbol">↗</span>
         <div>
           <strong>{data.label}{driveDots}</strong>
           <div className="drive-source-caption">纯触发 · {data.params?.frequency_hz ?? 100} Hz</div>
+          <div className="drive-source-caption">{connectionHint}</div>
         </div>
         {driveRouting}
       </div>
@@ -195,9 +199,12 @@ const BodyWidget = NODE_WIDGETS[data.component];
   }
 
   const audioSource = clockSource && outputs.some((port) => port.type === 'audio');
+  const hostBuffer = data.component === 'orpheus.builtin.host_audio';
+  const hostOutput = hostBuffer && Number(data.params?.mode ?? 0) === 1;
   const sourceFrames = data.rate?.frames || data.blockSize;
-  const sourceChannels = audioSource
-    ? resolveExprValue(outputs.find((port) => port.type === 'audio').channels, data.params, data)
+  const bufferPort = (hostOutput ? inputs : outputs).find((port) => port.type === 'audio');
+  const sourceChannels = (audioSource || hostBuffer) && bufferPort
+    ? resolveExprValue(bufferPort.channels, data.params, data)
     : null;
 
   return (
@@ -285,10 +292,16 @@ const BodyWidget = NODE_WIDGETS[data.component];
           )}
         </div>
       </div>
-      {audioSource && (
-        <div className="source-buffer-summary" title="PCM输出绑定与顶部触发分支相互独立；输入供数由具体源决定">
-          <span>音频 Buffer</span>
+      {(audioSource || hostBuffer) && (
+        <div className="source-buffer-summary" title={hostBuffer
+          ? '纯宿主音频缓冲，不产生驱动；宿主在实际Task调用边界交付或读取完整交错f32块'
+          : 'PCM输出绑定与驱动入口相互独立；输入供数由具体源决定'}>
+          <span>{hostBuffer ? hostOutput ? '输出 Buffer' : '输入 Buffer' : '音频 Buffer'}</span>
           <strong>{sourceChannels || '?'}ch × {sourceFrames || '?'}帧</strong>
+          {hostBuffer && <small>{hostOutput
+            ? '图 → Buffer → 宿主 · valid 后读取'
+            : '宿主 → Buffer → 图 · samples → ready'}</small>}
+          {hostBuffer && <small>交错 f32 · 独立驱动 · 生成代码含适配 TODO</small>}
           {data.component === 'orpheus.builtin.buffer_source' && <small>宿主提交 samples → ready → pump</small>}
         </div>
       )}

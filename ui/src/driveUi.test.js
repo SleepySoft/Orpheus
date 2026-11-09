@@ -118,6 +118,42 @@ test('纯驱动源是无PCM端口的触发标记，不渲染普通算法节点',
   expect(container.querySelector('.orpheus-node')).toBeNull();
   expect(container.querySelectorAll('[data-handle]')).toHaveLength(1);
   expect(container.querySelector('[data-handle="drv:out"]')).not.toBeNull();
+  expect(container.textContent).toContain('先勾选工具栏「驱动连线」');
+  expect(container.querySelector('.drive-source-marker').title).not.toContain('锚点');
+});
+
+test('纯驱动源按模式显示真实连线手势或设置入口', () => {
+  const render = (flowMode, driveLinking) => act(() => root.render(
+    <NodeActionsContext.Provider value={{ driveLinking }}>
+      <OrpheusNode id="trigger" data={{ component: 'orpheus.builtin.task_source',
+        flowMode, clockSource: true }} />
+    </NodeActionsContext.Provider>
+  ));
+  render('dataflow', false);
+  expect(container.textContent).toContain('请在工程设置中启用显式驱动');
+  render('task_sequence', true);
+  expect(container.textContent).toContain('拖向目标组件本体，松手连接');
+  expect(container.querySelector('[data-handle="drv:out"]').dataset.connectable).toBe('true');
+});
+
+test('纯宿主Buffer独立于时钟源呈现方向、通道和块长', () => {
+  const render = (mode) => act(() => root.render(
+    <OrpheusNode id="host" data={{ component: 'orpheus.builtin.host_audio',
+      clockSource: false, flowMode: 'task_sequence', blockSize: 32,
+      params: { channels: 30, mode }, ports: [
+        { id: 'in', type: 'audio', direction: 'input', channels: 'param:channels' },
+        { id: 'out', type: 'audio', direction: 'output', channels: 'param:channels' },
+      ] }} />
+  ));
+  render(0);
+  expect(container.querySelector('.source-buffer-summary').textContent).toContain('输入 Buffer30ch × 32帧');
+  expect(container.textContent).toContain('宿主 → Buffer → 图');
+  expect(container.textContent).toContain('独立驱动');
+  expect(container.textContent).toContain('生成代码含适配 TODO');
+  render(1);
+  expect(container.querySelector('.source-buffer-summary').textContent).toContain('输出 Buffer30ch × 32帧');
+  expect(container.textContent).toContain('图 → Buffer → 宿主');
+  expect(container.textContent).not.toContain('时钟源');
 });
 
 test('驱动路由不可见，组件本体接收入口，音频端口及Buffer展示独立', () => {

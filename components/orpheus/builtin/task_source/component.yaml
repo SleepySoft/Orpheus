@@ -8,7 +8,7 @@ package_type: source
 state_type: TaskSourceState
 clock_source: true
 clock_domain: timer
-description: 仅提供触发，不产生音频或分配PCM端口；在画布显示为紫色驱动标记，箭头指向目标节点顶部。PC由宿主推进，嵌入式绑定定时器或外部入口，不自行创建线程。
+description: 仅提供触发，不产生音频或分配PCM端口；在画布显示为紫色驱动标记。勾选工具栏“驱动连线”后，从源本体拖向目标组件本体，不需要连接音频引脚。PC由宿主推进，嵌入式绑定定时器或外部入口，不自行创建线程。
 sources:
   - src/task_source.c
 headers:

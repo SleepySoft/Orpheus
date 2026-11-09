@@ -89,6 +89,17 @@ class CodeGenerator:
         return int(schedule.get("tick", 0) or plan.block_size)
 
     @staticmethod
+    def _host_audio_nodes(plan: ExecutionPlan) -> list[tuple[str, bool]]:
+        return [
+            (nid, cfg["component"] == "orpheus.builtin.buffer_source"
+             or int(cfg.get("params", {}).get("mode", 0)) == 0)
+            for nid in plan.execution_order
+            if (cfg := plan.node_configs[nid])["component"] in (
+                "orpheus.builtin.host_audio", "orpheus.builtin.buffer_source"
+            )
+        ]
+
+    @staticmethod
     def _signal_type(sample_format: str) -> tuple[str, str]:
         if sample_format == "f32":
             return "float", "ORPHEUS_FORMAT_F32"
@@ -315,6 +326,21 @@ class CodeGenerator:
                 for task in getattr(plan, "tasks", [])
             ],
         ]
+        if self._host_audio_nodes(plan):
+            gen_h.append(
+                '/* 宿主PCM缓冲：交错f32，数量单位为样本；只提交/读取，不触发组件。'
+                '必须与所属Task串行调用，禁止并发访问或重复覆盖未消费的输入。 */'
+            )
+        for nid, is_input in self._host_audio_nodes(plan):
+            sym = self._sanitized_node_id(nid)
+            cfg = plan.node_configs[nid]
+            frames = int(cfg.get("frames") or plan.block_size)
+            channels = int(cfg.get("params", {}).get("channels", 2))
+            gen_h.append(f'#define ORPHEUS_HOST_AUDIO_{sym}_SAMPLES {frames * channels}u')
+            gen_h.append(
+                f'int orpheus_host_audio_{"submit" if is_input else "read"}_{sym}'
+                f'({"const " if is_input else ""}float* samples, uint32_t sample_count);'
+            )
         if win_host:
             self._generate_host_config(plan, device_in_nodes, device_out_nodes,
                                        include_dir / "orpheus_host_config.h")
@@ -789,6 +815,33 @@ class CodeGenerator:
             )
         if embed_in_nodes or embed_out_nodes or sport_in_nodes or sport_out_nodes:
             lines.append('')
+
+        for nid, is_input in self._host_audio_nodes(plan):
+            sym = self._sanitized_node_id(nid)
+            component = plan.node_configs[nid]["component"]
+            operation = "submit" if is_input else "read"
+            flag = "ready" if is_input else "valid"
+            lines.extend([
+                f'int orpheus_host_audio_{operation}_{sym}(',
+                f'    {"const " if is_input else ""}float* samples, uint32_t sample_count) {{',
+                f'    HostAudioState* buffer = g_state_{sym};',
+                '    orpheus_graph_clear_error();',
+                '    if (!g_graph_initialized || buffer == NULL)',
+                f'        return orpheus_graph_fail("host_audio:{operation}", "{nid}", '
+                f'"{component}", ORPHEUS_ERR_PROCESSING);',
+                '    if (samples == NULL || sample_count != buffer->channels * buffer->frames)',
+                f'        return orpheus_graph_fail("host_audio:{operation}", "{nid}", '
+                f'"{component}", ORPHEUS_ERR_INVALID_ARG);',
+                f'    if ({"buffer->ready" if is_input else "!buffer->valid"})',
+                f'        return orpheus_graph_fail("host_audio:{operation}:{flag}", "{nid}", '
+                f'"{component}", ORPHEUS_ERR_PROCESSING);',
+                f'    memmove({"buffer->data, samples" if is_input else "samples, buffer->data"}, '
+                'sample_count * sizeof(float));',
+                f'    buffer->{flag} = {"true" if is_input else "false"};',
+                '    return ORPHEUS_OK;',
+                '}',
+                '',
+            ])
 
         # 生成路径注册器：与动态路径一样调用 register_slots（当前无消费方，
         # 仅保证注册流程对等；bulk/控制通路启用后在此扩展）。
@@ -1757,24 +1810,51 @@ class CodeGenerator:
 
     def _generate_minimal_main_c(self, plan: ExecutionPlan, path: Path) -> None:
         """最小集成示例：用户可删除此文件，在自己的 main/中断中调用同一组入口。"""
-        tick = self._schedule_tick(plan)
         lines = [
+            '#include <stdio.h>',
             '#include <stdlib.h>',
             '#include "orpheus_graph.h"',
             '',
             '/* 最小宿主示例。实际产品可删除本文件，在自己的 main/音频中断中调用图入口。 */',
+        ]
+        for nid, is_input in self._host_audio_nodes(plan):
+            sym = self._sanitized_node_id(nid)
+            cfg = plan.node_configs[nid]
+            frames = int(cfg.get("frames") or plan.block_size)
+            channels = int(cfg.get("params", {}).get("channels", 2))
+            entries = [
+                f'orpheus_graph_process_task_{self._sanitized_node_id(task["id"])}'
+                for task in plan.tasks if nid in task["nodes"]
+            ]
+            lines.extend([
+                f'/* TODO: {"宿主输入" if is_input else "宿主输出"} {nid}：'
+                f'{channels}ch × {frames}帧，交错f32。',
+                f' * {"实际采集/排列PCM后，在组件真正被触发前提交" if is_input else "实际触发结束后读取有效块，并交付设备"}：',
+                f' * orpheus_host_audio_{"submit" if is_input else "read"}_{sym}'
+                f'(pcm, ORPHEUS_HOST_AUDIO_{sym}_SAMPLES);',
+                f' * 所属Task入口：{", ".join(entries)}。',
+                ' * 按组件实际触发节拍适配；缓冲提交不启动Task，不能填零冒充设备数据。',
+                ' * 本示例不实现设备IO；请在宿主边界完成适配，不在组件process中阻塞。',
+                ' */',
+            ])
+        lines.extend([
             'int main(int argc, char** argv) {',
             '    const int blocks = argc > 1 ? atoi(argv[1]) : 1000;',
             '    int rc = orpheus_graph_init(ORPHEUS_GRAPH_SAMPLE_RATE, ORPHEUS_GRAPH_BLOCK_SIZE);',
             '    if (rc != ORPHEUS_OK) return 1;',
             '    for (int i = 0; i < blocks; ++i) {',
             '        rc = orpheus_graph_process(ORPHEUS_GRAPH_TICK);',
-            '        if (rc != ORPHEUS_OK) break;',
+            '        if (rc != ORPHEUS_OK) {',
+            '            const OrpheusGraphError* error = orpheus_graph_last_error();',
+            '            fprintf(stderr, "图处理失败：%s / %s / %s，错误码 %d\\n",',
+            '                error->operation, error->node, error->component, rc);',
+            '            break;',
+            '        }',
             '    }',
             '    orpheus_graph_teardown();',
             '    return rc == ORPHEUS_OK ? 0 : 1;',
             '}',
-        ]
+        ])
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _generate_host_cli_c(

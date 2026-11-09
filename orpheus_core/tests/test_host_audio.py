@@ -48,6 +48,107 @@ def test_buffer_source_native_contract(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.parametrize("component,channels,frames", [
+    ("host_audio", 3, 32), ("host_audio", 30, 96),
+    ("buffer_source", 3, 32), ("buffer_source", 30, 96),
+])
+def test_generated_host_buffer_api_and_adapter_todos(tmp_path, component, channels, frames):
+    registry = Registry([ROOT / "components"])
+    registry.scan()
+    nodes = {
+        "host_in": Node("host_in", f"orpheus.builtin.{component}", params={"channels": channels}),
+        "host_out": Node("host_out", "orpheus.builtin.host_audio", params={"channels": channels, "mode": 1}),
+    }
+    drives = []
+    if component == "host_audio":
+        nodes["clock"] = Node("clock", "orpheus.builtin.task_source", params={"frequency_hz": 48000 // frames})
+        drives.append(DriveConnection(PortRef("clock", "out"), PortRef("host_in", "in")))
+    project = Project(tasks={"default": Task("default", sample_rate=48000, block_size=frames)},
+        flow_mode="task_sequence", graph=Graph(nodes=nodes, connections=[
+            Connection(PortRef("host_in", "out"), PortRef("host_out", "in"))]),
+        drive_connections=drives)
+    plan = GraphCompiler(registry).compile(project)
+    generator = CodeGenerator(registry, ROOT)
+    generated = tmp_path / "generated"
+    generator.generate(plan, generated)
+    symbol = generator._sanitized_node_id(plan.tasks[0]["id"])
+    main = (generated / "src/main.c").read_text(encoding="utf-8")
+    assert f"TODO: 宿主输入 host_in：{channels}ch × {frames}帧" in main
+    assert f"TODO: 宿主输出 host_out：{channels}ch × {frames}帧" in main
+    assert f"orpheus_graph_process_task_{symbol}" in main
+    assert "不能填零冒充设备数据" in main
+    harness = r'''
+#include <assert.h>
+#include <string.h>
+#include "orpheus_graph.h"
+int main(void) {
+    float input[ORPHEUS_HOST_AUDIO_host_in_SAMPLES];
+    float output[ORPHEUS_HOST_AUDIO_host_out_SAMPLES];
+    assert(ORPHEUS_HOST_AUDIO_host_in_SAMPLES == EXPECTED_SAMPLES);
+    for (unsigned i = 0; i < EXPECTED_SAMPLES; ++i) input[i] = (float)i * 0.001f;
+    assert(orpheus_host_audio_submit_host_in(input, EXPECTED_SAMPLES) == ORPHEUS_ERR_PROCESSING);
+    assert(orpheus_graph_init(ORPHEUS_GRAPH_SAMPLE_RATE, ORPHEUS_GRAPH_BLOCK_SIZE) == ORPHEUS_OK);
+    assert(orpheus_graph_process(ORPHEUS_GRAPH_TICK) == ORPHEUS_ERR_PROCESSING);
+    assert(strcmp(orpheus_graph_last_error()->node, "host_in") == 0);
+    assert(orpheus_host_audio_read_host_out(output, EXPECTED_SAMPLES) == ORPHEUS_ERR_PROCESSING);
+    assert(orpheus_host_audio_submit_host_in(NULL, EXPECTED_SAMPLES) == ORPHEUS_ERR_INVALID_ARG);
+    assert(orpheus_host_audio_submit_host_in(input, EXPECTED_SAMPLES - 1) == ORPHEUS_ERR_INVALID_ARG);
+    assert(orpheus_host_audio_submit_host_in(input, EXPECTED_SAMPLES + 1) == ORPHEUS_ERR_INVALID_ARG);
+    assert(orpheus_host_audio_submit_host_in(input, EXPECTED_SAMPLES) == ORPHEUS_OK);
+    assert(orpheus_host_audio_read_host_out(output, EXPECTED_SAMPLES) == ORPHEUS_ERR_PROCESSING);
+    assert(orpheus_host_audio_submit_host_in(input, EXPECTED_SAMPLES) == ORPHEUS_ERR_PROCESSING);
+    assert(orpheus_graph_last_error()->code == ORPHEUS_ERR_PROCESSING);
+    assert(TASK_FUNCTION(ORPHEUS_GRAPH_TICK) == ORPHEUS_OK);
+    assert(orpheus_host_audio_read_host_out(output, EXPECTED_SAMPLES - 1) == ORPHEUS_ERR_INVALID_ARG);
+    assert(orpheus_host_audio_read_host_out(NULL, EXPECTED_SAMPLES) == ORPHEUS_ERR_INVALID_ARG);
+    assert(orpheus_host_audio_read_host_out(output, EXPECTED_SAMPLES) == ORPHEUS_OK);
+    assert(memcmp(input, output, sizeof(input)) == 0);
+    assert(orpheus_host_audio_read_host_out(output, EXPECTED_SAMPLES) == ORPHEUS_ERR_PROCESSING);
+    input[0] = -2.5f;
+    assert(orpheus_host_audio_submit_host_in(input, EXPECTED_SAMPLES) == ORPHEUS_OK);
+    assert(TASK_FUNCTION(ORPHEUS_GRAPH_TICK) == ORPHEUS_OK);
+    assert(orpheus_host_audio_read_host_out(output, EXPECTED_SAMPLES) == ORPHEUS_OK);
+    assert(memcmp(input, output, sizeof(input)) == 0);
+    orpheus_graph_teardown();
+    assert(orpheus_host_audio_submit_host_in(input, EXPECTED_SAMPLES) == ORPHEUS_ERR_PROCESSING);
+    assert(orpheus_host_audio_read_host_out(output, EXPECTED_SAMPLES) == ORPHEUS_ERR_PROCESSING);
+    return 0;
+}
+'''
+    (generated / "src/host_api_test.c").write_text(harness, encoding="utf-8", newline="\n")
+    with (generated / "CMakeLists.txt").open("a", encoding="utf-8", newline="\n") as file:
+        file.write("\nadd_executable(host_api_test src/host_api_test.c)\n"
+            f"target_compile_definitions(host_api_test PRIVATE EXPECTED_SAMPLES={channels * frames} "
+            f"TASK_FUNCTION=orpheus_generated_process_task_{symbol})\n"
+            "target_link_libraries(host_api_test PRIVATE orpheus_graph)\n")
+    _build(generated, tmp_path)
+    result = subprocess.run([str(generated / "build/host_api_test.exe")],
+        capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stdout + result.stderr
+    result = subprocess.run([str(generated / "build/orpheus_generated_app.exe"), "1"],
+        capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 1
+    assert "host_in" in result.stderr
+    assert "图处理失败" in result.stderr
+
+
+def test_generated_host_buffer_macros_keep_case_sensitive_instance_names(tmp_path):
+    registry = Registry([ROOT / "components"])
+    registry.scan()
+    project = Project(flow_mode="task_sequence", graph=Graph(nodes={
+        "clock": Node("clock", "orpheus.builtin.task_source", params={"frequency_hz": 1500}),
+        "pcm": Node("pcm", "orpheus.builtin.host_audio", params={"channels": 2}),
+        "PCM": Node("PCM", "orpheus.builtin.host_audio", params={"channels": 3}),
+    }), drive_connections=[
+        DriveConnection(PortRef("clock", "out"), PortRef(nid, "in")) for nid in ("pcm", "PCM")
+    ], block_size=32, sample_rate=48000)
+    plan = GraphCompiler(registry).compile(project)
+    CodeGenerator(registry, ROOT).generate(plan, tmp_path)
+    header = (tmp_path / "include/orpheus_graph.h").read_text(encoding="utf-8")
+    assert "#define ORPHEUS_HOST_AUDIO_pcm_SAMPLES 64u" in header
+    assert "#define ORPHEUS_HOST_AUDIO_PCM_SAMPLES 96u" in header
+
+
 def execute_host_graph(tmp_path, registry, plan, inputs, outputs, *, blocks=24):
     generated = tmp_path / "generated"
     generator = CodeGenerator(registry, ROOT); generator.generate(plan, generated)
