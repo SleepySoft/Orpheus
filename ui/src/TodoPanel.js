@@ -10,7 +10,7 @@ const FIELDS = {
 
 export function NodeTodos({ todos = [], onChange, isPlaceholder, readOnly }) {
   return (
-    <details className="node-notes-section" open={isPlaceholder || todos.length > 0}>
+    <details className="node-notes-section">
       <summary>TODO（{todos.filter((todo) => todo.status !== 'done').length} 未完成）</summary>
       {isPlaceholder && <p className="muted">仅为可运行骨架，不代表算法实现。请填写源码索引、下一步和验收条件。</p>}
       {readOnly && <p className="muted">公共子图定义只读；请在工程实例记录 TODO，或复制为工程私有定义后编辑。</p>}

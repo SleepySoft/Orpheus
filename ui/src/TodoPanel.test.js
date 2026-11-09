@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import TodoPanel from './TodoPanel';
+import TodoPanel, { NodeTodos } from './TodoPanel';
 
 const views = {
   main: { nodes: [
@@ -51,4 +51,30 @@ test('空清单保留可伸缩容器与独立列表', () => {
   expect(container.querySelector('[aria-label="工程 TODO"]')).not.toBeNull();
   expect(container.querySelector('.todo-panel-header')).not.toBeNull();
   expect(container.querySelector('.todo-panel-list').textContent).toContain('当前范围无 TODO');
+});
+
+test.each([
+  ['空清单', [], false, false],
+  ['有待办', views.main.nodes[0].data.todos, false, false],
+  ['占位节点', views.main.nodes[0].data.todos, true, false],
+  ['只读节点', views.main.nodes[0].data.todos, true, true],
+])('节点 TODO 默认折叠：%s', (_, todos, isPlaceholder, readOnly) => {
+  act(() => root.render(<NodeTodos todos={todos} isPlaceholder={isPlaceholder} readOnly={readOnly} />));
+  expect(container.querySelector('details').open).toBe(false);
+  expect(container.querySelector('summary').textContent)
+    .toBe(`TODO（${todos.filter((todo) => todo.status !== 'done').length} 未完成）`);
+});
+
+test('手动展开后仍可添加待办，数据更新不重新折叠', () => {
+  const onChange = jest.fn();
+  act(() => root.render(<NodeTodos onChange={onChange} />));
+  const section = container.querySelector('details');
+  act(() => { section.open = true; });
+  act(() => container.querySelector('button').click());
+  const next = onChange.mock.calls[0][0];
+  expect(next).toHaveLength(1);
+  act(() => root.render(<NodeTodos todos={next} onChange={onChange} />));
+  expect(section.open).toBe(true);
+  expect(container.querySelector('summary').textContent).toBe('TODO（1 未完成）');
+  expect(container.querySelectorAll('.todo-item')).toHaveLength(1);
 });
