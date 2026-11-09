@@ -684,6 +684,8 @@ const { screenToFlowPosition } = useReactFlow();
     const onKey = (event) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || !current) return;
       if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed && selection.toString()) return;
       const key = event.key.toLowerCase();
       if (key === 'c' && selectedIds.length) {
         event.preventDefault();

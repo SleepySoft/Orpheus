@@ -45,6 +45,14 @@ export default function ParamPanel({
   const universal = editable.filter(isUniversalParam);
   const specific = editable.filter((p) => !isUniversalParam(p));
 
+  const referenceField = (name, value) => (
+    <label className="node-ref-field">
+      <span className="muted">{name}</span>
+      <input className="node-ref-value" type="text" aria-label={name}
+        value={value} title={value} readOnly onFocus={(event) => event.currentTarget.select()} />
+    </label>
+  );
+
   const renderField = (schema) => (
     <ParamField
       key={schema.id}
@@ -58,16 +66,16 @@ export default function ParamPanel({
   return (
     <div className="sidebar">
       <h3>参数面板</h3>
-      <p className="node-ref">
-        <span className="muted">{node.id}</span>
-        <br />
-        <strong>{node.data.label || node.id}</strong>
-        <button className="rename-btn" onClick={() => onRenameNode(node.id)} title="重命名节点（显示名）">
-          重命名
-        </button>
-        <br />
-        <span className="muted">{component}</span>
-      </p>
+      <div className="node-ref">
+        {referenceField('节点 ID', node.id)}
+        <div className="node-ref-name">
+          {referenceField('显示名', node.data.label || node.id)}
+          <button className="rename-btn" onClick={() => onRenameNode(node.id)} title="重命名节点（显示名）">
+            重命名
+          </button>
+        </div>
+        {referenceField('组件类型', component)}
+      </div>
       {!node.data.bridgeConfig && flowMode !== 'task_sequence' && (
         <div className="param-field">
           <label>所属 Task</label>

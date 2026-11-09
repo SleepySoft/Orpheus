@@ -229,6 +229,27 @@ test('显式驱动参数面板不再要求所属Task，纯驱动频率仍可编�
   expect(container.querySelector('input[type="number"]').value).toBe('100');
 });
 
+test('节点ID、显示名和组件类型可选择复制，但仍为只读字段', () => {
+  const onParamChange = jest.fn();
+  const onRenameNode = jest.fn();
+  act(() => root.render(<ParamPanel viewKey="main" node={{ id: 'test_node', data: {
+    component: 'test.component', label: '测试节点', params: {}, parameters: [],
+  } }} onParamChange={onParamChange} onRenameNode={onRenameNode} />));
+  for (const [name, value] of [
+    ['节点 ID', 'test_node'], ['显示名', '测试节点'], ['组件类型', 'test.component'],
+  ]) {
+    const input = container.querySelector(`input[aria-label="${name}"]`);
+    expect(input.readOnly).toBe(true);
+    expect(input.value).toBe(value);
+    act(() => input.focus());
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(value.length);
+  }
+  expect(onParamChange).not.toHaveBeenCalled();
+  act(() => container.querySelector('.rename-btn').click());
+  expect(onRenameNode).toHaveBeenCalledWith('test_node');
+});
+
 test('SourceTask 提示随编排模式切换显示，兼容 Task 模板仍保留', () => {
   act(() => root.render(<ProjectSettings doc={{}} onSave={() => {}} onClose={() => {}} />));
   expect(container.textContent).not.toContain('每个源（Source）生成独立的逻辑 Task');
