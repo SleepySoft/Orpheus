@@ -43,7 +43,7 @@ _KEYWORDS = set(("auto break case char const continue default do double else enu
                  "private public protected new delete operator NULL").split())
 _POLICIES = {"immediate", "block_boundary", "smoothed", "transactional", "restart_required"}
 F32_MAX = float.fromhex("0x1.fffffep+127")
-_PAYLOAD_PRODUCT = re.compile(
+_SIGNATURE_PRODUCT = re.compile(
     r"(?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*)(?:\*(?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+")
 LIFECYCLE_HOOKS = ("validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
@@ -401,7 +401,7 @@ def _validate(raw):
                     continue
                 value = item[field]
                 if isinstance(value, str):
-                    product = field == "block_size" and _PAYLOAD_PRODUCT.fullmatch(value)
+                    product = field in {"block_size", "channels"} and _SIGNATURE_PRODUCT.fullmatch(value)
                     pattern = (r"param:[A-Za-z][A-Za-z0-9_]*" if field == "frame_size" else
                                r"(?:param:[A-Za-z][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9_]*:(?:channels|block_size|sample_rate))")
                     if not product and not re.fullmatch(pattern, value):
@@ -555,22 +555,25 @@ def _validate(raw):
     count_parameters = {item["count"].split(":")[1] for item in interfaces.values()
                         if "direction" in item and isinstance(item.get("count"), str)}
     visiting, done = set(), set()
+    product_bounds = {}
 
     def check_ref(node):
         if node in visiting:
             _fail("签名引用存在循环", f"interfaces.{node[0]}.{node[1]}")
         if node in done or node not in references:
-            return
+            return product_bounds.get(node)
         visiting.add(node)
         maximum = 1
+        inherited_product = None
         atoms = references[node].split("*")
+        limit = 65536 if node[1] == "channels" and len(atoms) > 1 else 4294967295
         for atom in atoms:
             if atom.isdecimal():
                 if len(atom) > 10 or (len(atom) == 10 and atom > "4294967295"):
-                    _fail("载荷乘数超出 uint32 上限", f"interfaces.{node[0]}.{node[1]}")
+                    _fail("签名乘数超出 uint32 上限", f"interfaces.{node[0]}.{node[1]}")
                 maximum *= int(atom)
-                if maximum > 4294967295:
-                    _fail("载荷乘积在声明参数范围内超出 uint32 上限", f"interfaces.{node[0]}.{node[1]}")
+                if maximum > limit:
+                    _fail(f"签名乘积在声明参数范围内超出上限 {limit}", f"interfaces.{node[0]}.{node[1]}")
                 continue
             target, field = atom.split(":")
             if target == "task":
@@ -588,11 +591,16 @@ def _validate(raw):
                 other = interfaces.get(target, {})
                 if other.get("direction") not in {"input", "output"} or other.get("type") == "trigger":
                     _fail("签名引用不存在", f"interfaces.{node[0]}.{node[1]}")
-                check_ref((target, field))
-            if len(atoms) > 1 and maximum > 4294967295:
-                _fail("载荷乘积在声明参数范围内超出 uint32 上限", f"interfaces.{node[0]}.{node[1]}")
+                inherited_product = check_ref((target, field))
+            if len(atoms) > 1 and maximum > limit:
+                _fail(f"签名乘积在声明参数范围内超出上限 {limit}", f"interfaces.{node[0]}.{node[1]}")
         visiting.remove(node)
         done.add(node)
+        product_bound = maximum if len(atoms) > 1 else inherited_product
+        if node[1] == "channels" and product_bound is not None and product_bound > 65536:
+            _fail("通道乘积在声明参数范围内超出上限 65536", f"interfaces.{node[0]}.{node[1]}")
+        product_bounds[node] = product_bound
+        return product_bound
 
     for node in references:
         check_ref(node)

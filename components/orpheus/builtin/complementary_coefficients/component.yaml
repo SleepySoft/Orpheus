@@ -1,23 +1,19 @@
 id: orpheus.builtin.complementary_coefficients
 name: 互补系数展开
 category: "数学与控制"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: ComplementaryCoefficientsState
 description: >-
   对每行N通道系数x输出[x, total-x]，前N通道原位型复制，后N通道执行一次float32减法。
   默认total=1，适用于互补混合权重、剩余系数和交叉渐变；不限制输入在0..1，不裁剪、不平滑。
   输入IEEE特殊值按原生float32减法传播；total必须有限。行数是数据尺寸，不改变上游时间线。
   无持久算法状态、无运行期分配；零处理量不写输出，未连输出允许NULL，禁止内存重叠。
-sources: [src/complementary_coefficients.c]
-headers: [include/orpheus_complementary_coefficients.h]
-ports:
-  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels*2", block_size: "param:elements"}
-parameters:
-  - {id: channels, name: 输入通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
-  - {id: elements, name: 每通道元素数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
-  - {id: total, name: 互补总量, type: float, default: 1.0, update_policy: restart_required}
-memory: {state_size: 16, scratch_size: 0, alignment: 8}
+interfaces:
+  in: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", process: true}
+  out: {direction: output, type: bulk, sample_format: f32, channels: "param:channels*2", block_size: "param:elements", drive_port_no: 1}
+  channels: {name: 输入通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  elements: {name: 每通道元素数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  total: {name: 互补总量, type: float, default: 1.0, update_policy: restart_required}
+memory: {alignment: 8}
 execution: {realtime_safe: true, supports_inplace: false}

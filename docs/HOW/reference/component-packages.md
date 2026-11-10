@@ -172,6 +172,19 @@ halfcomplex_encode 逐位复制端点实部及内部实虚部，
 标签的 BULK；两出口独立交付，任何下游失败停止后续出口。
 全部输出先校验再写，拒绝与输入或其它输出重叠。
 
+halfcomplex_decode 的 in（audio）和 spectrum（带布局的 BULK）互斥，
+任一入口实际交付立即解包，不等待或合并。输出可截取连续频点，
+实部/内部虚部逐位复制，DC 和 Nyquist 虚部固定正零。
+先交付 1 号复数 out，再交付 2 号 i32 BULK 成功标记 tick；
+tick 仍是数据而非无载荷 trigger，下游失败立即停止后续出口。
+
+complementary_coefficients 保留每行前 N 通道的原始位型，
+后 N 通道执行一次 total-input 的 f32 减法；in 驱动 1 号 out。
+输出 channels 使用 `param:channels*2`，由同一有界乘积规则展开，
+不引入重复的输出通道参数；32 通道×65536 项实际展开为 64 通道。
+两组件均使用调用者提供的状态区，零量子不续调，
+输出悬空不阻断其它出口，重叠在写样本前明确拒绝。
+
 这些接口的 block_size 是完整载荷槽数，可以是多个有界签名参数与正整数的乘积，
 例如 `param:bins*2*param:batches`，不能将结果当成新的时间样本数。
 显式声明的 audio 载荷也与调用量子分离；普通没有显式载荷的 audio 接口仍按调用量子处理。

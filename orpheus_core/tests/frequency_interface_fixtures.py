@@ -10,6 +10,16 @@ from test_table_interfaces import bits, check_four_entries, f32, four_entry_harn
 
 
 PATTERNS = (0, 0x80000000, 0x7F800000, 0xFF800000, 0x7FC12345, 0x7F812345, 1, 0x3F123456)
+BIT_FILL = ("static const uint32_t patterns[]={" + ",".join(map(str, PATTERNS))
+            + "}; uint32_t index=(uint32_t)i+(uint32_t)call*1048573u;"
+            "uint32_t value=index%19u<8u ? patterns[index%19u]"
+            " : (0x3f000000u|((index*2654435761u)&0x007fffffu));"
+            "memcpy(io->out.samples+i,&value,4);")
+
+
+def spectral_bits(index, call):
+    index += call * 1048573
+    return PATTERNS[index % 19] if index % 19 < 8 else 0x3F000000 | ((index * 2654435761) & 0x007FFFFF)
 
 SOURCE = r'''
 #include "component_state.h"
@@ -82,8 +92,7 @@ def frequency_graph(tmp_path, component, params, frames, expected, *, step=8, ty
     bulk = {"type": "bulk", "sample_format": "f32", "channels": "param:channels"}
     fill = "io->out.samples[i]=((i*29+call*7)%257-128)*.0078125f;"
     if patterns:
-        fill = ("static const uint32_t patterns[]={" + ",".join(map(str, PATTERNS))
-                + "}; uint32_t value=patterns[(i+call)%8]; memcpy(io->out.samples+i,&value,4);")
+        fill = BIT_FILL
     source = create_component(tmp_path, "frequency_source", {
         "out": {**bulk, "direction": "output", "block_size": "param:elements*2", "drive_port_no": 1},
         "gain": {**bulk, "direction": "output", "block_size": "param:elements"},

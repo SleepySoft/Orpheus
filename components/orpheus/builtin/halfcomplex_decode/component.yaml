@@ -1,33 +1,31 @@
 id: orpheus.builtin.halfcomplex_decode
 name: 半复数频谱解包
 category: "频域与分析"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: HalfcomplexDecodeState
 description: >-
   显式布局桥接，不重复FFT、窗口、缩放或重采样。每批N槽半复数hc[k]=Re(k)、hc[N-k]=Im(k)，
   选择first_bin开始的bins个非负频点，输出通道交织的Re/Im数组；
   索引=((批次*bins+频点)*2+实虚分量)*channels+通道。DC/Nyquist虚部为正零，其余位型逐字节保留。
-  in兼容旧音频类型的半复数ABI，spectrum接受带halfcomplex标签的计算数据，必须且只能接一个；
-  out是兼容既有无layout标签算法接口的bulk，不是PCM，不改变上游交付周期。
+  in接受audio类型半复数载荷，spectrum接受带halfcomplex标签的计算数据，必须且只能接一个；
+  out是无layout标签的复数bulk，不是PCM，不改变上游交付周期。
   FFT长度必须为2..65536的偶数，频点区间须在0..N/2之内；批次共享一次交付，无持久算法状态。
   零处理量不写输出，未连输出允许NULL；禁止输入输出内存重叠，错误输入不修改输出。
   可选tick为i32单项成功处理标记，每次非零量有效调用写1；仅建立同Task调用依赖，
   不计数、不充当时钟或跨Task同步。全部输出先校验再写入，tick与其它缓冲区也禁止重叠。
-sources: [src/halfcomplex_decode.c]
-headers: [include/orpheus_halfcomplex_decode.h]
+  实际数据交付驱动一次，依次从1号out、2号tick出口交付；失败立即停止后续出口。
+algorithm: {lifecycle: [validate]}
 input_alternatives: [[in, spectrum]]
-ports:
-  - {id: in, direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches"}
-  - {id: spectrum, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", layout: halfcomplex, frame_size: "param:fft_size"}
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*2*param:batches"}
-  - {id: tick, direction: output, type: bulk, sample_format: i32, channels: 1, block_size: 1, optional: true}
-parameters:
-  - {id: channels, name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
-  - {id: fft_size, name: 每帧半复数槽数, type: int, default: 256, range: [2, 65536], update_policy: restart_required, affects_signature: true}
-  - {id: batches, name: 批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
-  - {id: first_bin, name: 首频点（从0起）, type: int, default: 0, range: [0, 32768], update_policy: restart_required, affects_signature: true}
-  - {id: bins, name: 输出频点数, type: int, default: 129, range: [1, 32769], update_policy: restart_required, affects_signature: true}
-memory: {state_size: 24, scratch_size: 0, alignment: 8}
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", process: true}
+  spectrum: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", layout: halfcomplex, frame_size: "param:fft_size", process: true}
+  out: {direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*2*param:batches", drive_port_no: 1}
+  tick: {direction: output, type: bulk, sample_format: i32, channels: 1, block_size: 1, drive_port_no: 2}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  fft_size: {name: 每帧半复数槽数, type: int, default: 256, range: [2, 65536], update_policy: restart_required, affects_signature: true}
+  batches: {name: 批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  first_bin: {name: 首频点（从0起）, type: int, default: 0, range: [0, 32768], update_policy: restart_required, affects_signature: true}
+  bins: {name: 输出频点数, type: int, default: 129, range: [1, 32769], update_policy: restart_required, affects_signature: true}
+memory: {alignment: 8}
 execution: {realtime_safe: true, supports_inplace: false}

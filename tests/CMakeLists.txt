@@ -315,10 +315,12 @@ if(NOT WIN32)
 endif()
 add_test(NAME gain_observer_smoke COMMAND gain_observer_smoke)
 add_executable(halfcomplex_smoke halfcomplex_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_decode/src/halfcomplex_decode.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_decode/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_decode/user/algorithm.c)
 target_include_directories(halfcomplex_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_decode/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_decode/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_decode/user)
 target_compile_definitions(halfcomplex_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME halfcomplex_smoke COMMAND halfcomplex_smoke)
 add_executable(halfcomplex_runner halfcomplex_runner.cpp)
@@ -333,10 +335,12 @@ target_include_directories(halfcomplex_encode_smoke PRIVATE
 target_compile_definitions(halfcomplex_encode_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME halfcomplex_encode_smoke COMMAND halfcomplex_encode_smoke)
 add_executable(complementary_coefficients_smoke complementary_coefficients_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complementary_coefficients/src/complementary_coefficients.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complementary_coefficients/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complementary_coefficients/user/algorithm.c)
 target_include_directories(complementary_coefficients_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complementary_coefficients/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complementary_coefficients/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complementary_coefficients/user)
 target_compile_definitions(complementary_coefficients_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME complementary_coefficients_smoke COMMAND complementary_coefficients_smoke)
 add_executable(complex_gain_split_smoke complex_gain_split_smoke.c

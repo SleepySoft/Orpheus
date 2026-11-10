@@ -3863,3 +3863,259 @@ int main(void) {
 }
 '''.replace("TASK_FIELD", task_field), encoding="utf-8", newline="\n")
     (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+
+
+def _add_channel_product_interfaces(raw):
+    raw["interfaces"] = {
+        "in": {"type": "bulk", "direction": "input", "sample_format": "f32",
+               "channels": "param:channels", "block_size": 3, "process": True},
+        "out": {"type": "bulk", "direction": "output", "sample_format": "f32",
+                "channels": "param:channels*2", "block_size": 3, "drive_port_no": 1},
+        "channels": {"type": "int", "default": 2, "range": [1, 32],
+                     "affects_signature": True, "update_policy": "restart_required"},
+    }
+
+
+@pytest.mark.parametrize("expression", [
+    "param:channels*2", "2*param:channels", "param:channels*2*1",
+    "param:channels*param:channels", "32768*2", "1*1",
+])
+def test_channel_product_schema_normalization_cli_and_single_parameter_source(package, raw, expression):
+    import jsonschema
+    _add_channel_product_interfaces(raw)
+    raw["interfaces"]["out"]["channels"] = expression
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator.check_schema(schema)
+    jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    before = snapshot(package)
+    normalized = normalize_component_definition(load_component_definition(path))
+    assert normalized["ports"][0]["channels"] == "param:channels"
+    assert normalized["ports"][1]["channels"] == expression
+    assert [p["id"] for p in normalized["parameters"]] == ["channels"]
+    assert normalized["parameters"][0]["range"] == [1, 32]
+    assert snapshot(package) == before
+    for script in ("validate_component.py", "generate_component.py"):
+        result = subprocess.run([str(PYTHON), str(ROOT / "scripts" / script), str(path), "--format", "json"],
+                                cwd=package, capture_output=True, encoding="utf-8")
+        assert result.returncode == 0, result.stderr + result.stdout
+        assert json.loads(result.stdout)["ok"] is True
+        if script == "validate_component.py":
+            assert snapshot(package) == before
+    check_generated(path)
+    shell = (package / "generated" / "component_shell.c").read_text(encoding="utf-8")
+    assert f'.channels_param="{expression[6:]}"' not in shell
+
+
+@pytest.mark.parametrize("expression", [
+    "param:channels**2", "*param:channels", "param:channels*", "param:channels*0",
+    "param:channels*-1", "param:channels*1.5", "param:channels/2", "param:channels+2",
+    "param:channels * 2", "param:channels*task:block_size", "param:channels*in:channels",
+    "param:channels*2\n",
+])
+def test_channel_product_invalid_syntax_rejected_by_schema_and_cli_without_writes(package, raw, expression):
+    import jsonschema
+    _add_channel_product_interfaces(raw)
+    raw["interfaces"]["out"]["channels"] = expression
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    result = subprocess.run(
+        [str(PYTHON), str(ROOT / "scripts" / "generate_component.py"), str(path), "--format", "json"],
+        cwd=package, capture_output=True, encoding="utf-8")
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["ok"] is False
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("case", [
+    "unknown", "float", "bool", "array", "runtime", "non_signature",
+    "zero_default", "zero_range", "negative_range", "no_range",
+    "channel_limit", "uint32_overflow", "constant_overflow", "oversized_constant",
+    "inherited_overflow",
+])
+def test_channel_product_bad_references_bounds_and_overflows_are_readonly(package, raw, case):
+    _add_channel_product_interfaces(raw)
+    port, parameter = raw["interfaces"]["out"], raw["interfaces"]["channels"]
+    if case == "unknown":
+        port["channels"] = "param:missing*2"
+    elif case in {"float", "bool"}:
+        parameter.update(type=case, default=2.0 if case == "float" else True)
+        parameter.pop("range")
+    elif case == "array":
+        parameter.update(count=1, default=[2], affects_signature=False)
+    elif case == "runtime":
+        parameter.update(update_policy="block_boundary", affects_signature=False)
+    elif case == "non_signature":
+        parameter["affects_signature"] = False
+    elif case == "zero_default":
+        parameter.update(default=0, range=[0, 32])
+    elif case in {"zero_range", "negative_range"}:
+        parameter["range"][0] = 0 if case == "zero_range" else -1
+    elif case == "no_range":
+        del parameter["range"]
+    elif case == "channel_limit":
+        parameter["range"][1] = 32769
+    elif case == "uint32_overflow":
+        parameter["range"][1] = 2147483647
+    elif case == "constant_overflow":
+        port["channels"] = "65536*65536"
+    elif case == "oversized_constant":
+        port["channels"] = "4294967296*1"
+    else:
+        raw["interfaces"]["in"]["block_size"] = "65536*2"
+        port["channels"] = "in:block_size"
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("cpp", [False, True])
+@pytest.mark.parametrize("grouped", [False, True])
+@pytest.mark.parametrize("port_type", ["bulk", "audio"])
+@pytest.mark.parametrize("inherited", [False, True])
+def test_real_channel_product_binds_actual_input_output_views_and_enforces_ranges(
+        package, raw, cpp, grouped, port_type, inherited):
+    _add_channel_product_interfaces(raw)
+    for key in ("in", "out"):
+        raw["interfaces"][key]["type"] = port_type
+        if grouped:
+            raw["interfaces"][key]["count"] = 1
+    if inherited:
+        raw["interfaces"]["in"]["channels"] = "param:channels*2"
+        raw["interfaces"]["out"]["channels"] = "in:channels"
+    generate_component(save(package, raw))
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+unsigned calls,expected_channels;
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    ++calls;
+    assert(s->channels==(int)expected_channels && ctx->frame_count==8 && ctx->valid_frames==8);
+    if(IN_VIEW.buffer) assert(IN_VIEW.buffer->channels==expected_channels*INPUT_FACTOR);
+    if(OUT_VIEW.buffer) assert(OUT_VIEW.buffer->channels==expected_channels*2);
+    if(IN_VIEW.samples && OUT_VIEW.samples) {
+        for(unsigned frame=0;frame<3;frame++)
+            for(unsigned channel=0;channel<expected_channels;channel++) {
+                float value=IN_VIEW.samples[(frame*expected_channels+channel)*INPUT_FACTOR];
+                OUT_VIEW.samples[(frame*expected_channels+channel)*2]=value;
+                OUT_VIEW.samples[(frame*expected_channels+channel)*2+1]=-value;
+            }
+    }
+    return test_pilot_emit_out(ctx,&OUT_VIEW);
+}
+'''.replace("INPUT_FACTOR", "2" if inherited else "1").replace(
+        "IN_VIEW", "io->in[0]" if grouped else "io->in").replace(
+        "OUT_VIEW", "io->out[0]" if grouped else "io->out"), encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <limits.h>
+#include <string.h>
+extern unsigned calls,expected_channels;
+static unsigned emissions;
+static int emit(void* user,uint32_t drive,const OrpheusDelivery* delivery) {
+    (void)user;++emissions;assert(drive==1);
+    if(delivery->buffer) assert(delivery->buffer->channels==expected_channels*2);
+    return ORPHEUS_OK;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    const OrpheusComponentDescriptor* descriptor=api->get_descriptor();
+    assert(descriptor->param_count==1);
+    assert(descriptor->ports[1].channels==0 && descriptor->ports[1].is_variable);
+    assert(!descriptor->ports[1].channels_param);
+    test_pilot_State state;void* instance=NULL;OrpheusConfig config={.state_block=&state,.block_size=8};
+    assert(api->create(&instance,&config)==ORPHEUS_OK);
+    const char* keys[]={"channels"};
+    OrpheusValue channels={.type=ORPHEUS_VALUE_INT};
+    config.param_ids=keys;config.param_values=&channels;config.param_count=1;
+    const unsigned counts[]={1,32};
+    for(unsigned iteration=0;iteration<2;iteration++) {
+        expected_channels=counts[iteration];channels.value.i32=(int32_t)expected_channels;
+        assert(api->prepare(instance,&config)==ORPHEUS_OK);
+        float source[3*64],dest[3*64];
+        for(unsigned i=0;i<3*64;i++) source[i]=(float)i+1;
+        memset(dest,0,sizeof(dest));
+        OrpheusBuffer input={.data=source,.format=ORPHEUS_FORMAT_F32,.channels=expected_channels*INPUT_FACTOR,
+            .frame_count=3,.frame_capacity=3,.interleaved=true};
+        OrpheusBuffer output=input;output.data=dest;output.channels=expected_channels*2;output.frame_count=0;
+        const OrpheusBuffer* inputs[]={&input};OrpheusBuffer* outputs[]={&output};
+        OrpheusContinuation continuation={.emit=emit};
+        OrpheusProcessContext ctx={.inputs=inputs,.outputs=outputs,.input_count=1,.output_count=1,
+            .frame_count=8,.valid_frames=8,.trigger_input=UINT32_MAX,.continuation=&continuation};
+        unsigned before=calls,emitted=emissions;
+        assert(api->process(instance,&ctx)==ORPHEUS_OK && calls==before+1 && emissions==emitted+1);
+        for(unsigned i=0;i<3*expected_channels;i++) {
+            assert(dest[2*i]==source[i*INPUT_FACTOR]);
+            assert(dest[2*i+1]==-source[i*INPUT_FACTOR]);
+        }
+        before=calls;++output.channels;
+        assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && calls==before);
+        --output.channels;++input.channels;
+        assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && calls==before);
+        --input.channels;output.frame_count=0;output.frame_capacity=2;
+        assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && calls==before);
+        output.frame_capacity=3;ctx.inputs=NULL;ctx.outputs=NULL;
+        const int invalid[]={0,-1,33,INT_MAX,INT_MIN};
+        unsigned char previous[sizeof(state)];memcpy(previous,&state,sizeof(state));
+        for(unsigned i=0;i<sizeof(invalid)/sizeof(invalid[0]);i++) {
+            channels.value.i32=invalid[i];
+            assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG);
+            assert(memcmp(previous,&state,sizeof(state))==0);
+            state.channels=invalid[i];
+            assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && calls==before);
+            state.channels=(int32_t)expected_channels;
+        }
+        channels.value.i32=(int32_t)expected_channels;
+        assert(api->process(instance,&ctx)==ORPHEUS_OK && calls==before+1);
+    }
+    assert(api->destroy(instance)==ORPHEUS_OK);return 0;
+}
+'''.replace("INPUT_FACTOR", "2" if inherited else "1"), encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+
+
+@pytest.mark.parametrize("cpp", [False, True])
+@pytest.mark.parametrize("channels", ["1*1", "32768*2"])
+def test_real_channel_product_constant_lower_and_upper_bounds(package, raw, cpp, channels):
+    raw["interfaces"] = {
+        "out": {"type": "bulk", "direction": "output", "channels": channels, "block_size": 1},
+    }
+    expected = 1 if channels == "1*1" else 65536
+    generate_component(save(package, raw))
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    (void)s;(void)ctx;
+    assert(io->out.buffer->channels==EXPECTED);
+    io->out.samples[0]=23;io->out.samples[EXPECTED-1]=29;
+    return ORPHEUS_OK;
+}
+'''.replace("EXPECTED", str(expected)), encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <stdlib.h>
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    assert(api->get_descriptor()->ports[0].channels==EXPECTED);
+    test_pilot_State state;void* instance=NULL;OrpheusConfig config={.state_block=&state};
+    assert(api->create(&instance,&config)==ORPHEUS_OK && api->prepare(instance,&config)==ORPHEUS_OK);
+    float* samples=(float*)calloc(EXPECTED,sizeof(float));assert(samples);
+    OrpheusBuffer output={.data=samples,.format=ORPHEUS_FORMAT_F32,.channels=EXPECTED,
+        .frame_capacity=1,.interleaved=true};
+    OrpheusBuffer* outputs[]={&output};
+    OrpheusProcessContext ctx={.outputs=outputs,.output_count=1,.frame_count=8,.trigger_input=UINT32_MAX};
+    assert(api->process(instance,&ctx)==ORPHEUS_OK && samples[EXPECTED-1]==29);
+    free(samples);assert(api->destroy(instance)==ORPHEUS_OK);return 0;
+}
+'''.replace("EXPECTED", str(expected)), encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)

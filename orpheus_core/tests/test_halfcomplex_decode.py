@@ -1,155 +1,139 @@
-"""逐位验证布局桥接；256/768槽不是256/768个新时间样本。"""
-from dataclasses import asdict
-import json
-from pathlib import Path
-import shutil
-import struct
-import subprocess
-import wave
+"""真实 HC 交付逐位解包，验证双输入互斥及独立成功标记出口。"""
 
 import pytest
 
+from frequency_interface_fixtures import BIT_FILL, parameter, spectral_bits
 from orpheus_core.compiler import CompileError, GraphCompiler
-from orpheus_core.generator import CodeGenerator
-from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
+from orpheus_core.project import Connection, Graph, Node, PortRef, Project
 from orpheus_core.registry import Registry
-from array_graph_runner import use_linear_call_chain
-
-ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = Path(__file__).parent / "fixtures/halfcomplex"
+from test_interface_delivery import ROOT, compile_delivery_backends, create_component, scalar
+from test_table_interfaces import check_four_entries, four_entry_harness
 
 
-def build_project(cases, batches):
-    width = max(p["channels"] for p in cases.values())
-    nodes = {"source": Node(id="source", component="orpheus.builtin.wav_in",
-                            params={"channels": width, "file_path": "input.wav"})}
-    edges = []
+SOURCE = r'''
+#include "component_state.h"
+#include "component_api.h"
+#include <string.h>
+int orpheus_test_hc_source_algorithm(orpheus_test_hc_source_State* s,
+    orpheus_test_hc_source_IO* io,const OrpheusProcessContext* ctx) {
+    for(unsigned repeat=0;repeat<2;repeat++) {
+        int32_t call=s->calls++;
+        for(int32_t i=0;i<s->channels*s->fft_size*s->batches;i++) {
+            @FILL@
+        }
+        int rc=orpheus_test_hc_source_emit_out(ctx,&io->out);
+        if(rc) return rc;
+    }
+    return ORPHEUS_OK;
+}
+'''
 
-    def edge(a, b):
-        edges.append(Connection(PortRef.parse(a), PortRef.parse(b)))
+CAPTURE = r'''
+#include "component_state.h"
+#include <string.h>
+int orpheus_test_hc_capture_algorithm(orpheus_test_hc_capture_State* s,
+    orpheus_test_hc_capture_IO* io,const OrpheusProcessContext* ctx) {
+    static const uint32_t expected[4][@COUNT@]={@EXPECTED@};
+    unsigned port=ctx->trigger_input;
+    if(s->calls>=8 || port!=(unsigned)(s->calls%2) || ctx->frame_count!=8 || ctx->valid_frames!=8
+        || ctx->epoch!=1 || ctx->frame_index!=(uint64_t)(s->calls/4*8)) return ORPHEUS_ERR_INVALID_ARG;
+    if(port) {
+        if(io->tick.samples[0]!=1) return ORPHEUS_ERR_PROCESSING;
+    } else for(unsigned i=0;i<@COUNT@;i++) {
+        uint32_t actual;
+        memcpy(&actual,io->in.samples+i,4);
+        if(actual!=expected[s->calls/2][i]) return ORPHEUS_ERR_PROCESSING;
+    }
+    s->calls++;s->frame=(int32_t)ctx->frame_index;
+    return ORPHEUS_OK;
+}
+'''
 
-    for name, config in cases.items():
-        p = {k: v for k, v in config.items() if k not in ("typed", "tick")}
-        common = {k: p[k] for k in ("channels", "fft_size", "batches", "bins")}
-        nodes[name+"_route"] = Node(id=name+"_route", component="orpheus.builtin.channel_router",
-                                    params={"channels_in": width, "channels_out": p["channels"],
-                                            "indices": ",".join(map(str, range(p["channels"])))})
-        nodes[name+"_frames"] = Node(id=name+"_frames", component="orpheus.builtin.circular_buffer",
-                                     params={"channels": p["channels"], "frame_size": 256, "hop_size": 128, "num_frames": batches})
-        nodes[name+"_fft"] = Node(id=name+"_fft", component="orpheus.builtin.rfft",
-                                  params={"channels": p["channels"], "fft_size": 256})
-        nodes[name] = Node(id=name, component="orpheus.builtin.halfcomplex_decode", params=p)
-        nodes[name+"_capture"] = Node(id=name+"_capture", component="orpheus.test.halfcomplex_capture", params=common)
-        edge("source:out", name+"_route:in")
-        edge(name+"_route:out", name+"_frames:in")
-        edge(name+"_frames:out", name+"_fft:in")
-        typed = config.get("typed", False)
-        spectrum = name+"_fft:"+("spectrum" if typed else "out")
-        edge(spectrum, name+":"+("spectrum" if typed else "in"))
-        edge(spectrum, name+"_capture:"+("spectrum" if typed else "packed"))
-        edge(name+":out", name+"_capture:values")
-        if config.get("tick"):
-            edge(name+":tick", name+"_capture:tick")
-    project = Project(metadata={"name": "半复数布局桥接"}, tasks={
-        "default": Task(id="default", sample_rate=48000, block_size=128*batches)})
-    project.graph = Graph(nodes=nodes, connections=edges)
-    return project
+
+def source_manifest(tmp_path, params, typed, *, both=False):
+    port = {"direction": "output", "type": "bulk" if typed else "audio", "sample_format": "f32",
+            "channels": "param:channels", "block_size": "param:fft_size*param:batches", "drive_port_no": 1}
+    if typed:
+        port.update(layout="halfcomplex", frame_size="param:fft_size")
+    interfaces = {
+        "out": port, "channels": parameter(params["channels"], 64),
+        "fft_size": {**parameter(params["fft_size"], 65536), "range": [2, 65536]},
+        "batches": parameter(params["batches"], 64), "calls": scalar("int", 0),
+    }
+    if both:
+        interfaces["other"] = {**port, "type": "bulk", "layout": "halfcomplex",
+                               "frame_size": "param:fft_size", "drive_port_no": 2}
+    return create_component(tmp_path, "hc_source", interfaces, SOURCE.replace("@FILL@", BIT_FILL), source=True)
 
 
 def verify_halfcomplex_decode(tmp_path, cases, batches):
-    from test_generated_double_bank import _build
-    width = max(p["channels"] for p in cases.values())
-    step = 128*batches
-    samples = [((n*113+c*911) % 50001)-25000 for n in range(step*3) for c in range(width)]
-    with wave.open(str(tmp_path / "input.wav"), "wb") as stream:
-        stream.setnchannels(width); stream.setsampwidth(2); stream.setframerate(48000)
-        stream.writeframes(struct.pack(f"<{len(samples)}h", *samples))
-    registry = Registry([ROOT / "components"]); registry.scan()
-    registry.add_manifest(FIXTURE / "component.yaml")
-    project = build_project(cases, batches)
-    plan = GraphCompiler(registry).compile(project)
-    use_linear_call_chain(plan)
-    assert plan.schedule["tick"] == step
-    assert set(plan.schedule["periods"].values()) == {1}
-    for name, p in cases.items():
-        assert plan.node_configs[name]["frame_step"] == step
-        assert plan.node_configs[name+"_capture"]["frame_step"] == step
-        decoded = next(b for b in plan.buffers.values() if b["from"] == name+":out")
-        assert (decoded["type"], decoded["channels"], decoded["frame_count"]) == ("bulk", p["channels"], p["bins"]*2*batches)
-        assert plan.execution_order.index(name)<plan.execution_order.index(name+"_capture")
-    generated = tmp_path / "generated"
-    CodeGenerator(registry, ROOT).generate(plan, generated)
-    (generated / "src/halfcomplex_test.c").write_bytes((ROOT / "tests/halfcomplex_runner.cpp").read_bytes())
-    with (generated / "CMakeLists.txt").open("a", encoding="utf-8") as file:
-        file.write("\nadd_executable(halfcomplex_test src/halfcomplex_test.c)\n"
-                   "target_compile_definitions(halfcomplex_test PRIVATE ORPHEUS_TEST_GENERATED)\n"
-                   "target_link_libraries(halfcomplex_test PRIVATE orpheus_graph)\n"
-                   f'add_library(capture_dynamic SHARED "{(FIXTURE / "src/capture.c").as_posix()}")\n'
-                   f'target_include_directories(capture_dynamic PRIVATE "{(FIXTURE / "include").as_posix()}")\n'
-                   "target_compile_definitions(capture_dynamic PRIVATE ORPHEUS_BUILDING_COMPONENT)\n"
-                   'set_target_properties(capture_dynamic PROPERTIES PREFIX "lib" OUTPUT_NAME "orpheus_test_halfcomplex_capture" '
-                   'WINDOWS_EXPORT_ALL_SYMBOLS ON RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components" '
-                   'LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components")\n')
-    components = ("wav_in", "channel_router", "circular_buffer", "rfft", "halfcomplex_decode")
-    result = subprocess.run(["cmake", "--build", str(ROOT / "build"), "--target", "halfcomplex_runner",
-                             *["orpheus_builtin_"+c for c in components]], capture_output=True, text=True, encoding="utf-8")
-    assert result.returncode == 0, result.stdout+result.stderr
-    _build(generated, tmp_path)
-    libraries = generated / "build/components"
-    for component in components:
-        for library in (ROOT / "build/components").glob("*orpheus_builtin_"+component+".*"):
-            if library.suffix in (".dll", ".so", ".dylib"):
-                shutil.copy2(library, libraries / library.name)
-    plan_path = tmp_path / "plan.json"
-    plan_path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
-    arguments = []
-    for name, p in cases.items():
-        arguments += [name+"_capture", str(p["fft_size"]*batches*p["channels"]),
-                      str(p["bins"]*2*batches*p["channels"]), str(plan.node_configs[name+"_capture"]["frames"]), "1"]
-    baseline = None
-    for mode in ("global", "task"):
-        commands = [[str(ROOT / "build/tests/halfcomplex_runner.exe"), str(plan_path), str(libraries), mode, str(step), *arguments],
-                    [str(generated / "build/halfcomplex_test.exe"), mode, str(step), *arguments]]
-        for command in commands:
-            result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, encoding="utf-8")
-            assert result.returncode == 0, result.stdout+result.stderr
-            data = (tmp_path / "halfcomplex.bin").read_bytes()
-            if baseline is None:
-                baseline = data
-            assert data == baseline
-            cursor = 0
-            for block in range(3):
-                for name, p in cases.items():
-                    channels, fft_size, bins, first = (p[k] for k in ("channels", "fft_size", "bins", "first_bin"))
-                    size = fft_size*batches*channels*4
-                    packed = data[cursor:cursor+size]; cursor += size
-                    expected = bytearray()
-                    for h in range(batches):
-                        for k in range(first, first+bins):
-                            for component in range(2):
-                                for c in range(channels):
-                                    index = (h*fft_size+(k if component==0 else fft_size-k))*channels+c
-                                    expected += b"\0\0\0\0" if component and k in (0, fft_size//2) else packed[index*4:index*4+4]
-                    assert data[cursor:cursor+len(expected)] == expected, (mode, block, name)
-                    cursor += len(expected)
-            assert cursor == len(data)
+    for name, config in cases.items():
+        typed = config.get("typed", False)
+        params = {key: config[key] for key in ("channels", "fft_size", "first_bin", "bins")}
+        params["batches"] = batches
+        channels, fft_size, first, bins = (params[key] for key in ("channels", "fft_size", "first_bin", "bins"))
+        directory = tmp_path / name
+        source = source_manifest(directory, params, typed)
+        expected = []
+        for call in range(4):
+            row = []
+            for h in range(batches):
+                for k in range(first, first + bins):
+                    for part in range(2):
+                        for c in range(channels):
+                            index = (h * fft_size + (k if part == 0 else fft_size - k)) * channels + c
+                            row.append(0 if part and k in (0, fft_size // 2) else spectral_bits(index, call))
+            expected.append(row)
+        capture = create_component(directory, "hc_capture", {
+            "in": {"direction": "input", "type": "bulk", "sample_format": "f32",
+                   "channels": channels, "block_size": bins * 2 * batches, "process": True},
+            "tick": {"direction": "input", "type": "bulk", "sample_format": "i32",
+                     "channels": 1, "block_size": 1, "process": True},
+            "calls": scalar("int", 0), "last": scalar("float", 0.0), "frame": scalar("int", 0),
+        }, CAPTURE.replace("@COUNT@", str(channels * bins * 2 * batches)).replace(
+            "@EXPECTED@", ",".join("{" + ",".join(map(str, row)) + "}" for row in expected)))
+        manifest = ROOT / "components" / "orpheus" / "builtin" / "halfcomplex_decode" / "component.yaml"
+        manifests = [source, manifest, capture]
+        registry = Registry()
+        for item in manifests:
+            registry.add_manifest(item)
+        project = Project(flow_mode="task_sequence", block_size=8, graph=Graph(nodes={
+            "source": Node("source", "orpheus.test.hc_source"),
+            "decoder": Node("decoder", "orpheus.builtin.halfcomplex_decode", params=params),
+            "capture": Node("capture", "orpheus.test.hc_capture"),
+        }, connections=[
+            Connection(PortRef("source", "out"), PortRef("decoder", "spectrum" if typed else "in")),
+            Connection(PortRef("decoder", "out"), PortRef("capture", "in")),
+            Connection(PortRef("decoder", "tick"), PortRef("capture", "tick")),
+        ]))
+        case = compile_delivery_backends(directory, registry, project, manifests, four_entry_harness())
+        assert all(config["frames"] == config["block_size"] == 8 for config in case[2].node_configs.values())
+        check_four_entries(case, [[0, 4, 0, 0], [1, 8, 0, 8]])
 
 
-@pytest.mark.parametrize("batches", [1, 3])
-def test_halfcomplex_decode_four_entries(tmp_path, batches):
-    cases = {name: {"channels": channels, "fft_size": 256, "batches": batches,
-                    "first_bin": first, "bins": bins, "typed": typed, "tick": name=="band"}
-             for name, channels, first, bins, typed in
-             (("full", 2, 0, 129, False), ("hf", 10, 0, 129, False),
-              ("typed", 2, 0, 129, True), ("band", 2, 5, 30, True))}
-    verify_halfcomplex_decode(tmp_path, cases, batches)
+@pytest.mark.parametrize("typed,channels,fft_size,batches,first,bins", [
+    (False, 2, 256, 1, 0, 129), (True, 2, 256, 3, 0, 129),
+    (False, 3, 16, 2, 2, 3), (True, 2, 256, 3, 5, 30),
+    (False, 64, 2, 64, 0, 2), (True, 3, 6, 2, 0, 4),
+])
+def test_halfcomplex_decode_four_entries(tmp_path, typed, channels, fft_size, batches, first, bins):
+    verify_halfcomplex_decode(tmp_path, {"decode": {
+        "channels": channels, "fft_size": fft_size, "first_bin": first, "bins": bins, "typed": typed,
+    }}, batches)
 
 
-def test_halfcomplex_decode_requires_exactly_one_input():
-    registry = Registry([ROOT / "components"]); registry.scan()
-    registry.add_manifest(FIXTURE / "component.yaml")
-    cases = {"decode": {"channels": 2, "fft_size": 256, "batches": 1, "first_bin": 0, "bins": 129}}
-    project = build_project(cases, 1)
-    project.graph.connections.append(Connection(PortRef("decode_fft", "spectrum"), PortRef("decode", "spectrum")))
+def test_halfcomplex_decode_requires_exactly_one_input(tmp_path):
+    params = {"channels": 2, "fft_size": 256, "batches": 1}
+    audio = source_manifest(tmp_path, params, False, both=True)
+    registry = Registry()
+    registry.add_manifest(audio)
+    registry.add_manifest(ROOT / "components" / "orpheus" / "builtin" / "halfcomplex_decode" / "component.yaml")
+    project = Project(graph=Graph(nodes={
+        "source": Node("source", "orpheus.test.hc_source"),
+        "decoder": Node("decoder", "orpheus.builtin.halfcomplex_decode"),
+    }, connections=[
+        Connection(PortRef("source", "out"), PortRef("decoder", "in")),
+        Connection(PortRef("source", "other"), PortRef("decoder", "spectrum")),
+    ]))
     with pytest.raises(CompileError, match="输入互斥"):
         GraphCompiler(registry).compile(project)

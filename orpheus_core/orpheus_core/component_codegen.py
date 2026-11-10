@@ -688,12 +688,21 @@ def _render(definition):
         target, attr = value.split(":")
         return product_parameters(by_id[target], attr) if target not in {"param", "task"} else None
 
+    def product_parameter_checks(keys):
+        checks = []
+        for key in keys:
+            parameter = next(p for p in params if p["id"] == key)
+            lo, hi = parameter.get("range", [1, 2147483647])
+            checks.append(f"    if (s->{key} < {lo} || s->{key} > {hi}) return ORPHEUS_ERR_INVALID_ARG;")
+        return checks
+
     if ports:
         shell.append("static const OrpheusPort ports[] = {")
         for port in ports:
             variable_channels = isinstance(port.get("channels"), str)
             variable = variable_channels or isinstance(port.get("count"), str)
-            channel_param = port["channels"].split(":")[1] if variable_channels and port["channels"].startswith("param:") else None
+            channel_param = (port["channels"].split(":")[1] if variable_channels
+                             and port["channels"].startswith("param:") and "*" not in port["channels"] else None)
             shell.append(
                 f"    {{.id={_quote(port['id'])}, .direction=ORPHEUS_PORT_{port['direction'].upper()}, "
                 f".type=ORPHEUS_PORT_{port['type'].upper()}, .sample_format=ORPHEUS_FORMAT_{port.get('sample_format', 'f32').upper()}, "
@@ -779,15 +788,21 @@ def _render(definition):
             is_group = "count" in port
             payload = None
             products = product_parameters(port, "block_size")
+            channel_products = product_parameters(port, "channels")
+            channels = expression(port, "channels", True)
+            if channel_products is not None:
+                shell += product_parameter_checks(channel_products)
+                channel_value = f"_orpheus_channels_{name}"
+                shell += [
+                    f"    double {channel_value}=(double)({channels});",
+                    f"    if (!isfinite({channel_value}) || {channel_value} < 1 || {channel_value} > 65536",
+                    f"            || {channel_value} != (uint32_t){channel_value}) return ORPHEUS_ERR_INVALID_ARG;",
+                ]
+                channels = channel_value
             # 显式音频块长是独立载荷；仅缺省声明继承 ctx 的实际处理量子。
             if port["type"] not in {"audio", "trigger"} or (
                     port["type"] == "audio" and "block_size" in port):
-                for key in products or []:
-                    parameter = next(p for p in params if p["id"] == key)
-                    lo, hi = parameter.get("range", [1, 2147483647])
-                    shell += [
-                        f"    if (s->{key} < {lo} || s->{key} > {hi}) return ORPHEUS_ERR_INVALID_ARG;",
-                    ]
+                shell += product_parameter_checks(products or [])
                 frames = expression(port, "block_size", True, frozen=port["type"] == "audio")
                 frames = "ctx->frame_count" if frames == "0" else frames
                 payload = f"_orpheus_payload_{name}"
@@ -842,7 +857,7 @@ def _render(definition):
                 c_type, _ = _FORMATS[port["sample_format"]]
                 shell += [
                     f"    {target}.buffer=(ctx->{direction}s && ctx->{direction}_count > ({flat_index})) ? ctx->{direction}s[{flat_index}] : NULL;",
-                    f"    if (!valid_buffer({target}.buffer, (uint32_t)({expression(port, 'channels', True)}),",
+                    f"    if (!valid_buffer({target}.buffer, (uint32_t)({channels}),",
                     f"        ORPHEUS_FORMAT_{port['sample_format'].upper()}, sizeof({c_type}), _Alignof({c_type})))",
                     "        return ORPHEUS_ERR_INVALID_ARG;",
                     f"    {target}.samples={target}.buffer ? ({'const ' if direction == 'input' else ''}{c_type}*){target}.buffer->data : NULL;",

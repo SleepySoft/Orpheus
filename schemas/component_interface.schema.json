@@ -110,11 +110,22 @@
         {"type": "string", "pattern": "^(param:[A-Za-z][A-Za-z0-9_]*|task:(block_size|sample_rate)|(?!task:)[A-Za-z][A-Za-z0-9_]*:(channels|block_size|sample_rate))$"}
       ]
     },
+    "product": {
+      "type": "string",
+      "pattern": "^(param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*)(\\*(param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+$(?![\\s\\S])"
+    },
+    "channels": {
+      "description": "保留既有通道签名；正整数/param 引用乘法复用签名乘积语法，新通道乘积在声明范围内不得超过 65536。",
+      "oneOf": [
+        {"$ref": "#/$defs/signature"},
+        {"$ref": "#/$defs/product"}
+      ]
+    },
     "payload": {
       "description": "块载荷可用无空白的正整数/param 引用乘法链。所有显式 audio 块长均为独立载荷；task 引用固定为准备配置值，仅未声明块长的 audio 继承 ctx 实际量子。",
       "oneOf": [
         {"$ref": "#/$defs/signature"},
-        {"type": "string", "pattern": "^(param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*)(\\*(param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+$(?![\\s\\S])"}
+        {"$ref": "#/$defs/product"}
       ]
     },
     "port": {
@@ -127,7 +138,7 @@
         "direction": {"enum": ["input", "output"]},
         "type": {"enum": ["audio", "control", "bulk", "debug", "trigger"]},
         "sample_format": {"enum": ["f32", "i16", "i24", "i32"]},
-        "channels": {"$ref": "#/$defs/signature"},
+        "channels": {"$ref": "#/$defs/channels"},
         "block_size": {"$ref": "#/$defs/payload"},
         "sample_rate": {"$ref": "#/$defs/signature"},
         "count": {"oneOf": [

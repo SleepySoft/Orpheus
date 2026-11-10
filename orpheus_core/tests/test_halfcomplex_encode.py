@@ -2,7 +2,7 @@
 
 import pytest
 
-from frequency_interface_fixtures import PATTERNS, frequency_graph
+from frequency_interface_fixtures import frequency_graph, spectral_bits
 from orpheus_core.compiler import GraphCompiler
 from orpheus_core.project import Connection, Graph, Node, PortRef, Project
 from orpheus_core.registry import Registry
@@ -15,7 +15,7 @@ def verify_halfcomplex_encode(tmp_path, specifications, batches):
         assert bins == fft_size // 2 + 1
         rows = []
         for call in range(4):
-            values = [PATTERNS[(i + call) % 8] for i in range(channels * bins * 2 * batches)]
+            values = [spectral_bits(i, call) for i in range(channels * bins * 2 * batches)]
             expected = [0] * (channels * fft_size * batches)
             for batch in range(batches):
                 for k in range(bins):
