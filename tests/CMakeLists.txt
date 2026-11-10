@@ -362,10 +362,12 @@ target_include_directories(complex_power_smoke PRIVATE
 target_compile_definitions(complex_power_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME complex_power_smoke COMMAND complex_power_smoke)
 add_executable(dual_trapezoid_smooth_smoke dual_trapezoid_smooth_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/dual_trapezoid_smooth/src/dual_trapezoid_smooth.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/dual_trapezoid_smooth/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/dual_trapezoid_smooth/user/algorithm.c)
 target_include_directories(dual_trapezoid_smooth_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/dual_trapezoid_smooth/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/dual_trapezoid_smooth/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/dual_trapezoid_smooth/user)
 target_compile_definitions(dual_trapezoid_smooth_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME dual_trapezoid_smooth_smoke COMMAND dual_trapezoid_smooth_smoke)
 add_executable(bulk_ring_delay_smoke bulk_ring_delay_smoke.c
