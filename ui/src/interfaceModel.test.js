@@ -5,7 +5,7 @@ import ParamPanel from './ParamPanel';
 import OrpheusNode from './OrpheusNode';
 import SubPortsPanel from './SubPortsPanel';
 import ParamBrowser from './ParamBrowser';
-import { interfaceState, portSignature, bindingStatus, canEditParameter, canEditDesignParameter, isInitializationParameter, validateTriggerConnection } from './interfaceModel';
+import { interfaceState, portSignature, bindingStatus, canEditParameter, canEditDesignParameter, isInitializationParameter, validateTriggerConnection, componentDataPoints } from './interfaceModel';
 import { docToViews, docToViewsAsync, viewsToDoc, subCatalogEntry, copyFlowSelection, pasteFlowSelection } from './graphUtils';
 
 jest.mock('./nodeWidgets', () => ({ NODE_WIDGETS: {} }));
@@ -323,6 +323,49 @@ test('普通 readback 可读写配置仍能编辑，只有声明的宿主握手�
   expect(checkbox.disabled).toBe(false);
   act(() => checkbox.click());
   expect(onNodeParamChange).toHaveBeenCalledWith('main', 'host', 'ready', true, 'host');
+});
+
+test('私有BULK只有真实槽身份，保留设计初值编辑与预设键', () => {
+  const initialization = { id: 'coefs_init', name: '系数', type: 'string',
+    kind: 'bulk', access: 'read_write', default: '1, 0',
+    bulk: { slot_key: 'coefs' } };
+  const component = { id: 'test.resource', parameters: [initialization], bulk_slots: [
+    { id: 'coefs', name: '系数', type: 'float', count: 2, access: 'read_write' },
+  ] };
+  const onNodeParamChange = jest.fn();
+  const onSavePreset = jest.fn();
+  act(() => root.render(<ParamBrowser projectName="mock"
+    views={{ main: { nodes: [{ id: 'resource', data: { component: component.id, params: {} } }] } }}
+    catalogById={{ [component.id]: component }} rt={{ running: false, probes: {} }} presets={[]}
+    onNodeParamChange={onNodeParamChange} onSavePreset={onSavePreset} />));
+  expect(componentDataPoints(component)).toEqual([
+    { ...component.bulk_slots[0], runtime: true, initialization },
+  ]);
+  expect(container.querySelectorAll('.pb-row')).toHaveLength(1);
+  const input = container.querySelector('.pb-bulk-initialization input[type="text"]');
+  expect(input.value).toBe('1, 0');
+  expect(input.disabled).toBe(false);
+  const prompt = jest.spyOn(window, 'prompt').mockReturnValue('初值');
+  try {
+    act(() => [...container.querySelectorAll('button')]
+      .find((button) => button.textContent === '保存当前为预设').click());
+    expect(onSavePreset.mock.calls[0][1].nodes[0].bulk).toEqual({ coefs_init: [1, 0] });
+  } finally {
+    prompt.mockRestore();
+  }
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  act(() => {
+    setter.call(input, '0.5, 0.25');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(onNodeParamChange).toHaveBeenCalledWith(
+    'main', 'resource', 'coefs_init', '0.5, 0.25', 'resource');
+});
+
+test('普通同名配置与BULK不是初始化别名，不按名字误合并', () => {
+  expect(componentDataPoints(catalog[0]).filter((point) => point.id === 'samples'))
+    .toHaveLength(2);
+  expect(componentDataPoints()).toEqual([]);
 });
 
 test('实际 ready=true 仅作为观测显示，旧设计值保存时归一为初始化 false', () => {

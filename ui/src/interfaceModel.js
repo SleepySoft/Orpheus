@@ -11,6 +11,22 @@ export const canEditDesignParameter = (parameter, data) => canEditParameter(para
 export const isInitializationParameter = (parameter) => parameter.update_policy === 'restart_required'
   || !!parameter.affects_signature;
 
+export function componentDataPoints(component = {}) {
+  const slots = component.bulk_slots || [];
+  const slotIds = new Set(slots.map((slot) => slot.id));
+  const initializers = new Map((component.parameters || [])
+    .filter((parameter) => slotIds.has(parameter.bulk?.slot_key))
+    .map((parameter) => [parameter.bulk.slot_key, parameter]));
+  const initializationIds = new Set([...initializers.values()].map((parameter) => parameter.id));
+  return [
+    ...(component.parameters || []).filter((parameter) => !initializationIds.has(parameter.id)),
+    ...slots.map((slot) => ({
+      ...slot, runtime: true,
+      ...(initializers.has(slot.id) ? { initialization: initializers.get(slot.id) } : {}),
+    })),
+  ];
+}
+
 /** 参数只因实际连线强制显露；公开映射不决定画布显示，也不授予连接权限。 */
 export function interfaceState(node, edges = []) {
   const data = node.data;

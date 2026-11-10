@@ -13,7 +13,7 @@ from typing import Any, Callable
 from orpheus_core.project import Connection, ControlConnection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.component_definition import ComponentDefinitionError, encode_array_initializer
-from orpheus_core.parameter_catalog import id_form_of, id_kind_of, id_value
+from orpheus_core.parameter_catalog import component_data_points, id_form_of, id_kind_of, id_value
 from orpheus_core.bridge.identity import build_identity
 from orpheus_core.placeholder import COMPONENT_ID as PLACEHOLDER_ID, placeholder_ports, validate_routes
 
@@ -1858,12 +1858,9 @@ class GraphCompiler:
             cfg = plan.node_configs[nid]
             info = self.registry.get(cfg["component"])
             key_index: dict[str, int] = {}
-            for p in (info.manifest.get("parameters", []) if info else []):
-                key_index[p["id"]] = len(points)
-                points.append({**p, "node": nid})
-            for bs in (info.manifest.get("bulk_slots", []) if info else []):
-                point = {**bs, "node": nid, "runtime": True}
-                if bs.get("shape"):
+            for schema in component_data_points(info.manifest if info else {}):
+                point = {**schema, "node": nid}
+                if point.get("runtime") and schema.get("shape"):
                     task_cfg = next(
                         (task for task in plan.tasks if task["id"] == cfg["task"]), {}
                     )
@@ -1874,19 +1871,19 @@ class GraphCompiler:
                     )
                     node = Node(id=nid, component=cfg["component"], params=cfg["params"])
                     shape_schema = {
-                        **bs,
+                        **schema,
                         "shape": [cfg["frames"] if elem == "config:frames" else elem
-                                  for elem in bs["shape"]],
+                                  for elem in schema["shape"]],
                     }
                     shape = self._resolve_param_shape(shape_schema, node, info, task)
                     count = math.prod(shape)
-                    if count > int(bs["count"]):
-                        raise CompileError(f"节点 {nid} BULK槽 {bs['id']} 形状超出声明容量")
+                    if count > int(schema["count"]):
+                        raise CompileError(f"节点 {nid} BULK槽 {schema['id']} 形状超出声明容量")
                     point.update(shape=shape, count=count)
-                if bs["id"] in key_index:
-                    points[key_index[bs["id"]]] = point
+                if schema["id"] in key_index:
+                    points[key_index[schema["id"]]] = point
                 else:
-                    key_index[bs["id"]] = len(points)
+                    key_index[schema["id"]] = len(points)
                     points.append(point)
             for ch in (info.manifest.get("custom_handles", []) if info else []):
                 points.append({**ch, "node": nid, "kind": "custom", "type": "string"})

@@ -163,3 +163,91 @@ def test_bank_dynamic_and_generated_wav_bytes_match(form):
             assert output.read_bytes() == dynamic
         finally:
             client.delete(f"/api/projects/{name}")
+
+
+@pytest.mark.parametrize("bank_mode", ["auto", "off"])
+def test_bank_runtime_bulk_identity_and_commit(tmp_path, bank_mode):
+    from orpheus_core.project import Connection, Graph, Node, PortRef, Project
+    from orpheus_core.registry import Registry as ComponentRegistry
+    from test_dynamic_interface_delivery import run_backend
+    from test_interface_delivery import compile_delivery_backends
+
+    manifests = [
+        ROOT / "components" / "orpheus" / "builtin" / name / "component.yaml"
+        for name in ("constant_source", "biquad_bank", "null_sink")
+    ]
+    registry = ComponentRegistry()
+    for manifest in manifests:
+        registry.add_manifest(manifest)
+    project = Project(flow_mode="task_sequence", block_size=8, double_bank=bank_mode, graph=Graph(
+        nodes={
+            "source": Node("source", "orpheus.builtin.constant_source", params={"channels": 1}),
+            "bank": Node("bank", "orpheus.builtin.biquad_bank", params={
+                "channels": 1, "bq0_coefs": "2,0,0,0,0", "bq1_coefs": "1,0,0,0,0",
+            }),
+            "sink": Node("sink", "orpheus.builtin.null_sink", params={"channels": 1}),
+        },
+        connections=[
+            Connection(PortRef("source", "out"), PortRef("bank", "in")),
+            Connection(PortRef("bank", "out"), PortRef("sink", "in")),
+        ],
+    ))
+    harness = r'''
+#include <stdio.h>
+#include <string.h>
+#ifdef DYNAMIC
+#include "orpheus_runtime/runtime.h"
+static orpheus::Runtime runtime;
+#define READ_BULK runtime.get_bulk_id
+#define WRITE_BULK runtime.write_bulk_id
+#else
+#include "orpheus_graph.h"
+#include "orpheus_control.h"
+#include "orpheus_id_map.h"
+#define READ_BULK orpheus_control_get_bulk_id
+#define WRITE_BULK orpheus_control_write_bulk_id
+#endif
+int main(int argc,char** argv) {
+    uint32_t id=0;
+#ifdef DYNAMIC
+    if(runtime.load_plan(orpheus::Plan::load_from_file(argv[1]),argv[2])) return 2;
+    uint32_t alias=0;
+    if(runtime.lookup_id("bank","bq0_coefs",&alias)
+        || !runtime.lookup_id("bank","bq0.coefs",&id)) return 3;
+    OrpheusResolvedData entry={};
+    if(runtime.resolve(id,&entry)) return 3;
+#else
+    if(orpheus_generated_init(48000,8)) return 2;
+    size_t count=0,matches=0;
+    const OrpheusIdEntry* entries=orpheus_id_map(&count);
+    OrpheusIdEntry entry={0};
+    for(size_t i=0;i<count;i++) {
+        if(strcmp(entries[i].node,"bank")) continue;
+        if(!strcmp(entries[i].key,"bq0_coefs")) return 3;
+        if(!strcmp(entries[i].key,"bq0.coefs")) { entry=entries[i]; matches++; }
+    }
+    if(matches!=1) return 3;
+    id=entry.id;
+#endif
+    if(entry.form!=ORPHEUS_FORM_BULK || entry.type!=ORPHEUS_VALUE_FLOAT
+        || entry.count!=5 || entry.byte_size!=5*sizeof(float)) return 3;
+    float coefficients[5]={0},replacement[5]={0.25f,0,0,0,0};
+    if(READ_BULK(id,coefficients,5) || coefficients[0]!=2.0f) return 4;
+    if(WRITE_BULK(id,replacement,5) || READ_BULK(id,coefficients,5)) return 4;
+    float pending=coefficients[0];
+#ifdef DYNAMIC
+    if(runtime.process_task("task_source",8)) return 5;
+#else
+    if(orpheus_generated_process_task_task_source(8)) return 5;
+#endif
+    if(READ_BULK(id,coefficients,5)) return 4;
+    printf("2 %.9g %.9g\n",pending,coefficients[0]);
+    return 0;
+}
+'''
+    case = compile_delivery_backends(tmp_path, registry, project, manifests, harness)
+    expected = [[2, 2 if bank_mode == "auto" else 0.25, 0.25]]
+    for backend in ("dynamic", "generated_backend"):
+        result, rows = run_backend(case, backend)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert rows == expected

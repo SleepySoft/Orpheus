@@ -2425,6 +2425,14 @@ pre {
   flex-wrap: wrap;
 }
 
+.pb-bulk-controls {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
 .pb-bulk input[type='text'] {
   flex: 1;
   min-width: 200px;

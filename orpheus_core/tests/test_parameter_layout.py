@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from orpheus_core.compiler import GraphCompiler
-from orpheus_core.parameter_catalog import apply_payload, build_catalog, export_payload
+from orpheus_core.parameter_catalog import apply_payload, build_catalog, component_data_points, export_payload
 from orpheus_core.project import ProjectLoader
 from orpheus_core.registry import Registry
 from orpheus_core.subgraph import flatten_project
@@ -76,7 +76,7 @@ def test_export_readable_and_roundtrip(model, registry: Registry) -> None:
     text = json.dumps(payload, ensure_ascii=False, indent=2)
     # 可读性：无 NaN/None，含中文组件名与面包屑路径
     assert "NaN" not in text and "null" not in text
-    assert "双二阶滤波器组" in text
+    assert "双段二阶滤波器" in text
     assert payload["nodes"][0]["node"] == "wav_in"
     fir = next(n for n in payload["nodes"] if n["node"] == "post__fir")
     assert fir["bulk"]["coefficients"] == [0.5, 0.25, -0.1, 0.05, 0.02]
@@ -93,3 +93,55 @@ def test_export_readable_and_roundtrip(model, registry: Registry) -> None:
         entry = cloned_entries[n["node"]]
         for key, value in n["values"].items():
             assert entry.node_params[key] == value
+
+
+def test_private_bulk_initialization_has_one_runtime_identity(model, registry):
+    project = copy.deepcopy(model)
+    entries = {entry.flat_id: entry for entry in build_catalog(project, registry)}
+    bank = entries["front__eq_bank__bq"]
+    payload = export_payload(project, registry)
+    source = next(entry for entry in payload["nodes"] if entry["node"] == bank.flat_id)
+    source["bulk"]["bq0_coefs"] = [0.5, 0.1, 0, 0, 0]
+    apply_payload(project, payload, registry)
+    plan = GraphCompiler(registry).compile(flatten_project(project))
+    points = [entry for entry in plan.id_map if entry["node"] == bank.flat_id]
+    coefficient_points = [entry for entry in points if entry["key"].startswith("bq")]
+    assert [entry["key"] for entry in coefficient_points] == ["bq0.coefs", "bq1.coefs"]
+    assert all(entry["runtime"] and entry["count"] == 5 and entry["double_bank"]
+               for entry in coefficient_points)
+    assert plan.node_configs[bank.flat_id]["params"]["bq0_coefs"] == "0.5, 0.1, 0, 0, 0"
+    exported = next(entry for entry in export_payload(project, registry)["nodes"]
+                    if entry["node"] == bank.flat_id)
+    assert exported["bulk"]["bq0_coefs"] == [0.5, 0.1, 0, 0, 0]
+    assert "bq0.coefs" not in exported["bulk"]
+
+
+def test_resource_projection_preserves_ordinary_fields_and_initialization_defaults():
+    manifest = {
+        "parameters": [
+            {"id": "plain", "type": "float"},
+            {"id": "coefs_init", "type": "string", "default": "1, 0",
+             "bulk": {"slot_key": "coefs"}},
+        ],
+        "bulk_slots": [{"id": "plain", "type": "float", "count": 2},
+                       {"id": "coefs", "type": "float", "count": 2}],
+    }
+    before = copy.deepcopy(manifest)
+    points = component_data_points(manifest)
+    assert [point["id"] for point in points] == ["plain", "plain", "coefs"]
+    assert points[-1]["initialization"]["id"] == "coefs_init"
+    assert points[-1]["initialization"]["default"] == "1, 0"
+    assert points[-1]["runtime"] is True
+    assert manifest == before
+
+
+def test_private_bulk_snapshot_includes_manifest_initialization_default(model, registry, monkeypatch):
+    parameter = next(
+        parameter
+        for parameter in registry.get("orpheus.builtin.biquad_bank").manifest["parameters"]
+        if parameter["id"] == "bq0_coefs"
+    )
+    monkeypatch.setitem(parameter, "default", "0.25, 0, 0, 0, 0")
+    bank = next(entry for entry in export_payload(model, registry)["nodes"]
+                if entry["node"] == "front__eq_bank__bq")
+    assert bank["bulk"]["bq0_coefs"] == [0.25, 0, 0, 0, 0]

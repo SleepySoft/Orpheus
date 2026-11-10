@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import ParamField from './widgets';
 import { isSubRef, isHostDeliveryStatus } from './graphUtils';
-import { accessText, canEditParameter } from './interfaceModel';
+import { accessText, canEditParameter, componentDataPoints } from './interfaceModel';
 
 /**
  * 全局参数面板（树形 + 按数据类型分类）
@@ -272,16 +272,14 @@ export default function ParamBrowser({
           continue;
         }
         const comp = catalogById[nd.data.component];
-        const params = (comp && comp.parameters) || [];
         const byKind = { setting: [], bulk: [], probe: [], command: [], state: [] };
-        for (const p of params) {
-          (byKind[kindOf(p)] || byKind.setting).push({
+        for (const p of componentDataPoints(comp)) {
+          (byKind[p.runtime ? 'bulk' : kindOf(p)] || byKind.setting).push({
             ...p, hostDeliveryStatus: isHostDeliveryStatus(p, { manifestPorts: comp?.ports || [] }),
+            ...(p.runtime ? {
+              hostBound: (comp.ports || []).some((port) => port.host_binding?.slot === p.id),
+            } : {}),
           });
-        }
-        for (const bs of (comp && comp.bulk_slots) || []) {
-          byKind.bulk.push({ ...bs, runtime: true,
-            hostBound: (comp.ports || []).some((port) => port.host_binding?.slot === bs.id) });
         }
         const nodePath = [...path, { id: nd.id, label: nd.data.label || nd.id }];
         entries.push({
@@ -353,7 +351,10 @@ export default function ParamBrowser({
         if (!p.hostDeliveryStatus) values[p.id] = params[p.id] ?? p.default;
       }
       for (const p of e.byKind.bulk || []) {
-        if (!p.runtime) bulk[p.id] = parseFloatList(params[p.id]);
+        const initialization = p.initialization || p;
+        if (p.initialization || !p.runtime)
+          bulk[initialization.id] = parseFloatList(
+            params[initialization.id] ?? (p.initialization ? initialization.default : undefined));
       }
       return {
         node: e.flatId,
@@ -559,11 +560,25 @@ export default function ParamBrowser({
                                     {p.name || p.id}
                                     <span className="pb-meta"> 运行期槽</span>
                                   </span>
+                                  <div className="pb-bulk-controls">
+                                  {p.initialization && (
+                                    <div className="pb-bulk-initialization">
+                                      <span className="pb-meta">设计初值</span>
+                                      <BulkRow
+                                        schema={readOnly ? { ...p.initialization, access: 'read' } : p.initialization}
+                                        value={nodeParams(e)[p.initialization.id] ?? p.initialization.default}
+                                        onChange={(id, v) =>
+                                          onNodeParamChange(e.viewKey, e.nodeId, id, v, e.flatId)
+                                        }
+                                      />
+                                    </div>
+                                  )}
                                   <RuntimeBulkRow
                                     schema={readOnly ? { ...p, access: 'read' } : p}
                                     running={rt.running}
                                     onWrite={(vals) => onWriteBulk(e.flatId, p.id, vals)}
                                   />
+                                  </div>
                                   {renderId(e.flatId, p.id)}
                                 </div>
                               );
