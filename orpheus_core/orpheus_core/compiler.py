@@ -1153,9 +1153,15 @@ class GraphCompiler:
         # 3. Topological sort
         execution_order = task_flow.order if task_flow else self._topological_sort(graph)
         if task_flow:
+            delivered_connections = set()
+            for edge in project.drive_connections:
+                source = self.registry.get(graph.nodes[edge.from_ref.node_id].component)
+                if source is not None and "interfaces" in source.manifest:
+                    delivered_connections.add((str(edge.from_ref), str(edge.to_ref)))
             for conn in graph.connections:
                 if (graph.nodes[conn.from_ref.node_id].task == graph.nodes[conn.to_ref.node_id].task
-                        and resolved_ports[str(conn.to_ref)].timing != "latest"):
+                        and resolved_ports[str(conn.to_ref)].timing != "latest"
+                        and (str(conn.from_ref), str(conn.to_ref)) not in delivered_connections):
                     task_flow.require_before(conn.from_ref.node_id, conn.to_ref.node_id)
             for link in control_links:
                 if graph.nodes[link["src_node"]].task != graph.nodes[link["dst_node"]].task:
@@ -1205,8 +1211,17 @@ class GraphCompiler:
         ]
         plan.sport_bindings = sport_bindings
 
+        signature_order = execution_order
+        if task_flow:
+            signature_order = self._topological_sort(Graph(
+                nodes=graph.nodes,
+                connections=[
+                    conn for incoming in rate_inputs.values() for conn in incoming
+                    if graph.nodes[conn.from_ref.node_id].task == graph.nodes[conn.to_ref.node_id].task
+                ],
+            ))
         in_frames = self._resolve_graph_blocks(
-            graph, expanded_ports, resolved_ports, rate_inputs, node_task, execution_order)
+            graph, expanded_ports, resolved_ports, rate_inputs, node_task, signature_order)
         self._validate_interface_bindings(project, resolved_ports, node_task)
 
         for connection in self._connection_diagnostics(
@@ -1216,7 +1231,7 @@ class GraphCompiler:
                 raise CompileError(connection["differences"][0]["message"])
 
         node_rates: dict[str, Fraction] = {}
-        for node_id in execution_order:
+        for node_id in signature_order:
             node = graph.nodes[node_id]
             comp = self.registry.get(node.component)
             nt = node_task(node)
@@ -1369,7 +1384,7 @@ class GraphCompiler:
         intervals: dict[str, int] = {}
         output_intervals: dict[str, Fraction] = {}
         output_history: dict[str, Fraction] = {}
-        for node_id in execution_order:
+        for node_id in signature_order:
             cfg = plan.node_configs[node_id]
             frames_n = int(cfg["frames"])
             rate_n = _node_stream_rate(node_id)

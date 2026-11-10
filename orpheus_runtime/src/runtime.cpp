@@ -256,28 +256,8 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
                                 ? static_cast<void*>(state_arena_.data() + no_it->second)
                                 : nullptr;
 
-        // Prepare config
-        OrpheusConfig config;
-        config.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : plan_.sample_rate;
-        config.block_size = cfg.block_size > 0 ? cfg.block_size : (cfg.frames > 0 ? cfg.frames : plan_.block_size);
-        config.channels = 2; // default, will be overridden by param if needed
-        config.param_count = 0;
-        config.param_ids = nullptr;
-        config.param_values = nullptr;
-        config.state_block = state_block;
-
-        int result = iface->create(&inst->state, &config);
-        if (result != ORPHEUS_OK) {
-            std::cerr << "[Runtime] create failed for " << node_id << std::endl;
-            return result;
-        }
-
-        result = prepare_instance(*inst, cfg);
-        if (result != ORPHEUS_OK) {
-            std::cerr << "[Runtime] prepare failed for node " << node_id
-                      << " (" << cfg.component << "): " << result << std::endl;
-            return result;
-        }
+        int result = initialize_instance(*inst, cfg, state_block);
+        if (result != ORPHEUS_OK) return result;
 
         // 槽维度和初值可能由 prepare 决定，注册与影子初始化必须在其后。
         // v2 主动注册：组件把槽（地址/类型/说明）注册进实例槽表。
@@ -694,7 +674,7 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
     return ORPHEUS_OK;
 }
 
-int Runtime::prepare_instance(Instance& inst, const NodeConfig& cfg) {
+int Runtime::initialize_instance(Instance& inst, const NodeConfig& cfg, void* state_block) {
     // Build parameter arrays
     std::vector<OrpheusValue> param_values;
     std::vector<std::string> param_id_storage;
@@ -768,12 +748,24 @@ int Runtime::prepare_instance(Instance& inst, const NodeConfig& cfg) {
     config.sample_rate = cfg.sample_rate > 0 ? cfg.sample_rate : plan_.sample_rate;
     config.block_size = cfg.block_size > 0 ? cfg.block_size : (cfg.frames > 0 ? cfg.frames : plan_.block_size);
     config.channels = channels;
-    config.state_block = inst.state;
+    config.state_block = state_block;
     config.param_ids = param_ids.empty() ? nullptr : param_ids.data();
     config.param_values = param_values.empty() ? nullptr : param_values.data();
     config.param_count = static_cast<uint32_t>(param_values.size());
 
-    return inst.interface_->prepare(inst.state, &config);
+    int result = inst.interface_->create(&inst.state, &config);
+    if (result != ORPHEUS_OK) {
+        std::cerr << "[Runtime] 组件创建失败：" << inst.node_id
+                  << " (" << cfg.component << "): " << result << std::endl;
+        return result;
+    }
+    config.state_block = inst.state;
+    result = inst.interface_->prepare(inst.state, &config);
+    if (result != ORPHEUS_OK) {
+        std::cerr << "[Runtime] 组件准备失败：" << inst.node_id
+                  << " (" << cfg.component << "): " << result << std::endl;
+    }
+    return result;
 }
 
 const HostPortConfig* Runtime::host_port(const std::string& node_id, const std::string& port_id) const {
@@ -1598,7 +1590,8 @@ int Runtime::invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
     ctx.trigger_input = UINT32_MAX;
     ctx.delivery = run->delivery;
     if (run->delivery) {
-        if (run->input_port >= inst.inputs.size()) return ORPHEUS_ERR_INVALID_ARG;
+        if (run->input_port >= inst.inputs.size() || run->input_port >= cfg.input_is_audio.size())
+            return ORPHEUS_ERR_INVALID_ARG;
         ctx.trigger_input = run->input_port;
         const OrpheusBuffer* delivered = run->delivery->buffer;
         if (delivered) {
@@ -1612,8 +1605,10 @@ int Runtime::invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
                 binding.delivery_inputs[i] = inst.inputs[i];
             binding.delivery_inputs[run->input_port] = delivered;
             ctx.inputs = binding.delivery_inputs.data();
-            ctx.frame_count = delivered->frame_count;
-            ctx.valid_frames = delivered->frame_count;
+            if (cfg.input_is_audio[run->input_port]) {
+                ctx.frame_count = delivered->frame_count;
+                ctx.valid_frames = delivered->frame_count;
+            }
         }
         ctx.frame_index = run->delivery->frame_index;
         ctx.epoch = run->delivery->epoch;

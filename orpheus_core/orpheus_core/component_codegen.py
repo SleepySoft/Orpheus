@@ -84,6 +84,12 @@ def _parameter_declaration(param):
     return f"{_TYPES[param['type']][0]} {param['id']}{count};"
 
 
+def _parameter_struct(definition):
+    values = f"{definition['algorithm_symbols']['prefix']}_Parameters"
+    fields = [f"    {_parameter_declaration(p)}" for p in definition["parameters"]]
+    return [f"typedef struct {values} {{", *(fields or ["    unsigned char reserved;"]), f"}} {values};"]
+
+
 def _is_array(param):
     return is_array_parameter(param)
 
@@ -143,8 +149,9 @@ def _port_suffix(port):
     return "Trigger" if port["type"] == "trigger" else _FORMATS[port["sample_format"]][1]
 
 
-def _lifecycle_signatures(state):
+def _lifecycle_signatures(state, parameters):
     return {
+        "validate": f"const {parameters}* parameters",
         "prepare": f"{state}* state, const OrpheusConfig* config",
         "reset": f"{state}* state", "destroy": f"{state}* state",
         "set_parameter": f"{state}* state, const char* key, const OrpheusValue* value",
@@ -161,10 +168,8 @@ def _render_parameter_shell(definition):
     params = definition["parameters"]
     hooks = set(definition.get("algorithm", {}).get("lifecycle", []))
     values = f"{prefix}_Parameters"
-    lines = [f"typedef struct {values} {{"]
-    lines += [f"    {_parameter_declaration(p)}" for p in params] or ["    unsigned char reserved;"]
-    lines += [f"}} {values};",
-              f"static void snapshot_parameters(const {state}* s, {values}* p) {{",
+    lines = [] if "validate" in hooks else _parameter_struct(definition)
+    lines += [f"static void snapshot_parameters(const {state}* s, {values}* p) {{",
               "    (void)s; memset(p, 0, sizeof(*p));"]
     for p in params:
         key = p["id"]
@@ -302,6 +307,8 @@ def _render_parameter_shell(definition):
     ]
     if definition.get("bulk_bindings"):
         lines += ["    result=validate_resource_counts(&candidate); if (result!=ORPHEUS_OK) return result;"]
+    if "validate" in hooks:
+        lines += [f"    result={prefix}_validate(&candidate); if (result!=ORPHEUS_OK) return result;"]
     if "set_parameter" in hooks:
         lines += ["    OrpheusValue checked; result=parameter_value(&candidate, key, &checked);",
                   "    if (result!=ORPHEUS_OK) return result;",
@@ -366,7 +373,15 @@ def _render_parameter_shell(definition):
         "    for (uint32_t i=0; i<config->param_count; ++i) {",
         "        int result=update_parameter(p, config->param_ids[i], &config->param_values[i]);",
         "        if (result!=ORPHEUS_OK) return result;", "    }",
-        "    return validate_resource_counts(p);" if definition.get("bulk_bindings") else "    return ORPHEUS_OK;", "}",
+    ]
+    if "validate" in hooks:
+        if definition.get("bulk_bindings"):
+            lines += ["    int result=validate_resource_counts(p); if (result!=ORPHEUS_OK) return result;"]
+        lines.append(f"    return {prefix}_validate(p);")
+    else:
+        lines.append("    return validate_resource_counts(p);" if definition.get("bulk_bindings") else "    return ORPHEUS_OK;")
+    lines += [
+        "}",
         f"static int cleanup({state}* s) {{",
         "    int result=ORPHEUS_OK;",
         "    if (s->_orpheus_cleanup_pending) {",
@@ -494,6 +509,8 @@ def _render(definition):
     api = ["#pragma once", '#include "orpheus_abi.h"', "",
            "/* input_index、drive_port_no、active 由壳填写，算法不得改写。",
            "   count 组仅 [0, <接口名>_count) 有效；零上界数组保留一个无效占位。 */", ""]
+    if any(p["type"] not in {"audio", "trigger"} for p in ports):
+        api += ["/* 非音频载荷按 block_size，缺省继承 ctx；不改写 Task 量子。 */", ""]
     for c_type, suffix in _FORMATS.values():
         api += [
             f"typedef struct {prefix}_Input{suffix} {{",
@@ -546,8 +563,12 @@ def _render(definition):
         ]
     state_header = [
         "#pragma once", '#include "component_api.h"', '#include "../user/algorithm.h"', "",
-        f"typedef struct {state} {{",
     ]
+    if "validate" in hooks:
+        state_header += _parameter_struct(definition) + ["",
+            "/* validate 为非实时纯校验：候选参数有效后、任何既有 State 改动前调用。",
+            "   不得改写外部状态或保留候选指针；错误原样返回，不调用可变生命周期入口。 */", ""]
+    state_header.append(f"typedef struct {state} {{")
     state_header.extend(f"    {_parameter_declaration(p)}" for p in params)
     if "get_parameter" in hooks:
         state_header.extend(f"    char _orpheus_readback_{p['id']}[{p.get('capacity', 256)}];"
@@ -561,7 +582,7 @@ def _render(definition):
                      f"    {private} algorithm;", f"}} {state};", "",
                      "#if defined(__cplusplus)", 'extern "C" {', "#endif",
                      f"int {function}({state}* state, {io}* io, const OrpheusProcessContext* ctx);"]
-    signatures = _lifecycle_signatures(state)
+    signatures = _lifecycle_signatures(state, f"{prefix}_Parameters")
     if hooks:
         state_header += [
             "/* create 不调用用户 prepare；prepare 应用配置后调用用户入口，失败自动 destroy 收尾。",
@@ -587,6 +608,7 @@ def _render(definition):
         "    return ORPHEUS_ERR_UNSUPPORTED;", "}",
     ]
     hook_arguments = {
+        "validate": ("parameters",),
         "prepare": ("state", "config"), "reset": ("state",), "destroy": ("state",),
         "set_parameter": ("state", "key", "value"), "get_parameter": ("state", "key", "value"),
         "register_slots": ("state", "reg"), "hook": ("state", "id", "event", "req", "resp"),
@@ -710,6 +732,17 @@ def _render(definition):
         for index, port in enumerate(group):
             name = port["id"]
             is_group = "count" in port
+            payload = None
+            if port["type"] not in {"audio", "trigger"}:
+                frames = expression(port, "block_size", True)
+                frames = "ctx->frame_count" if frames == "0" else frames
+                payload = f"_orpheus_payload_{name}"
+                shell += [
+                    f"    double {payload}=(double)({frames});",
+                    f"    if (!isfinite({payload}) || {payload} < {0 if frames == 'ctx->frame_count' else 1}",
+                    f"            || {payload} > UINT32_MAX || {payload} != (uint32_t){payload})",
+                    "        return ORPHEUS_ERR_INVALID_ARG;",
+                ]
             flat_index = f"_orpheus_{direction}_slot" if grouped else str(index)
             if is_group:
                 shell.append(f"    for (uint32_t _orpheus_i=0; _orpheus_i<io.{name}_count; ++_orpheus_i) {{")
@@ -746,11 +779,17 @@ def _render(definition):
                     "        return ORPHEUS_ERR_INVALID_ARG;",
                     f"    {target}.samples={target}.buffer ? ({'const ' if direction == 'input' else ''}{c_type}*){target}.buffer->data : NULL;",
                 ]
+                if direction == "input" and payload:
+                    shell += [
+                        f"    if ({target}.buffer && {target}.buffer->frame_count != (uint32_t){payload})",
+                        "        return ORPHEUS_ERR_INVALID_ARG;",
+                    ]
                 if direction == "output":
+                    frames = f"(uint32_t){payload}" if payload else "ctx->frame_count"
                     shell += [
                         f"    if ({target}.buffer) {{",
-                        f"        if (ctx->frame_count > {target}.buffer->frame_capacity) return ORPHEUS_ERR_INVALID_ARG;",
-                        f"        {target}.buffer->frame_count=ctx->frame_count;", "    }",
+                        f"        if ({frames} > {target}.buffer->frame_capacity) return ORPHEUS_ERR_INVALID_ARG;",
+                        f"        {target}.buffer->frame_count={frames};", "    }",
                         f"    {target}.delivery=(OrpheusDelivery){{.buffer={target}.buffer, .frame_index=ctx->frame_index,",
                         "        .epoch=ctx->epoch, .timeline_flags=ctx->timeline_flags};",
                     ]

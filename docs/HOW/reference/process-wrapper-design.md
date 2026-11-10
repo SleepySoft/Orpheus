@@ -636,6 +636,20 @@ shape 决定实际槽数量且不得超过容量；`auto_register: false` 生成
 用户生命周期钩子只决定何时注册，不重复填写偏移、类型、数量或资源描述。
 固定数值数组也可直接用 `count` 与等长默认列表声明。
 生命周期通过 `algorithm.lifecycle` 显式选择，create 只建立状态，不提前执行用户 prepare。
+需要跨参数约束时声明 `validate`，实现
+`int <prefix>_validate(const <prefix>_Parameters* parameters)`。
+create/prepare/set 均先校验完整候选参数，再触碰既有状态或调用可变生命周期钩子；
+纯校验失败原样返回错误，不清理或修改既有参数及算法状态。
+动态 Runtime 的 create 与 prepare 使用同一份完整实例配置，与生成工程一致。
+
+非音频接口的 `block_size` 表示每通道载荷项数，与 Task 量子独立。
+例如 Task 每次推进 8 帧时可以交付 7 或 13 项数组；输入 Buffer 的
+frame_count 必须符合该载荷声明，不能覆盖处理上下文的 frame_count/valid_frames。
+音频交付仍按实际交付帧数填写上下文。Delivery 自身没有 valid_frames 字段。
+真实驱动交付直接保证当前接口的调用因果关系，不要求目标的首次访问排在所有
+生产者之后；同实例先被其他入口调用仍合法。签名、速率和历史元数据单独按
+数据依赖分析，不据此重排实际调用，也不为其他输入补调、等待或去重。
+不触发处理的普通数据绑定仍须遵守其已声明的顺序或 latest 语义。
 
 数据/触发接口的 `count` 表示引脚组，可为固定整数或引用带有限整数范围的
 `restart_required` 参数；可选组允许零个引脚，显式 count=1 仍为组。

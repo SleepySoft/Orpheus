@@ -43,9 +43,11 @@ def use_linear_call_chain(plan):
         task["entry_nodes"] = [nid for nid in plan.entry_nodes if nid in task["nodes"]]
 
 
-def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3):
+def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3, calls_per_block=1):
     from test_generated_double_bank import _build
     assert isinstance(blocks,int) and 1<=blocks<=100000
+    if type(calls_per_block) is not int or not 1 <= calls_per_block <= 1024:
+        raise ValueError("每块采集调用次数必须是1至1024的整数。")
     use_linear_call_chain(plan)
     if len(plan.tasks) != 1:
         raise ValueError("数组数值夹具需要且仅支持一个Task。")
@@ -66,8 +68,9 @@ def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3):
             assert info is not None
             target = component.replace(".", "_")+"_dynamic"
             sources = " ".join('"'+(info.root_dir / name).as_posix()+'"' for name in info.manifest["sources"])
+            includes = " ".join(f'"{path.as_posix()}"' for path in registry.include_dirs(info))
             file.write(f"\nadd_library({target} SHARED {sources})\n"
-                       f'target_include_directories({target} PRIVATE "{(info.root_dir / "include").as_posix()}")\n'
+                       f"target_include_directories({target} PRIVATE {includes})\n"
                        f"target_compile_definitions({target} PRIVATE ORPHEUS_BUILDING_COMPONENT)\n"
                        f'set_target_properties({target} PROPERTIES PREFIX "lib" OUTPUT_NAME "{component.replace(".", "_")}" '
                        'WINDOWS_EXPORT_ALL_SYMBOLS ON RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components" '
@@ -92,7 +95,8 @@ def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3):
         for command in ([str(ROOT / "build/tests/halfcomplex_runner.exe"), str(plan_path), str(libraries), mode, str(step), *args],
                         [str(generated / "build/array_test.exe"), mode, str(step), *args]):
             result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, encoding="utf-8",
-                                    env={**os.environ,"ORPHEUS_TEST_BLOCKS":str(blocks)})
+                                    env={**os.environ, "ORPHEUS_TEST_BLOCKS": str(blocks),
+                                         "ORPHEUS_TEST_CALLS_PER_BLOCK": str(calls_per_block)})
             assert result.returncode == 0, result.stdout+result.stderr
             data = (tmp_path / "halfcomplex.bin").read_bytes()
             if baseline is None: baseline = data

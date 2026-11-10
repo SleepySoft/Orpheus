@@ -208,7 +208,7 @@ private:
     int msg_default(uint32_t route, const OrpheusBlob& req, bool write,
                     uint8_t* out, size_t out_cap, uint32_t* resp_words, uint32_t* resp_flags);
 
-    int prepare_instance(Instance& inst, const NodeConfig& cfg);
+    int initialize_instance(Instance& inst, const NodeConfig& cfg, void* state_block);
     void commit_bulk(const std::string* task_id = nullptr);
     int control_tick_for_task(const std::string* task_id, const std::string* before_node = nullptr);
     struct ChainBinding {

@@ -39,13 +39,21 @@ int main(int argc,char** argv) {
         CHECK(end!=configured_blocks && *end=='\0' && parsed>=1 && parsed<=100000);
         blocks=(unsigned)parsed;
     }
+    unsigned calls_per_block=1;
+    const char* configured_calls=getenv("ORPHEUS_TEST_CALLS_PER_BLOCK");
+    if (configured_calls) {
+        char* end=NULL;unsigned long parsed=strtoul(configured_calls,&end,10);
+        CHECK(end!=configured_calls && *end=='\0' && parsed>=1 && parsed<=1024);
+        calls_per_block=(unsigned)parsed;
+    }
     FILE* file=fopen("halfcomplex.bin","wb"); CHECK(file);
     float values[8192];
     for (unsigned block=0;block<blocks;++block) {
         CHECK(PROCESS()==ORPHEUS_OK);
         for (int i=first;i<argc;i+=4) {
             OrpheusValue value={ORPHEUS_VALUE_INT,{0}};
-            CHECK(GET(argv[i],"calls",&value)==ORPHEUS_OK && value.value.i32==(int32_t)(block+1));
+            CHECK(GET(argv[i],"calls",&value)==ORPHEUS_OK
+                  && value.value.i32==(int32_t)((block+1)*calls_per_block));
             CHECK(GET(argv[i],"quantum",&value)==ORPHEUS_OK && value.value.i32==atoi(argv[i+3]));
             unsigned packed=(unsigned)atoi(argv[i+1]),decoded=(unsigned)atoi(argv[i+2]);
             CHECK(packed<=8192 && decoded<=8192);

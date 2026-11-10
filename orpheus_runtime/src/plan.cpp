@@ -101,7 +101,10 @@ Plan Plan::load_from_file(const std::string& path) {
             }
         }
         for (const auto& pid : it.value().value("input_ports", json::array())) {
-            cfg.input_ports.push_back(pid.get<std::string>());
+            const auto port_id = pid.get<std::string>();
+            cfg.input_ports.push_back(port_id);
+            cfg.input_is_audio.push_back(
+                it.value().at("port_signatures").at(port_id).at("type").get<std::string>() == "audio");
         }
         for (const auto& pid : it.value().value("output_ports", json::array())) {
             cfg.output_ports.push_back(pid.get<std::string>());

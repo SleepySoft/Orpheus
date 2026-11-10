@@ -349,14 +349,20 @@ def test_dangling_connection_with_no_remaining_nodes_is_not_silently_accepted(re
 
 
 def test_expression_counts_multiple_distinct_port_signatures_and_no_inherited_host_binding(tmp_path, registry):
-    manifest = copy.deepcopy(registry.get("orpheus.builtin.gain").manifest)
-    manifest["id"] = "test.signature"
-    manifest["ports"] = [
+    manifest = {
+        "id": "test.signature", "name": "签名表达式夹具", "version": "1.0.0",
+        "abi_version": 7,
+        "parameters": [
+            {"id": "channels", "type": "int", "default": 2, "range": [1, 32],
+             "update_policy": "restart_required", "affects_signature": True},
+        ],
+        "ports": [
         {"id": "in", "direction": "input", "type": "audio", "sample_format": "i16", "channels": 1,
          "block_size": "task:block_size/param:channels", "count": "param:channels*2"},
         {"id": "out", "direction": "output", "type": "audio", "sample_format": "f32",
          "channels": "param:channels", "block_size": "task:block_size*param:channels"},
-    ]
+        ],
+    }
     path = tmp_path / "component.yaml"
     path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
     local = registry.fork()

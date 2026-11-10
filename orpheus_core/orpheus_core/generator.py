@@ -1874,9 +1874,19 @@ class CodeGenerator:
                             f'            for (uint32_t i = 0; i < {input_count}u; ++i) delivery_inputs[i] = ctx.inputs[i];',
                             '            delivery_inputs[run->input_port] = buffer;',
                             '            ctx.inputs = delivery_inputs;',
-                            '            ctx.frame_count = ctx.valid_frames = buffer->frame_count;',
-                            '        }',
                         ])
+                        audio_slots = [
+                            index for index, port in enumerate(cfg["input_ports"])
+                            if cfg["port_signatures"][port]["type"] == "audio"
+                        ]
+                        if audio_slots:
+                            condition = " || ".join(
+                                f"run->input_port == {index}u" for index in audio_slots)
+                            definitions.extend([
+                                f'            if ({condition})',
+                                '                ctx.frame_count = ctx.valid_frames = buffer->frame_count;',
+                            ])
+                        definitions.append('        }')
                     definitions.extend([
                         '        ctx.frame_index = run->delivery->frame_index;',
                         '        ctx.epoch = run->delivery->epoch;',

@@ -58,7 +58,7 @@
         "function": {"$ref": "#/$defs/identifier"},
         "lifecycle": {
           "type": "array", "uniqueItems": true,
-          "items": {"enum": ["prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook"]}
+          "items": {"enum": ["validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook"]}
         }
       }
     },

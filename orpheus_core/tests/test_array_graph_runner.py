@@ -41,7 +41,11 @@ def test_existing_explicit_component_branches_are_not_rewritten():
     plan = plan_for({"source": 1, "a": 1, "b": 1})
     plan.flow_mode = "task_sequence"
     plan.entry_nodes = ["source"]
-    plan.call_graph = {"source": [{"node": "a", "every": 3, "phase": 0}], "a": [], "b": []}
+    plan.call_graph = {
+        "source": [{"node": "a", "output_port": 7, "input_port": 1, "every": 3, "phase": 0},
+                   {"node": "b", "output_port": 7, "input_port": 0, "every": 1, "phase": 0}],
+        "a": [], "b": [],
+    }
     before = copy.deepcopy(plan)
     use_linear_call_chain(plan)
     assert plan == before
@@ -58,3 +62,9 @@ def test_explicit_multitask_capture_fails_before_generation(tmp_path):
     plan.tasks.append({"id": "other", "nodes": [], "entry_nodes": []})
     with pytest.raises(ValueError, match="一个Task"):
         execute_array_graph(tmp_path, None, plan, {})
+
+
+@pytest.mark.parametrize("calls", [0, -1, 1025, 1.5, True, "2"])
+def test_invalid_capture_cadence_fails_before_generation(tmp_path, calls):
+    with pytest.raises(ValueError, match="调用次数"):
+        execute_array_graph(tmp_path, None, None, {}, calls_per_block=calls)

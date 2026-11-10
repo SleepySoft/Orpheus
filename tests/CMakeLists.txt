@@ -355,10 +355,12 @@ target_compile_definitions(trapezoid_ratio_smoke PRIVATE ORPHEUS_BUILDING_COMPON
 add_test(NAME trapezoid_ratio_smoke COMMAND trapezoid_ratio_smoke)
 foreach(operation interleave deinterleave)
     add_library(bulk_${operation}_test OBJECT
-        ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_${operation}/src/bulk_${operation}.c)
+        ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_${operation}/generated/component_shell.c
+        ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_${operation}/user/algorithm.c)
     target_include_directories(bulk_${operation}_test PRIVATE
         ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-        ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_${operation}/include)
+        ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_${operation}/generated
+        ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_${operation}/user)
     if(operation STREQUAL "interleave")
         target_compile_definitions(bulk_${operation}_test PRIVATE ORPHEUS_BUILDING_COMPONENT ORPHEUS_ENTRY_NAME=native_bulk_join)
     else()
@@ -367,14 +369,17 @@ foreach(operation interleave deinterleave)
 endforeach()
 add_executable(bulk_channels_smoke bulk_channels_smoke.c
     $<TARGET_OBJECTS:bulk_interleave_test> $<TARGET_OBJECTS:bulk_deinterleave_test>)
-target_include_directories(bulk_channels_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
+target_include_directories(bulk_channels_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${CMAKE_SOURCE_DIR}/components)
 add_test(NAME bulk_channels_smoke COMMAND bulk_channels_smoke)
 
 add_executable(bulk_slice_smoke bulk_slice_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_slice/src/bulk_slice.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_slice/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_slice/user/algorithm.c)
 target_include_directories(bulk_slice_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_slice/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_slice/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_slice/user)
 target_compile_definitions(bulk_slice_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_slice_smoke COMMAND bulk_slice_smoke)
 

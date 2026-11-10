@@ -42,7 +42,7 @@ _KEYWORDS = set(("auto break case char const continue default do double else enu
                  "typedef union unsigned void volatile while bool true false class namespace template "
                  "private public protected new delete operator NULL").split())
 _POLICIES = {"immediate", "block_boundary", "smoothed", "transactional", "restart_required"}
-LIFECYCLE_HOOKS = ("prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
+LIFECYCLE_HOOKS = ("validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
         "category", "description", "interfaces", "algorithm", "order", "execution", "memory",
         "platforms", "ui_hidden", "user_owned", "scheduling"}

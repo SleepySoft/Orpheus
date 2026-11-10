@@ -3,15 +3,11 @@ name: "数组通道拆分"
 category: "路由与混音"
 description: "将交错f32数组按通道拆为多路单通道数组；每路保留elements项及其顺序，不做音频重采样或改变调用周期。"
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: BulkDeinterleaveState
-sources: [src/bulk_deinterleave.c]
-headers: [include/orpheus_bulk_deinterleave.h]
-ports:
-  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: 1, block_size: "param:elements", count: "param:channels"}
-parameters:
-  - {id: channels, name: 通道数, type: int, default: 2, range: [1, 128], update_policy: restart_required, affects_signature: true}
-  - {id: elements, name: 每通道元素数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+interfaces:
+  in: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", process: true}
+  out: {direction: output, type: bulk, sample_format: f32, channels: 1, block_size: "param:elements", count: "param:channels", drive_port_no: 1, drive_divide: 1}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 128], update_policy: restart_required, affects_signature: true, readback: true}
+  elements: {name: 每通道元素数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true, readback: true}
 execution: {realtime_safe: true, supports_inplace: false}

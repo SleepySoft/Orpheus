@@ -1,4 +1,5 @@
 #include "orpheus_abi.h"
+#include "component_state.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,7 +10,9 @@ int main(void) {
     OrpheusValue values[6];
     const int32_t initial[]={3,5,2,3,2,2};
     for(unsigned p=0;p<6;++p) values[p]=(OrpheusValue){.type=ORPHEUS_VALUE_INT,.value.i32=initial[p]};
-    OrpheusConfig config={.sample_rate=48000,.block_size=32,.param_ids=ids,.param_values=values,.param_count=6};
+    orpheus_builtin_bulk_slice_State initial_state;
+    OrpheusConfig config={.sample_rate=48000,.block_size=32,.param_ids=ids,.param_values=values,.param_count=6,
+        .state_block=&initial_state};
     CHECK(api->create(&state,&config)==ORPHEUS_OK && api->prepare(state,&config)==ORPHEUS_OK);
     uint32_t source[15],output[6];
     const uint32_t bits[]={0,0x80000000u,0x7f800000u,0xff800000u,0x7fc12345u,0x7f812345u,1,0x3f99999au};
@@ -20,7 +23,7 @@ int main(void) {
     OrpheusProcessContext context={.inputs=inputs,.outputs=outputs,.input_count=1,.output_count=1,.frame_count=32};
     memset(output,0x5a,sizeof(output));out.frame_capacity=2;
     CHECK(api->process(state,&context)==ORPHEUS_ERR_INVALID_ARG && out.frame_count==17);
-    out.frame_capacity=3;out.data=source+1;
+    out.frame_capacity=3;out.frame_count=0;out.data=source+1;
     CHECK(api->process(state,&context)==ORPHEUS_ERR_INVALID_ARG);out.data=output;
     in.format=ORPHEUS_FORMAT_I32;CHECK(api->process(state,&context)==ORPHEUS_ERR_INVALID_ARG);in.format=ORPHEUS_FORMAT_F32;
     out.interleaved=false;CHECK(api->process(state,&context)==ORPHEUS_ERR_INVALID_ARG);out.interleaved=true;
@@ -40,7 +43,7 @@ int main(void) {
     values[5].value.i32=2147483647;CHECK(api->prepare(state,&config)==ORPHEUS_ERR_INVALID_ARG);values[5].value.i32=2;
     values[4].value.i32=5;CHECK(api->prepare(state,&config)==ORPHEUS_ERR_INVALID_ARG);values[4].value.i32=2;
     values[0].type=ORPHEUS_VALUE_FLOAT;CHECK(api->prepare(state,&config)==ORPHEUS_ERR_INVALID_ARG);values[0].type=ORPHEUS_VALUE_INT;
-    ids[0]="unknown";CHECK(api->prepare(state,&config)==ORPHEUS_ERR_INVALID_ARG);ids[0]="input_channels";
+    ids[0]="unknown";CHECK(api->prepare(state,&config)==ORPHEUS_ERR_NOT_FOUND);ids[0]="input_channels";
     CHECK(api->reset(state)==ORPHEUS_OK && api->process(state,&context)==ORPHEUS_OK);
     for(unsigned i=0;i<6;++i) CHECK(output[i]==source[2+i*2]);
     const int32_t wide[]={100,130,1,65,99,200};
@@ -54,6 +57,10 @@ int main(void) {
     for(unsigned i=0;i<65;++i) CHECK(diagonal[i]==matrix[99+i*200]);
     values[3].value.i32=1;values[4].value.i32=12999;values[5].value.i32=2147483647;
     CHECK(api->prepare(state,&config)==ORPHEUS_OK && api->process(state,&context)==ORPHEUS_OK && diagonal[0]==matrix[12999]);
+    OrpheusValue invalid={.type=ORPHEUS_VALUE_INT,.value.i32=13000},got;
+    CHECK(api->set_parameter(state,"offset",&invalid)==ORPHEUS_ERR_INVALID_ARG);
+    CHECK(api->get_parameter(state,"offset",&got)==ORPHEUS_OK && got.value.i32==12999);
+    CHECK(api->process(state,&context)==ORPHEUS_OK && diagonal[0]==matrix[12999]);
     CHECK(api->destroy(state)==ORPHEUS_OK);
     void* block=calloc(1,api->get_descriptor()->state_size);CHECK(block);config.state_block=block;
     CHECK(api->create(&state,&config)==ORPHEUS_OK && state==block && api->prepare(state,&config)==ORPHEUS_OK);

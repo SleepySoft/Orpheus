@@ -3,38 +3,39 @@ from pathlib import Path
 import struct
 import pytest
 from orpheus_core.compiler import GraphCompiler
-from orpheus_core.project import Connection,Graph,Node,PortRef,Project,Task
+from orpheus_core.project import Connection,Graph,Node,PortRef,Project
 from orpheus_core.registry import Registry
 from array_graph_runner import execute_array_graph
+from array_interface_fixtures import register_array_interfaces
 
 ROOT=Path(__file__).resolve().parents[2]
 
 
 def verify_bulk_channels(tmp_path,*,channels,elements,step,order=None):
     registry=Registry([ROOT/"components"]);registry.scan()
-    fixtures=Path(__file__).parent/"fixtures"
-    for name in ("array_pair","tensor_pair_capture"):registry.add_manifest(fixtures/name/"component.yaml")
+    register_array_interfaces(tmp_path, registry)
     if order is None:order=list(reversed(range(channels)))
     assert len(order)==channels and all(c is None or 0<=c<channels for c in order)
-    complex_mode=int(elements%2==0)
-    source_elements=elements//2 if complex_mode else elements
-    source_port="source:complex_out0" if complex_mode else "source:out"
+    source_port="source:out"
     nodes={
-        "source":Node(id="source",component="orpheus.test.array_pair",
-                      params={"channels":channels,"elements":source_elements,"mode":0,"complex_mode":complex_mode}),
+        "source":Node(id="source",component="orpheus.test.array_source",
+                      params={"channels":channels,"elements":elements}),
         "split":Node(id="split",component="orpheus.builtin.bulk_deinterleave",params={"channels":channels,"elements":elements}),
         "join":Node(id="join",component="orpheus.builtin.bulk_interleave",params={"channels":channels,"elements":elements}),
-        "capture":Node(id="capture",component="orpheus.test.tensor_pair_capture",
+        "capture":Node(id="capture",component="orpheus.test.array_capture",
             params={"channels_a":channels,"channels_b":channels,"frames_a":elements,"frames_b":elements})}
     pairs=[(source_port,"split:in"),(source_port,"capture:a"),("join:out","capture:b")]
     pairs += [(f"split:out{c}",f"join:in{i}") for i,c in enumerate(order) if c is not None]
-    project=Project(tasks={"default":Task(id="default",sample_rate=48000,block_size=step)},
+    project=Project(flow_mode="task_sequence",sample_rate=48000,block_size=step,
         graph=Graph(nodes=nodes,connections=[Connection(PortRef.parse(a),PortRef.parse(b)) for a,b in pairs]))
     plan=GraphCompiler(registry).compile(project)
     assert plan.schedule["tick"]==step and set(plan.schedule["periods"].values())=={1}
     assert all(c["frames"]==step for c in plan.node_configs.values())
-    records=execute_array_graph(tmp_path,registry,plan,{"capture":(channels*elements,channels*elements)})["capture"]
-    for source,actual in records:
+    records=execute_array_graph(tmp_path,registry,plan,{"capture":(channels*elements,channels*elements)},
+        calls_per_block=1+sum(c is not None for c in order))["capture"]
+    for block,(source,actual) in enumerate(records):
+        assert source==struct.pack(f"<{channels*elements}f",
+            *[((i*17+block*13)%129-64)*0.03125 for i in range(channels*elements)])
         expected=b"".join(source[(i*channels+c)*4:(i*channels+c+1)*4] if c is not None else bytes(4)
                           for i in range(elements) for c in order)
         assert actual==expected

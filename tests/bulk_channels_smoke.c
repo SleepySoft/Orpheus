@@ -1,4 +1,6 @@
 #include "orpheus_abi.h"
+#include "orpheus/builtin/bulk_interleave/generated/component_state.h"
+#include "orpheus/builtin/bulk_deinterleave/generated/component_state.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,7 +13,11 @@ static int wide(unsigned channels) {
     OrpheusValue values[]={{.type=ORPHEUS_VALUE_INT,.value.i32=channels},{.type=ORPHEUS_VALUE_INT,.value.i32=5}};
     OrpheusConfig config={.sample_rate=48000,.block_size=32,.param_ids=ids,.param_values=values,.param_count=2};
     void* states[2]={NULL,NULL};
+    orpheus_builtin_bulk_interleave_State join_state={0};
+    orpheus_builtin_bulk_deinterleave_State split_state={0};
+    void* blocks[]={&join_state,&split_state};
     for(unsigned p=0;p<2;++p) {
+        config.state_block=blocks[p];
         CHECK(apis[p]->create(states+p,&config)==ORPHEUS_OK);
         CHECK(apis[p]->prepare(states[p],&config)==ORPHEUS_OK);
         CHECK(apis[p]->get_descriptor()->params[0].max_i32==128);
@@ -47,7 +53,11 @@ int main(void) {
     OrpheusValue values[]={{.type=ORPHEUS_VALUE_INT,.value.i32=3},{.type=ORPHEUS_VALUE_INT,.value.i32=5}};
     OrpheusConfig config={.sample_rate=48000,.block_size=128,.param_ids=ids,.param_values=values,.param_count=2};
     void* states[2]={NULL,NULL};const OrpheusComponentInterface* apis[]={join,split};
+    orpheus_builtin_bulk_interleave_State join_state={0};
+    orpheus_builtin_bulk_deinterleave_State split_state={0};
+    void* blocks[]={&join_state,&split_state};
     for(unsigned i=0;i<2;++i) {
+        config.state_block=blocks[i];
         CHECK(apis[i]->create(states+i,&config)==ORPHEUS_OK);
         CHECK(apis[i]->prepare(states[i],&config)==ORPHEUS_OK);
     }

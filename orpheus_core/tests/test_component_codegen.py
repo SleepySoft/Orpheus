@@ -886,7 +886,7 @@ int main(void) {
     ("debug", "f32", "float", "ORPHEUS_FORMAT_F32"),
 ])
 def test_real_non_audio_typed_buffer_views(package, raw, port_type, format_name, c_type, format_enum):
-    raw["interfaces"]["in"].update({"type": port_type, "sample_format": format_name, "channels": 1})
+    raw["interfaces"]["in"].update({"type": port_type, "sample_format": format_name, "channels": 1, "block_size": 2})
     raw["interfaces"]["out"].update({"type": port_type, "sample_format": format_name, "channels": "in:channels"})
     path = save(package, raw)
     generate_component(path)
@@ -2349,6 +2349,431 @@ int main(void) {
         }
     }
     assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+''', encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+
+
+@pytest.mark.parametrize("port_type", ["bulk", "control"])
+@pytest.mark.parametrize("elements", [7, 13])
+@pytest.mark.parametrize("cpp", [False, True])
+@pytest.mark.parametrize("grouped", [False, True])
+def test_real_non_audio_payload_size_is_independent_of_task_quantum(
+        package, raw, port_type, elements, cpp, grouped):
+    raw["interfaces"] = {
+        "in": {"type": port_type, "direction": "input", "sample_format": "f32",
+               "channels": 2, "block_size": "param:elements", "process": True},
+        "out": {"type": port_type, "direction": "output", "sample_format": "f32",
+                "channels": 2, "block_size": "in:block_size", "drive_port_no": 1},
+        "elements": {"type": "int", "default": elements, "range": [1, 32],
+                     "update_policy": "restart_required", "affects_signature": True},
+    }
+    if grouped:
+        raw["interfaces"]["in"]["count"] = 1
+        raw["interfaces"]["out"]["count"] = 1
+    generate_component(save(package, raw))
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+unsigned calls;
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    ++calls;
+    assert(ctx->frame_count==8 && ctx->valid_frames==8);
+    if (IN_VIEW.buffer) assert(IN_VIEW.buffer->frame_count==(unsigned)s->elements);
+    if (OUT_VIEW.buffer) assert(OUT_VIEW.buffer->frame_count==(unsigned)s->elements);
+    if (OUT_VIEW.samples)
+        for(unsigned i=0;i<(unsigned)s->elements*2;i++)
+            OUT_VIEW.samples[i]=(IN_VIEW.samples ? IN_VIEW.samples[i] : 0)+5;
+    return test_pilot_emit_out(ctx,&OUT_VIEW);
+}
+'''.replace("IN_VIEW", "io->in[0]" if grouped else "io->in").replace(
+        "OUT_VIEW", "io->out[0]" if grouped else "io->out"), encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+extern unsigned calls;
+static OrpheusProcessContext* current;
+static bool null_output;
+static unsigned emissions;
+static int emit(void* user,uint32_t drive,const OrpheusDelivery* delivery) {
+    (void)user;++emissions;
+    assert(drive==1 && current->frame_count==8 && current->valid_frames==8);
+    assert(delivery->frame_index==123 && delivery->epoch==9 && delivery->timeline_flags==1);
+    if (null_output) assert(!delivery->buffer);
+    else assert(delivery->buffer && delivery->buffer->frame_count==ELEMENTS);
+    return ORPHEUS_OK;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;
+    OrpheusConfig config={.state_block=&state,.block_size=8,.sample_rate=48000};
+    assert(api->create(&instance,&config)==ORPHEUS_OK);
+    assert(api->prepare(instance,&config)==ORPHEUS_OK);
+    float source[ELEMENTS*2],dest[ELEMENTS*2];
+    for(unsigned i=0;i<ELEMENTS*2;i++) source[i]=(float)i+1;
+    memset(dest,0,sizeof(dest));
+    OrpheusBuffer input={.data=source,.format=ORPHEUS_FORMAT_F32,.channels=2,
+        .frame_count=ELEMENTS,.frame_capacity=ELEMENTS,.interleaved=true};
+    OrpheusBuffer output=input;output.data=dest;output.frame_count=0;
+    const OrpheusBuffer* inputs[]={&input};
+    OrpheusBuffer* outputs[]={&output};
+    OrpheusContinuation continuation={.emit=emit};
+    OrpheusDelivery delivery={.buffer=&input,.frame_index=123,.epoch=9,.timeline_flags=1};
+    OrpheusProcessContext ctx={.inputs=inputs,.outputs=outputs,.input_count=1,.output_count=1,
+        .frame_count=8,.valid_frames=8,.sample_rate=48000,.frame_index=123,.epoch=9,
+        .timeline_flags=1,.trigger_input=0,.delivery=&delivery,.continuation=&continuation};
+    current=&ctx;
+    assert(api->process(instance,&ctx)==ORPHEUS_OK && calls==1 && emissions==1);
+    assert(output.frame_count==ELEMENTS && ctx.frame_count==8 && ctx.valid_frames==8);
+    for(unsigned i=0;i<ELEMENTS*2;i++) assert(dest[i]==source[i]+5);
+    unsigned before=calls;
+    output.frame_count=0;output.frame_capacity=ELEMENTS-1;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    output.frame_capacity=ELEMENTS;output.frame_count=ELEMENTS+1;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);output.frame_count=0;
+    input.frame_count=ELEMENTS-1;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    input.frame_count=ELEMENTS+1;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);input.frame_count=ELEMENTS;
+    input.format=ORPHEUS_FORMAT_I16;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);input.format=ORPHEUS_FORMAT_F32;
+    input.channels=1;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);input.channels=2;
+    assert(calls==before && ctx.frame_count==8 && ctx.valid_frames==8);
+    ctx.inputs=NULL;ctx.delivery=NULL;ctx.trigger_input=UINT32_MAX;
+    assert(api->process(instance,&ctx)==ORPHEUS_OK);
+    for(unsigned i=0;i<ELEMENTS*2;i++) assert(dest[i]==5);
+    null_output=true;ctx.outputs=NULL;
+    assert(api->process(instance,&ctx)==ORPHEUS_OK);
+    state.elements=0;before=calls;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && calls==before);
+    state.elements=-1;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && calls==before);
+    assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+'''.replace("ELEMENTS", str(elements)), encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+
+
+@pytest.mark.parametrize("elements", [7, 13])
+@pytest.mark.parametrize("cpp", [False, True])
+def test_real_audio_output_still_uses_context_quantum_and_actual_fragments(package, raw, elements, cpp):
+    raw["interfaces"] = {
+        "out": {"type": "audio", "direction": "output", "sample_format": "f32",
+                "channels": 1, "block_size": "param:elements", "drive_port_no": 1},
+        "elements": {"type": "int", "default": elements, "range": [1, 32],
+                     "update_policy": "restart_required", "affects_signature": True},
+    }
+    generate_component(save(package, raw))
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+unsigned calls;
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    (void)s;++calls;
+    assert(io->out.buffer->frame_count==ctx->frame_count);
+    assert(ctx->valid_frames==ctx->frame_count);
+    for(unsigned i=0;i<ctx->frame_count;i++) io->out.samples[i]=(float)i+1;
+    return test_pilot_emit_out(ctx,&io->out);
+}
+''', encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+extern unsigned calls;
+static unsigned quantum;
+static int emit(void* user,uint32_t drive,const OrpheusDelivery* delivery) {
+    (void)user;assert(drive==1 && delivery->buffer->frame_count==quantum);return ORPHEUS_OK;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;
+    OrpheusConfig config={.state_block=&state,.block_size=8};
+    assert(api->create(&instance,&config)==ORPHEUS_OK && api->prepare(instance,&config)==ORPHEUS_OK);
+    float data[ELEMENTS]={0};
+    OrpheusBuffer buffer={.data=data,.format=ORPHEUS_FORMAT_F32,.channels=1,
+        .frame_capacity=ELEMENTS,.interleaved=true};
+    OrpheusBuffer* outputs[]={&buffer};OrpheusContinuation continuation={.emit=emit};
+    OrpheusProcessContext ctx={.outputs=outputs,.output_count=1,.frame_count=8,.valid_frames=8,
+        .trigger_input=UINT32_MAX,.continuation=&continuation};
+    quantum=8;
+    if(ELEMENTS<8) assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && calls==0);
+    else assert(api->process(instance,&ctx)==ORPHEUS_OK && buffer.frame_count==8 && calls==1);
+    ctx.frame_count=3;ctx.valid_frames=3;quantum=3;
+    assert(api->process(instance,&ctx)==ORPHEUS_OK && buffer.frame_count==3);
+    for(unsigned i=0;i<3;i++) assert(data[i]==(float)i+1);
+    assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+'''.replace("ELEMENTS", str(elements)), encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+
+
+@pytest.mark.parametrize("block_size,expected", [
+    (7, 7), (None, 8), ("in:block_size", 8), ("task:block_size", 8), ("task:sample_rate", 13),
+])
+@pytest.mark.parametrize("cpp", [False, True])
+def test_real_non_audio_static_inherited_and_task_payload_expressions(package, raw, block_size, expected, cpp):
+    raw["interfaces"] = {
+        "out": {"type": "debug", "direction": "output", "sample_format": "f32",
+                "channels": 1, "drive_port_no": 1},
+    }
+    if block_size is not None:
+        raw["interfaces"]["out"]["block_size"] = block_size
+    if block_size == "in:block_size":
+        raw["interfaces"]["in"] = {"type": "debug", "direction": "input"}
+    generate_component(save(package, raw))
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+unsigned calls;
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    (void)s;++calls;
+    assert(ctx->frame_count==8 && ctx->valid_frames==8);
+    assert(io->out.buffer->frame_count==EXPECTED);
+    for(unsigned i=0;i<EXPECTED;i++) io->out.samples[i]=(float)i+1;
+    return test_pilot_emit_out(ctx,&io->out);
+}
+'''.replace("EXPECTED", str(expected)), encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <math.h>
+extern unsigned calls;
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;
+    OrpheusConfig config={.state_block=&state,.block_size=8,.sample_rate=13};
+    assert(api->create(&instance,&config)==ORPHEUS_OK && api->prepare(instance,&config)==ORPHEUS_OK);
+    float data[EXPECTED]={0};
+    OrpheusBuffer buffer={.data=data,.format=ORPHEUS_FORMAT_F32,.channels=1,
+        .frame_capacity=EXPECTED,.interleaved=true};
+    OrpheusBuffer* outputs[]={&buffer};
+    OrpheusProcessContext ctx={.outputs=outputs,.output_count=1,.frame_count=8,.valid_frames=8,
+        .sample_rate=13,.trigger_input=UINT32_MAX};
+    assert(api->process(instance,&ctx)==ORPHEUS_OK && calls==1 && buffer.frame_count==EXPECTED);
+    for(unsigned i=0;i<EXPECTED;i++) assert(data[i]==(float)i+1);
+    if (RATE_PAYLOAD) {
+        const double invalid[]={NAN,INFINITY,-INFINITY,-1,0,13.5,4294967296.0};
+        for(unsigned i=0;i<sizeof(invalid)/sizeof(invalid[0]);i++) {
+            buffer.frame_count=0;ctx.sample_rate=invalid[i];
+            assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && calls==1);
+            assert(ctx.frame_count==8 && ctx.valid_frames==8);
+        }
+    }
+    assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+'''.replace("EXPECTED", str(expected)).replace("RATE_PAYLOAD", str(int(block_size == "task:sample_rate"))),
+        encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+
+
+@pytest.mark.parametrize("custom_state", [False, True])
+@pytest.mark.parametrize("parameters", [False, True])
+def test_validate_hook_public_parameter_type_normalization_schema_and_initial_stub(package, raw, custom_state, parameters):
+    import jsonschema
+    raw["algorithm"] = {"lifecycle": ["validate"]}
+    if custom_state:
+        raw["algorithm"]["state_type"] = "CustomState"
+    if parameters:
+        _add_bulk_test_interfaces(raw)
+    else:
+        raw["interfaces"] = {"tick": {"type": "trigger", "direction": "input"}}
+    before = copy.deepcopy(raw)
+    normalized = normalize_component_definition(raw)
+    assert raw == before and normalized["algorithm"]["lifecycle"] == ["validate"]
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    generate_component(path)
+    header = (package / "generated" / "component_state.h").read_text(encoding="utf-8")
+    shell = (package / "generated" / "component_shell.c").read_text(encoding="utf-8")
+    user_source = (package / "user" / "algorithm.c").read_text(encoding="utf-8")
+    assert "typedef struct test_pilot_Parameters {" in header
+    assert "int test_pilot_validate(const test_pilot_Parameters* parameters);" in header
+    assert "typedef struct test_pilot_Parameters {" not in shell
+    assert "int test_pilot_validate(const test_pilot_Parameters* parameters)" in user_source
+    assert "(void)parameters;\n    return ORPHEUS_OK;" in user_source
+    if parameters:
+        assert "float weights[3];" in header and "char gains[256];" in header
+    state_type = normalized["state_type"]
+    (package / "harness.c").write_text(
+        '#include "component_state.h"\n#include <assert.h>\nint main(void) {\n'
+        '    int (*validate)(const test_pilot_Parameters*)=test_pilot_validate;\n'
+        '    test_pilot_Parameters parameters={0};assert(validate(&parameters)==ORPHEUS_OK);\n'
+        f'    {state_type} memory;void* state=NULL;OrpheusConfig config={{.state_block=&memory}};\n'
+        '    const OrpheusComponentInterface* api=orpheus_get_interface();\n'
+        '    assert(api->create(&state,&config)==ORPHEUS_OK && api->prepare(state,&config)==ORPHEUS_OK);\n'
+        '    assert(api->destroy(state)==ORPHEUS_OK);return 0;\n}\n',
+        encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+    check_generated(path)
+
+
+@pytest.mark.parametrize("lifecycle", [["validate", "validate"], ["Validate"], ["validate", None]])
+def test_validate_lifecycle_rejects_duplicates_and_invalid_entries_without_writes(package, raw, lifecycle):
+    import jsonschema
+    raw["algorithm"] = {"lifecycle": lifecycle}
+    path = save(package, raw)
+    before = snapshot(package)
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(raw, schema)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("cpp", [False, True])
+def test_real_validate_hook_rejects_candidates_before_touching_state_or_mutable_hooks(package, raw, cpp):
+    raw["algorithm"] = {"lifecycle": ["validate", "prepare", "destroy", "set_parameter"]}
+    raw["interfaces"] = {
+        "input_channels": {"type": "int", "default": 2, "range": [1, 8], "update_policy": "restart_required"},
+        "input_elements": {"type": "int", "default": 8, "range": [1, 32], "update_policy": "restart_required"},
+        "channels": {"type": "int", "default": 2, "range": [1, 8], "update_policy": "restart_required",
+                     "affects_signature": True},
+        "elements": {"type": "int", "default": 4, "range": [1, 32], "update_policy": "restart_required"},
+        "offset": {"type": "int", "default": 1, "range": [0, 128], "update_policy": "block_boundary"},
+        "stride": {"type": "int", "default": 1, "range": [1, 32], "update_policy": "block_boundary"},
+        "label": {"type": "string", "default": "ready", "capacity": 16},
+        "weights": {"type": "float", "count": 2, "default": [0.25, 0.75], "range": [0, 1]},
+        "gains": {"type": "string", "default": "", "kind": "bulk", "shape": ["param:channels"],
+                  "bulk": {"sample_format": "f32", "capacity": 4, "storage": "algorithm.gains"}},
+    }
+    generate_component(save(package, raw))
+    (package / "user" / "algorithm.h").write_text(
+        "#pragma once\ntypedef struct test_pilot_AlgorithmState {\n"
+        "    float gains[4];int* resource;unsigned marker;\n} test_pilot_AlgorithmState;\n",
+        encoding="utf-8", newline="\n")
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
+unsigned validations,prepares,destroys,sets;
+bool fail_prepare;
+int validation_error;
+int test_pilot_validate(const test_pilot_Parameters* parameters) {
+    /* 计数仅供测试观测调用顺序；生产 validate 不得改写外部状态。 */
+    ++validations;
+    if(validation_error) return validation_error;
+    const uint64_t last=(uint64_t)parameters->offset+
+        ((uint64_t)parameters->channels*parameters->elements-1)*(uint64_t)parameters->stride;
+    if(last>=(uint64_t)parameters->input_channels*parameters->input_elements)
+        return ORPHEUS_ERR_INVALID_ARG;
+    if(parameters->weights[0]+parameters->weights[1]!=1.0f) return ORPHEUS_ERR_INVALID_ARG;
+    if(strcmp(parameters->label,"deny")==0) return ORPHEUS_ERR_UNSUPPORTED;
+    return ORPHEUS_OK;
+}
+int test_pilot_prepare(test_pilot_State* state,const OrpheusConfig* config) {
+    (void)config;++prepares;
+    assert(!state->algorithm.resource);
+    state->algorithm.resource=(int*)malloc(sizeof(int));
+    if(!state->algorithm.resource) return ORPHEUS_ERR_INVALID_ARG;
+    *state->algorithm.resource=40+(int)prepares;
+    state->algorithm.marker=100+prepares;
+    return fail_prepare ? ORPHEUS_ERR_UNSUPPORTED : ORPHEUS_OK;
+}
+int test_pilot_destroy(test_pilot_State* state) {
+    ++destroys;free(state->algorithm.resource);state->algorithm.resource=NULL;
+    return ORPHEUS_OK;
+}
+int test_pilot_set_parameter(test_pilot_State* state,const char* key,const OrpheusValue* value) {
+    ++sets;assert(strcmp(key,"offset")==0 && value->type==ORPHEUS_VALUE_INT);
+    assert(state->offset==1 && value->value.i32==2);
+    state->algorithm.marker+=10;++*state->algorithm.resource;
+    return ORPHEUS_OK;
+}
+int test_pilot_algorithm(test_pilot_State* state,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    (void)io;(void)ctx;++state->algorithm.marker;return ORPHEUS_OK;
+}
+''', encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+extern unsigned validations,prepares,destroys,sets;
+extern bool fail_prepare;
+extern int validation_error;
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;unsigned char before[sizeof(state)];
+    memset(&state,0xA5,sizeof(state));memcpy(before,&state,sizeof(state));
+    const char* keys[]={"offset"};
+    OrpheusValue value={.type=ORPHEUS_VALUE_INT,.value.i32=9};
+    OrpheusConfig bad={.state_block=&state,.param_ids=keys,.param_values=&value,.param_count=1};
+    void* rejected=&state;
+    assert(api->create(&rejected,&bad)==ORPHEUS_ERR_INVALID_ARG && !rejected);
+    assert(memcmp(before,&state,sizeof(state))==0 && validations==1 && prepares==0 && destroys==0);
+    OrpheusConfig config={.state_block=&state};void* instance=NULL;
+    assert(api->create(&instance,&config)==ORPHEUS_OK && validations==2 && !state.algorithm.resource);
+    assert(api->prepare(instance,&config)==ORPHEUS_OK && validations==3 && prepares==1 && destroys==0);
+    assert(state.algorithm.resource && *state.algorithm.resource==41);
+    OrpheusProcessContext ctx={.frame_count=8,.trigger_input=UINT32_MAX};
+    assert(api->process(instance,&ctx)==ORPHEUS_OK && validations==3);
+    memcpy(before,&state,sizeof(state));
+    unsigned v=validations,p=prepares,d=destroys,t=sets;
+    rejected=&state;
+    assert(api->create(&rejected,&bad)==ORPHEUS_ERR_INVALID_ARG && !rejected);
+    assert(api->prepare(instance,&bad)==ORPHEUS_ERR_INVALID_ARG);
+    assert(api->set_parameter(instance,"offset",&value)==ORPHEUS_ERR_INVALID_ARG);
+    assert(validations==v+3 && prepares==p && destroys==d && sets==t);
+    assert(memcmp(before,&state,sizeof(state))==0 && *state.algorithm.resource==41);
+    value.value.i32=-1;v=validations;
+    assert(api->prepare(instance,&bad)==ORPHEUS_ERR_INVALID_ARG);
+    assert(api->set_parameter(instance,"offset",&value)==ORPHEUS_ERR_INVALID_ARG);
+    assert(validations==v && memcmp(before,&state,sizeof(state))==0);
+    value.type=ORPHEUS_VALUE_FLOAT;value.value.f32=1;
+    assert(api->prepare(instance,&bad)==ORPHEUS_ERR_INVALID_ARG);
+    assert(api->set_parameter(instance,"offset",&value)==ORPHEUS_ERR_INVALID_ARG && validations==v);
+    value.type=ORPHEUS_VALUE_INT;value.value.i32=5;keys[0]="channels";
+    assert(api->prepare(instance,&bad)==ORPHEUS_ERR_INVALID_ARG);
+    assert(api->set_parameter(instance,"channels",&value)==ORPHEUS_ERR_INVALID_ARG && validations==v);
+    assert(memcmp(before,&state,sizeof(state))==0 && prepares==p && destroys==d && sets==t);
+    value.type=ORPHEUS_VALUE_STRING;value.value.str="0.5,bad";keys[0]="weights";
+    assert(api->prepare(instance,&bad)==ORPHEUS_ERR_INVALID_ARG && validations==v);
+    value.value.str="0.25,0.25";
+    assert(api->prepare(instance,&bad)==ORPHEUS_ERR_INVALID_ARG && validations==v+1);
+    assert(memcmp(before,&state,sizeof(state))==0 && *state.algorithm.resource==41);
+    value.value.str="deny";keys[0]="label";v=validations;
+    assert(api->prepare(instance,&bad)==ORPHEUS_ERR_UNSUPPORTED);
+    assert(api->set_parameter(instance,"label",&value)==ORPHEUS_ERR_UNSUPPORTED);
+    assert(validations==v+2 && memcmp(before,&state,sizeof(state))==0 && sets==t);
+    value.type=ORPHEUS_VALUE_INT;value.value.i32=2;keys[0]="offset";
+    validation_error=ORPHEUS_ERR_UNSUPPORTED;v=validations;
+    rejected=&state;
+    assert(api->create(&rejected,&bad)==ORPHEUS_ERR_UNSUPPORTED && !rejected);
+    assert(api->prepare(instance,&bad)==ORPHEUS_ERR_UNSUPPORTED);
+    assert(api->set_parameter(instance,"offset",&value)==ORPHEUS_ERR_UNSUPPORTED);
+    assert(validations==v+3 && memcmp(before,&state,sizeof(state))==0 && sets==t);
+    assert(prepares==p && destroys==d && *state.algorithm.resource==41);
+    validation_error=0;
+    assert(api->set_parameter(instance,"offset",&value)==ORPHEUS_OK);
+    assert(state.offset==2 && sets==t+1 && *state.algorithm.resource==42);
+    value.value.i32=3;keys[0]="stride";memcpy(before,&state,sizeof(state));t=sets;
+    assert(api->set_parameter(instance,"stride",&value)==ORPHEUS_ERR_INVALID_ARG);
+    assert(memcmp(before,&state,sizeof(state))==0 && *state.algorithm.resource==42 && sets==t);
+    const char* good_keys[]={"offset","label","weights"};
+    OrpheusValue good_values[]={{.type=ORPHEUS_VALUE_INT,.value.i32=0},
+        {.type=ORPHEUS_VALUE_STRING,.value.str="new"},
+        {.type=ORPHEUS_VALUE_STRING,.value.str="0.5,0.5"}};
+    OrpheusConfig good={.state_block=&state,.param_ids=good_keys,.param_values=good_values,.param_count=3};
+    assert(api->prepare(instance,&good)==ORPHEUS_OK && prepares==p+1 && destroys==d+1);
+    assert(state.offset==0 && strcmp(state.label,"new")==0 && state.weights[0]==0.5f);
+    assert(*state.algorithm.resource==42 && state.algorithm.marker==102);
+    fail_prepare=true;
+    assert(api->prepare(instance,&config)==ORPHEUS_ERR_UNSUPPORTED);
+    assert(prepares==p+2 && destroys==d+3 && !state.algorithm.resource && state.algorithm.marker==0);
+    assert(state.offset==1 && strcmp(state.label,"ready")==0 && state._orpheus_alive);
+    assert(!state._orpheus_cleanup_pending);
+    fail_prepare=false;
+    assert(api->prepare(instance,&config)==ORPHEUS_OK && prepares==p+3);
+    assert(api->destroy(instance)==ORPHEUS_OK && destroys==d+4);
+    assert(api->destroy(instance)==ORPHEUS_OK && destroys==d+4);
     return 0;
 }
 ''', encoding="utf-8", newline="\n")

@@ -23,6 +23,7 @@ struct NodeConfig {
     std::map<std::string, std::string> params; // all params as strings
     std::vector<std::string> array_parameters;
     std::vector<std::string> input_ports;      // ordered port ids for buffer binding
+    std::vector<bool> input_is_audio;
     std::vector<std::string> output_ports;
     std::map<std::string, uint32_t> output_drive_ports;
     std::vector<std::string> trigger_output_ports;
