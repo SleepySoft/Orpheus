@@ -98,3 +98,60 @@ test('后端逐端口结果覆盖模板且来源不持久化进工程', () => {
   expect(JSON.stringify(saved)).not.toContain('portResolution');
   expect(interfaceSnapshot(saved).graph.nodes[0].params).toEqual({ width: 3 });
 });
+
+test('同一快照下主图和子视图分别缓存，返回已解析视图无需再等请求', async () => {
+  const main = { nodes: { n: { status: 'resolved', ports: [] } } };
+  const inner = { nodes: { body: { status: 'resolved', ports: [] } } };
+  resolveProjectInterfaces.mockResolvedValueOnce(main).mockResolvedValueOnce(inner);
+  act(() => root.render(<Preview />));
+  await advance();
+  act(() => root.render(<Preview view="sub:inner" />));
+  expect(latest).toBeNull();
+  await advance();
+  expect(latest.nodes).toEqual(inner.nodes);
+  act(() => root.render(<Preview />));
+  expect(latest.nodes).toEqual(main.nodes);
+  await advance();
+  act(() => root.render(<Preview view="sub:inner" />));
+  expect(latest.nodes).toEqual(inner.nodes);
+  await advance();
+  expect(resolveProjectInterfaces).toHaveBeenCalledTimes(2);
+});
+
+test('修改连线或参数使全部视图缓存失效，不借用其它快照的签名', async () => {
+  resolveProjectInterfaces.mockResolvedValue({ nodes: {} });
+  act(() => root.render(<Preview />));
+  await advance();
+  act(() => root.render(<Preview view="sub:inner" />));
+  await advance();
+  const changed = { ...documentSnapshot, graph: { ...documentSnapshot.graph,
+    connections: [{ from: 'n:out', to: 'n:in' }],
+  } };
+  act(() => root.render(<Preview document={changed} view="sub:inner" />));
+  expect(latest).toBeNull();
+  await advance();
+  act(() => root.render(<Preview document={changed} />));
+  expect(latest).toBeNull();
+  await advance();
+  expect(resolveProjectInterfaces).toHaveBeenCalledTimes(4);
+});
+
+test('请求失败不缓存为成功，重新进入视图会重试', async () => {
+  resolveProjectInterfaces.mockRejectedValueOnce(new Error('网络中断'))
+    .mockResolvedValue({ nodes: {} });
+  act(() => root.render(<Preview />));
+  await advance();
+  expect(latest.error).toBe('网络中断');
+  act(() => root.render(<Preview view="sub:inner" />));
+  await advance();
+  act(() => root.render(<Preview />));
+  await advance();
+  expect(latest).not.toHaveProperty('error');
+  expect(resolveProjectInterfaces).toHaveBeenCalledTimes(3);
+});
+
+test('后端已经返回却缺少当前节点时明确报错，不能永久等待', () => {
+  const result = resolvedNodeInterfaces({ ports: [] }, { nodes: {} }, 'missing');
+  expect(result.portResolution.status).toBe('error');
+  expect(result.portResolution.message).toContain('missing');
+});

@@ -32,6 +32,11 @@ test('真实 API 递归解析实例端口，编辑快照不落盘且定义视图
     }],
   };
   const blocked = [];
+  const interfaceRequests = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === `/api/projects/${name}/interfaces`)
+      interfaceRequests.push(request.postDataJSON().view_key);
+  });
   try {
     const saved = await request.put(`/api/projects/${name}`, { data: document });
     expect(saved.ok(), await saved.text()).toBeTruthy();
@@ -69,6 +74,16 @@ test('真实 API 递归解析实例端口，编辑快照不落盘且定义视图
     expect(stored.graph.nodes.find((node) => node.id === 'a').params.width).toBe(7);
     await a.dblclick();
     await expect(page.locator('.react-flow__node[data-id="child"]')).toContainText('f32 · 5ch · 48帧');
+    await page.locator('.react-flow__node[data-id="child"]').dblclick();
+    await expect(page.locator('.react-flow__node[data-id="body"]')).toContainText('f32 · 2ch · 48帧');
+    const requestCount = interfaceRequests.length;
+    await page.locator('.tab').filter({ hasText: '外层' }).click();
+    await expect(page.locator('.react-flow__node[data-id="child"]')).toContainText('f32 · 5ch · 48帧');
+    await page.locator('.tab').filter({ hasText: '主图' }).click();
+    await expect(a).toContainText('f32 · 9ch · 48帧');
+    await page.locator('.tab').filter({ hasText: '内层' }).click();
+    await expect(page.locator('.react-flow__node[data-id="body"]')).toContainText('f32 · 2ch · 48帧');
+    expect(interfaceRequests.length).toBe(requestCount);
     expect(blocked).toEqual([]);
   } finally {
     expect((await request.delete(`/api/projects/${name}`)).ok()).toBeTruthy();

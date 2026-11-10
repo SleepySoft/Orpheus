@@ -44,7 +44,7 @@ export function interfaceState(node, edges = []) {
 export function portSignature(port, data) {
   if (data.portResolution?.status === 'error') return `解析失败：${data.portResolution.message}`;
   if (data.portResolution?.status === 'pending'
-    || !['resolved', 'conflict'].includes(port.resolution?.status)) return '待解析：等待后端解析端口引用';
+    || !['resolved', 'conflict'].includes(port.resolution?.status)) return '解析中：正在获取当前视图的端口规格';
   const actual = `${port.type} · ${port.sample_format} · ${port.channels}ch · `
     + `${port.frames}帧 · ${port.sample_rate}Hz`;
   return port.resolution.status === 'conflict' ? `${actual} · 约束冲突` : actual;

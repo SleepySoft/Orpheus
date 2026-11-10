@@ -77,6 +77,7 @@ export default function OrpheusNode({ id, data, selected }) {
   const channelBadge = (p) => <span className="ch-badge" title={data.portResolution?.message || portOrigin(p)}>
     {data.portResolution?.status === 'error' ? '解析失败' : portSignature(p, data)}
   </span>;
+  const unresolvedLabel = data.portResolution?.status === 'error' ? '解析失败' : '解析中';
 
 
 /**
@@ -336,11 +337,11 @@ const BodyWidget = NODE_WIDGETS[data.component];
           ? '纯宿主音频缓冲，不产生驱动；宿主在实际Task调用边界交付或读取完整交错f32块'
           : 'PCM输出绑定与驱动入口相互独立；输入供数由具体源决定'}>
           <span>{hostBuffer ? hostOutput ? '输出 Buffer' : '输入 Buffer' : '音频 Buffer'}</span>
-          <strong>{typeof sourceChannels === 'number' ? sourceChannels : '待解析'}ch × {typeof sourceFrames === 'number' ? sourceFrames : '待解析'}帧</strong>
+          <strong>{typeof sourceChannels === 'number' ? sourceChannels : unresolvedLabel}ch × {typeof sourceFrames === 'number' ? sourceFrames : unresolvedLabel}帧</strong>
           {hostBuffer && (data.ports || []).filter((port) => port.host_binding).map((port) => (
             <small key={port.id}>{bindingStatus(port, data)}</small>
           ))}
-          {hostBuffer && <small>交错 {bufferPort?.resolution ? bufferPort.sample_format : '待解析'} · 独立驱动 · 生成代码含适配 TODO</small>}
+          {hostBuffer && <small>交错 {bufferPort?.resolution ? bufferPort.sample_format : unresolvedLabel} · 独立驱动 · 生成代码含适配 TODO</small>}
           {data.component === 'orpheus.builtin.buffer_source' && <small>宿主交付与驱动独立；此界面不提交 PCM</small>}
         </div>
       )}

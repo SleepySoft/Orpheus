@@ -17,26 +17,36 @@ export function interfaceSnapshot(document) {
 }
 
 export default function usePortInterfaces(project, document, viewKey) {
-  const key = document ? JSON.stringify([project, viewKey, interfaceSnapshot(document)]) : '';
-  const [result, setResult] = useState(null);
+  const documentKey = document ? JSON.stringify([project, interfaceSnapshot(document)]) : '';
+  const [results, setResults] = useState({ documentKey: '', views: {} });
+  const [failure, setFailure] = useState(null);
+  const cached = results.documentKey === documentKey ? results.views[viewKey] : null;
   useEffect(() => {
-    if (!key) return undefined;
-    const [name, view, snapshot] = JSON.parse(key);
+    if (!documentKey || cached) return undefined;
+    const [name, snapshot] = JSON.parse(documentKey);
     if (!name) return undefined;
+    setFailure(null);
     const controller = new AbortController();
     let active = true;
     const timer = setTimeout(() => {
-      resolveProjectInterfaces(name, snapshot, view, { signal: controller.signal }).then((response) => {
-        if (active) setResult({ key, ...response });
+      resolveProjectInterfaces(name, snapshot, viewKey, { signal: controller.signal }).then((response) => {
+        if (active) setResults((previous) => ({
+          documentKey,
+          views: {
+            ...(previous.documentKey === documentKey ? previous.views : {}),
+            [viewKey]: response,
+          },
+        }));
       }).catch((error) => {
-        if (active) setResult({
-          key, error: String(error.response?.data?.detail || error.message || '接口解析请求失败'),
+        if (active) setFailure({
+          documentKey, viewKey,
+          error: String(error.response?.data?.detail || error.message || '接口解析请求失败'),
         });
       });
     }, 180);
     return () => { active = false; clearTimeout(timer); controller.abort(); };
-  }, [key]);
-  return result?.key === key ? result : null;
+  }, [documentKey, viewKey, cached]);
+  return cached || (failure?.documentKey === documentKey && failure.viewKey === viewKey ? failure : null);
 }
 
 export function resolvedNodeInterfaces(data, result, nodeId) {
@@ -45,6 +55,8 @@ export function resolvedNodeInterfaces(data, result, nodeId) {
   return {
     ports: data.ports,
     portResolution: result?.error ? { status: 'error', message: result.error }
-      : node || { status: 'pending', message: '等待后端解析端口引用' },
+      : node || (result
+        ? { status: 'error', message: `后端解析结果缺少节点：${nodeId}` }
+        : { status: 'pending', message: '后端正在解析当前视图的端口引用，无需编译或运行' }),
   };
 }

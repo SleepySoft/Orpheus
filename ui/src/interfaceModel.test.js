@@ -172,8 +172,8 @@ test('宿主条件和交付观测准确，不伪造 ready/valid 或触发', () =
   const outputBinding = { ...ports[0], id: 'delivery', direction: 'output' };
   expect(bindingStatus(outputBinding, { ...node.data, interfaces: { upstreamPorts: ['samples'] } }))
     .toContain('上游供数，禁止宿主写入');
-  expect(portSignature({ channels: 2 }, node.data)).toContain('待解析');
-  expect(portSignature(ports[0], { portResolution: { status: 'pending' } })).toContain('待解析');
+  expect(portSignature({ channels: 2 }, node.data)).toContain('解析中');
+  expect(portSignature(ports[0], { portResolution: { status: 'pending' } })).toContain('解析中');
   expect(portSignature(ports[0], { portResolution: { status: 'error', message: '循环引用' } }))
     .toBe('解析失败：循环引用');
 });

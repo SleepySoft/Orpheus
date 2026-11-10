@@ -2206,6 +2206,9 @@ const { screenToFlowPosition } = useReactFlow();
         <span className={`status ${dirty ? 'dirty' : ''}`}>
           {rt.running ? '⏺ 实时运行中' : dirty ? '● 未保存' : status}
         </span>
+        {current && interfaceDocument && !portInterfaces && (
+          <span role="status"> · 当前视图端口解析中，无需编译或运行</span>
+        )}
       </div>
       <div className="tabbar">
         {openTabs.map((key) => (
