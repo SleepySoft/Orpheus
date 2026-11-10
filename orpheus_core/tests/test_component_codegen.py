@@ -2778,3 +2778,223 @@ int main(void) {
 }
 ''', encoding="utf-8", newline="\n")
     (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+
+
+def _add_input_alternative_test_interfaces(raw, port_type="bulk"):
+    raw["interfaces"] = {
+        name: {"type": port_type, "direction": "input", "sample_format": "f32",
+               "channels": 1, "block_size": 2}
+        for name in ("a", "b", "c", "d")
+    }
+    raw["interfaces"]["out"] = {
+        "type": "audio", "direction": "output", "channels": 1, "block_size": 2, "drive_port_no": 1}
+    raw["input_alternatives"] = [["a", "b"]]
+
+
+def test_input_alternatives_preserve_single_source_projection_and_generation_freshness(package, raw):
+    import jsonschema
+    _add_input_alternative_test_interfaces(raw)
+    raw.pop("input_alternatives")
+    path = save(package, raw)
+    generate_component(path)
+    baseline = {p.name: p.read_bytes() for p in (package / "generated").iterdir()
+                if p.name != "component_codegen.json"}
+    raw["input_alternatives"] = []
+    save(package, raw)
+    generate_component(path)
+    assert baseline == {p.name: p.read_bytes() for p in (package / "generated").iterdir()
+                        if p.name != "component_codegen.json"}
+    raw["input_alternatives"] = [["a", "b"], ["c", "d"]]
+    original = copy.deepcopy(raw)
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    normalized = normalize_component_definition(raw)
+    assert raw == original and normalized["input_alternatives"] == original["input_alternatives"]
+    normalized["input_alternatives"][0][0] = "changed"
+    assert raw == original
+    save(package, raw)
+    with pytest.raises(ComponentDefinitionError):
+        check_generated(path)
+    generate_component(path)
+    check_generated(path)
+    shell = (package / "generated" / "component_shell.c").read_text(encoding="utf-8")
+    assert "(uint32_t)(io.a.buffer != NULL) + (uint32_t)(io.b.buffer != NULL)" in shell
+    assert "(uint32_t)(io.c.buffer != NULL) + (uint32_t)(io.d.buffer != NULL)" in shell
+    generated = snapshot(package)
+    generate_component(path)
+    assert snapshot(package) == generated
+
+
+@pytest.mark.parametrize("groups", [
+    None, True, 1, "a,b", {"a": "b"}, [None], [1], ["a,b"], [{}], [[]],
+    [["a"]], [["a", "a"]], [["a", None]], [["a", 1]], [["a", []]], [["a", {}]],
+    [["a", "b"], ["a", "b"]], [["a", "b"], ["b", "a"]], [["a", "b"], ["b", "c"]],
+    [["a", "missing"]], [["a", "out"]],
+])
+@pytest.mark.parametrize("existing", [False, True])
+def test_invalid_input_alternatives_never_write_component_package(package, raw, groups, existing):
+    _add_input_alternative_test_interfaces(raw)
+    if existing:
+        generate_component(save(package, raw))
+    raw["input_alternatives"] = groups
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError) as error:
+        generate_component(path)
+    assert error.value.diagnostic["location"].startswith("input_alternatives")
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("groups", [("a", "b"), [("a", "b")]])
+def test_input_alternative_python_projection_rejects_tuple_containers(raw, groups):
+    _add_input_alternative_test_interfaces(raw)
+    raw["input_alternatives"] = groups
+    with pytest.raises(ComponentDefinitionError):
+        normalize_component_definition(raw)
+
+
+@pytest.mark.parametrize("target", [
+    {"type": "int", "default": 1},
+    {"type": "float", "default": 1},
+    {"type": "trigger", "direction": "input", "process": True},
+    {"type": "audio", "direction": "output"},
+    {"type": "bulk", "direction": "input", "count": 1},
+    {"type": "control", "direction": "input", "count": 0, "optional": True},
+    {"type": "debug", "direction": "input", "count": "param:n", "optional": True},
+])
+def test_input_alternatives_require_single_countless_input_data_ports(package, raw, target):
+    _add_input_alternative_test_interfaces(raw)
+    raw["interfaces"]["b"] = target
+    raw["interfaces"]["n"] = {
+        "type": "int", "default": 1, "range": [0, 3], "update_policy": "restart_required"}
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError, match="单个输入数据接口"):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("groups", [
+    None, {}, "a,b", [None], [["a"]], [["a", "a"]], [["a", 1]], [["a", "b"], ["a", "b"]],
+])
+def test_input_alternative_container_shape_is_strict_in_json_schema(raw, groups):
+    import jsonschema
+    _add_input_alternative_test_interfaces(raw)
+    raw["input_alternatives"] = groups
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(raw, schema)
+
+
+def test_input_alternative_independent_clis_support_json_and_readonly_errors(package, raw):
+    _add_input_alternative_test_interfaces(raw)
+    path = save(package, raw)
+    scripts = [ROOT / "scripts" / name for name in ("validate_component.py", "generate_component.py")]
+    before = snapshot(package)
+    for index, script in enumerate(scripts):
+        result = subprocess.run([str(PYTHON), str(script), str(path), "--format", "json"],
+                                cwd=package, capture_output=True, encoding="utf-8")
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["ok"] is True
+        if index == 0:
+            assert snapshot(package) == before
+    check_generated(path)
+    raw["input_alternatives"] = [["a", "b"], ["b", "c"]]
+    save(package, raw)
+    before = snapshot(package)
+    for script in scripts:
+        for output in ("json", "text"):
+            result = subprocess.run([str(PYTHON), str(script), str(path), "--format", output],
+                                    cwd=package, capture_output=True, encoding="utf-8")
+            assert result.returncode == 1, result.stderr
+            if output == "json":
+                diagnostic = json.loads(result.stdout)["diagnostics"][0]
+                assert diagnostic["location"] == "input_alternatives[1][0]"
+            else:
+                assert "重复、交叠" in result.stdout
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("port_type", ["audio", "bulk", "control", "debug"])
+@pytest.mark.parametrize("cpp", [False, True])
+@pytest.mark.parametrize("two_groups", [False, True])
+def test_real_input_alternatives_validate_buffer_presence_before_algorithm_and_skip_zero_quantum(
+        package, raw, port_type, cpp, two_groups):
+    _add_input_alternative_test_interfaces(raw, port_type)
+    raw["input_alternatives"] = [["a", "b"], ["c", "d"]] if two_groups else [["a", "b", "c"]]
+    generate_component(save(package, raw))
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+unsigned calls,selected;
+int test_pilot_algorithm(test_pilot_State* state,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    (void)state;++calls;
+    assert(ctx->frame_count==2);
+    selected=(io->a.buffer ? 1u : 0u)|(io->b.buffer ? 2u : 0u)|
+        (io->c.buffer ? 4u : 0u)|(io->d.buffer ? 8u : 0u);
+    if(io->out.samples) io->out.samples[0]=(float)selected;
+    return ORPHEUS_OK;
+}
+''', encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+extern unsigned calls,selected;
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;
+    OrpheusConfig config={.state_block=&state,.block_size=2};
+    assert(api->create(&instance,&config)==ORPHEUS_OK && api->prepare(instance,&config)==ORPHEUS_OK);
+    float data[2]={1,2},dest[2]={0};
+    OrpheusBuffer input={.data=data,.format=ORPHEUS_FORMAT_F32,.channels=1,
+        .frame_count=2,.frame_capacity=2,.interleaved=true};
+    OrpheusBuffer output=input;output.data=dest;
+    const OrpheusBuffer* inputs[4];
+    OrpheusBuffer* outputs[]={&output};
+    OrpheusProcessContext ctx={.inputs=inputs,.outputs=outputs,.input_count=4,.output_count=1,
+        .frame_count=2,.valid_frames=2,.trigger_input=UINT32_MAX};
+    for(unsigned null_out=0;null_out<2;null_out++) {
+        ctx.outputs=null_out ? NULL : outputs;
+        for(unsigned mask=0;mask<16;mask++) {
+            for(unsigned i=0;i<4;i++) inputs[i]=(mask&(1u<<i)) ? &input : NULL;
+            bool valid=TWO_GROUPS ? (((mask&3)==1 || (mask&3)==2) && ((mask&12)==4 || (mask&12)==8))
+                : ((mask&7)==1 || (mask&7)==2 || (mask&7)==4);
+            unsigned before=calls;
+            int result=api->process(instance,&ctx);
+            if(valid) {
+                assert(result==ORPHEUS_OK && calls==before+1 && selected==mask);
+                if(!null_out) assert(dest[0]==(float)mask);
+            } else assert(result==ORPHEUS_ERR_INVALID_ARG && calls==before);
+        }
+    }
+    ctx.inputs=NULL;ctx.outputs=NULL;unsigned missing_before=calls;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && calls==missing_before);
+    ctx.inputs=inputs;ctx.outputs=outputs;inputs[0]=&input;inputs[1]=NULL;
+    inputs[2]=TWO_GROUPS ? &input : NULL;inputs[3]=NULL;
+    unsigned before=calls;
+    input.format=ORPHEUS_FORMAT_I16;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && calls==before);
+    input.format=ORPHEUS_FORMAT_F32;
+    if(AUDIO_INPUT) {
+        OrpheusBuffer empty=input;empty.data=NULL;empty.frame_count=0;empty.frame_capacity=0;
+        inputs[0]=&empty;
+        assert(api->process(instance,&ctx)==ORPHEUS_OK);
+        assert(selected==(TWO_GROUPS ? 5u : 1u));
+        inputs[0]=&input;
+    }
+    ctx.frame_count=0;ctx.valid_frames=0;before=calls;output.frame_count=1;
+    for(unsigned mask=0;mask<16;mask++) {
+        for(unsigned i=0;i<4;i++) inputs[i]=(mask&(1u<<i)) ? &input : NULL;
+        assert(api->process(instance,&ctx)==ORPHEUS_OK && calls==before);
+        assert(output.frame_count==1);
+    }
+    ctx.inputs=NULL;ctx.outputs=NULL;
+    assert(api->process(instance,&ctx)==ORPHEUS_OK && calls==before);
+    assert(api->process(NULL,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    assert(api->process(instance,NULL)==ORPHEUS_ERR_INVALID_ARG);
+    assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+'''.replace("TWO_GROUPS", str(int(two_groups))).replace("AUDIO_INPUT", str(int(port_type == "audio"))),
+        encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)

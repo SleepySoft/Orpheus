@@ -13,14 +13,14 @@
 #define CHECK(x) do { if (!(x)) { fprintf(stderr,"%d: %s\n",__LINE__,#x); return 1; } } while (0)
 int main(int argc,char** argv) {
 #ifdef ORPHEUS_TEST_GENERATED
-    CHECK(argc>=7);
+    CHECK(argc>=8);
     const char* mode=argv[1]; unsigned quantum=(unsigned)atoi(argv[2]); int first=3;
     CHECK(orpheus_generated_init(48000,quantum)==ORPHEUS_OK);
 #define GET(n,k,v) orpheus_control_get_value(n,k,v)
 #define READ(n,k,v,c) orpheus_control_get_bulk(n,k,v,c)
 #define PROCESS() (!strcmp(mode,"task") ? ORPHEUS_TEST_TASK_FUNCTION(0) : orpheus_generated_process(quantum))
 #else
-    CHECK(argc>=9);
+    CHECK(argc>=10);
     const char* mode=argv[3]; unsigned quantum=(unsigned)atoi(argv[4]); int first=5;
     orpheus::Runtime runtime;
     const orpheus::Plan plan=orpheus::Plan::load_from_file(argv[1]);
@@ -31,7 +31,7 @@ int main(int argc,char** argv) {
 #define READ(n,k,v,c) runtime.get_bulk(n,k,v,c)
 #define PROCESS() (!strcmp(mode,"task") ? runtime.process_task(task_id,0) : runtime.process_block(quantum))
 #endif
-    CHECK((argc-first)%4==0);
+    CHECK((argc-first)%5==0);
     unsigned blocks=3;
     const char* configured_blocks=getenv("ORPHEUS_TEST_BLOCKS");
     if (configured_blocks) {
@@ -39,18 +39,13 @@ int main(int argc,char** argv) {
         CHECK(end!=configured_blocks && *end=='\0' && parsed>=1 && parsed<=100000);
         blocks=(unsigned)parsed;
     }
-    unsigned calls_per_block=1;
-    const char* configured_calls=getenv("ORPHEUS_TEST_CALLS_PER_BLOCK");
-    if (configured_calls) {
-        char* end=NULL;unsigned long parsed=strtoul(configured_calls,&end,10);
-        CHECK(end!=configured_calls && *end=='\0' && parsed>=1 && parsed<=1024);
-        calls_per_block=(unsigned)parsed;
-    }
     FILE* file=fopen("halfcomplex.bin","wb"); CHECK(file);
     float values[8192];
     for (unsigned block=0;block<blocks;++block) {
         CHECK(PROCESS()==ORPHEUS_OK);
-        for (int i=first;i<argc;i+=4) {
+        for (int i=first;i<argc;i+=5) {
+            char* end=NULL;unsigned long calls_per_block=strtoul(argv[i+4],&end,10);
+            CHECK(end!=argv[i+4] && *end=='\0' && calls_per_block>=1 && calls_per_block<=1024);
             OrpheusValue value={ORPHEUS_VALUE_INT,{0}};
             CHECK(GET(argv[i],"calls",&value)==ORPHEUS_OK
                   && value.value.i32==(int32_t)((block+1)*calls_per_block));

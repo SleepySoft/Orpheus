@@ -384,18 +384,22 @@ target_compile_definitions(bulk_slice_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_slice_smoke COMMAND bulk_slice_smoke)
 
 add_executable(bulk_sum_smoke bulk_sum_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_sum/src/bulk_sum.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_sum/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_sum/user/algorithm.c)
 target_include_directories(bulk_sum_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_sum/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_sum/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_sum/user)
 target_compile_definitions(bulk_sum_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_sum_smoke COMMAND bulk_sum_smoke)
 
 add_executable(bulk_scale_smoke bulk_scale_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_scale/src/bulk_scale.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_scale/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_scale/user/algorithm.c)
 target_include_directories(bulk_scale_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_scale/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_scale/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_scale/user)
 target_compile_definitions(bulk_scale_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_scale_smoke COMMAND bulk_scale_smoke)
 
@@ -438,10 +442,12 @@ endif()
 add_test(NAME bulk_guarded_slew_smoke COMMAND bulk_guarded_slew_smoke)
 
 add_executable(bulk_subtract_smoke bulk_subtract_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_subtract/src/bulk_subtract.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_subtract/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_subtract/user/algorithm.c)
 target_include_directories(bulk_subtract_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_subtract/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_subtract/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_subtract/user)
 target_compile_definitions(bulk_subtract_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_subtract_smoke COMMAND bulk_subtract_smoke)
 

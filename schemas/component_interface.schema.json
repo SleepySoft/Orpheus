@@ -20,6 +20,14 @@
     "ui_hidden": {"type": "boolean"},
     "user_owned": {"type": "boolean"},
     "platforms": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "input_alternatives": {
+      "type": "array", "uniqueItems": true,
+      "description": "每组单个输入数据接口恰好连接一个；引用及跨组不交叠由共享校验核心验证。",
+      "items": {
+        "type": "array", "minItems": 2, "uniqueItems": true,
+        "items": {"$ref": "#/$defs/identifier"}
+      }
+    },
     "scheduling": {
       "type": "object", "additionalProperties": false,
       "properties": {

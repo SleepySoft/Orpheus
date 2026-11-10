@@ -1,20 +1,17 @@
 id: orpheus.builtin.bulk_sum
 name: "数组有序求和"
 category: "数学与控制"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: BulkSumState
 description: >-
   各通道独立按元素顺序求和，从第一项初始化，每次加法舍入为f32，不重排或补加初始零。
   输出每通道一项，不广播、不做FFT或跨调用累计；元素数独立于调用量子。
   输入必需，NULL输出仍验证输入；禁止输入输出重叠。单项求和保留原始位型。
-sources: [src/bulk_sum.c]
-headers: [include/orpheus_bulk_sum.h]
-ports:
-  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1}
-parameters:
-  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
-  - {id: elements, name: 每通道元素数, type: int, default: 65, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+interfaces:
+  in: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", process: true}
+  out: {direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1, drive_port_no: 1, drive_divide: 1}
+  channels: {name: 通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  elements: {name: 每通道元素数, type: int, default: 65, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
 execution: {realtime_safe: true, supports_inplace: false}

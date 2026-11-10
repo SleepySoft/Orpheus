@@ -45,7 +45,7 @@ _POLICIES = {"immediate", "block_boundary", "smoothed", "transactional", "restar
 LIFECYCLE_HOOKS = ("validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
         "category", "description", "interfaces", "algorithm", "order", "execution", "memory",
-        "platforms", "ui_hidden", "user_owned", "scheduling"}
+        "platforms", "ui_hidden", "user_owned", "scheduling", "input_alternatives"}
 _PORT = {"name", "direction", "type", "sample_format", "channels", "block_size", "sample_rate",
          "process", "drive_port_no", "drive_divide", "count", "description", "layout", "frame_size",
          "timing", "optional"}
@@ -274,6 +274,27 @@ def _validate_port_groups(interfaces):
             if (other != key and other_maximum and other.startswith(key) and
                     _expanded_index_exists(other[len(key):] + "0", maximum)):
                 _fail("count 组展开后的接口 ID 相互冲突", f"interfaces.{key}.count")
+
+
+def _validate_input_alternatives(groups, interfaces):
+    if not isinstance(groups, list):
+        _fail("input_alternatives 必须是输入接口组的列表", "input_alternatives")
+    seen = set()
+    for index, group in enumerate(groups):
+        location = f"input_alternatives[{index}]"
+        if not isinstance(group, list) or len(group) < 2:
+            _fail("每组必须是至少两个不同输入接口键的列表", location)
+        for position, key in enumerate(group):
+            member_location = f"{location}[{position}]"
+            if not isinstance(key, str) or key not in interfaces:
+                _fail("必须引用已声明的 interfaces 输入接口键", member_location)
+            port = interfaces[key]
+            if (port.get("direction") != "input" or
+                    port.get("type") not in {"audio", "bulk", "control", "debug"} or "count" in port):
+                _fail("仅允许未声明 count 的单个输入数据接口，不允许输出、参数或纯触发接口", member_location)
+            if key in seen:
+                _fail("input_alternatives 的接口不得在同组或不同组中重复、交叠", member_location)
+            seen.add(key)
 
 
 def _validate(raw):
@@ -518,6 +539,7 @@ def _validate(raw):
                         _fail("shape 维度必须是正整数或 param 引用", loc)
                     references[(key, f"shape{len(references)}")] = dimension
     _validate_port_groups(interfaces)
+    _validate_input_alternatives(raw.get("input_alternatives", []), interfaces)
     count_parameters = {item["count"].split(":")[1] for item in interfaces.values()
                         if "direction" in item and isinstance(item.get("count"), str)}
     visiting, done = set(), set()

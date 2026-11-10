@@ -17,6 +17,24 @@ int orpheus_test_array_source_algorithm(orpheus_test_array_source_State* s,
 }
 '''
 
+PAIRED_SOURCE = r'''
+#include "component_state.h"
+#include "component_api.h"
+int orpheus_test_array_source_algorithm(orpheus_test_array_source_State* s,
+    orpheus_test_array_source_IO* io, const OrpheusProcessContext* ctx) {
+    if(!io->out.buffer || !io->other.buffer) return ORPHEUS_ERR_INVALID_ARG;
+    int32_t tick=s->calls++;
+    for(int32_t i=0;i<s->channels*s->elements;i++)
+        io->out.samples[i]=((i*17+tick*13)%129-64)*0.03125f;
+    io->out.buffer->frame_count=io->other.buffer->frame_count=(uint32_t)s->elements;
+    int result=orpheus_test_array_source_emit_out(ctx,&io->out);
+    if(result) return result;
+    for(int32_t i=0;i<s->channels*s->elements;i++)
+        io->other.samples[i]=((i*11+tick*7)%97-48)*0.0625f;
+    return orpheus_test_array_source_emit_other(ctx,&io->other);
+}
+'''
+
 CAPTURE = r'''
 #include "component_state.h"
 #include "component_api.h"
@@ -41,7 +59,7 @@ int orpheus_test_array_capture_algorithm(orpheus_test_array_capture_State* s,
 '''
 
 
-def register_array_interfaces(directory, registry, *, capture_b_process=True):
+def register_array_interfaces(directory, registry, *, capture_b_process=True, paired_source=False):
     def parameter(default, maximum):
         return {**scalar("int", default), "range": [1, maximum],
                 "affects_signature": True, "update_policy": "restart_required"}
@@ -50,11 +68,15 @@ def register_array_interfaces(directory, registry, *, capture_b_process=True):
         return {"direction": direction, "type": "bulk", "sample_format": "f32",
                 "channels": f"param:{channels}", "block_size": f"param:{frames}", **fields}
 
-    source = create_component(directory, "array_source", {
+    source_interfaces = {
         "out": port("output", "channels", "elements", drive_port_no=1),
         "channels": parameter(1, 128), "elements": parameter(1, 65536),
         "calls": scalar("int", 0),
-    }, SOURCE, source=True)
+    }
+    if paired_source:
+        source_interfaces["other"] = port("output", "channels", "elements", drive_port_no=2)
+    source = create_component(directory, "array_source", source_interfaces,
+                              PAIRED_SOURCE if paired_source else SOURCE, source=True)
     interfaces = {
         "a": port("input", "channels_a", "frames_a", process=True),
         "b": port("input", "channels_b", "frames_b", process=capture_b_process),

@@ -105,7 +105,7 @@ def verify_halfcomplex_decode(tmp_path, cases, batches):
     arguments = []
     for name, p in cases.items():
         arguments += [name+"_capture", str(p["fft_size"]*batches*p["channels"]),
-                      str(p["bins"]*2*batches*p["channels"]), str(plan.node_configs[name+"_capture"]["frames"])]
+                      str(p["bins"]*2*batches*p["channels"]), str(plan.node_configs[name+"_capture"]["frames"]), "1"]
     baseline = None
     for mode in ("global", "task"):
         commands = [[str(ROOT / "build/tests/halfcomplex_runner.exe"), str(plan_path), str(libraries), mode, str(step), *arguments],

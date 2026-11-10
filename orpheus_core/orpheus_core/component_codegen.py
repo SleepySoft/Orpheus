@@ -705,6 +705,8 @@ def _render(definition):
               "static int process(void* state, const OrpheusProcessContext* ctx) {",
               f"    {state}* s=({state}*)state;", f"    {io} io={{0}};",
               "    if (!s || !s->_orpheus_alive || !ctx) return ORPHEUS_ERR_INVALID_ARG;"]
+    if definition.get("input_alternatives"):
+        shell += ["    if (!ctx->frame_count) return ORPHEUS_OK;"]
     if grouped:
         shell += ["    uint32_t _orpheus_input_count=0, _orpheus_output_count=0;"]
         for port in ports:
@@ -798,6 +800,9 @@ def _render(definition):
             if grouped:
                 amount = f"io.{name}_count" if is_group else "1"
                 shell.append(f"    _orpheus_{direction}_slot+={amount};")
+    for alternatives in definition.get("input_alternatives", []):
+        selected = " + ".join(f"(uint32_t)(io.{name}.buffer != NULL)" for name in alternatives)
+        shell += [f"    if ({selected} != UINT32_C(1)) return ORPHEUS_ERR_INVALID_ARG;"]
     shell += [f"    return {function}(s, &io, ctx);", "}",
               "static const OrpheusComponentInterface interface = {",
               "    .get_descriptor=get_descriptor, .create=create, .destroy=destroy,",

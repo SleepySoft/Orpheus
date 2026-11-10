@@ -1,13 +1,18 @@
-#include "orpheus_bulk_subtract.h"
+#include "orpheus_abi.h"
+#include "component_state.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #define CHECK(x) do {if (!(x)) {fprintf(stderr,"%d: %s\n",__LINE__,#x);return 1;}} while (0)
 int main(void) {
-    const OrpheusComponentInterface* api=orpheus_get_interface();BulkSubtractState state={0};
+    const OrpheusComponentInterface* api=orpheus_get_interface();orpheus_builtin_bulk_subtract_State state;
     const char* ids[]={"channels","elements"};
     OrpheusValue values[]={{.type=ORPHEUS_VALUE_INT,.value.i32=2},{.type=ORPHEUS_VALUE_INT,.value.i32=5}};
-    OrpheusConfig config={.sample_rate=48000,.block_size=1,.param_ids=ids,.param_values=values,.param_count=2};
-    CHECK(api->prepare(&state,&config)==ORPHEUS_OK);
+    OrpheusConfig config={.sample_rate=48000,.block_size=1,.param_ids=ids,.param_values=values,.param_count=2,
+        .state_block=&state};
+    void* instance=NULL;
+    CHECK(api->create(&instance,&config)==ORPHEUS_OK && instance==&state);
+    CHECK(api->prepare(instance,&config)==ORPHEUS_OK);
     float input[2][10],output[10],expected[10];
     OrpheusBuffer buffers[2];
     for(unsigned p=0;p<2;++p) buffers[p]=(OrpheusBuffer){.data=input[p],.channels=2,.frame_count=5,.frame_capacity=5,.format=ORPHEUS_FORMAT_F32,.interleaved=true};
@@ -33,12 +38,27 @@ int main(void) {
     outputs[0]=NULL;CHECK(api->process(&state,&context)==ORPHEUS_OK);
     outputs[0]=&out;context.frame_count=0;
     CHECK(api->process(&state,&context)==ORPHEUS_OK && !memcmp(saved,output,sizeof(saved)));
-    BulkSubtractState previous=state;values[1].value.i32=0;
+    orpheus_builtin_bulk_subtract_State previous=state;values[1].value.i32=0;
     CHECK(api->prepare(&state,&config)==ORPHEUS_ERR_INVALID_ARG && !memcmp(&previous,&state,sizeof(state)));
+    values[0].value.i32=64;values[1].value.i32=65536;
+    CHECK(api->prepare(&state,&config)==ORPHEUS_OK);
+    size_t count=(size_t)64*65536;
+    float* large_a=malloc(count*sizeof(float));float* large_b=malloc(count*sizeof(float));float* difference=malloc(count*sizeof(float));
+    CHECK(large_a && large_b && difference);
+    for(size_t i=0;i<count;++i) { large_a[i]=2;large_b[i]=0.5f; }
+    for(unsigned p=0;p<2;++p) {
+        buffers[p].data=p ? large_b : large_a;buffers[p].channels=64;
+        buffers[p].frame_count=buffers[p].frame_capacity=65536;inputs[p]=buffers+p;
+    }
+    out.data=difference;out.channels=64;out.frame_count=0;out.frame_capacity=65536;context.frame_count=128;
+    CHECK(api->process(&state,&context)==ORPHEUS_OK && out.frame_count==65536);
+    for(size_t i=0;i<count;++i) CHECK(difference[i]==1.5f);
+    values[1].value.i32=65537;CHECK(api->prepare(&state,&config)==ORPHEUS_ERR_INVALID_ARG);
+    OrpheusValue got;CHECK(api->get_parameter(&state,"elements",&got)==ORPHEUS_OK && got.value.i32==65536);
+    free(large_a);free(large_b);free(difference);
     CHECK(api->destroy(&state)==ORPHEUS_OK);
-    void* allocated=NULL;config.state_block=&state;
-    CHECK(api->create(&allocated,&config)==ORPHEUS_OK && allocated==&state && !state.owns_memory);
+    void* allocated=NULL;config.state_block=&state;values[1].value.i32=5;
+    CHECK(api->create(&allocated,&config)==ORPHEUS_OK && allocated==&state);
     CHECK(api->destroy(allocated)==ORPHEUS_OK);config.state_block=NULL;
-    CHECK(api->create(&allocated,&config)==ORPHEUS_OK && ((BulkSubtractState*)allocated)->owns_memory);
-    CHECK(api->destroy(allocated)==ORPHEUS_OK);return 0;
+    CHECK(api->create(&allocated,&config)==ORPHEUS_ERR_INVALID_ARG);return 0;
 }

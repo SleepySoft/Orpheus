@@ -46,7 +46,15 @@ def use_linear_call_chain(plan):
 def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3, calls_per_block=1):
     from test_generated_double_bank import _build
     assert isinstance(blocks,int) and 1<=blocks<=100000
-    if type(calls_per_block) is not int or not 1 <= calls_per_block <= 1024:
+    if isinstance(calls_per_block, dict):
+        if set(calls_per_block) != set(captures):
+            raise ValueError("每块采集调用次数必须完整对应采集节点。")
+        capture_calls = calls_per_block
+    else:
+        if type(calls_per_block) is not int or not 1 <= calls_per_block <= 1024:
+            raise ValueError("每块采集调用次数必须是1至1024的整数。")
+        capture_calls = {node: calls_per_block for node in captures}
+    if any(type(count) is not int or not 1 <= count <= 1024 for count in capture_calls.values()):
         raise ValueError("每块采集调用次数必须是1至1024的整数。")
     use_linear_call_chain(plan)
     if len(plan.tasks) != 1:
@@ -88,15 +96,14 @@ def execute_array_graph(tmp_path, registry, plan, captures, *, blocks=3, calls_p
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
     args = [value for node, (a, b) in captures.items()
-            for value in (node, str(a), str(b), str(plan.node_configs[node]["frames"]))]
+            for value in (node, str(a), str(b), str(plan.node_configs[node]["frames"]), str(capture_calls[node]))]
     baseline = None
     expected_size = sum(a+b for a, b in captures.values())*4*blocks
     for mode in ("global", "task"):
         for command in ([str(ROOT / "build/tests/halfcomplex_runner.exe"), str(plan_path), str(libraries), mode, str(step), *args],
                         [str(generated / "build/array_test.exe"), mode, str(step), *args]):
             result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, encoding="utf-8",
-                                    env={**os.environ, "ORPHEUS_TEST_BLOCKS": str(blocks),
-                                         "ORPHEUS_TEST_CALLS_PER_BLOCK": str(calls_per_block)})
+                                    env={**os.environ, "ORPHEUS_TEST_BLOCKS": str(blocks)})
             assert result.returncode == 0, result.stdout+result.stderr
             data = (tmp_path / "halfcomplex.bin").read_bytes()
             if baseline is None: baseline = data

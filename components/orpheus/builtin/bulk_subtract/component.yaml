@@ -1,21 +1,18 @@
 id: orpheus.builtin.bulk_subtract
 name: "数组逐元素相减"
 category: "数学与控制"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: BulkSubtractState
 description: >-
   同shape的两份f32 BULK逐点执行a-b，结果舍入为f32，不裁剪、不融合到下游算术。
   elements是每通道数据行数，不改变宿主时间量子；无持久历史或process分配。
   两输入均必需，允许输入相互共享存储；输出可悬空，但禁止与任一输入重叠。
-sources: [src/bulk_subtract.c]
-headers: [include/orpheus_bulk_subtract.h]
-ports:
-  - {id: a, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
-  - {id: b, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
-parameters:
-  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
-  - {id: elements, name: 每通道元素数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+interfaces:
+  a: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", process: true}
+  b: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", process: true}
+  out: {direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", drive_port_no: 1, drive_divide: 1}
+  channels: {name: 通道数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  elements: {name: 每通道元素数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
 execution: {realtime_safe: true, supports_inplace: false}

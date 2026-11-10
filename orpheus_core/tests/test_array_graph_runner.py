@@ -68,3 +68,12 @@ def test_explicit_multitask_capture_fails_before_generation(tmp_path):
 def test_invalid_capture_cadence_fails_before_generation(tmp_path, calls):
     with pytest.raises(ValueError, match="调用次数"):
         execute_array_graph(tmp_path, None, None, {}, calls_per_block=calls)
+
+
+@pytest.mark.parametrize("calls", [
+    {}, {"wrong": 2}, {"capture": 2, "extra": 1}, {"capture": 0},
+    {"capture": True}, {"capture": 2.5}, {"capture": 1025},
+])
+def test_invalid_per_capture_cadence_fails_before_generation(tmp_path, calls):
+    with pytest.raises(ValueError, match="调用次数"):
+        execute_array_graph(tmp_path, None, None, {"capture": (1, 1)}, calls_per_block=calls)
