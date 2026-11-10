@@ -1,10 +1,10 @@
 id: orpheus.builtin.bulk_ring_delay
 name: "数组环形历史"
 category: "驱动与缓冲"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: BulkRingDelayState
+algorithm: {lifecycle: [validate, prepare, reset, destroy]}
 description: >-
   每批先将bins行完整写入各通道独立环形池，再从本批起点-delay_elements处读取bins行。
   这是写完整批后读取的循环寻址，不等同于逐样本音频延迟或整帧FIFO。
@@ -12,16 +12,13 @@ description: >-
   batches按时间顺序连续推进同一池；变更延迟不重排或清除旧历史。
   reset恢复零池和零游标而保留配置；悬空输出仍推进历史，零处理量不推进。
   输入输出禁止重叠；先校验输出再写池；process仅复制位型，不分配内存。
-sources: [src/bulk_ring_delay.c]
-headers: [include/orpheus_bulk_ring_delay.h]
-ports:
-  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*param:batches"}
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*param:batches"}
-parameters:
-  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
-  - {id: bins, name: 每批向量行数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
-  - {id: batches, name: 顺序批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
-  - {id: capacity_elements, name: 每通道环形容量（不小于bins）, type: int, default: 2193, range: [1, 1048576], update_policy: restart_required}
-  - {id: delay_elements, name: 环形读取偏移, type: int, default: 0, range: [0, 2147483647], update_policy: block_boundary}
-memory: {state_size: 0, scratch_size: 0, alignment: 8}
+interfaces:
+  in: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*param:batches", process: true}
+  out: {direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:bins*param:batches", drive_port_no: 1}
+  channels: {name: 通道数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  bins: {name: 每批向量行数, type: int, default: 129, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  batches: {name: 顺序批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  capacity_elements: {name: 每通道环形容量（不小于bins）, type: int, default: 2193, range: [1, 1048576], update_policy: restart_required}
+  delay_elements: {name: 环形读取偏移, type: int, default: 0, range: [0, 2147483647], update_policy: block_boundary}
+memory: {alignment: 8}
 execution: {realtime_safe: true, supports_inplace: false}
