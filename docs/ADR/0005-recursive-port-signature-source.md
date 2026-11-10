@@ -3,7 +3,7 @@
 - 状态：已接受
 - 决策日期：2026-11-10
 - 记录日期：2026-11-10
-- 关联：[ADR-0003](0003-declared-interfaces-and-host-audio.md)、[ADR-0004](0004-parameter-lifecycle-and-visibility.md)
+- 关联：[ADR-0003](0003-declared-interfaces-and-host-audio.md)、[ADR-0004](0004-parameter-lifecycle-and-visibility.md)、[ADR-0006](0006-configured-port-contracts.md)
 
 ## 背景与问题
 
@@ -52,6 +52,9 @@
 - 不解析的分量仍可编辑；请求失败会显示原因，不能继续展示过期签名为当前事实。
 
 ## 演进与落实
+
+后续 [ADR-0006](0006-configured-port-contracts.md) 细化第 5 条：已声明的配置可直接呈现，
+不因连接校验遮盖；关系推导和差异校验仍由后端编译器提供唯一事实源。
 
 已提取编译器共享的端口与块长解析阶段，复用递归展开的最终端点；
 增加实例约束保留、只读 API 和 UI 接入。默认参数注入及无上游输入表达式使用同一套规则。

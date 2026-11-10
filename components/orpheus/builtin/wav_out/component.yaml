@@ -33,9 +33,9 @@ parameters:
     update_policy: restart_required
     affects_signature: true
   - id: sample_rate
-    name: 采样率
+    name: 采样率（0=跟随输入）
     type: int
-    default: 48000
+    default: 0
     update_policy: restart_required
 memory:
   state_size: 0

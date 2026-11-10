@@ -176,6 +176,75 @@ def test_automatic_input_resolution_preserves_explicit_port_constraints(registry
     assert signatures["gain:out"]["frames"] == 96
 
 
+@pytest.mark.parametrize("field,value,reported,message", [
+    ("channels", 1, "channels", "channels mismatch"),
+    ("sample_format", "i16", "sample_format", "format mismatch"),
+    ("block_size", 64, "frames", "block size mismatch"),
+    ("sample_rate", 44100, "sample_rate", "sample rate mismatch"),
+    ("type", "bulk", "type", "type mismatch"),
+])
+def test_configured_connection_mismatch_is_reported_without_rewriting(
+    registry, field, value, reported, message,
+):
+    local = registry.fork()
+    local.get("orpheus.builtin.gain").manifest["ports"][0][field] = value
+    project = Project(graph=Graph(nodes={
+        "source": Node("source", "orpheus.builtin.signal_gen", params={"channels": 2}),
+        "gain": Node("gain", "orpheus.builtin.gain", params={"channels": 2}),
+        "ok": Node("ok", "orpheus.builtin.null_sink", params={"channels": 2}),
+    }, connections=[connection("source:out", "gain:in"), connection("source:out", "ok:in")]))
+    before = copy.deepcopy(project_to_dict(project))
+    result = preview_interfaces(project, local)
+    target = result["nodes"]["gain"]["ports"][0]
+    assert target[reported] == value
+    edge = next(edge for edge in result["connections"] if edge["to"] == "gain:in")
+    assert edge["status"] == "mismatch"
+    assert reported in {item["field"] for item in edge["differences"]}
+    assert next(edge for edge in result["connections"] if edge["to"] == "ok:in")["status"] == "matched"
+    assert project_to_dict(project) == before
+    with pytest.raises(CompileError, match=message):
+        GraphCompiler(local).compile(flatten_project(project, local))
+
+
+@pytest.mark.parametrize("configured,expected,status", [
+    (48000, 48000, "mismatch"), (0, 24000, "matched"), (0.0, 24000, "matched"),
+])
+def test_wav_rate_only_adapts_when_explicitly_automatic(registry, configured, expected, status):
+    project = Project(graph=Graph(nodes={
+        "source": Node("source", "orpheus.builtin.signal_gen", params={"channels": 2}),
+        "convert": Node("convert", "orpheus.builtin.resample", params={"factor": 2, "channels": 2}),
+        "sink": Node("sink", "orpheus.builtin.wav_out",
+                     params={"channels": 2, "sample_rate": configured}),
+    }, connections=[connection("source:out", "convert:in"), connection("convert:out", "sink:in")]))
+    result = preview_interfaces(project, registry)
+    assert result["nodes"]["sink"]["ports"][0]["sample_rate"] == expected
+    edge = next(edge for edge in result["connections"] if edge["to"] == "sink:in")
+    assert edge["status"] == status
+    assert project.graph.nodes["sink"].params["sample_rate"] == configured
+    if configured:
+        with pytest.raises(CompileError, match="sample rate mismatch"):
+            GraphCompiler(registry).compile(flatten_project(project, registry))
+    else:
+        plan = GraphCompiler(registry).compile(flatten_project(project, registry))
+        assert int(plan.node_configs["sink"]["params"]["sample_rate"]) == expected
+
+
+def test_recursive_connection_reports_visible_endpoints_and_preserves_instance_configuration(registry):
+    project = nested_project()
+    project.graph.connections = [connection("a:output", "b:input")]
+    result = preview_interfaces(project, registry)
+    edge = result["connections"][0]
+    assert (edge["from"], edge["to"], edge["status"]) == ("a:output", "b:input", "mismatch")
+    assert next(item for item in edge["differences"] if item["field"] == "channels") == {
+        "field": "channels", "source": 7, "target": 5,
+        "message": "channels mismatch: a__child__body:out (7) -> b__child__body:in (5)",
+    }
+    assert result["nodes"]["a"]["ports"][1]["channels"] == 7
+    assert result["nodes"]["b"]["ports"][0]["channels"] == 5
+    assert project.graph.nodes["a"].params == {"width": 7}
+    assert project.graph.nodes["b"].params == {}
+
+
 @pytest.mark.parametrize("signature", [
     {"channels": 9}, {"sample_format": "s16"}, {"block_size": 24}, {"sample_rate": 44100},
 ])

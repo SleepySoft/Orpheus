@@ -58,6 +58,7 @@ def preview_interfaces(project: Project, registry: Registry, view_key: str = "ma
     compiler = GraphCompiler(registry)
     nodes: dict[str, Any] = {}
     diagnostics = []
+    connections = []
     for edge in graph.connections:
         if edge.from_ref.node_id not in graph.nodes and edge.to_ref.node_id not in graph.nodes:
             diagnostics.append({"nodes": [], "message": f"连接引用不存在的节点：{edge.from_ref} → {edge.to_ref}"})
@@ -67,6 +68,11 @@ def preview_interfaces(project: Project, registry: Registry, view_key: str = "ma
         diagnostics.append({"nodes": sorted(group), "message": message})
         for key in group:
             nodes[key] = {"status": "error", "message": message}
+        connections.extend({
+            "from": str(edge.from_ref), "to": str(edge.to_ref),
+            "status": "error", "differences": [], "message": message,
+        } for edge in graph.connections
+            if edge.from_ref.node_id in group or edge.to_ref.node_id in group)
 
     for group in _groups(graph):
         part = Graph(
@@ -101,7 +107,9 @@ def preview_interfaces(project: Project, registry: Registry, view_key: str = "ma
                     raise CompileError(task_errors[node.task])
             flat = replace(flat, tasks=tasks)
             conflicts: list[dict[str, Any]] = []
-            signatures, expanded = compiler.resolve_port_signatures(flat, diagnostics=conflicts)
+            edge_diagnostics: list[dict[str, Any]] = []
+            signatures, expanded = compiler.resolve_port_signatures(
+                flat, diagnostics=conflicts, connection_diagnostics=edge_diagnostics)
             diagnostics.extend(conflicts)
             bindings = {binding["origin"]: binding["endpoint"] for binding in flat.interface_bindings}
             for key, node in part.nodes.items():
@@ -131,6 +139,21 @@ def preview_interfaces(project: Project, registry: Registry, view_key: str = "ma
                         (f"{key}:", f"{key}__"),
                     )],
                 }
+            by_edge = {(edge["from"], edge["to"]): edge for edge in edge_diagnostics}
+            for edge in part.connections:
+                source, target = str(edge.from_ref), str(edge.to_ref)
+                resolved = by_edge[(bindings.get(source, source), bindings.get(target, target))]
+                constraints = [item["message"] for item in conflicts if item["origin"] in (source, target)]
+                message = "\n".join([resolved["message"], *constraints]).strip()
+                connection = {
+                    **resolved, "from": source, "to": target,
+                    "status": "mismatch" if resolved["differences"] or constraints else "matched",
+                    "message": message,
+                }
+                connections.append(connection)
+                if message:
+                    diagnostics.append({"nodes": [edge.from_ref.node_id, edge.to_ref.node_id],
+                                        "from": source, "to": target, "message": message})
         except (CompileError, ValueError, TypeError, ZeroDivisionError) as exc:
             report_error(group, str(exc))
-    return {"view_key": view_key, "nodes": nodes, "diagnostics": diagnostics}
+    return {"view_key": view_key, "nodes": nodes, "connections": connections, "diagnostics": diagnostics}

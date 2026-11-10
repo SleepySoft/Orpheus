@@ -41,10 +41,34 @@ export function interfaceState(node, edges = []) {
   };
 }
 
+function configuredPortValue(port, field, data) {
+  let value = port[field] ?? (field === 'sample_format' ? port.format : undefined);
+  if (typeof value === 'string' && /^param:[\w]+$/.test(value)) {
+    const id = value.slice(6);
+    value = data.params?.[id] ?? data.parameters?.find((parameter) => parameter.id === id)?.default;
+  }
+  if (['channels', 'block_size', 'sample_rate'].includes(field)) {
+    return value !== undefined && value !== null && value !== ''
+      && ['number', 'string'].includes(typeof value) && Number.isFinite(Number(value))
+      && !(field === 'sample_rate' && Number(value) === 0) ? Number(value) : undefined;
+  }
+  return typeof value === 'string' && !value.includes(':') ? value : undefined;
+}
+
 export function portSignature(port, data) {
   if (data.portResolution?.status === 'error') return `解析失败：${data.portResolution.message}`;
   if (data.portResolution?.status === 'pending'
-    || !['resolved', 'conflict'].includes(port.resolution?.status)) return '解析中：正在获取当前视图的端口规格';
+    || !['resolved', 'conflict'].includes(port.resolution?.status)) {
+    const type = configuredPortValue(port, 'type', data);
+    const format = configuredPortValue(port, 'sample_format', data);
+    const channels = configuredPortValue(port, 'channels', data);
+    const frames = configuredPortValue(port, 'block_size', data);
+    const rate = configuredPortValue(port, 'sample_rate', data);
+    return `配置：${type || '类型解析中'} · ${format || '格式解析中'} · `
+      + `${channels === undefined ? '通道解析中' : `${channels}ch`} · `
+      + `${frames === undefined ? '块长解析中' : `${frames}帧`} · `
+      + `${rate === undefined ? '采样率解析中' : `${rate}Hz`} · 连线校验中`;
+  }
   const actual = `${port.type} · ${port.sample_format} · ${port.channels}ch · `
     + `${port.frames}帧 · ${port.sample_rate}Hz`;
   return port.resolution.status === 'conflict' ? `${actual} · 约束冲突` : actual;

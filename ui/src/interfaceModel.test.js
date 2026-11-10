@@ -173,9 +173,25 @@ test('宿主条件和交付观测准确，不伪造 ready/valid 或触发', () =
   expect(bindingStatus(outputBinding, { ...node.data, interfaces: { upstreamPorts: ['samples'] } }))
     .toContain('上游供数，禁止宿主写入');
   expect(portSignature({ channels: 2 }, node.data)).toContain('解析中');
-  expect(portSignature(ports[0], { portResolution: { status: 'pending' } })).toContain('解析中');
+  expect(portSignature(ports[0], { portResolution: { status: 'pending' } })).toContain('连线校验中');
   expect(portSignature(ports[0], { portResolution: { status: 'error', message: '循环引用' } }))
     .toBe('解析失败：循环引用');
+});
+
+test('已配置字段直接显示，只对未知字段等待后端，不在前端求值或修改配置', () => {
+  const data = { params: { channels: '6', frames: 96 },
+    parameters: [{ id: 'channels', default: 2 }],
+    portResolution: { status: 'pending' } };
+  const port = { type: 'audio', sample_format: 'f32', channels: 'param:channels',
+    block_size: 'param:frames', sample_rate: 48000 };
+  const before = JSON.stringify({ port, data });
+  expect(portSignature(port, data)).toBe('配置：audio · f32 · 6ch · 96帧 · 48000Hz · 连线校验中');
+  expect(JSON.stringify({ port, data })).toBe(before);
+  expect(portSignature({ ...port, block_size: 'in:block_size*param:factor' }, data))
+    .toContain('块长解析中');
+  expect(portSignature({ ...port, channels: 'param:channels*2' }, data)).toContain('通道解析中');
+  expect(portSignature({ ...port, channels: -1, block_size: 0 }, data)).toContain('-1ch · 0帧');
+  expect(portSignature({ ...port, sample_format: undefined, format: 'i16' }, data)).toContain('i16');
 });
 
 test('旧控制连线保留禁连接锚点，不授予普通配置 bindable', () => {

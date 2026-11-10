@@ -13,6 +13,7 @@ import pytest
 from orpheus_core.builder import run_cmake_with_msvc_env
 from orpheus_core.compiler import CompileError, GraphCompiler
 from orpheus_core.generator import CodeGenerator
+from orpheus_core.interfaces import preview_interfaces
 from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import Registry
 
@@ -79,6 +80,8 @@ def test_async_bridge_plan_metadata(compiler: GraphCompiler) -> None:
     assert plan.node_configs["bridge"]["frames"] == 32
     assert plan.node_configs["bridge"]["port_signatures"]["in"]["frames"] == edge["frame_count"]
     assert plan.node_configs["src"]["port_signatures"]["out"]["frames"] == 24
+    preview = preview_interfaces(project_with_bridge(), compiler.registry)
+    assert all(edge["status"] == "matched" for edge in preview["connections"])
 
 
 @pytest.mark.skipif(

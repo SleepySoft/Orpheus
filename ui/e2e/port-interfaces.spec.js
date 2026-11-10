@@ -37,6 +37,7 @@ test('真实 API 递归解析实例端口，编辑快照不落盘且定义视图
     if (new URL(request.url()).pathname === `/api/projects/${name}/interfaces`)
       interfaceRequests.push(request.postDataJSON().view_key);
   });
+
   try {
     const saved = await request.put(`/api/projects/${name}`, { data: document });
     expect(saved.ok(), await saved.text()).toBeTruthy();
@@ -86,6 +87,74 @@ test('真实 API 递归解析实例端口，编辑快照不落盘且定义视图
     expect(interfaceRequests.length).toBe(requestCount);
     expect(blocked).toEqual([]);
   } finally {
+    expect((await request.delete(`/api/projects/${name}`)).ok()).toBeTruthy();
+  }
+});
+
+test('已配置格式直接显示，失配仅标红对应线，用户修正参数后恢复且不偷偷保存', async ({ page, request }) => {
+  const name = `test_configured_ports_${Date.now()}`;
+  expect((await request.post('/api/projects', { data: { name } })).status()).toBe(201);
+  const document = {
+    version: '0.1.0', block_size: 32, sample_rate: 48000,
+    graph: {
+      nodes: [
+        { id: 'source', component: 'orpheus.builtin.signal_gen', params: { channels: 2 },
+          position: { x: 100, y: 100 } },
+        { id: 'target', component: 'orpheus.builtin.gain', params: { channels: 1 },
+          position: { x: 700, y: 100 } },
+        { id: 'ok', component: 'orpheus.builtin.null_sink', params: { channels: 2 },
+          position: { x: 700, y: 400 } },
+      ],
+      connections: [{ from: 'source:out', to: 'target:in' }, { from: 'source:out', to: 'ok:in' }],
+    },
+  };
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const blocked = [];
+  try {
+    expect((await request.put(`/api/projects/${name}`, { data: document })).ok()).toBeTruthy();
+    await page.route('**/api/**', async (route) => {
+      const { pathname } = new URL(route.request().url());
+      const method = route.request().method();
+      if (pathname === '/api/projects' && method === 'GET') {
+        await route.fulfill({ json: [{ name }] });
+        return;
+      }
+      const own = pathname === `/api/projects/${name}` || pathname.startsWith(`/api/projects/${name}/`);
+      if ((pathname.startsWith('/api/projects/') && !own)
+        || (!['GET', 'HEAD'].includes(method) && (!own || !pathname.endsWith('/interfaces')))) {
+        blocked.push(`${method} ${pathname}`);
+        await route.abort();
+        return;
+      }
+      if (pathname.endsWith('/interfaces')) await gate;
+      await route.continue();
+    });
+    await page.goto('/');
+    await page.getByRole('checkbox', { name: '自动保存', exact: true }).uncheck();
+    const source = page.locator('.react-flow__node[data-id="source"]');
+    const target = page.locator('.react-flow__node[data-id="target"]');
+    await expect(source).toContainText('配置：audio · f32 · 2ch');
+    await expect(target).toContainText('配置：audio · f32 · 1ch');
+    release();
+    const invalid = page.locator('.audio-edge-path.mismatch');
+    await expect(invalid).toHaveCount(1);
+    await expect(invalid.locator('title')).toContainText('通道数：source:out（2） → target:in（1）');
+    await expect(invalid.locator('.react-flow__edge-path')).toHaveCSS('stroke', 'rgb(224, 49, 49)');
+    await expect(page.locator('.audio-edge-path[data-connection-status="matched"]')).toHaveCount(1);
+    await target.locator('.node-title').click();
+    const channels = page.locator('[data-interface="parameter:channels"] .param-field input');
+    await expect(channels).toHaveValue('1');
+    await channels.fill('2');
+    await channels.press('Tab');
+    await expect(invalid).toHaveCount(0);
+    await expect(page.locator('.audio-edge-path[data-connection-status="matched"]')).toHaveCount(2);
+    const stored = await (await request.get(`/api/projects/${name}`)).json();
+    expect(stored.graph.nodes.find((node) => node.id === 'target').params.channels).toBe(1);
+    expect(stored.graph.connections).toEqual(document.graph.connections);
+    expect(blocked).toEqual([]);
+  } finally {
+    release();
     expect((await request.delete(`/api/projects/${name}`)).ok()).toBeTruthy();
   }
 });

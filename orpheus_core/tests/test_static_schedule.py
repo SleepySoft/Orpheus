@@ -19,6 +19,7 @@ import pytest
 
 from orpheus_core.compiler import GraphCompiler
 from orpheus_core.generator import CodeGenerator
+from orpheus_core.interfaces import preview_interfaces
 from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import Registry
 
@@ -80,6 +81,8 @@ def test_merge_schedule_table(compiler):
         assert plan.node_configs[node]["port_signatures"][port]["frames"] == buffer["frame_count"]
     assert plan.node_configs["a"]["port_signatures"]["out"]["frames"] == 24
     assert plan.node_configs["b"]["port_signatures"]["out"]["frames"] == 32
+    preview = preview_interfaces(make_merge_project(), compiler.registry)
+    assert all(edge["status"] == "matched" for edge in preview["connections"])
 
     tasks = {task["id"]: task for task in plan.tasks}
     assert list(tasks) == ["tidA", "tidB"]

@@ -1862,8 +1862,10 @@ const { screenToFlowPosition } = useReactFlow();
 
   // 已连接接口始终可见；形状失配标红保留，显露不改变连线与驱动。
   const displayEdges = useMemo(
-    () =>
-      projectDriveEdgesForView(view.nodes, view.edges)
+    () => {
+      const connections = new Map((portInterfaces?.connections || [])
+        .map((edge) => [`${edge.from}->${edge.to}`, edge]));
+      return projectDriveEdgesForView(view.nodes, view.edges)
         .filter((e) => !isDriveEdge(e) || flowMode === 'task_sequence')
         .map((e) => {
           if (isDriveEdge(e)) return {
@@ -1880,7 +1882,13 @@ const { screenToFlowPosition } = useReactFlow();
               } } : {}),
             },
           };
-          if (e.type !== 'control') return { ...e, type: 'audio' };
+          if (e.type !== 'control') return {
+            ...e, type: 'audio',
+            data: {
+              ...e.data,
+              ...connections.get(`${e.source}:${e.sourceHandle}->${e.target}:${e.targetHandle}`),
+            },
+          };
           const src = controlEndpointInfo(view.nodes, e.source, e.sourceHandle);
           const dst = controlEndpointInfo(view.nodes, e.target, e.targetHandle);
           const mismatch = !src || !dst || !shapeEquals(src.shape, dst.shape);
@@ -1888,8 +1896,9 @@ const { screenToFlowPosition } = useReactFlow();
             ...e,
             data: { srcShape: src?.shape ?? null, dstShape: dst?.shape ?? null, mismatch },
           };
-        }),
-    [view.edges, view.nodes, flowMode, activeView, activeSub, updateView]
+        });
+    },
+    [view.edges, view.nodes, flowMode, activeView, activeSub, updateView, portInterfaces]
   );
 
   const viewMemberships = useMemo(() => driveMembershipsForViews(views, flowMode),

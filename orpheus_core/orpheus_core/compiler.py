@@ -62,6 +62,37 @@ def _input_buffer_frames(
     return merge_frames if merge_frames is not None else source_frames
 
 
+def _connection_differences(
+    source: ResolvedPort, target: ResolvedPort, input_frames: int | None = None,
+) -> list[dict[str, Any]]:
+    source_ref = f"{source.node_id}:{source.port_id}"
+    target_ref = f"{target.node_id}:{target.port_id}"
+    fields = [
+        ("type", source.type, target.type, "type mismatch"),
+        ("sample_format", source.sample_format, target.sample_format, "format mismatch"),
+        ("channels", source.channels, target.channels, "channels mismatch"),
+    ]
+    if source.type == target.type == "audio":
+        fields.append(("sample_rate", source.sample_rate, target.sample_rate, "sample rate mismatch"))
+    if input_frames is not None and source.type == target.type:
+        fields.append(("frames", input_frames, target.block_size,
+                       "block size mismatch" if source.type == "audio" else "数据形状不匹配"))
+        if source.type != "audio":
+            fields.extend([
+                ("layout", source.layout, target.layout, "数据布局/帧结构不匹配"),
+                ("frame_size", source.frame_size, target.frame_size, "数据布局/帧结构不匹配"),
+            ])
+    return [
+        {
+            "field": name,
+            "source": float(left) if isinstance(left, Fraction) else left,
+            "target": float(right) if isinstance(right, Fraction) else right,
+            "message": f"{label}: {source_ref} ({left}) -> {target_ref} ({right})",
+        }
+        for name, left, right, label in fields if left != right
+    ]
+
+
 @dataclass
 class ExecutionPlan:
     abi_version: int
@@ -503,9 +534,13 @@ class GraphCompiler:
                              if 'default' in p and not (
                                  comp.manifest.get("clock_source") and p["id"] == "sample_rate"
                              )}, **node.params}
-        # 0.5 wav_out 输入采样率自动跟随源端口（免手填）：
-        #     先解析所有输出端口，把源端口采样率注入 wav_out 的 sample_rate 参数，
-        #     其输入端口声明为 param:sample_rate，随后按注入值解析，连接校验自然一致。
+        automatic_wav_rates = {
+            node.id for node in graph.nodes.values()
+            if node.component == "orpheus.builtin.wav_out" and node.params["sample_rate"] in (0, "0")
+        }
+        for node_id in automatic_wav_rates:
+            node = graph.nodes[node_id]
+            node.params = {**node.params, "sample_rate": str(node_task(node).sample_rate)}
         resolved_ports: dict[str, ResolvedPort] = {}
         expanded_ports: dict[str, list[dict[str, Any]]] = {}
         for node in graph.nodes.values():
@@ -522,7 +557,7 @@ class GraphCompiler:
                 resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, nt)
         for conn in graph.connections:
             to_node = graph.nodes.get(conn.to_ref.node_id)
-            if to_node is None or to_node.component != "orpheus.builtin.wav_out":
+            if to_node is None or to_node.id not in automatic_wav_rates:
                 continue
             fp = resolved_ports.get(str(conn.from_ref))
             if fp is not None and fp.sample_rate.denominator == 1:
@@ -573,7 +608,7 @@ class GraphCompiler:
                 if len(rates) != 1:
                     continue
                 input_rate = next(iter(rates))
-                if node.component == "orpheus.builtin.wav_out" and input_rate.denominator == 1:
+                if node.id in automatic_wav_rates and input_rate.denominator == 1:
                     node.params = {**node.params, "sample_rate": str(input_rate)}
                 for pm in expanded_ports[node.id]:
                     key = f"{node.id}:{pm['id']}"
@@ -588,7 +623,7 @@ class GraphCompiler:
                         )
                         if rate is None or rate <= 0:
                             raise CompileError(f"cannot resolve sample rate for {key}")
-                    elif node.component == "orpheus.builtin.wav_out":
+                    elif node.id in automatic_wav_rates:
                         rate = input_rate
                     else:
                         continue
@@ -821,8 +856,40 @@ class GraphCompiler:
                     f"{endpoint} 的实际值 {actual[key]} 不一致"
                 )
 
+    def _connection_diagnostics(
+        self, graph: Graph, expanded: dict[str, list[dict[str, Any]]],
+        ports: dict[str, ResolvedPort], node_task: Callable[[Node], Task],
+        in_frames: dict[str, int],
+    ) -> list[dict[str, Any]]:
+        results = []
+        for connection in graph.connections:
+            source = ports[str(connection.from_ref)]
+            target = ports[str(connection.to_ref)]
+            node = graph.nodes[target.node_id]
+            task = node_task(node)
+            scheduling = self.registry.get(node.component).manifest.get("scheduling") or {}
+            consumer_frames = task.block_size if scheduling.get("async_bridge") else in_frames[node.id]
+            outputs = [port for port in expanded[node.id] if port["direction"] == "output"]
+            if scheduling.get("split") and outputs:
+                consumer_frames = ports[f"{node.id}:{outputs[0]['id']}"].block_size
+            delivered = _input_buffer_frames(
+                source.block_size,
+                merge_frames=in_frames[node.id] if scheduling.get("merge") else None,
+                task_frames=consumer_frames
+                if node_task(graph.nodes[source.node_id]).id != task.id else None,
+            )
+            differences = _connection_differences(source, target, delivered)
+            results.append({
+                "from": str(connection.from_ref), "to": str(connection.to_ref),
+                "status": "mismatch" if differences else "matched",
+                "differences": differences,
+                "message": "\n".join(item["message"] for item in differences),
+            })
+        return results
+
     def resolve_port_signatures(
         self, project: Project, *, diagnostics: list[dict[str, Any]] | None = None,
+        connection_diagnostics: list[dict[str, Any]] | None = None,
     ) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
         """只推导接口；无需时钟连通或可执行计划，复用编译阶段的全部签名规则。"""
         project = copy.deepcopy(project)
@@ -845,8 +912,11 @@ class GraphCompiler:
             if ports[str(connection.to_ref)].timing != "latest"
         ])
         order = self._topological_sort(dependencies)
-        self._resolve_graph_blocks(project.graph, expanded, ports, incoming, node_task, order)
+        in_frames = self._resolve_graph_blocks(project.graph, expanded, ports, incoming, node_task, order)
         self._validate_interface_bindings(project, ports, node_task, diagnostics)
+        if connection_diagnostics is not None:
+            connection_diagnostics.extend(
+                self._connection_diagnostics(project.graph, expanded, ports, node_task, in_frames))
         return {key: port_signature_to_dict(port) for key, port in ports.items()}, expanded
 
     def compile(self, project: Project, target: str | None = None) -> ExecutionPlan:
@@ -1025,22 +1095,9 @@ class GraphCompiler:
                 raise CompileError(f"source port is not output: {from_key}")
             if to_port.direction != "input":
                 raise CompileError(f"target port is not input: {to_key}")
-            if from_port.type != to_port.type:
-                raise CompileError(
-                    f"type mismatch: {from_key} ({from_port.type}) -> {to_key} ({to_port.type})"
-                )
-            if from_port.sample_format != to_port.sample_format:
-                raise CompileError(
-                    f"format mismatch: {from_key} ({from_port.sample_format}) -> {to_key} ({to_port.sample_format})"
-                )
-            if from_port.channels != to_port.channels:
-                raise CompileError(
-                    f"channels mismatch: {from_key} ({from_port.channels}) -> {to_key} ({to_port.channels})"
-                )
-            if from_port.type == "audio" and from_port.sample_rate != to_port.sample_rate:
-                raise CompileError(
-                    f"sample rate mismatch: {from_key} ({from_port.sample_rate}) -> {to_key} ({to_port.sample_rate})"
-                )
+            differences = _connection_differences(from_port, to_port)
+            if differences:
+                raise CompileError(differences[0]["message"])
             from_task = node_task(graph.nodes[conn.from_ref.node_id]).id
             to_task = node_task(graph.nodes[conn.to_ref.node_id]).id
             if from_task != to_task:
@@ -1137,22 +1194,11 @@ class GraphCompiler:
             graph, expanded_ports, resolved_ports, rate_inputs, node_task, execution_order)
         self._validate_interface_bindings(project, resolved_ports, node_task)
 
-        for conn in graph.connections:
-            source = resolved_ports[str(conn.from_ref)]
-            target = resolved_ports[str(conn.to_ref)]
-            if source.type != "audio" and source.block_size != target.block_size:
-                raise CompileError(
-                    f"数据形状不匹配：{conn.from_ref} 长度 {source.block_size} → "
-                    f"{conn.to_ref} 长度 {target.block_size}；不进行隐式填充或广播"
-                )
-            if source.type != "audio" and (
-                source.layout != target.layout or source.frame_size != target.frame_size
-            ):
-                raise CompileError(
-                    f"数据布局/帧结构不匹配：{conn.from_ref} "
-                    f"({source.layout}, {source.frame_size}) → {conn.to_ref} "
-                    f"({target.layout}, {target.frame_size})；不进行隐式转换"
-                )
+        for connection in self._connection_diagnostics(
+            graph, expanded_ports, resolved_ports, node_task, in_frames,
+        ):
+            if connection["differences"]:
+                raise CompileError(connection["differences"][0]["message"])
 
         node_rates: dict[str, Fraction] = {}
         for node_id in execution_order:
