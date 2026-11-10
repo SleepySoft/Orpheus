@@ -783,10 +783,17 @@ def _render(definition):
                     f"    {target}.samples={target}.buffer ? ({'const ' if direction == 'input' else ''}{c_type}*){target}.buffer->data : NULL;",
                 ]
                 if direction == "input" and payload:
-                    shell += [
-                        f"    if ({target}.buffer && {target}.buffer->frame_count != (uint32_t){payload})",
-                        "        return ORPHEUS_ERR_INVALID_ARG;",
-                    ]
+                    if port.get("allow_unready"):
+                        shell += [
+                            f"    if ({target}.buffer && ({target}.buffer->frame_capacity < (uint32_t){payload}",
+                            f"            || ({target}.buffer->frame_count != 0 && {target}.buffer->frame_count != (uint32_t){payload})))",
+                            "        return ORPHEUS_ERR_INVALID_ARG;",
+                        ]
+                    else:
+                        shell += [
+                            f"    if ({target}.buffer && {target}.buffer->frame_count != (uint32_t){payload})",
+                            "        return ORPHEUS_ERR_INVALID_ARG;",
+                        ]
                 if direction == "output":
                     frames = f"(uint32_t){payload}" if payload else "ctx->frame_count"
                     shell += [

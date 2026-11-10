@@ -130,6 +130,10 @@
         "process": {"type": "boolean"},
         "optional": {"type": "boolean"},
         "timing": {"enum": ["sync", "latest"]},
+        "allow_unready": {
+          "type": "boolean",
+          "description": "仅用于非驱动 latest BULK 输入；允许有效长度为零，算法读取前须自行确认完整 payload 就绪。"
+        },
         "layout": {"type": "string"},
         "frame_size": {"type": "integer", "minimum": 0},
         "drive_port_no": {"$ref": "#/$defs/positive"},
@@ -139,6 +143,11 @@
         }
       },
       "allOf": [
+        {"if": {"required": ["allow_unready"]}, "then": {
+          "required": ["timing"],
+          "properties": {"type": {"const": "bulk"}, "direction": {"const": "input"},
+                         "timing": {"const": "latest"}, "process": {"const": false}}
+        }},
         {"if": {"required": ["count"], "properties": {"count": {"const": 0}}}, "then": {
           "required": ["optional"], "properties": {"optional": {"const": true}}
         }},

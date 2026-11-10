@@ -3138,3 +3138,182 @@ int main(void) {
         "POSITIVE_OUTSIDE_CSV", json.dumps(f"{outside!r},0")).replace(
         "NEGATIVE_OUTSIDE_CSV", json.dumps(f"{-outside!r},0")), encoding="utf-8", newline="\n")
     (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+
+
+def _add_unready_bulk_input(raw):
+    raw["interfaces"] = {
+        "in": {"type": "bulk", "direction": "input", "sample_format": "f32",
+               "channels": 2, "block_size": "param:elements", "timing": "latest",
+               "allow_unready": True},
+        "elements": {"type": "int", "default": 7, "range": [1, 16],
+                     "update_policy": "restart_required", "affects_signature": True},
+    }
+
+
+@pytest.mark.parametrize("process", [None, False])
+def test_allow_unready_schema_normalization_and_independent_cli(package, raw, process):
+    import jsonschema
+    _add_unready_bulk_input(raw)
+    if process is not None:
+        raw["interfaces"]["in"]["process"] = process
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    before = snapshot(package)
+    normalized = normalize_component_definition(load_component_definition(path))
+    assert normalized["ports"][0]["allow_unready"] is True
+    assert normalized["ports"][0]["process"] is False
+    normalized["ports"][0]["allow_unready"] = False
+    assert raw["interfaces"]["in"]["allow_unready"] is True
+    assert snapshot(package) == before
+    for script in ("validate_component.py", "generate_component.py"):
+        result = subprocess.run([str(PYTHON), str(ROOT / "scripts" / script), str(path), "--format", "json"],
+                                cwd=package, capture_output=True, encoding="utf-8")
+        assert result.returncode == 0, result.stderr + result.stdout
+        assert json.loads(result.stdout)["ok"] is True
+        if script == "validate_component.py":
+            assert snapshot(package) == before
+    check_generated(path)
+    raw["interfaces"]["in"]["allow_unready"] = False
+    save(package, raw)
+    with pytest.raises(ComponentDefinitionError):
+        check_generated(path)
+    generate_component(path)
+    check_generated(path)
+    strict_shell = (package / "generated" / "component_shell.c").read_bytes()
+    del raw["interfaces"]["in"]["allow_unready"]
+    generate_component(save(package, raw))
+    assert (package / "generated" / "component_shell.c").read_bytes() == strict_shell
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "true", [], {}])
+def test_allow_unready_requires_boolean_without_writes(package, raw, value):
+    import jsonschema
+    _add_unready_bulk_input(raw)
+    raw["interfaces"]["in"]["allow_unready"] = value
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError, match="布尔"):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("value", [False, True])
+@pytest.mark.parametrize("overrides", [
+    {"direction": "output"},
+    {"type": "audio"},
+    {"type": "trigger"},
+    {"type": "control"},
+    {"type": "debug"},
+    {"type": "float", "default": 0.0},
+    {"process": True},
+    {"timing": "sync"},
+    {"timing": None},
+])
+def test_allow_unready_rejects_non_latest_passive_bulk_inputs(package, raw, overrides, value):
+    import jsonschema
+    _add_unready_bulk_input(raw)
+    port = raw["interfaces"]["in"]
+    port.update(overrides)
+    port["allow_unready"] = value
+    if port.get("timing") is None:
+        del port["timing"]
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    result = subprocess.run(
+        [str(PYTHON), str(ROOT / "scripts" / "generate_component.py"), str(path), "--format", "json"],
+        cwd=package, capture_output=True, encoding="utf-8")
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["ok"] is False
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("allow_unready", [None, False, True])
+@pytest.mark.parametrize("elements", [7, 13])
+@pytest.mark.parametrize("grouped", [False, True])
+@pytest.mark.parametrize("cpp", [False, True])
+def test_real_allow_unready_bulk_keeps_header_capacity_and_ready_validation(
+        package, raw, allow_unready, elements, grouped, cpp):
+    _add_unready_bulk_input(raw)
+    raw["interfaces"]["elements"]["default"] = elements
+    if allow_unready is None:
+        del raw["interfaces"]["in"]["allow_unready"]
+    else:
+        raw["interfaces"]["in"]["allow_unready"] = allow_unready
+    if grouped:
+        raw["interfaces"]["in"]["count"] = 2
+    generate_component(save(package, raw))
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+unsigned calls;
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    ++calls;
+    assert(ctx->frame_count==8 && ctx->valid_frames==8);
+    if (!IN_VIEW.buffer) { assert(!IN_VIEW.samples);return ORPHEUS_OK; }
+    assert(IN_VIEW.samples && IN_VIEW.input_index==0);
+    assert(IN_VIEW.buffer->frame_capacity>=(unsigned)s->elements);
+    assert(IN_VIEW.buffer->frame_count==0 || IN_VIEW.buffer->frame_count==(unsigned)s->elements);
+    if (IN_VIEW.buffer->frame_count)
+        for(unsigned i=0;i<2*(unsigned)s->elements;i++) assert(IN_VIEW.samples[i]==(float)i+1);
+    return ORPHEUS_OK;
+}
+'''.replace("IN_VIEW", "io->in[0]" if grouped else "io->in"), encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+extern unsigned calls;
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;
+    OrpheusConfig config={.state_block=&state,.block_size=8,.sample_rate=48000};
+    assert(api->create(&instance,&config)==ORPHEUS_OK);
+    assert(api->prepare(instance,&config)==ORPHEUS_OK);
+    float samples[2*(ELEMENTS+1)];
+    for(unsigned i=0;i<2*ELEMENTS;i++) samples[i]=(float)i+1;
+    OrpheusBuffer input={.data=samples,.format=ORPHEUS_FORMAT_F32,.channels=2,
+        .frame_count=ELEMENTS,.frame_capacity=ELEMENTS,.interleaved=true};
+    const OrpheusBuffer original=input;
+    const OrpheusBuffer* inputs[]={&input,&input};
+    OrpheusProcessContext ctx={.inputs=inputs,.input_count=INPUT_COUNT,
+        .frame_count=8,.valid_frames=8,.sample_rate=48000,.trigger_input=UINT32_MAX};
+    assert(api->process(instance,&ctx)==ORPHEUS_OK && calls==1);
+    input.frame_count=0;
+    unsigned before=calls;
+    assert(api->process(instance,&ctx)==ZERO_RESULT);
+    assert(calls==before+ZERO_CALLS && input.frame_count==0 && input.frame_capacity==ELEMENTS);
+#define REJECT_BAD(change) do { \
+    input=original;change;before=calls; \
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && calls==before); \
+} while(0)
+    REJECT_BAD(input.frame_count=ELEMENTS-1);
+    REJECT_BAD(input.frame_count=1);
+    REJECT_BAD(input.frame_count=ELEMENTS+1);
+    REJECT_BAD(input.frame_count=0;input.frame_capacity=ELEMENTS-1);
+    REJECT_BAD(input.frame_count=0;input.frame_capacity=0);
+    REJECT_BAD(input.frame_count=0;input.data=NULL);
+    REJECT_BAD(input.data=NULL);
+    REJECT_BAD(input.frame_count=0;input.channels=1);
+    REJECT_BAD(input.frame_count=0;input.format=ORPHEUS_FORMAT_I16);
+    REJECT_BAD(input.frame_count=0;input.interleaved=false);
+    REJECT_BAD(input.frame_count=0;input.data=(unsigned char*)samples+1);
+    input=original;input.frame_capacity=ELEMENTS+1;
+    assert(api->process(instance,&ctx)==ORPHEUS_OK && input.frame_count==ELEMENTS);
+    ctx.inputs=NULL;
+    assert(api->process(instance,&ctx)==ORPHEUS_OK);
+    assert(ctx.frame_count==8 && ctx.valid_frames==8);
+    assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+'''.replace("ELEMENTS", str(elements)).replace("INPUT_COUNT", "2" if grouped else "1").replace(
+        "ZERO_RESULT", "ORPHEUS_OK" if allow_unready else "ORPHEUS_ERR_INVALID_ARG").replace(
+        "ZERO_CALLS", "1" if allow_unready else "0"), encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)

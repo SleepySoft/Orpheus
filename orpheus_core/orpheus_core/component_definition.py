@@ -49,7 +49,7 @@ _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", 
         "platforms", "ui_hidden", "user_owned", "scheduling", "input_alternatives"}
 _PORT = {"name", "direction", "type", "sample_format", "channels", "block_size", "sample_rate",
          "process", "drive_port_no", "drive_divide", "count", "description", "layout", "frame_size",
-         "timing", "optional"}
+         "timing", "optional", "allow_unready"}
 _PARAM = {"name", "type", "default", "range", "update_policy", "affects_signature", "readback",
           "persistent", "unit", "count", "shape", "capacity", "bindable", "control_source",
           "kind", "description", "widget", "options", "options_source", "readonly", "file_ext",
@@ -364,7 +364,7 @@ def _validate(raw):
         if set(item) - (_PORT if port else _PARAM):
             _fail("存在不适用于此接口类型的字段", loc)
         for field in ("process", "affects_signature", "readback", "persistent", "bindable", "control_source",
-                      "readonly", "optional"):
+                      "readonly", "optional", "allow_unready"):
             if field in item and type(item[field]) is not bool:
                 _fail("必须是布尔值", loc + "." + field)
         for field in ("name", "unit", "description", "file_ext", "bulk_slot", "layout"):
@@ -388,6 +388,10 @@ def _validate(raw):
                 _fail("timing 必须是 sync/latest", loc)
             if item.get("timing") == "latest" and (kind == "audio" or item["direction"] != "input" or item.get("process")):
                 _fail("latest 仅允许不驱动的非音频输入", loc)
+            if "allow_unready" in item and (
+                    kind != "bulk" or item["direction"] != "input"
+                    or item.get("process") is True or item.get("timing") != "latest"):
+                _fail("allow_unready 仅允许不驱动且 timing 为 latest 的 BULK 输入", loc + ".allow_unready")
             if kind == "audio" and ("layout" in item or "frame_size" in item):
                 _fail("layout/frame_size 仅用于非音频端口", loc)
             for field in ("channels", "block_size", "sample_rate"):

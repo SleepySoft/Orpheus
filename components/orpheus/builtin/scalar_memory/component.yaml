@@ -1,27 +1,25 @@
 id: orpheus.builtin.scalar_memory
 name: "标量采样保持"
 category: "数学与控制"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: ScalarMemoryState
 description: >-
-  单个f32存储单元；update未连或非零时更新，否则保持，reset清除初始化标志和值。
-  默认在续调前采样in并输出；write_after_call时先输出旧值（首次用initial端口/参数），
-  续调成功返回后才提交in，可显式连接同次调用内的反馈计算。in的latest仅允许这种明确顺序，
-  不是跨Task同步。延后写模式在下游失败时不提交；默认模式在续调前已提交。
-  未首次采样的默认模式输出0；initial热修改只影响尚未初始化的延后写模式。
-  NULL输出仍续调并更新，零处理量不续调。无效输入明确报错，不分配process内存。
-  enabled透传本次i32更新标志，供其它存储单元共享同一门控，不改变调用频率。
-sources: [src/scalar_memory.c]
-headers: [include/orpheus_scalar_memory.h]
-ports:
-  - {id: in, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, timing: latest}
-  - {id: update, direction: input, type: bulk, sample_format: i32, channels: 1, block_size: 1, optional: true}
-  - {id: initial, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, optional: true}
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1}
-  - {id: enabled, direction: output, type: bulk, sample_format: i32, channels: 1, block_size: 1}
-parameters:
-  - {id: initial, name: 首次反馈读值, type: float, default: 0.0, update_policy: block_boundary, readback: true}
-  - {id: write_after_call, name: 续调返回后提交反馈, type: bool, default: false, update_policy: restart_required}
+  tick显式触发f32存储单元，in/update/initial均为latest侧输入。
+  默认在交付前按update更新in；write_after_call时先交付旧值（首次用initial端口或initial_value），
+  下游成功返回后才验证并提交in，允许明确顺序的同次调用反馈，不做跨Task同步。
+  延后模式下游失败不提交；默认模式交付前已提交。update未接或非零时更新，否则保持。
+  enabled仅透传本次i32门控，不驱动其它节点；NULL输出仍交付并更新，零量子不交付。
+algorithm:
+  lifecycle: [prepare, reset, set_parameter]
+interfaces:
+  in: {direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, timing: latest, allow_unready: true}
+  update: {direction: input, type: bulk, sample_format: i32, channels: 1, block_size: 1, timing: latest}
+  initial: {direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, timing: latest}
+  tick: {direction: input, type: trigger, process: true}
+  out: {direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1, drive_port_no: 1}
+  enabled: {direction: output, type: bulk, sample_format: i32, channels: 1, block_size: 1}
+  initial_value: {name: 首次反馈读值, type: float, default: 0.0, update_policy: block_boundary, readback: true}
+  write_after_call: {name: 交付返回后提交反馈, type: bool, default: false, update_policy: restart_required}
+memory: {alignment: 8}
 execution: {realtime_safe: true, supports_inplace: false}

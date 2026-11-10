@@ -1,24 +1,23 @@
 id: orpheus.builtin.bulk_math
 name: "数组逐元素运算"
 category: "数学与控制"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: BulkMathState
 description: >-
   同形数组逐元素运算，无历史、不广播。operation 0加、1减、2乘、3除、4稳健模长。
-  模长先缩放再sqrtf，两个绝对值相等时乘单精度sqrt(2)，与生成模型数学支持函数顺序一致。
-  a/b可不连接，使用对应标量参数；不隐式补齐已连接的错误尺寸。NaN/Inf按IEEE运算传递。
-sources: [src/bulk_math.c]
-headers: [include/orpheus_bulk_math.h]
-ports:
-  - {id: a, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", optional: true}
-  - {id: b, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", optional: true}
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
-parameters:
-  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
-  - {id: elements, name: 元素数, type: int, default: 387, range: [1, 65536], update_policy: restart_required, affects_signature: true}
-  - {id: operation, name: 运算, type: int, default: 2, range: [0, 4], update_policy: restart_required}
-  - {id: a, name: 未连接a的值, type: float, default: 0.0, update_policy: restart_required}
-  - {id: b, name: 未连接b的值, type: float, default: 0.0, update_policy: restart_required}
+  每个数据入口实际到达即运算，不等待另一入口；未连接a/b使用a_default/b_default，
+  两者均未连接时可显式触发tick。不隐式补齐错误尺寸，禁止输入输出重叠。
+  模长保留按绝对值分支缩放再sqrtf、相等时乘单精度sqrt(2)的既有顺序。
+interfaces:
+  a: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", process: true}
+  b: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", process: true}
+  tick: {direction: input, type: trigger, process: true}
+  out: {direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", drive_port_no: 1}
+  channels: {name: 通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  elements: {name: 元素数, type: int, default: 387, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  operation: {name: 运算, type: int, default: 2, range: [0, 4], update_policy: restart_required}
+  a_default: {name: 未连接a的值, type: float, default: 0.0, update_policy: restart_required}
+  b_default: {name: 未连接b的值, type: float, default: 0.0, update_policy: restart_required}
+memory: {alignment: 8}
 execution: {realtime_safe: true, supports_inplace: false}

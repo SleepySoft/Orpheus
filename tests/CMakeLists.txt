@@ -93,6 +93,19 @@ target_include_directories(channel_router_smoke PRIVATE
 target_compile_definitions(channel_router_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME channel_router_smoke COMMAND channel_router_smoke)
 
+add_executable(bulk_math_smoke bulk_math_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_math/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_math/user/algorithm.c)
+target_include_directories(bulk_math_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_math/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_math/user)
+target_compile_definitions(bulk_math_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(bulk_math_smoke PRIVATE m)
+endif()
+add_test(NAME bulk_math_smoke COMMAND bulk_math_smoke)
+
 add_executable(pool_delay_smoke pool_delay_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/pool_delay/src/pool_delay.c)
 target_include_directories(pool_delay_smoke PRIVATE

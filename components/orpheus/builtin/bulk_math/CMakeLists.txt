@@ -1,14 +1,25 @@
 cmake_minimum_required(VERSION 3.16)
-set(COMPONENT_NAME orpheus_builtin_bulk_math)
-add_library(${COMPONENT_NAME} SHARED src/bulk_math.c)
-target_include_directories(${COMPONENT_NAME} PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
-target_compile_definitions(${COMPONENT_NAME} PRIVATE ORPHEUS_BUILDING_COMPONENT)
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(${COMPONENT_NAME} PRIVATE -Wall -Wextra -Werror)
+project(orpheus_builtin_bulk_math C)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+include("${CMAKE_CURRENT_LIST_DIR}/generated/component_sources.cmake")
+add_library(orpheus_builtin_bulk_math SHARED ${ORPHEUS_COMPONENT_SOURCES})
+target_include_directories(orpheus_builtin_bulk_math PUBLIC ${ORPHEUS_COMPONENT_INCLUDE_DIRS})
+if(TARGET orpheus_abi)
+    target_link_libraries(orpheus_builtin_bulk_math PUBLIC orpheus_abi)
+else()
+    set(ORPHEUS_ABI_INCLUDE_DIR "" CACHE PATH "orpheus_abi.h 所在目录")
+    if(NOT EXISTS "${ORPHEUS_ABI_INCLUDE_DIR}/orpheus_abi.h")
+        message(FATAL_ERROR "请设置 ORPHEUS_ABI_INCLUDE_DIR")
+    endif()
+    target_include_directories(orpheus_builtin_bulk_math PUBLIC "${ORPHEUS_ABI_INCLUDE_DIR}")
 endif()
-set_target_properties(${COMPONENT_NAME} PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/components
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/components
-    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/components
-    C_STANDARD 11 C_STANDARD_REQUIRED ON)
+# 空生成器表达式避免多配置构建器自动追加 Debug/Release 子目录。
+set_target_properties(orpheus_builtin_bulk_math PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components$<0:>"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components$<0:>"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components$<0:>")
+target_compile_definitions(orpheus_builtin_bulk_math PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(MSVC)
+    target_compile_options(orpheus_builtin_bulk_math PRIVATE /utf-8)
+endif()

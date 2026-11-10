@@ -136,6 +136,29 @@ bulk_lookup 的 x 是唯一处理入口，axis/values 是 `timing: latest` 侧�
 查询时检查有限严格单调轴，升/降序都支持，越界或 NaN 查询输出正零。
 两组件都拒绝输出别名，零量子不交付下游。
 
+## 基础运算与返回后反馈
+
+scalar_math 的 a/b/c、bulk_math 的 a/b 都是独立处理入口，
+每次实际交付立即读取当前两侧数据，不等待另一入口；
+纯触发 tick 支持无数据连接时使用配置常量。
+为避免统一接口同名，标量常量参数为 `a_default/b_default/c_default`，
+数组常量参数为 `a_default/b_default`，不保留旧 a/b/c 参数别名。
+数组载荷长度与 Task 量子无关；模长保留原分支及逐步 f32 运算，
+不以 `hypotf` 改变 NaN、Inf 或溢出语义。
+
+scalar_memory 仅 tick 驱动，in/update/initial 均为 latest 侧输入，
+enabled 是非驱动门控输出。初值参数为 `initial_value`，与 initial 数据口分开。
+默认模式先读取并提交输入，再交付下游；下游失败不回滚已提交值。
+`write_after_call` 模式先交付旧值，仅在下游成功返回后重新验证并读取当前输入，
+失败不提交历史；门控为零不读取输入。reset 清除历史，动态修改初值仅影响尚未初始化的延后模式。
+
+配置字段 `allow_unready: true` 只允许用于**非驱动、latest 的 BULK 输入**，
+用于这类返回后才读取的反馈，不是通用的校验绕过。
+生成壳仍验证格式、通道、容量、指针及对齐，只额外接受 frame_count 为零，
+或等于声明的完整载荷长度；中间长度拒绝。算法实际读取前必须验证数据已完整就绪，
+续调返回后重新读取 Buffer 当前指针和元数据，不沿用进入算法时的缓存视图。
+普通 latest 输入没有此放宽；不因未就绪而补调、等待或重排。
+
 ## 统一组件定义
 
 所有定义使用组件 manifest。实现差异只体现在 `package_type`：

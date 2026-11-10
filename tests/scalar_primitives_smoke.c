@@ -1,7 +1,7 @@
-#include "orpheus_scalar_math.h"
+#include "../components/orpheus/builtin/scalar_math/generated/component_state.h"
 #include "../components/orpheus/builtin/bulk_constant/generated/component_state.h"
 #include "../components/orpheus/builtin/bulk_lookup/generated/component_state.h"
-#include "orpheus_scalar_memory.h"
+#include "../components/orpheus/builtin/scalar_memory/generated/component_state.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,12 +14,9 @@ const OrpheusComponentInterface* memory_api(void);
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%d: %s\n", __LINE__, #x); return 1; } } while (0)
 static unsigned calls;
 static unsigned ports, fail_port;
+static unsigned feedback_fault;
+static float redirected=42;
 static int downstream;
-static int next(void* user, uint32_t branch) {
-    (void)user;
-    ++calls;
-    return branch==UINT32_MAX ? downstream : 99;
-}
 static int emit(void* user, uint32_t port, const OrpheusDelivery* delivery) {
     (void)user;
     ++calls;
@@ -36,17 +33,21 @@ static bool same(float a, float b) {
     return (isnan(a) && isnan(b)) || !memcmp(&a, &b, sizeof(a));
 }
 typedef struct { OrpheusBuffer* input; float* old; float* candidate; } Feedback;
-static int feedback_next(void* user, uint32_t branch) {
+static int feedback_emit(void* user, uint32_t port, const OrpheusDelivery* delivery) {
     Feedback* f=(Feedback*)user; ++calls;
-    if (branch!=UINT32_MAX) return 99;
+    if (port!=1 || !delivery) return 99;
     if (downstream) return downstream;
     *f->candidate=*f->old+2.0f; f->input->frame_count=1;
+    if (feedback_fault==1) f->input->data=NULL;
+    if (feedback_fault==2) f->input->format=ORPHEUS_FORMAT_I32;
+    if (feedback_fault==3) f->input->frame_count=0;
+    if (feedback_fault==4) f->input->data=&redirected;
     return 0;
 }
 static int memory_contract(void) {
     const OrpheusComponentInterface* api=memory_api();
-    ScalarMemoryState state;
-    const char* keys[]={"initial", "write_after_call"};
+    orpheus_builtin_scalar_memory_State state;
+    const char* keys[]={"initial_value", "write_after_call"};
     OrpheusValue params[]={{.type=ORPHEUS_VALUE_FLOAT,.value.f32=3},
                           {.type=ORPHEUS_VALUE_BOOL,.value.b=true}};
     OrpheusConfig config={.state_block=&state,.param_count=2,.param_ids=keys,.param_values=params};
@@ -58,58 +59,71 @@ static int memory_contract(void) {
     int32_t gate_value=-99; OrpheusBuffer forwarded=buffer(&gate_value,1); forwarded.format=ORPHEUS_FORMAT_I32;
     const OrpheusBuffer* inputs[]={&in,&gate,NULL}; OrpheusBuffer* outputs[]={&out,&forwarded};
     Feedback f={&in,&old,&candidate};
-    OrpheusContinuation continuation={.call=feedback_next,.user=&f,.count=1};
+    OrpheusContinuation continuation={.emit=feedback_emit,.user=&f};
     OrpheusProcessContext context={.inputs=inputs,.outputs=outputs,.input_count=3,.output_count=2,
         .frame_count=64,.continuation=&continuation};
     in.frame_count=0; calls=0;
-    CHECK(api->process(handle,&context)==0 && calls==1 && old==3 && state.value==5 && state.initialized && gate_value==1);
-    CHECK(api->process(handle,&context)==0 && old==5 && state.value==7);
-    update=0; CHECK(api->process(handle,&context)==0 && old==7 && state.value==7 && gate_value==0);
+    CHECK(api->process(handle,&context)==0 && calls==1 && old==3 && state.algorithm.value==5 && state.algorithm.initialized && gate_value==1);
+    CHECK(api->process(handle,&context)==0 && old==5 && state.algorithm.value==7);
+    update=0; CHECK(api->process(handle,&context)==0 && old==7 && state.algorithm.value==7 && gate_value==0);
     update=1; downstream=-77;
-    CHECK(api->process(handle,&context)==-77 && state.value==7); downstream=0;
-    CHECK(api->reset(handle)==0 && !state.initialized && state.value==0);
-    inputs[2]=&seed; CHECK(api->process(handle,&context)==0 && old==10 && state.value==12);
-    initial=-9; CHECK(api->process(handle,&context)==0 && old==12 && state.value==14);
+    CHECK(api->process(handle,&context)==-77 && state.algorithm.value==7); downstream=0;
+    CHECK(api->reset(handle)==0 && !state.algorithm.initialized && state.algorithm.value==0);
+    inputs[2]=&seed; CHECK(api->process(handle,&context)==0 && old==10 && state.algorithm.value==12);
+    initial=-9; CHECK(api->process(handle,&context)==0 && old==12 && state.algorithm.value==14);
     CHECK(api->reset(handle)==0);
     gate.format=ORPHEUS_FORMAT_F32; calls=0;
-    CHECK(api->process(handle,&context)!=0 && calls==0 && !state.initialized);
+    CHECK(api->process(handle,&context)!=0 && calls==0 && !state.algorithm.initialized);
     gate.format=ORPHEUS_FORMAT_I32; out.data=&candidate;
     CHECK(api->process(handle,&context)!=0); out.data=&old;
     forwarded.data=&update; CHECK(api->process(handle,&context)!=0); forwarded.data=&gate_value;
     forwarded.data=&old; CHECK(api->process(handle,&context)!=0); forwarded.data=&gate_value;
     params[0].value.f32=NAN;
-    CHECK(api->prepare(handle,&config)!=0 && state.write_after_call && !state.initialized);
+    CHECK(api->prepare(handle,&config)!=0 && state.write_after_call && !state.algorithm.initialized);
     params[0].value.f32=3; params[1].value.b=false;
-    CHECK(api->prepare(handle,&config)==0); continuation.call=next;
-    update=0; CHECK(api->process(handle,&context)==0 && old==0 && !state.initialized); update=1;
-    candidate=NAN; CHECK(api->process(handle,&context)==0 && isnan(old) && isnan(state.value));
+    CHECK(api->prepare(handle,&config)==0); continuation.emit=emit;
+    update=0; in.frame_count=0;
+    CHECK(api->process(handle,&context)==0 && old==0 && !state.algorithm.initialized);
+    update=1; in.frame_count=1;
+    candidate=NAN; CHECK(api->process(handle,&context)==0 && isnan(old) && isnan(state.algorithm.value));
     update=0; candidate=5;
-    CHECK(api->process(handle,&context)==0 && isnan(old) && isnan(state.value));
+    CHECK(api->process(handle,&context)==0 && isnan(old) && isnan(state.algorithm.value));
     update=1; candidate=-0.0f; outputs[0]=NULL; calls=0;
-    CHECK(api->process(handle,&context)==0 && calls==1 && signbit(state.value));
-    in.frame_count=0; CHECK(api->process(handle,&context)!=0 && signbit(state.value));
+    CHECK(api->process(handle,&context)==0 && calls==1 && signbit(state.algorithm.value));
+    in.frame_count=0; CHECK(api->process(handle,&context)!=0 && signbit(state.algorithm.value));
     in.frame_count=1; context.frame_count=0; calls=0;
     CHECK(api->process(handle,&context)==0 && calls==0);
     context.frame_count=64; candidate=17; downstream=-77;
-    CHECK(api->process(handle,&context)==-77 && state.value==17); downstream=0;
+    CHECK(api->process(handle,&context)==-77 && state.algorithm.value==17); downstream=0;
     params[1].value.b=true; CHECK(api->prepare(handle,&config)==0);
     inputs[2]=NULL; params[0].value.f32=-4;
-    CHECK(api->set_parameter(handle,"initial",params)==0);
+    CHECK(api->set_parameter(handle,"initial_value",params)==0);
     OrpheusValue readback={0};
-    CHECK(api->get_parameter(handle,"initial",&readback)==0 && readback.value.f32==-4);
+    CHECK(api->get_parameter(handle,"initial_value",&readback)==0 && readback.value.f32==-4);
     CHECK(api->set_parameter(handle,"write_after_call",params+1)!=0);
     update=-2; candidate=17; in.frame_count=1;
-    CHECK(api->process(handle,&context)==0 && state.value==17 && gate_value==-2);
+    CHECK(api->process(handle,&context)==0 && state.algorithm.value==17 && gate_value==-2);
     CHECK(api->reset(handle)==0);
-    continuation.call=feedback_next; outputs[0]=&out; in.frame_count=0;
-    CHECK(api->process(handle,&context)==0 && old==-4 && state.value==-2);
+    continuation.emit=feedback_emit; outputs[0]=&out; in.frame_count=0;
+    CHECK(api->process(handle,&context)==0 && old==-4 && state.algorithm.value==-2);
+    for (feedback_fault=1; feedback_fault<=3; ++feedback_fault) {
+        CHECK(api->reset(handle)==0);
+        in.data=&candidate; in.format=ORPHEUS_FORMAT_F32; in.frame_count=0;
+        CHECK(api->process(handle,&context)==ORPHEUS_ERR_INVALID_ARG
+            && !state.algorithm.initialized && state.algorithm.value==0);
+    }
+    in.data=&candidate; in.format=ORPHEUS_FORMAT_F32; in.frame_count=0;
+    feedback_fault=4;
+    CHECK(api->process(handle,&context)==0 && state.algorithm.value==42);
+    feedback_fault=0;
     CHECK(api->destroy(handle)==0);
     return 0;
 }
 int main(void) {
     CHECK(memory_contract()==0);
-    OrpheusConfig config={0};
-    OrpheusContinuation continuation={.call=next, .count=1, .emit=emit};
+    orpheus_builtin_scalar_math_State scalar_state;
+    OrpheusConfig config={.state_block=&scalar_state};
+    OrpheusContinuation continuation={.emit=emit};
     float data[]={-0.0f, NAN, 13.0f}, result=99;
     OrpheusBuffer a=buffer(data, 1), b=buffer(data+1, 1), c=buffer(data+2, 1), out=buffer(&result, 1);
     const OrpheusBuffer* inputs[]={&a, &b, &c};
@@ -141,10 +155,10 @@ int main(void) {
     CHECK(api->process(state, &context)==0 && result==-7);
     inputs[0]=NULL; inputs[1]=NULL; inputs[2]=NULL;
     OrpheusValue fallback={.type=ORPHEUS_VALUE_FLOAT, .value.f32=8};
-    CHECK(api->set_parameter(state, "c", &fallback)==0);
+    CHECK(api->set_parameter(state, "c_default", &fallback)==0);
     CHECK(api->process(state, &context)==0 && result==8);
     CHECK(api->reset(state)==0 && api->process(state, &context)==0 && result==8);
-    fallback.value.f32=NAN; CHECK(api->set_parameter(state, "c", &fallback)!=0);
+    fallback.value.f32=NAN; CHECK(api->set_parameter(state, "c_default", &fallback)!=0);
     const char* bad_key="unknown"; config.param_count=1; config.param_ids=&bad_key; config.param_values=&fallback;
     CHECK(api->prepare(state, &config)!=0 && api->process(state, &context)==0 && result==8);
     config.param_count=0; inputs[0]=&a; inputs[1]=&b; inputs[2]=&c;

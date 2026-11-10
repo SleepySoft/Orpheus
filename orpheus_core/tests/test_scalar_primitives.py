@@ -1,16 +1,13 @@
 """标量计算、表源和插值的真实C契约，不通过音频或块末控制链模拟。"""
 from pathlib import Path
 import re
-import struct
 import subprocess
 
-from array_graph_runner import execute_array_graph
-from orpheus_core.compiler import GraphCompiler
-from orpheus_core.project import Connection, DriveConnection, Graph, Node, PortRef, Project, Task
+from orpheus_core.project import Connection, DriveConnection, Graph, Node, PortRef, Project
 from orpheus_core.registry import Registry
-from test_bulk_arithmetic_interfaces import HARNESS
 from test_dynamic_interface_delivery import run_backend
 from test_interface_delivery import compile_delivery_backends, create_component, scalar
+from test_table_interfaces import CLOCK, four_entry_harness
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -25,11 +22,7 @@ def test_scalar_primitives_native_contract(tmp_path):
     for name, entry in (("scalar_math", "scalar_api"), ("bulk_constant", "constant_api"),
                         ("bulk_lookup", "lookup_api"), ("scalar_memory", "memory_api")):
         directory = ROOT / "components/orpheus/builtin" / name
-        generated = name in ("bulk_constant", "bulk_lookup")
-        if not generated:
-            includes += ["-I" + str(directory / "include")]
-        sources = ([directory / "generated" / "component_shell.c", directory / "user" / "algorithm.c"]
-                   if generated else [directory / "src" / (name + ".c")])
+        sources = [directory / "generated" / "component_shell.c", directory / "user" / "algorithm.c"]
         for index, source in enumerate(sources):
             target = tmp_path / f"{name}_{index}.o"
             command = [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
@@ -116,11 +109,7 @@ def test_table_primitives_explicit_chain_four_entries(tmp_path):
             Connection(PortRef.parse(a), PortRef.parse(b)) for a, b in pairs]),
         drive_connections=[DriveConnection(PortRef("source", "tables"), PortRef(name, "tick"))
                            for name in ("axis", "values")])
-    harness = "#include <stdlib.h>\n" + HARNESS.replace("tick<2", "tick<24").replace(
-        'runtime.process_task("task_source",8)',
-        '(atoi(argv[argc-1]) ? runtime.process_task("task_source",8) : runtime.process_block(8))',
-    ).replace("orpheus_generated_process_task_task_source(8)",
-              "(atoi(argv[argc-1]) ? orpheus_generated_process_task_task_source(8) : orpheus_generated_process(8))")
+    harness = four_entry_harness().replace("tick<2", "tick<24")
     case = compile_delivery_backends(tmp_path, registry, project, manifests, harness)
     assert case[2].entry_nodes == ["source"]
     expected = []
@@ -135,26 +124,49 @@ def test_table_primitives_explicit_chain_four_entries(tmp_path):
 
 
 def test_scalar_memory_feedback_four_entries(tmp_path):
-    registry = Registry([ROOT / "components"]); registry.scan()
-    registry.add_manifest(Path(__file__).parent / "fixtures/tensor_pair_capture/component.yaml")
+    source = create_component(tmp_path, "constant_clock", {
+        "out": {"direction": "output", "type": "trigger", "drive_port_no": 1},
+    }, CLOCK, source=True)
+    port = {"direction": "input", "type": "bulk", "sample_format": "f32", "channels": 1, "block_size": 1}
+    capture = create_component(tmp_path, "feedback_capture", {
+        "previous": {**port, "timing": "latest"}, "result": {**port, "process": True},
+        "calls": scalar("int", 0), "last": scalar("float", 0.0), "frame": scalar("int", 0),
+    }, r'''
+#include "component_state.h"
+int orpheus_test_feedback_capture_algorithm(orpheus_test_feedback_capture_State* s,
+    orpheus_test_feedback_capture_IO* io,const OrpheusProcessContext* ctx) {
+    if(ctx->frame_count!=8 || ctx->valid_frames!=8 || ctx->epoch!=1
+        || ctx->frame_index!=(uint64_t)(s->calls/2*8)
+        || io->previous.samples[0]!=3.0f+2*s->calls || io->result.samples[0]!=5.0f+2*s->calls)
+        return ORPHEUS_ERR_PROCESSING;
+    s->calls++;s->last=io->result.samples[0];s->frame=(int32_t)ctx->frame_index;
+    return ORPHEUS_OK;
+}
+''')
+    manifests = [source, capture, *[
+        ROOT / "components" / "orpheus" / "builtin" / name / "component.yaml"
+        for name in ("scalar_memory", "scalar_math")]]
+    registry = Registry()
+    for manifest in manifests:
+        registry.add_manifest(manifest)
     nodes = {
-        "clock": Node("clock", "orpheus.builtin.task_source", params={"frequency_hz": 750}),
+        "source": Node("source", "orpheus.test.constant_clock"),
         "memory": Node("memory", "orpheus.builtin.scalar_memory",
-                       params={"initial": 3.0, "write_after_call": True}),
-        "sum": Node("sum", "orpheus.builtin.scalar_math", params={"operation": 6, "b": 2.0}),
-        "capture": Node("capture", "orpheus.test.tensor_pair_capture",
-                        params={"channels_a": 1, "frames_a": 1, "channels_b": 1, "frames_b": 1}),
+                       params={"initial_value": 3.0, "write_after_call": True}),
+        "sum": Node("sum", "orpheus.builtin.scalar_math", params={"operation": 6, "b_default": 2.0}),
+        "capture": Node("capture", "orpheus.test.feedback_capture"),
     }
     pairs = [("memory:out", "sum:a"), ("sum:out", "memory:in"),
-             ("memory:out", "capture:a"), ("sum:out", "capture:b")]
-    order = list(nodes)
-    project = Project(tasks={"default": Task("default", sample_rate=48000, block_size=64)},
+             ("memory:out", "capture:previous"), ("sum:out", "capture:result")]
+    project = Project(block_size=8,
         flow_mode="task_sequence", graph=Graph(nodes=nodes, connections=[
             Connection(PortRef.parse(a), PortRef.parse(b)) for a, b in pairs]),
-        drive_connections=[DriveConnection(PortRef(a, "out"), PortRef(b, "in"))
-                           for a, b in zip(order, order[1:])])
-    plan = GraphCompiler(registry).compile(project)
-    records = execute_array_graph(tmp_path, registry, plan, {"capture": (1, 1)}, blocks=24)["capture"]
-    for i, (old, new) in enumerate(records):
-        assert old == struct.pack("<f", 3.0 + 2 * i)
-        assert new == struct.pack("<f", 5.0 + 2 * i)
+        drive_connections=[DriveConnection(PortRef("source", "out"), PortRef("memory", "tick"))])
+    case = compile_delivery_backends(tmp_path, registry, project, manifests,
+                                     four_entry_harness().replace("tick<2", "tick<24"))
+    assert case[2].entry_nodes == ["source"]
+    for backend in ("dynamic", "generated_backend"):
+        for mode in (0, 1):
+            result, rows = run_backend(case, backend, mode=mode)
+            assert result.returncode == 0, (backend, mode, result.stdout, result.stderr)
+            assert rows == [[i, 2 * (i + 1), 7 + 4 * i, 8 * i] for i in range(24)]
