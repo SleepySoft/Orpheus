@@ -1,15 +1,11 @@
 id: orpheus.builtin.scalar_to_i32
 name: "浮点转32位整数"
 category: "数学与控制"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: ScalarToI32State
 description: 有限且在int32范围内的f32按C截断为i32；无状态，不隐式判真，非法值报错。
-sources: [src/scalar_to_i32.c]
-headers: [include/orpheus_scalar_to_i32.h]
-ports:
-  - {id: in, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1}
-  - {id: out, direction: output, type: bulk, sample_format: i32, channels: 1, block_size: 1}
-parameters: []
+interfaces:
+  in: {direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, process: true}
+  out: {direction: output, type: bulk, sample_format: i32, channels: 1, block_size: 1, drive_port_no: 1, drive_divide: 1}
 execution: {realtime_safe: true, supports_inplace: false}

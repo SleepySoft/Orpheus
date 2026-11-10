@@ -170,6 +170,7 @@ private:
     std::map<std::string, std::vector<TaskBridge*>> task_bridge_writes_;
     std::map<std::string, std::vector<TaskBridge*>> task_bridge_reads_;
     std::vector<uint8_t> state_arena_;   // v2：统一内存拼接（每实例一块连续切片）
+    size_t state_arena_offset_ = 0;
     std::map<uint32_t, const IdMapEntry*> id_index_;   // 数据 ID → plan.id_map 条目
     std::map<std::string, uint32_t> key_to_id_;        // "node\x1fkey" → 数据 ID
     std::map<uint32_t, std::pair<size_t, size_t>> module_layout_;  // 模块 id → (arena 基址, 字节数)

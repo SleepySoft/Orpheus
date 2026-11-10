@@ -1,18 +1,15 @@
 id: orpheus.builtin.audio_sample
 name: "音频帧取样"
 category: "数学与控制"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: AudioSampleState
 description: 取交错音频中指定帧的各通道为独立f32标量，不平均、不保存历史、不改变节拍。
-sources: [src/audio_sample.c]
-headers: [include/orpheus_audio_sample.h]
-ports:
-  - {id: in, direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:frames"}
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1, count: "param:channels"}
-parameters:
-  - {id: channels, name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
-  - {id: frames, name: 帧数, type: int, default: 32, range: [1, 65536], update_policy: restart_required, affects_signature: true}
-  - {id: frame, name: 帧索引, type: int, default: 0, range: [0, 65535], update_policy: restart_required}
+algorithm: {lifecycle: [validate]}
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:frames", process: true}
+  out: {direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1, count: "param:channels", drive_port_no: 1, drive_divide: 1}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true, readback: true}
+  frames: {name: 帧数, type: int, default: 32, range: [1, 65536], update_policy: restart_required, affects_signature: true, readback: true}
+  frame: {name: 帧索引, type: int, default: 0, range: [0, 65535], update_policy: restart_required, readback: true}
 execution: {realtime_safe: true, supports_inplace: false}

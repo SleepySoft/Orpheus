@@ -189,30 +189,27 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             desc->alignment > 0 ? (size_t)desc->alignment : kAlign,
         };
     }
-    std::map<std::string, size_t> module_size;
-    std::function<size_t(const std::string&)> compute_size =
+    std::map<std::string, size_t> module_alignment;
+    std::function<size_t(const std::string&)> resolve_alignment =
         [&](const std::string& path) -> size_t {
-        size_t size = 0;
-        for (const auto& m : plan_.modules) {
-            if (m.path != path) continue;
-            for (const auto& leaf : m.leaves) {
-                auto it = node_size_align.find(leaf.first);
-                if (it == node_size_align.end() || it->second.first == 0) continue;
-                size += align_up(it->second.first, it->second.second);
+        size_t alignment = 1;
+        for (const auto& module : plan_.modules) {
+            if (module.path != path) continue;
+            for (const auto& leaf : module.leaves) {
+                auto node = node_size_align.find(leaf.first);
+                if (node != node_size_align.end())
+                    alignment = std::max(alignment, node->second.second);
             }
         }
-        for (const auto& child : module_children[path]) {
-            size += align_up(compute_size(child), kAlign);
-        }
-        module_size[path] = size;
-        return size;
+        for (const auto& child : module_children[path])
+            alignment = std::max(alignment, resolve_alignment(child));
+        module_alignment[path] = alignment;
+        return alignment;
     };
-    size_t arena_total = compute_size("");
-    state_arena_.assign(arena_total, 0);
-
+    const size_t arena_alignment = resolve_alignment("");
     std::map<std::string, size_t> node_offset;
-    std::function<void(const std::string&, size_t)> assign_layout =
-        [&](const std::string& path, size_t base) {
+    std::function<size_t(const std::string&, size_t)> assign_layout =
+        [&](const std::string& path, size_t base) -> size_t {
         size_t cursor = base;
         for (const auto& m : plan_.modules) {
             if (m.path != path) continue;
@@ -225,16 +222,21 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             }
         }
         for (const auto& child : module_children[path]) {
-            size_t cb = align_up(cursor, kAlign);
-            assign_layout(child, cb);
-            module_layout_[module_id_of[child]] = {cb, module_size[child]};
-            cursor = cb + module_size[child];
+            size_t cb = align_up(cursor, module_alignment[child]);
+            cursor = assign_layout(child, cb);
+            module_layout_[module_id_of[child]] = {cb, cursor - cb};
         }
-        if (path.empty()) {
-            module_layout_[0] = {0, arena_total};  // 根模块
-        }
+        return base + align_up(cursor - base, module_alignment[path]);
     };
-    assign_layout("", 0);
+    const size_t arena_total = assign_layout("", 0);
+    module_layout_[0] = {0, arena_total};
+    if (arena_total > std::numeric_limits<size_t>::max() - (arena_alignment - 1)) {
+        std::cerr << "[Runtime] 组件状态 Arena 容量溢出" << std::endl;
+        return ORPHEUS_ERR_OUT_OF_MEMORY;
+    }
+    state_arena_.assign(arena_total + arena_alignment - 1, 0);
+    const uintptr_t arena_address = reinterpret_cast<uintptr_t>(state_arena_.data());
+    state_arena_offset_ = (arena_alignment - arena_address % arena_alignment) % arena_alignment;
 
     for (const auto& node_id : plan_.execution_order) {
         const auto& cfg = plan_.node_configs[node_id];
@@ -253,7 +255,7 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
 
         auto no_it = node_offset.find(node_id);
         void* state_block = (no_it != node_offset.end())
-                                ? static_cast<void*>(state_arena_.data() + no_it->second)
+                                ? static_cast<void*>(state_arena_.data() + state_arena_offset_ + no_it->second)
                                 : nullptr;
 
         int result = initialize_instance(*inst, cfg, state_block);
@@ -1256,7 +1258,7 @@ int Runtime::resolve(uint32_t id, OrpheusResolvedData* out) const {
                 out->name = m.path.c_str();
                 auto ml = module_layout_.find(module_id);
                 if (ml != module_layout_.end()) {
-                    out->base = const_cast<uint8_t*>(state_arena_.data()) + ml->second.first;
+                    out->base = const_cast<uint8_t*>(state_arena_.data()) + state_arena_offset_ + ml->second.first;
                     out->byte_size = ml->second.second;
                 }
                 return ORPHEUS_OK;

@@ -9,6 +9,12 @@
 - 端口：`in` / `out`，通道数 `channels`（默认1，restart生效）。
 - 开销与 inplace：`latency_samples=0`、`supports_inplace=true`、`realtime_safe=true`。
 
+`component.yaml` 的 `interfaces` 是声明事实源，独立组件脚本生成
+`generated/`，算法位于 `user/algorithm.c`。
+每次 `in` 交付按实际帧数逐样本取负，完成后显式发射出口 1。
+支持 1～64 通道和原地处理；输入、输出缺失时明确失败。
+不等待其他节点，不补调下游，不将图块长误作短交付的有效长度。
+
 ## 3. 用法（怎么接）
 把它接在需要取反相的信号后，例如在分解版 FxLMS 链路中：
 `adaptive_fir:out → negate:in`，`negate:out → 扬声器`；这样扬声器播放的就是反相抵消信号 `-y`。
