@@ -108,6 +108,72 @@ def test_preview_matches_compiled_port_signatures_and_propagation(registry):
             assert {key: port[key] for key in signature} == signature
     assert result["nodes"]["gain"]["ports"][1]["frames"] == 96
     assert result["nodes"]["gain"]["ports"][1]["sample_rate"] == 24000
+    for buffer in plan.buffers.values():
+        node, port = buffer["to"].split(":")
+        assert plan.node_configs[node]["port_signatures"][port]["frames"] == buffer["frame_count"]
+
+
+@pytest.mark.parametrize("component,frames,channels,params", [
+    ("circular_buffer", 384, 2, {"frame_size": 256, "hop_size": 128, "num_frames": 3}),
+    ("circular_buffer", 128, 2, {"frame_size": 256, "hop_size": 128, "num_frames": 1}),
+    ("window", 256, 10, {"window_size": 256}),
+    ("window", 256, 2, {"window_size": 256}),
+])
+def test_automatic_input_signature_matches_buffer_through_recursive_aliases(
+    registry, component, frames, channels, params,
+):
+    project = nested_project()
+    project.block_size = 32
+    body = project.subcomponents[0].graph.nodes["body"]
+    body.component = f"orpheus.builtin.{component}"
+    body.params = params
+    project.subcomponents[1].ports[0].signature = {"block_size": frames}
+    project.graph = Graph(nodes={
+        "clock": Node("clock", "orpheus.builtin.signal_gen", params={"channels": channels}),
+        "batch": Node("batch", "orpheus.builtin.downrate",
+                      params={"channels": channels, "factor": frames // 32}),
+        "a": Node("a", "outer", params={"width": channels}),
+    }, connections=[connection("clock:out", "batch:in"), connection("batch:out", "a:input")])
+    before = project_to_dict(project)
+    result = preview_interfaces(project, registry)
+    assert result["diagnostics"] == []
+    assert result["nodes"]["a"]["ports"][0]["frames"] == frames
+    flat = flatten_project(project, registry)
+    plan = GraphCompiler(registry).compile(flat)
+    endpoint = "a__child__body:in"
+    buffer = next(buffer for buffer in plan.buffers.values() if buffer["to"] == endpoint)
+    cfg = plan.node_configs["a__child__body"]
+    assert cfg["port_signatures"]["in"]["frames"] == buffer["frame_count"] == frames
+    assert cfg["frames"] == frames
+    assert plan.node_configs["clock"]["port_signatures"]["out"]["frames"] == 32
+    assert project_to_dict(project) == before
+
+
+def test_automatic_input_is_resolved_per_connection_not_per_node(registry):
+    project = Project(block_size=32, graph=Graph(nodes={
+        "clock": Node("clock", "orpheus.builtin.signal_gen", params={"channels": 1}),
+        "batch": Node("batch", "orpheus.builtin.downrate", params={"factor": 3, "channels": 1}),
+        "mixer": Node("mixer", "orpheus.builtin.mixer", params={"channels": 1}),
+    }, connections=[connection("clock:out", "batch:in"), connection("batch:out", "mixer:in0")]))
+    plan = GraphCompiler(registry).compile(flatten_project(project, registry))
+    signatures = plan.node_configs["mixer"]["port_signatures"]
+    assert signatures["in0"]["frames"] == 96
+    assert signatures["in1"]["frames"] == 32
+    assert signatures["out"]["frames"] == 96
+
+
+def test_automatic_input_resolution_preserves_explicit_port_constraints(registry):
+    local = registry.fork()
+    manifest = local.get("orpheus.builtin.gain").manifest
+    manifest["ports"][0]["block_size"] = 64
+    project = Project(block_size=32, graph=Graph(nodes={
+        "clock": Node("clock", "orpheus.builtin.signal_gen", params={"channels": 2}),
+        "batch": Node("batch", "orpheus.builtin.downrate", params={"factor": 3, "channels": 2}),
+        "gain": Node("gain", "orpheus.builtin.gain"),
+    }, connections=[connection("clock:out", "batch:in"), connection("batch:out", "gain:in")]))
+    signatures, _ = GraphCompiler(local).resolve_port_signatures(project)
+    assert signatures["gain:in"]["frames"] == 64
+    assert signatures["gain:out"]["frames"] == 96
 
 
 @pytest.mark.parametrize("signature", [

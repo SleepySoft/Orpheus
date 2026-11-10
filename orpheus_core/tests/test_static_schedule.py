@@ -75,6 +75,11 @@ def test_merge_schedule_table(compiler):
     assert periods["o"] == 12
     # sink 不再每 tick 触发：每 12 个主 tick 消费一个 96 帧块
     assert plan.node_configs["o"]["frames"] == 96
+    for buffer in plan.buffers.values():
+        node, port = buffer["to"].split(":")
+        assert plan.node_configs[node]["port_signatures"][port]["frames"] == buffer["frame_count"]
+    assert plan.node_configs["a"]["port_signatures"]["out"]["frames"] == 24
+    assert plan.node_configs["b"]["port_signatures"]["out"]["frames"] == 32
 
     tasks = {task["id"]: task for task in plan.tasks}
     assert list(tasks) == ["tidA", "tidB"]

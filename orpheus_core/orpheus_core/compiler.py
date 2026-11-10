@@ -53,6 +53,15 @@ def port_signature_to_dict(port: ResolvedPort) -> dict[str, Any]:
     }
 
 
+def _input_buffer_frames(
+    source_frames: int, *, merge_frames: int | None = None, task_frames: int | None = None,
+) -> int:
+    """输入签名与 Buffer 分配共用交付长度，桥接后按消费者视角取值。"""
+    if task_frames is not None:
+        return task_frames
+    return merge_frames if merge_frames is not None else source_frames
+
+
 @dataclass
 class ExecutionPlan:
     abi_version: int
@@ -651,9 +660,8 @@ class GraphCompiler:
             str(conn.to_ref): str(conn.from_ref) for conn in graph.connections
         }
 
-        # 未显式声明 block_size 的输出端口继承本节点输入块长，
-        # 并在拓扑序上迭代传播，直到链路上所有直通端口块长收敛。
-        # 这样 gain/mixer/channel_router/window 等组件无需在每个端口手动声明 block_size。
+        # 自动输入按各自连接的交付长度解析，自动输出继承节点处理量子；
+        # 迭代至块长收敛，不把 Task 初始值当成已连接输入的最终签名。
         for _ in range(len(execution_order) + 1):
             changed = False
             processing_quanta: dict[str, int] = {}
@@ -676,17 +684,26 @@ class GraphCompiler:
                 payload_sizes = ([node_in_frames] if sizes and scheduling.get("merge") else sizes) or [
                     resolved_ports[str(conn.from_ref)].block_size for conn in incoming
                 ]
+                outputs = [p for p in expanded_ports[node_id] if p["direction"] == "output"]
+                consumer_frames = nt.block_size if scheduling.get("async_bridge") else node_in_frames
+                if scheduling.get("split") and outputs:
+                    consumer_frames = resolved_ports[f"{node_id}:{outputs[0]['id']}"].block_size
                 for pm in expanded_ports[node_id]:
                     key = f"{node_id}:{pm['id']}"
                     rp = resolved_ports[key]
                     bs_expr = pm.get("block_size")
                     if pm["direction"] == "input":
                         source_key = input_sources.get(key)
-                        if source_key is None or not (
-                            isinstance(bs_expr, str) and "in:block_size" in bs_expr
-                        ):
+                        if source_key is None:
                             continue
-                        payload_size = resolved_ports[source_key].block_size
+                        source = resolved_ports[source_key]
+                        payload_size = source.block_size
+                        automatic_frames = _input_buffer_frames(
+                            payload_size,
+                            merge_frames=node_in_frames if scheduling.get("merge") else None,
+                            task_frames=consumer_frames
+                            if node_task(graph.nodes[source.node_id]).id != nt.id else None,
+                        )
                     else:
                         if (isinstance(bs_expr, str) and "in:block_size" in bs_expr
                                 and len(set(payload_sizes)) > 1):
@@ -695,6 +712,7 @@ class GraphCompiler:
                                 "无法唯一确定输出 in:block_size；请显式声明输出长度"
                             )
                         payload_size = payload_sizes[0] if payload_sizes else node_in_frames
+                        automatic_frames = node_in_frames
                     if isinstance(bs_expr, str) and "in:block_size" in bs_expr:
                         resolved_bs = (
                             payload_size if bs_expr == "in:block_size" else _resolve_value(
@@ -712,10 +730,9 @@ class GraphCompiler:
                             changed = True
                     elif rp.block_size_explicit or rp.type != "audio":
                         continue
-                    elif rp.block_size != node_in_frames:
-                        resolved_ports[key] = replace(rp, block_size=node_in_frames)
+                    elif rp.block_size != automatic_frames:
+                        resolved_ports[key] = replace(rp, block_size=automatic_frames)
                         changed = True
-                outputs = [p for p in expanded_ports[node_id] if p["direction"] == "output"]
                 processing_quanta[node_id] = (
                     resolved_ports[f"{node_id}:{outputs[0]['id']}"].block_size
                     if scheduling.get("split") and outputs else node_in_frames
@@ -1494,9 +1511,12 @@ class GraphCompiler:
                         f"不是整写组件（每次触发产出 {producer_frames} 帧，输出端口块长 "
                         f"{frame_count}）；请在分频/重采样之后加一级直通组件（如 gain）再合流"
                     )
-                frame_count = int(in_frames[to_node_id])
+            frame_count = _input_buffer_frames(
+                frame_count,
+                merge_frames=int(in_frames[to_node_id]) if merging else None,
+                task_frames=int(plan.node_configs[to_node_id]["frames"]) if task_bridge else None,
+            )
             if task_bridge:
-                frame_count = int(plan.node_configs[to_node_id]["frames"])
                 configured_capacity = int(graph.nodes[to_node_id].params.get("capacity_frames", 0) or 0)
                 capacity_frames = configured_capacity or (math.lcm(
                     int(plan.node_configs[conn.from_ref.node_id]["frames"]), frame_count

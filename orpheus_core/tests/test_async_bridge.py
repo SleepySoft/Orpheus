@@ -77,6 +77,8 @@ def test_async_bridge_plan_metadata(compiler: GraphCompiler) -> None:
     assert edge["frame_count"] == 32
     assert edge["capacity_frames"] == 192
     assert plan.node_configs["bridge"]["frames"] == 32
+    assert plan.node_configs["bridge"]["port_signatures"]["in"]["frames"] == edge["frame_count"]
+    assert plan.node_configs["src"]["port_signatures"]["out"]["frames"] == 24
 
 
 @pytest.mark.skipif(
