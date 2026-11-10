@@ -1,62 +1,134 @@
-"""真实f32能量到i32标志；严格比较、计数保持与跨批状态。"""
-from pathlib import Path
+"""真实 f32→i32 逐次交付，保持按批推进，不按 Task 帧数计时。"""
+
 import struct
+
 import pytest
-from orpheus_core.compiler import GraphCompiler
-from orpheus_core.project import Connection,Graph,Node,PortRef,Project,Task
+
+from frequency_interface_fixtures import parameter
+from orpheus_core.project import Connection, Graph, Node, PortRef, Project
 from orpheus_core.registry import Registry
-from array_graph_runner import execute_array_graph
-
-ROOT=Path(__file__).resolve().parents[2]
-FIXTURES=Path(__file__).parent/"fixtures"
+from test_interface_delivery import ROOT, compile_delivery_backends, create_component, scalar
+from test_table_interfaces import check_four_entries, f32, four_entry_harness
 
 
-def verify_delta_hold(tmp_path,*,channels=1,batches=1,threshold=1.5,hold_ticks=18,step=128,reference=None):
-    registry=Registry([ROOT/"components"]);registry.scan()
-    for name in ("array_pair","tensor_pair_capture","mixed_pair_capture"):
-        registry.add_manifest(FIXTURES/name/"component.yaml")
-    elements=129*batches;count=channels*batches
-    nodes={
-        "source":Node(id="source",component="orpheus.test.array_pair",
-                      params={"channels":channels,"elements":elements,"mode":0,"complex_mode":1}),
-        "power":Node(id="power",component="orpheus.builtin.complex_power",
-                     params={"channels":channels,"bins":129,"batches":batches}),
-        "detector":Node(id="detector",component="orpheus.builtin.delta_hold",
-                        params={"channels":channels,"batches":batches,"threshold":threshold,"hold_ticks":hold_ticks}),
-        "discarded":Node(id="discarded",component="orpheus.builtin.delta_hold",
-                         params={"channels":channels,"batches":batches,"threshold":threshold,"hold_ticks":hold_ticks}),
-        "original":Node(id="original",component="orpheus.test.tensor_pair_capture",
-                        params={"channels_a":channels,"channels_b":channels,"frames_a":elements,"frames_b":elements*2}),
-        "capture":Node(id="capture",component="orpheus.test.mixed_pair_capture",params={"channels":channels,"frames":batches})}
-    pairs=[("source:out","original:a"),("source:complex_out0","original:b"),("source:complex_out0","power:in"),
-           ("power:energy","detector:in"),("power:energy","discarded:in"),
-           ("power:energy","capture:a"),("detector:out","capture:b")]
-    project=Project(tasks={"default":Task(id="default",sample_rate=48000,block_size=step)},
-                    graph=Graph(nodes=nodes,connections=[Connection(PortRef.parse(a),PortRef.parse(b)) for a,b in pairs]))
-    plan=GraphCompiler(registry).compile(project)
-    assert plan.schedule["tick"]==step and set(plan.schedule["periods"].values())=={1}
-    assert all(c["frames"]==c.get("frame_step",c["frames"])==step for c in plan.node_configs.values())
-    assert {b["sample_format"] for b in plan.buffers.values()}=={"f32","i32"}
-    blocks=max(8,(hold_ticks+4+batches-1)//batches)
-    records=execute_array_graph(tmp_path,registry,plan,{"original":(channels*elements,channels*elements*2),
-                                "capture":(count,count)},blocks=blocks)["capture"]
-    previous=[0.0]*channels;active=[0]*channels;counters=[0]*channels;seen=set()
-    f32=lambda value:struct.unpack("<f",struct.pack("<f",value))[0]
-    for source,actual in records:
-        if reference is not None:assert actual==reference(source)
-        values=struct.unpack(f"<{count}f",source);expected=[]
+SOURCE = r'''
+#include "component_state.h"
+#include "component_api.h"
+int orpheus_test_delta_source_algorithm(orpheus_test_delta_source_State* s,
+    orpheus_test_delta_source_IO* io,const OrpheusProcessContext* ctx) {
+    for(unsigned repeat=0;repeat<@REPEATS@;repeat++) {
+        int32_t call=s->calls++;
+        for(int32_t h=0;h<s->batches;h++) for(int32_t c=0;c<s->channels;c++) {
+            int32_t phase=(call*s->batches+h+c)%@CYCLE@;
+            @FILL@
+        }
+        int rc=orpheus_test_delta_source_emit_out(ctx,&io->out);
+        if(rc) return rc;
+    }
+    return ORPHEUS_OK;
+}
+'''
+
+CAPTURE = r'''
+#include "component_state.h"
+int orpheus_test_delta_capture_algorithm(orpheus_test_delta_capture_State* s,
+    orpheus_test_delta_capture_IO* io,const OrpheusProcessContext* ctx) {
+    static const int32_t expected[@CALLS@][@COUNT@]={@EXPECTED@};
+    if(s->calls>=@CALLS@ || ctx->trigger_input || ctx->frame_count!=@STEP@ || ctx->valid_frames!=@STEP@
+        || ctx->epoch!=1 || ctx->frame_index!=(uint64_t)(s->calls/@REPEATS@*@STEP@))
+        return ORPHEUS_ERR_INVALID_ARG;
+    for(unsigned i=0;i<@COUNT@;i++)
+        if(io->in.samples[i]!=expected[s->calls][i]) return ORPHEUS_ERR_PROCESSING;
+    s->calls++;s->frame=(int32_t)ctx->frame_index;
+    return ORPHEUS_OK;
+}
+'''
+
+
+def verify_delta_hold(tmp_path, *, channels=1, batches=1, threshold=1.5, hold_ticks=18, step=128,
+                      reference=None, energy=False):
+    repeats = max(2, (hold_ticks + 7 + batches - 1) // batches)
+    cycle = hold_ticks + 5
+    fill = ("io->out.samples[h*2*s->channels+c]=phase==0 ? 4.0f : 0.0f;"
+            "io->out.samples[(h*2+1)*s->channels+c]=0.0f;" if energy else
+            "io->out.samples[h*s->channels+c]=phase==0 ? 8.0f : phase==1 ? 8.0f+s->threshold : 0.0f;")
+    source = create_component(tmp_path, "delta_source", {
+        "out": {"direction": "output", "type": "bulk", "sample_format": "f32",
+                "channels": "param:channels", "block_size": "2*param:batches" if energy else "param:batches",
+                "drive_port_no": 1},
+        "channels": parameter(channels, 64), "batches": parameter(batches, 64),
+        "threshold": scalar("float", threshold), "calls": scalar("int", 0),
+    }, SOURCE.replace("@REPEATS@", str(repeats)).replace("@CYCLE@", str(cycle)).replace("@FILL@", fill), source=True)
+    previous, active, counters = [0.0] * channels, [0] * channels, [0] * channels
+    expected, seen = [], set()
+    for call in range(repeats * 2):
+        samples, row = [], []
         for h in range(batches):
             for c in range(channels):
-                current=values[h*channels+c]
-                if f32(current-previous[c])>threshold:flag=1;counters[c]=0
-                elif counters[c]<hold_ticks and active[c]==1:flag=1;counters[c]+=1
-                else:flag=0
-                previous[c]=current;active[c]=flag;expected.append(flag)
-        assert actual==struct.pack(f"<{count}i",*expected);seen.update(expected)
-    assert seen=={0,1}, "必须同时验收触发与保持到期，不能只比较全零或一直为1。"
+                phase = (call * batches + h + c) % cycle
+                if energy:
+                    current = 16.0 if phase == 0 else 0.0
+                else:
+                    current = 8.0 if phase == 0 else f32(8.0 + f32(threshold)) if phase == 1 else 0.0
+                samples.append(current)
+                if f32(current - previous[c]) > f32(threshold):
+                    flag, counters[c] = 1, 0
+                elif active[c] and counters[c] < hold_ticks:
+                    flag = 1
+                    counters[c] += 1
+                else:
+                    flag = 0
+                previous[c], active[c] = current, flag
+                row.append(flag)
+        if reference is not None:
+            assert struct.pack(f"<{len(row)}i", *row) == reference(struct.pack(f"<{len(samples)}f", *samples))
+        expected.append(row)
+        seen.update(row)
+    assert seen == {0, 1}, "必须同时验收触发与保持到期。"
+    code = CAPTURE
+    for key, value in {
+        "COUNT": channels * batches, "CALLS": repeats * 2, "STEP": step, "REPEATS": repeats,
+        "EXPECTED": ",".join("{" + ",".join(map(str, row)) + "}" for row in expected),
+    }.items():
+        code = code.replace(f"@{key}@", str(value))
+    capture = create_component(tmp_path, "delta_capture", {
+        "in": {"direction": "input", "type": "bulk", "sample_format": "i32",
+               "channels": channels, "block_size": batches, "process": True},
+        "calls": scalar("int", 0), "last": scalar("float", 0.0), "frame": scalar("int", 0),
+    }, code)
+    manifest = ROOT / "components" / "orpheus" / "builtin" / "delta_hold" / "component.yaml"
+    manifests = [source, manifest, capture]
+    nodes = {
+        "source": Node("source", "orpheus.test.delta_source"),
+        "detector": Node("detector", "orpheus.builtin.delta_hold", params={
+            "channels": channels, "batches": batches, "threshold": threshold, "hold_ticks": hold_ticks}),
+        "capture": Node("capture", "orpheus.test.delta_capture"),
+    }
+    upstream = PortRef("source", "out")
+    connections = [Connection(PortRef("detector", "out"), PortRef("capture", "in"))]
+    if energy:
+        manifests.append(ROOT / "components" / "orpheus" / "builtin" / "complex_power" / "component.yaml")
+        nodes["power"] = Node("power", "orpheus.builtin.complex_power",
+                              params={"channels": channels, "bins": 1, "batches": batches})
+        connections.append(Connection(upstream, PortRef("power", "in")))
+        upstream = PortRef("power", "energy")
+    connections.append(Connection(upstream, PortRef("detector", "in")))
+    registry = Registry()
+    for item in manifests:
+        registry.add_manifest(item)
+    project = Project(flow_mode="task_sequence", block_size=step, graph=Graph(nodes=nodes, connections=connections))
+    harness = four_entry_harness().replace(",8)", f",{step})").replace("(8)", f"({step})")
+    case = compile_delivery_backends(tmp_path, registry, project, manifests, harness)
+    assert all(config["frames"] == step for config in case[2].node_configs.values())
+    check_four_entries(case, [[0, repeats, 0, 0], [1, repeats * 2, 0, step]])
 
 
-@pytest.mark.parametrize("channels,batches,threshold,hold_ticks,step",[
-    (1,1,1.5,18,128),(1,3,6.5,4,384),(3,2,1.5,2,32)])
-def test_delta_hold_four_entries(tmp_path,channels,batches,threshold,hold_ticks,step):
-    verify_delta_hold(tmp_path,channels=channels,batches=batches,threshold=threshold,hold_ticks=hold_ticks,step=step)
+@pytest.mark.parametrize("channels,batches,threshold,hold_ticks,step", [
+    (1, 1, 1.5, 18, 128), (1, 3, 6.5, 4, 384), (3, 2, 1.5, 2, 32), (64, 64, 1.5, 0, 8),
+])
+def test_delta_hold_four_entries(tmp_path, channels, batches, threshold, hold_ticks, step):
+    verify_delta_hold(tmp_path, channels=channels, batches=batches, threshold=threshold, hold_ticks=hold_ticks, step=step)
+
+
+def test_delta_hold_after_complex_power(tmp_path):
+    verify_delta_hold(tmp_path, channels=3, batches=2, hold_ticks=3, step=8, energy=True)

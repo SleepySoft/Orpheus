@@ -376,10 +376,12 @@ target_include_directories(bulk_ring_delay_smoke PRIVATE
 target_compile_definitions(bulk_ring_delay_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_ring_delay_smoke COMMAND bulk_ring_delay_smoke)
 add_executable(delta_hold_smoke delta_hold_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delta_hold/src/delta_hold.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delta_hold/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delta_hold/user/algorithm.c)
 target_include_directories(delta_hold_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delta_hold/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delta_hold/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delta_hold/user)
 target_compile_definitions(delta_hold_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME delta_hold_smoke COMMAND delta_hold_smoke)
 add_executable(trapezoid_ratio_smoke trapezoid_ratio_smoke.c

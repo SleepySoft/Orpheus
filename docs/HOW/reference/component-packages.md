@@ -159,6 +159,13 @@ enabled 是非驱动门控输出。初值参数为 `initial_value`，与 initial
 续调返回后重新读取 Buffer 当前指针和元数据，不沿用进入算法时的缓存视图。
 普通 latest 输入没有此放宽；不因未就绪而补调、等待或重排。
 
+delta_hold 的 in 实际交付驱动 1 号 i32 BULK out；
+每通道比较严格增量，保持计数按 batches 内每批推进，而非 Task 帧数。
+prepare/reset 清除历史，动态修改 threshold/hold_ticks 不清历史；
+NaN 比较为假，仍照常推进保持规则。输出悬空仍更新历史并交付，
+下游失败不回滚已完成的递推；错误缓冲区和零量子不推进状态。
+历史固定存于调用者状态区，无隐式堆状态或 process 分配。
+
 ## 复数运算与频谱载荷
 
 complex_power 的 in 驱动逐批功率及能量计算；按实际算法调用点依次交付

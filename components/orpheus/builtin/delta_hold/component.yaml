@@ -1,10 +1,10 @@
 id: orpheus.builtin.delta_hold
 name: "增量触发保持"
 category: "数学与控制"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: DeltaHoldState
+algorithm: {lifecycle: [prepare, reset]}
 description: >-
   每通道比较当前值与上一值，严格大于threshold时输出i32的1并清计数。
   否则仅在上一状态为1且counter<hold_ticks时继续输出1并加计数，其余输出0。
@@ -13,15 +13,12 @@ description: >-
   初始前值/状态/计数为零；reset恢复冷启动而保留配置；改参数不清历史。
   NaN比较为假但仍按保持规则推进；不做绝对值、平滑或幅值裁剪。
   输入为f32，输出为i32，禁止隐式类型转换及内存重叠；NULL输出仍推进状态。
-sources: [src/delta_hold.c]
-headers: [include/orpheus_delta_hold.h]
-ports:
-  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:batches"}
-  - {id: out, direction: output, type: bulk, sample_format: i32, channels: "param:channels", block_size: "param:batches"}
-parameters:
-  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
-  - {id: batches, name: 顺序批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
-  - {id: threshold, name: 严格增量阈值, type: float, default: 1.5, update_policy: block_boundary}
-  - {id: hold_ticks, name: 触发后的最多保持批次数, type: int, default: 18, range: [0, 2147483647], update_policy: block_boundary}
-memory: {state_size: 0, scratch_size: 0, alignment: 8}
+interfaces:
+  in: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:batches", process: true}
+  out: {direction: output, type: bulk, sample_format: i32, channels: "param:channels", block_size: "param:batches", drive_port_no: 1}
+  channels: {name: 通道数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  batches: {name: 顺序批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  threshold: {name: 严格增量阈值, type: float, default: 1.5, update_policy: block_boundary}
+  hold_ticks: {name: 触发后的最多保持批次数, type: int, default: 18, range: [0, 2147483647], update_policy: block_boundary}
+memory: {alignment: 8}
 execution: {realtime_safe: true, supports_inplace: false}
