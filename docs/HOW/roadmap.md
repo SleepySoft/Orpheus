@@ -78,7 +78,7 @@ BAF 不作为前几阶段的试验场，必须最后迁移。
 | 阶段 | 交付与范围 | 进入下一阶段前的证据 |
 |---|---|---|
 | 1：基础闭环（首批已实现） | 独立校验/生成脚本、ABI v7、出口编号、目标输入槽、Delivery、Runtime/生成代码；常量源、线性增益、空终点与简单工程 | 多出口顺序、同实例多次调用、入口身份、交付时间、错误传播、绘图分频不参与执行；独立数值预期与两路径一致；生成物过期拒绝、算法文件保护 |
-| 2：通用组件分批迁移（进行中） | 已迁移六个基础音频组件及 bass/treble/midrange/biquad/delay；gain 与 biquad_bank 接通私有资源；音频和数组通道拆并接通动态接口，bulk_slice 接通候选参数校验；negate/sample_product/audio_sample/scalar_to_i32 接通逐入口运算与显式标量转换；probe_peak/probe_rms 接通逐次交付测量、只读探针和调用前控制；bulk_scale/bulk_sum/bulk_subtract 接通互斥标量侧输入与逐次数组运算；bulk_db/frame_energy 接通 dB 换算与固定窗口能量归约，累计 33 包；继续剩余多出口、多输入、标量控制与可变签名 | 每类先用小图锁定独立数值/轨迹；逐批验证 Runtime、生成 C、参数更新及重建；未支持声明明确拒绝 |
+| 2：通用组件分批迁移（进行中） | 已迁移六个基础音频组件及 bass/treble/midrange/biquad/delay；gain 与 biquad_bank 接通私有资源；音频和数组通道拆并接通动态接口，bulk_slice 接通候选参数校验；negate/sample_product/audio_sample/scalar_to_i32 接通逐入口运算与显式标量转换；probe_peak/probe_rms 接通逐次交付测量、只读探针和调用前控制；bulk_scale/bulk_sum/bulk_subtract 接通互斥标量侧输入与逐次数组运算；bulk_db/frame_energy 接通 dB 换算与固定窗口能量归约；bulk_one_pole/bulk_guarded_slew 接通逐次状态推进、latest 门控与失败清理重试，累计 35 包；继续剩余多出口、多输入、标量控制与可变签名 | 每类先用小图锁定独立数值/轨迹；逐批验证 Runtime、生成 C、参数更新及重建；未支持声明明确拒绝 |
 | 3：复杂时序与资源 | 变速、组块、Task/分频源、宿主 Buffer、跨 Task 桥、BULK/资源与复合组件公开接口 | 实际交付次数与时间线为依据；水位、欠载/溢出、变长帧、别名、跨域、重入和错误恢复；移除与新契约冲突的静态周期假设，不增加会合等待 |
 | 4：界面与全量工程准备（创建闭环已实现） | 创建向导先保存工程私有配置，再调用同一独立脚本；剩余内置组件和普通示例仍待迁移，继续盘清遗留入口 | UI/CLI 结果一致；失败不损坏包；界面编号、有效驱动边和代码一致；全部普通回归通过 |
 | 5：BAF 最终迁移与收口 | 最后盘点并迁移独立 BAF 工程及定制组件；完成后删除旧 next/branch、旧 manifest 生产路径和节点级发布脚手架 | 建立真实算法/占位账本；已有数值基线、独立调用轨迹、动态/生成一致、长运行及资源预算；主仓库与研究工程分别提交 |

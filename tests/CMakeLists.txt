@@ -427,18 +427,22 @@ target_compile_definitions(frame_energy_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
 add_test(NAME frame_energy_smoke COMMAND frame_energy_smoke)
 
 add_executable(bulk_one_pole_smoke bulk_one_pole_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_one_pole/src/bulk_one_pole.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_one_pole/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_one_pole/user/algorithm.c)
 target_include_directories(bulk_one_pole_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_one_pole/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_one_pole/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_one_pole/user)
 target_compile_definitions(bulk_one_pole_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_one_pole_smoke COMMAND bulk_one_pole_smoke)
 
 add_executable(bulk_guarded_slew_smoke bulk_guarded_slew_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_guarded_slew/src/bulk_guarded_slew.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_guarded_slew/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_guarded_slew/user/algorithm.c)
 target_include_directories(bulk_guarded_slew_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_guarded_slew/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_guarded_slew/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_guarded_slew/user)
 target_compile_definitions(bulk_guarded_slew_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 if(NOT WIN32)
     target_link_libraries(bulk_guarded_slew_smoke PRIVATE m)

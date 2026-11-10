@@ -9,6 +9,7 @@ SOURCE = r'''
 int orpheus_test_array_source_algorithm(orpheus_test_array_source_State* s,
     orpheus_test_array_source_IO* io, const OrpheusProcessContext* ctx) {
     if(!io->out.buffer) return ORPHEUS_ERR_INVALID_ARG;
+    @SCALARS@
     for(int32_t i=0;i<s->channels*s->elements;i++)
         io->out.samples[i]=@VALUE@;
     io->out.buffer->frame_count=(uint32_t)s->elements;
@@ -24,6 +25,7 @@ int orpheus_test_array_source_algorithm(orpheus_test_array_source_State* s,
     orpheus_test_array_source_IO* io, const OrpheusProcessContext* ctx) {
     if(!io->out.buffer || !io->other.buffer) return ORPHEUS_ERR_INVALID_ARG;
     int32_t tick=s->calls++;
+    @SCALARS@
     for(int32_t i=0;i<s->channels*s->elements;i++)
         io->out.samples[i]=@VALUE@;
     io->out.buffer->frame_count=io->other.buffer->frame_count=(uint32_t)s->elements;
@@ -60,7 +62,7 @@ int orpheus_test_array_capture_algorithm(orpheus_test_array_capture_State* s,
 
 
 def register_array_interfaces(directory, registry, *, capture_b_process=True, paired_source=False,
-                              source_audio=False):
+                              source_audio=False, scalar_signals=False):
     def parameter(default, maximum):
         return {**scalar("int", default), "range": [1, maximum],
                 "affects_signature": True, "update_policy": "restart_required"}
@@ -78,10 +80,25 @@ def register_array_interfaces(directory, registry, *, capture_b_process=True, pa
         source_interfaces["other"] = port("output", "channels", "elements", drive_port_no=2)
     if source_audio:
         source_interfaces["out"]["type"] = "audio"
+    if scalar_signals:
+        side_output = {"direction": "output", "type": "bulk", "sample_format": "f32",
+                       "channels": 1, "block_size": 1}
+        source_interfaces["update"] = {**side_output, "sample_format": "i32"}
+        source_interfaces["bound"] = side_output
     call = "tick" if paired_source else "s->calls"
     value = f"((i*17+{call}*13)%50001-25000)*0.000030517578125f" if source_audio else (
         f"((i*17+{call}*13)%129-64)*0.03125f")
     source_code = (PAIRED_SOURCE if paired_source else SOURCE).replace("@VALUE@", value)
+    scalars = f'''
+    if(io->update.buffer) {{
+        io->update.samples[0]=({call}%3-1);
+        io->update.buffer->frame_count=1;
+    }}
+    if(io->bound.buffer) {{
+        io->bound.samples[0]=(float)({call}%3-1);
+        io->bound.buffer->frame_count=1;
+    }}''' if scalar_signals else ""
+    source_code = source_code.replace("@SCALARS@", scalars)
     source = create_component(directory, "array_source", source_interfaces, source_code, source=True)
     interfaces = {
         "a": port("input", "channels_a", "frames_a", process=True),

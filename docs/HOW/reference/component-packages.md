@@ -99,6 +99,18 @@ graph:
 目前前端只允许普通 `trigger → trigger` 连线；跨到 audio 等其它类型时显示中文拒绝原因，
 不自动转成音频边或旧 `drv:out/in` 虚拟执行边。
 
+## 生成壳的资源生命周期
+
+声明 `algorithm.lifecycle` 的组件由生成壳调用对应钩子，资源只在生命周期中分配和释放，
+不能在实时 `process` 中申请内存。调用者提供对齐的 State，仍须先 create 再 prepare。
+
+prepare 先校验候选参数；校验失败保留旧参数和资源。校验成功后先清理旧资源，
+提交新参数，再调用算法 prepare；资源重建失败会再次清理并返回原错误，
+**不回滚旧历史**。此时不能继续实际处理，须成功重试 prepare 后再运行；
+destroy 必须能安全清理失败或尚未 prepare 的实例。
+bulk_one_pole 与 bulk_guarded_slew 的原生验收覆盖分配失败、重试、
+reset/destroy 及处理期间零内存分配。
+
 ## 统一组件定义
 
 所有定义使用组件 manifest。实现差异只体现在 `package_type`：

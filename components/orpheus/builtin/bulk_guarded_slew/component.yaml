@@ -1,10 +1,11 @@
 id: orpheus.builtin.bulk_guarded_slew
 name: "数组方向保持限速"
 category: "数学与控制"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: BulkGuardedSlewState
+algorithm:
+  lifecycle: [prepare, reset, destroy]
 description: >-
   每个元素每次交付推进一次，独立保存前输出、前delta和前change，不沿数组行递推。
   delta=in-previous，正向change=min(attack,delta)，否则max(decay,delta)。
@@ -14,18 +15,16 @@ description: >-
   bound为可选f32单项全元素标记，不连接视为零；不是时钟，不隐式转换整数标记。
   initial在首次有效调用惰性读取；reset清三份历史并恢复未初始化态，动态参数不清历史。
   NULL输出仍推进，零处理量不推进；全部缓冲区先校验，错误不写不推进，禁止输入输出重叠。
-sources: [src/bulk_guarded_slew.c]
-headers: [include/orpheus_bulk_guarded_slew.h]
-ports:
-  - {id: in, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
-  - {id: bound, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, optional: true}
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements"}
-parameters:
-  - {id: channels, name: 通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
-  - {id: elements, name: 每通道元素数, type: int, default: 1, range: [1, 65536], update_policy: restart_required, affects_signature: true}
-  - {id: attack, name: 每次正向最大变化, type: float, default: 1.0, update_policy: block_boundary}
-  - {id: decay, name: 每次负向最小变化, type: float, default: -1.0, update_policy: block_boundary}
-  - {id: threshold, name: 方向保持阈值, type: float, default: 0.0, update_policy: block_boundary}
-  - {id: slow, name: 边界慢速率幅值, type: float, default: 0.0, update_policy: block_boundary}
-  - {id: initial, name: 初始输出, type: float, default: 0.0, update_policy: block_boundary}
+interfaces:
+  in: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", process: true}
+  bound: {direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1, timing: latest}
+  out: {direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:elements", drive_port_no: 1, drive_divide: 1}
+  channels: {name: 通道数, type: int, default: 1, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  elements: {name: 每通道元素数, type: int, default: 1, range: [1, 65536], update_policy: restart_required, affects_signature: true}
+  attack: {name: 每次正向最大变化, type: float, default: 1.0, range: [0, 3.4028234663852886e+38], update_policy: block_boundary}
+  decay: {name: 每次负向最小变化, type: float, default: -1.0, range: [-3.4028234663852886e+38, 0], update_policy: block_boundary}
+  threshold: {name: 方向保持阈值, type: float, default: 0.0, range: [0, 3.4028234663852886e+38], update_policy: block_boundary}
+  slow: {name: 边界慢速率幅值, type: float, default: 0.0, range: [0, 3.4028234663852886e+38], update_policy: block_boundary}
+  initial: {name: 初始输出, type: float, default: 0.0, update_policy: block_boundary}
+memory: {alignment: 8}
 execution: {realtime_safe: true, supports_inplace: false}
