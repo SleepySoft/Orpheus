@@ -123,6 +123,7 @@ static int configure_parameters(orpheus_builtin_async_bridge_Parameters* p, cons
     if (!config || (config->param_count && (!config->param_ids || !config->param_values)))
         return ORPHEUS_ERR_INVALID_ARG;
     default_parameters(p);
+    if (!config->block_size) return ORPHEUS_ERR_INVALID_ARG;
     bool explicit_channels=false;
     for (uint32_t i=0; i<config->param_count; ++i)
         if (config->param_ids[i] && strcmp(config->param_ids[i], "channels")==0) explicit_channels=true;
@@ -154,6 +155,7 @@ static int prepare(void* state, const OrpheusConfig* config) {
     result=cleanup(s); if (result!=ORPHEUS_OK) return result;
     commit_parameters(s, &candidate);
     s->_orpheus_cleanup_pending=true;
+    s->_orpheus_task_block_size=config->block_size;
     return ORPHEUS_OK;
 }
 static int create(void** state, const OrpheusConfig* config) {
@@ -165,6 +167,7 @@ static int create(void** state, const OrpheusConfig* config) {
     if (result!=ORPHEUS_OK) return result;
     orpheus_builtin_async_bridge_State* s=(orpheus_builtin_async_bridge_State*)config->state_block;
     memset(s, 0, sizeof(*s)); commit_parameters(s, &candidate);
+    s->_orpheus_task_block_size=config->block_size;
     s->_orpheus_alive=true; *state=s; return ORPHEUS_OK;
 }
 static int destroy(void* state) {
@@ -222,6 +225,10 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         return ORPHEUS_ERR_INVALID_ARG;
     io.tick.delivery=ctx->trigger_input==(1) ? ctx->delivery : NULL;
     if (io.tick.delivery && io.tick.delivery->buffer) return ORPHEUS_ERR_INVALID_ARG;
+    double _orpheus_payload_out=(double)(s->_orpheus_task_block_size);
+    if (!isfinite(_orpheus_payload_out) || _orpheus_payload_out < 1
+            || _orpheus_payload_out > UINT32_MAX || _orpheus_payload_out != (uint32_t)_orpheus_payload_out)
+        return ORPHEUS_ERR_INVALID_ARG;
     io.out.active=true;
     io.out.drive_port_no=1u;
     io.out.buffer=(ctx->outputs && ctx->output_count > (0)) ? ctx->outputs[0] : NULL;
@@ -230,8 +237,8 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         return ORPHEUS_ERR_INVALID_ARG;
     io.out.samples=io.out.buffer ? (float*)io.out.buffer->data : NULL;
     if (io.out.buffer) {
-        if (ctx->frame_count > io.out.buffer->frame_capacity) return ORPHEUS_ERR_INVALID_ARG;
-        io.out.buffer->frame_count=ctx->frame_count;
+        if ((uint32_t)_orpheus_payload_out > io.out.buffer->frame_capacity) return ORPHEUS_ERR_INVALID_ARG;
+        io.out.buffer->frame_count=(uint32_t)_orpheus_payload_out;
     }
     io.out.delivery=(OrpheusDelivery){.buffer=io.out.buffer, .frame_index=ctx->frame_index,
         .epoch=ctx->epoch, .timeline_flags=ctx->timeline_flags};

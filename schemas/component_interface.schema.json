@@ -110,6 +110,13 @@
         {"type": "string", "pattern": "^(param:[A-Za-z][A-Za-z0-9_]*|task:(block_size|sample_rate)|(?!task:)[A-Za-z][A-Za-z0-9_]*:(channels|block_size|sample_rate))$"}
       ]
     },
+    "payload": {
+      "description": "块载荷可用无空白的正整数/param 引用乘法链。所有显式 audio 块长均为独立载荷；task 引用固定为准备配置值，仅未声明块长的 audio 继承 ctx 实际量子。",
+      "oneOf": [
+        {"$ref": "#/$defs/signature"},
+        {"type": "string", "pattern": "^(param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*)(\\*(param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+$(?![\\s\\S])"}
+      ]
+    },
     "port": {
       "type": "object",
       "required": ["type", "direction"],
@@ -121,7 +128,7 @@
         "type": {"enum": ["audio", "control", "bulk", "debug", "trigger"]},
         "sample_format": {"enum": ["f32", "i16", "i24", "i32"]},
         "channels": {"$ref": "#/$defs/signature"},
-        "block_size": {"$ref": "#/$defs/signature"},
+        "block_size": {"$ref": "#/$defs/payload"},
         "sample_rate": {"$ref": "#/$defs/signature"},
         "count": {"oneOf": [
           {"type": "integer", "minimum": 0, "maximum": 4294967294},
@@ -134,8 +141,11 @@
           "type": "boolean",
           "description": "仅用于非驱动 latest BULK 输入；允许有效长度为零，算法读取前须自行确认完整 payload 就绪。"
         },
-        "layout": {"type": "string"},
-        "frame_size": {"type": "integer", "minimum": 0},
+        "layout": {"type": "string", "description": "非音频布局标签；halfcomplex 仅允许带正 frame_size 的显式 f32 BULK 载荷。"},
+        "frame_size": {"oneOf": [
+          {"type": "integer", "minimum": 0, "maximum": 4294967294},
+          {"type": "string", "pattern": "^param:[A-Za-z][A-Za-z0-9_]*$(?![\\s\\S])"}
+        ]},
         "drive_port_no": {"$ref": "#/$defs/positive"},
         "drive_divide": {
           "$ref": "#/$defs/positive",
@@ -143,6 +153,11 @@
         }
       },
       "allOf": [
+        {"if": {"required": ["layout"], "properties": {"layout": {"const": "halfcomplex"}}}, "then": {
+          "required": ["block_size", "frame_size"],
+          "properties": {"type": {"const": "bulk"}, "sample_format": {"const": "f32"},
+                         "frame_size": {"not": {"const": 0}}}
+        }},
         {"if": {"required": ["allow_unready"]}, "then": {
           "required": ["timing"],
           "properties": {"type": {"const": "bulk"}, "direction": {"const": "input"},

@@ -176,6 +176,20 @@ def test_automatic_input_resolution_preserves_explicit_port_constraints(registry
     assert signatures["gain:out"]["frames"] == 96
 
 
+def test_fixed_audio_payload_requires_an_explicit_consumer_signature(registry):
+    project = Project(block_size=8, graph=Graph(nodes={
+        "encode": Node("encode", "orpheus.builtin.halfcomplex_encode"),
+        "gain": Node("gain", "orpheus.builtin.gain"),
+    }, connections=[connection("encode:out", "gain:in")]))
+    diagnostics = []
+    signatures, _ = GraphCompiler(registry).resolve_port_signatures(
+        project, connection_diagnostics=diagnostics)
+    assert signatures["encode:out"]["frames"] == 256
+    assert signatures["gain:in"]["frames"] == signatures["gain:out"]["frames"] == 8
+    assert diagnostics[0]["status"] == "mismatch"
+    assert {item["field"] for item in diagnostics[0]["differences"]} == {"frames"}
+
+
 @pytest.mark.parametrize("field,value,reported,message", [
     ("channels", 1, "channels", "channels mismatch"),
     ("sample_format", "i16", "sample_format", "format mismatch"),

@@ -14,8 +14,8 @@ ROOT=Path(__file__).resolve().parents[2]
 def f32(value):return struct.unpack("<f",struct.pack("<f",value))[0]
 
 
-@pytest.mark.parametrize("channels,frames",[(1,1),(2,128),(64,17)])
-def test_frame_energy_four_entries(tmp_path,channels,frames):
+@pytest.mark.parametrize("channels,frames,quantum",[(1,1,1),(2,128,128),(64,17,17),(2,17,8),(2,1,8)])
+def test_frame_energy_four_entries(tmp_path,channels,frames,quantum):
     registry=Registry([ROOT/"components"]);registry.scan()
     register_array_interfaces(tmp_path,registry,source_audio=True)
     nodes={
@@ -23,10 +23,12 @@ def test_frame_energy_four_entries(tmp_path,channels,frames):
         "energy":Node(id="energy",component="orpheus.builtin.frame_energy",params={"channels":channels,"frames":frames}),
         "capture":Node(id="capture",component="orpheus.test.array_capture",params={"channels_a":1,"frames_a":1,"channels_b":1,"frames_b":1})}
     pairs=[("source:out","energy:in"),("energy:out","capture:a"),("energy:out","capture:b")]
-    project=Project(flow_mode="task_sequence",sample_rate=48000,block_size=frames,
+    project=Project(flow_mode="task_sequence",sample_rate=48000,block_size=quantum,
         graph=Graph(nodes=nodes,connections=[Connection(PortRef.parse(a),PortRef.parse(b)) for a,b in pairs]))
     plan=GraphCompiler(registry).compile(project)
-    assert plan.schedule["tick"]==frames and set(plan.schedule["periods"].values())=={1}
+    assert plan.schedule["tick"]==quantum and set(plan.schedule["periods"].values())=={1}
+    assert all(config["frames"]==quantum for config in plan.node_configs.values())
+    assert plan.node_configs["energy"]["input_audio_payload_ports"]==["in"]
     buffer=next(b for b in plan.buffers.values() if b["from"]=="energy:out")
     assert (buffer["type"],buffer["channels"],buffer["frame_count"])==("bulk",1,1)
     records=execute_array_graph(tmp_path,registry,plan,{"capture":(1,1)},blocks=12,calls_per_block=2)["capture"]

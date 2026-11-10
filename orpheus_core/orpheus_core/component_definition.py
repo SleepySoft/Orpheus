@@ -43,6 +43,8 @@ _KEYWORDS = set(("auto break case char const continue default do double else enu
                  "private public protected new delete operator NULL").split())
 _POLICIES = {"immediate", "block_boundary", "smoothed", "transactional", "restart_required"}
 F32_MAX = float.fromhex("0x1.fffffep+127")
+_PAYLOAD_PRODUCT = re.compile(
+    r"(?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*)(?:\*(?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+")
 LIFECYCLE_HOOKS = ("validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
         "category", "description", "interfaces", "algorithm", "order", "execution", "memory",
@@ -394,18 +396,23 @@ def _validate(raw):
                 _fail("allow_unready 仅允许不驱动且 timing 为 latest 的 BULK 输入", loc + ".allow_unready")
             if kind == "audio" and ("layout" in item or "frame_size" in item):
                 _fail("layout/frame_size 仅用于非音频端口", loc)
-            for field in ("channels", "block_size", "sample_rate"):
+            for field in ("channels", "block_size", "sample_rate", "frame_size"):
                 if field not in item:
                     continue
                 value = item[field]
                 if isinstance(value, str):
-                    if not re.fullmatch(r"(?:param:[A-Za-z][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9_]*:(?:channels|block_size|sample_rate))", value):
+                    product = field == "block_size" and _PAYLOAD_PRODUCT.fullmatch(value)
+                    pattern = (r"param:[A-Za-z][A-Za-z0-9_]*" if field == "frame_size" else
+                               r"(?:param:[A-Za-z][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9_]*:(?:channels|block_size|sample_rate))")
+                    if not product and not re.fullmatch(pattern, value):
                         _fail("签名表达式非法", loc + "." + field)
                     references[(key, field)] = value
-                elif type(value) is not int or not 1 <= value <= 4294967294:
+                elif type(value) is not int or not (0 if field == "frame_size" else 1) <= value <= 4294967294:
                     _fail("必须是正整数或签名引用", loc + "." + field)
-            if "frame_size" in item and (type(item["frame_size"]) is not int or item["frame_size"] < 0):
-                _fail("首版 frame_size 仅允许非负整数", loc)
+            if item.get("layout") == "halfcomplex" and (
+                    kind != "bulk" or item.get("sample_format", "f32") != "f32"
+                    or "block_size" not in item or "frame_size" not in item or item["frame_size"] == 0):
+                _fail("halfcomplex 仅允许带显式 block_size 和正 frame_size 的 f32 BULK 端口", loc)
             if "drive_port_no" in item:
                 value = item["drive_port_no"]
                 if item["direction"] != "output" or type(value) is not int or not 1 <= value <= 4294967294:
@@ -555,27 +562,64 @@ def _validate(raw):
         if node in done or node not in references:
             return
         visiting.add(node)
-        target, field = references[node].split(":")
-        if target == "task":
-            if field not in {"block_size", "sample_rate"}:
-                _fail("Task 仅支持 task:block_size/task:sample_rate 引用", f"interfaces.{node[0]}.{node[1]}")
-        elif target == "param":
-            parameter = interfaces.get(field, {})
-            if (parameter.get("type") != "int" or is_array_parameter(parameter) or
-                    not (parameter.get("affects_signature") or field in count_parameters)):
-                _fail("签名参数引用必须指向 affects_signature 的 int 参数", f"interfaces.{node[0]}.{node[1]}")
-            if parameter["default"] < 1 or ("range" in parameter and parameter["range"][0] < 1):
-                _fail("签名参数必须保持正数", f"interfaces.{target}.{field}")
-        else:
-            other = interfaces.get(target, {})
-            if other.get("direction") not in {"input", "output"} or other.get("type") == "trigger":
-                _fail("签名引用不存在", f"interfaces.{node[0]}.{node[1]}")
-            check_ref((target, field))
+        maximum = 1
+        atoms = references[node].split("*")
+        for atom in atoms:
+            if atom.isdecimal():
+                if len(atom) > 10 or (len(atom) == 10 and atom > "4294967295"):
+                    _fail("载荷乘数超出 uint32 上限", f"interfaces.{node[0]}.{node[1]}")
+                maximum *= int(atom)
+                if maximum > 4294967295:
+                    _fail("载荷乘积在声明参数范围内超出 uint32 上限", f"interfaces.{node[0]}.{node[1]}")
+                continue
+            target, field = atom.split(":")
+            if target == "task":
+                if field not in {"block_size", "sample_rate"}:
+                    _fail("Task 仅支持 task:block_size/task:sample_rate 引用", f"interfaces.{node[0]}.{node[1]}")
+            elif target == "param":
+                parameter = interfaces.get(field, {})
+                if (parameter.get("type") != "int" or is_array_parameter(parameter) or
+                        not (parameter.get("affects_signature") or field in count_parameters)):
+                    _fail("签名参数引用必须指向 affects_signature 的 int 参数", f"interfaces.{node[0]}.{node[1]}")
+                if parameter["default"] < 1 or ("range" in parameter and parameter["range"][0] < 1):
+                    _fail("签名参数必须保持正数", f"interfaces.{target}.{field}")
+                maximum *= parameter.get("range", [1, 2147483647])[1]
+            else:
+                other = interfaces.get(target, {})
+                if other.get("direction") not in {"input", "output"} or other.get("type") == "trigger":
+                    _fail("签名引用不存在", f"interfaces.{node[0]}.{node[1]}")
+                check_ref((target, field))
+            if len(atoms) > 1 and maximum > 4294967295:
+                _fail("载荷乘积在声明参数范围内超出 uint32 上限", f"interfaces.{node[0]}.{node[1]}")
         visiting.remove(node)
         done.add(node)
 
     for node in references:
         check_ref(node)
+
+    def default_signature(key, field):
+        value = interfaces[key].get(field)
+        if not isinstance(value, str):
+            return value
+        result = 1
+        for atom in value.split("*"):
+            if atom.isdecimal():
+                factor = int(atom)
+            else:
+                target, attr = atom.split(":")
+                factor = (interfaces[attr]["default"] if target == "param" else
+                          None if target == "task" else default_signature(target, attr))
+            if factor is None:
+                return None
+            result *= factor
+        return result
+
+    for key, item in interfaces.items():
+        if item.get("layout") == "halfcomplex" or isinstance(item.get("frame_size"), str):
+            size = default_signature(key, "frame_size")
+            payload = default_signature(key, "block_size")
+            if size is not None and payload is not None and payload % size:
+                _fail("frame_size 必须整除默认载荷长度", f"interfaces.{key}.frame_size")
     slot_keys = set()
     for key, item in interfaces.items():
         if "direction" in item:

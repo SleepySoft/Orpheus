@@ -162,12 +162,31 @@ def _lifecycle_signatures(state, parameters):
     }
 
 
+def _audio_payload_tasks(definition):
+    ports = {p["id"]: p for p in definition["ports"]}
+
+    def task_fields(port, field):
+        value = port.get(field)
+        if value is None:
+            return {field} if field in {"block_size", "sample_rate"} else set()
+        if not isinstance(value, str) or "*" in value:
+            return set()
+        target, attr = value.split(":")
+        if target == "task":
+            return {attr}
+        return task_fields(ports[target], attr) if target != "param" else set()
+
+    return sorted(set().union(*(task_fields(p, "block_size") for p in ports.values()
+                               if p["type"] == "audio" and "block_size" in p)))
+
+
 def _render_parameter_shell(definition):
     """生成参数事务和生命周期适配；绝不复制含用户资源指针的 AlgorithmState。"""
     symbols = definition["algorithm_symbols"]
     prefix, state = symbols["prefix"], symbols["state_type"]
     params = definition["parameters"]
     hooks = set(definition.get("algorithm", {}).get("lifecycle", []))
+    task_fields = _audio_payload_tasks(definition)
     values = f"{prefix}_Parameters"
     lines = [] if "validate" in hooks else _parameter_struct(definition)
     lines += [f"static void snapshot_parameters(const {state}* s, {values}* p) {{",
@@ -359,6 +378,10 @@ def _render_parameter_shell(definition):
         "        return ORPHEUS_ERR_INVALID_ARG;",
         "    default_parameters(p);",
     ]
+    for field in task_fields:
+        lines += ([f"    if (!config->{field}) return ORPHEUS_ERR_INVALID_ARG;"] if field == "block_size" else [
+            f"    if (!isfinite(config->{field}) || config->{field}<1 || config->{field}>UINT32_MAX",
+            f"            || config->{field}!=(uint32_t)config->{field}) return ORPHEUS_ERR_INVALID_ARG;"])
     if any(p["id"] == "channels" and p["type"] == "int" and not _is_array(p) for p in params):
         lines += [
             "    bool explicit_channels=false;",
@@ -399,6 +422,7 @@ def _render_parameter_shell(definition):
               "    result=cleanup(s); if (result!=ORPHEUS_OK) return result;",
               "    commit_parameters(s, &candidate);",
               "    s->_orpheus_cleanup_pending=true;"]
+    lines.extend(f"    s->_orpheus_task_{field}=config->{field};" for field in task_fields)
     if "prepare" in hooks:
         lines += [f"    result={prefix}_prepare(s, config);",
                   "    if (result!=ORPHEUS_OK) { (void)cleanup(s); return result; }"]
@@ -412,6 +436,7 @@ def _render_parameter_shell(definition):
               "    if (result!=ORPHEUS_OK) return result;",
               f"    {state}* s=({state}*)config->state_block;",
               "    memset(s, 0, sizeof(*s)); commit_parameters(s, &candidate);",
+              *(f"    s->_orpheus_task_{field}=config->{field};" for field in task_fields),
               "    s->_orpheus_alive=true; *state=s; return ORPHEUS_OK;", "}",
               "static int destroy(void* state) {",
               f"    {state}* s=({state}*)state;",
@@ -571,6 +596,8 @@ def _render(definition):
             "   不得改写外部状态或保留候选指针；错误原样返回，不调用可变生命周期入口。 */", ""]
     state_header.append(f"typedef struct {state} {{")
     state_header.extend(f"    {_parameter_declaration(p)}" for p in params)
+    state_header.extend(f"    {'uint32_t' if field == 'block_size' else 'double'} _orpheus_task_{field};"
+                        for field in _audio_payload_tasks(definition))
     if "get_parameter" in hooks:
         state_header.extend(f"    char _orpheus_readback_{p['id']}[{p.get('capacity', 256)}];"
                             for p in params if p["type"] == "string")
@@ -635,16 +662,31 @@ def _render(definition):
         ]
     by_id = {p["id"]: p for p in ports}
 
-    def expression(port, field, context=False):
-        value = port.get(field, 0)
+    def expression(port, field, context=False, frozen=False):
+        value = port.get(field, f"task:{field}" if frozen and field in {"block_size", "sample_rate"} else 0)
         if isinstance(value, int):
             return str(value)
+        if "*" in value:
+            return "(" + " * ".join(
+                f"(double)({expression({'term': atom}, 'term', context) if ':' in atom else atom})"
+                for atom in value.split("*")) + ")"
         target, attr = value.split(":")
         if target == "param":
             return f"s->{attr}" if context else "0"
         if target == "task":
+            if context and frozen:
+                return f"s->_orpheus_task_{attr}"
             return f"ctx->{'frame_count' if attr == 'block_size' else 'sample_rate'}" if context else "0"
-        return expression(by_id[target], attr, context)
+        return expression(by_id[target], attr, context, frozen)
+
+    def product_parameters(port, field):
+        value = port.get(field, 0)
+        if not isinstance(value, str):
+            return None
+        if "*" in value:
+            return list(dict.fromkeys(atom[6:] for atom in value.split("*") if atom.startswith("param:")))
+        target, attr = value.split(":")
+        return product_parameters(by_id[target], attr) if target not in {"param", "task"} else None
 
     if ports:
         shell.append("static const OrpheusPort ports[] = {")
@@ -736,8 +778,17 @@ def _render(definition):
             name = port["id"]
             is_group = "count" in port
             payload = None
-            if port["type"] not in {"audio", "trigger"}:
-                frames = expression(port, "block_size", True)
+            products = product_parameters(port, "block_size")
+            # 显式音频块长是独立载荷；仅缺省声明继承 ctx 的实际处理量子。
+            if port["type"] not in {"audio", "trigger"} or (
+                    port["type"] == "audio" and "block_size" in port):
+                for key in products or []:
+                    parameter = next(p for p in params if p["id"] == key)
+                    lo, hi = parameter.get("range", [1, 2147483647])
+                    shell += [
+                        f"    if (s->{key} < {lo} || s->{key} > {hi}) return ORPHEUS_ERR_INVALID_ARG;",
+                    ]
+                frames = expression(port, "block_size", True, frozen=port["type"] == "audio")
                 frames = "ctx->frame_count" if frames == "0" else frames
                 payload = f"_orpheus_payload_{name}"
                 shell += [
@@ -746,6 +797,20 @@ def _render(definition):
                     f"            || {payload} > UINT32_MAX || {payload} != (uint32_t){payload})",
                     "        return ORPHEUS_ERR_INVALID_ARG;",
                 ]
+                if port.get("layout") == "halfcomplex" or isinstance(port.get("frame_size"), str):
+                    frame_size = f"_orpheus_frame_size_{name}"
+                    if isinstance(port.get("frame_size"), str):
+                        key = port["frame_size"][6:]
+                        parameter = next(p for p in params if p["id"] == key)
+                        lo, hi = parameter.get("range", [1, 2147483647])
+                        shell.append(f"    if (s->{key} < {lo} || s->{key} > {hi}) return ORPHEUS_ERR_INVALID_ARG;")
+                    shell += [
+                        f"    double {frame_size}=(double)({expression(port, 'frame_size', True)});",
+                        f"    if (!isfinite({frame_size}) || {frame_size} < 1 || {frame_size} > UINT32_MAX",
+                        f"            || {frame_size} != (uint32_t){frame_size}",
+                        f"            || (uint32_t){payload} % (uint32_t){frame_size} != 0)",
+                        "        return ORPHEUS_ERR_INVALID_ARG;",
+                    ]
             flat_index = f"_orpheus_{direction}_slot" if grouped else str(index)
             if is_group:
                 shell.append(f"    for (uint32_t _orpheus_i=0; _orpheus_i<io.{name}_count; ++_orpheus_i) {{")

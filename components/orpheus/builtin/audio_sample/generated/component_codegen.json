@@ -2,7 +2,7 @@
   "configuration_sha256": "55f91e353412feaaa638523b2f831eb2c40ed271f8c43fea9b9176024a8688f1",
   "files": {
     "component_api.h": "5bdf8c72204f24b59dbbed3cf33b3a567398c25fcf52e260d093245d9fbe203e",
-    "component_shell.c": "1a1f3faff32f1690632c61dbc9cfb617ebf27375d41aae6e24d9f6d70b9c7d11",
+    "component_shell.c": "d2e41fe1908baa2c994e27610ea60bba82add6b4de19887213875310ee2126ab",
     "component_sources.cmake": "396ececfdef8638d495b23e7a4ddd1a2bf6c1bc245fc6e9ddce4dc511e1a6871",
     "component_state.h": "dd72976c22e31eeb6b43b751a640f3053dc4dbf5401c621769783eb54a2206b5"
   },

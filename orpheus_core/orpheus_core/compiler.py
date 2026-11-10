@@ -673,7 +673,15 @@ class GraphCompiler:
         node_task: Callable[[Node], Task], execution_order: list[str],
     ) -> dict[str, int]:
         connected_inputs = {str(conn.to_ref) for conn in graph.connections}
-        # 数据端口的 block_size 是数组长度，不参与音频处理量子的推导。
+        payload_audio_ports = {
+            f"{node.id}:{port['id']}"
+            for node in graph.nodes.values()
+            if "interfaces" in self.registry.get(node.component).manifest
+            for port in expanded_ports[node.id]
+            if port["direction"] == "output" and port["type"] == "audio"
+            and resolved_ports[f"{node.id}:{port['id']}"].block_size_explicit
+        }
+        # 数据及显式接口载荷不参与处理量子的推导。
         def _compute_in_frames(strict: bool = False) -> dict[str, int]:
             frames: dict[str, int] = {}
             processing: dict[str, int] = {}
@@ -686,6 +694,7 @@ class GraphCompiler:
                     resolved_ports[str(conn.from_ref)].block_size
                     for conn in incoming
                     if resolved_ports[str(conn.from_ref)].type == "audio"
+                    and str(conn.from_ref) not in payload_audio_ports
                 ]
                 if sizes:
                     if strict and len(set(sizes)) > 1 and not scheduling.get("merge"):
@@ -696,6 +705,8 @@ class GraphCompiler:
                 elif incoming:
                     quantum = processing[incoming[0].from_ref.node_id]
                 else:
+                    quantum = node_task(node).block_size
+                if scheduling.get("async_bridge"):
                     quantum = node_task(node).block_size
                 frames[node_id] = quantum
                 outputs = [p for p in expanded_ports[node_id] if p["direction"] == "output"]
@@ -722,11 +733,13 @@ class GraphCompiler:
                 sizes = [
                     resolved_ports[str(conn.from_ref)].block_size for conn in incoming
                     if resolved_ports[str(conn.from_ref)].type == "audio"
+                    and str(conn.from_ref) not in payload_audio_ports
                 ]
                 comp = self.registry.get(node.component)
                 scheduling = (comp.manifest.get("scheduling") or {}) if comp else {}
                 node_in_frames = (
-                    math.lcm(*sizes) if sizes and scheduling.get("merge")
+                    nt.block_size if scheduling.get("async_bridge")
+                    else math.lcm(*sizes) if sizes and scheduling.get("merge")
                     else sizes[0] if sizes
                     else processing_quanta[incoming[0].from_ref.node_id] if incoming
                     else nt.block_size
@@ -754,6 +767,8 @@ class GraphCompiler:
                             task_frames=consumer_frames
                             if node_task(graph.nodes[source.node_id]).id != nt.id else None,
                         )
+                        if rp.type == "audio" and not rp.block_size_explicit and source_key in payload_audio_ports:
+                            automatic_frames = consumer_frames
                     else:
                         if (isinstance(bs_expr, str) and "in:block_size" in bs_expr
                                 and len(set(payload_sizes)) > 1):
@@ -1283,6 +1298,11 @@ class GraphCompiler:
                 } if node_rate.denominator != 1 else {}),
                 # ordered port ids: runtime binds buffers by port id, not order
                 "input_ports": [p["id"] for p in port_manifests if p["direction"] == "input"],
+                "input_audio_payload_ports": [
+                    p["id"] for p in port_manifests
+                    if "interfaces" in comp.manifest and p["direction"] == "input"
+                    and p["type"] == "audio" and "block_size" in p
+                ],
                 "output_ports": [p["id"] for p in out_ports],
                 "port_signatures": {
                     p["id"]: port_signature_to_dict(resolved_ports[f"{node.id}:{p['id']}"])

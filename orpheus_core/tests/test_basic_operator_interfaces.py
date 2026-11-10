@@ -143,11 +143,13 @@ def build_operator_graph(tmp_path, operation, *, channels=1, frames=8, frame=0,
          "channels": 1, "block_size": 1}
         if operation == 3 else audio("output", channels="param:channels")
     )
+    if operation == 2:
+        source_port["block_size"] = "param:frames"
     source = create_component(tmp_path, "operator_source", {
         "a": {**source_port, "drive_port_no": 1},
         "b": {**source_port, "drive_port_no": 2},
         "channels": parameter(channels, 128),
-        "frames": parameter(frames, 8),
+        "frames": parameter(frames, 65536 if operation == 2 else 8),
         "operation": scalar("int", operation), "bits": scalar("int", bits),
         "mode": scalar("int", 0), "calls": scalar("int", 0),
     }, SOURCE, source=True)
@@ -187,7 +189,7 @@ def build_operator_graph(tmp_path, operation, *, channels=1, frames=8, frame=0,
             encoding="utf-8", newline="\n")
     name = ("negate", "sample_product", "audio_sample", "scalar_to_i32")[operation]
     settings = (
-        {"channels": channels, "frames": 8, "frame": frame} if operation == 2
+        {"channels": channels, "frames": frames, "frame": frame} if operation == 2
         else {"channels": channels} if operation < 2 else {}
     )
     nodes = {
@@ -285,6 +287,7 @@ def expected_rows(operation, channels, *, frames=8, frame=0, integer=False, bits
     (1, 1, 8, 0, False), (1, 128, 8, 0, False),
     (2, 1, 8, 0, False), (2, 3, 8, 7, False), (2, 32, 8, 7, False),
     (2, 3, 8, 7, True),
+    (2, 3, 17, 16, False), (2, 1, 1, 0, False),
 ])
 def test_basic_operator_real_delivery(tmp_path, operation, channels, frames, frame, integer):
     backends = build_operator_graph(

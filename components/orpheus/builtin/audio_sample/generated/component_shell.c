@@ -182,12 +182,18 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
         return ORPHEUS_ERR_INVALID_ARG;
     if (ctx->delivery && ctx->trigger_input==UINT32_MAX) return ORPHEUS_ERR_INVALID_ARG;
     uint32_t _orpheus_input_slot=0;
+    double _orpheus_payload_in=(double)(s->frames);
+    if (!isfinite(_orpheus_payload_in) || _orpheus_payload_in < 1
+            || _orpheus_payload_in > UINT32_MAX || _orpheus_payload_in != (uint32_t)_orpheus_payload_in)
+        return ORPHEUS_ERR_INVALID_ARG;
     io.in.input_index=_orpheus_input_slot;
     io.in.buffer=(ctx->inputs && ctx->input_count > (_orpheus_input_slot)) ? ctx->inputs[_orpheus_input_slot] : NULL;
     if (!valid_buffer(io.in.buffer, (uint32_t)(s->channels),
         ORPHEUS_FORMAT_F32, sizeof(float), _Alignof(float)))
         return ORPHEUS_ERR_INVALID_ARG;
     io.in.samples=io.in.buffer ? (const float*)io.in.buffer->data : NULL;
+    if (io.in.buffer && io.in.buffer->frame_count != (uint32_t)_orpheus_payload_in)
+        return ORPHEUS_ERR_INVALID_ARG;
     _orpheus_input_slot+=1;
     uint32_t _orpheus_output_slot=0;
     double _orpheus_payload_out=(double)(1);

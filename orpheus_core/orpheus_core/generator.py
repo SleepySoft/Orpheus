@@ -1878,6 +1878,7 @@ class CodeGenerator:
                         audio_slots = [
                             index for index, port in enumerate(cfg["input_ports"])
                             if cfg["port_signatures"][port]["type"] == "audio"
+                            and port not in cfg.get("input_audio_payload_ports", [])
                         ]
                         if audio_slots:
                             condition = " || ".join(

@@ -159,6 +159,24 @@ enabled 是非驱动门控输出。初值参数为 `initial_value`，与 initial
 续调返回后重新读取 Buffer 当前指针和元数据，不沿用进入算法时的缓存视图。
 普通 latest 输入没有此放宽；不因未就绪而补调、等待或重排。
 
+## 复数运算与频谱载荷
+
+complex_power 的 in 驱动逐批功率及能量计算；按实际算法调用点依次交付
+1 号 power、2 号 energy。complex_gain_split 的 in 驱动，
+gain 是不触发运算的 latest 数组；依次交付 1 号 impulse、2 号 reverb。
+两组件保留分步 f32 舍入，不融合乘加/乘减，也不以批次数改变 Task 时间线。
+
+halfcomplex_encode 逐位复制端点实部及内部实虚部，
+不执行 FFT、缩放或隐式补齐；bins 必须等于偶数 fft_size/2+1。
+1 号 out 使用 audio 类型 HC 载荷，2 号 spectrum 使用带 halfcomplex/frame_size
+标签的 BULK；两出口独立交付，任何下游失败停止后续出口。
+全部输出先校验再写，拒绝与输入或其它输出重叠。
+
+这些接口的 block_size 是完整载荷槽数，可以是多个有界签名参数与正整数的乘积，
+例如 `param:bins*2*param:batches`，不能将结果当成新的时间样本数。
+显式声明的 audio 载荷也与调用量子分离；普通没有显式载荷的 audio 接口仍按调用量子处理。
+布局标签属于静态接口契约，不通过不同出口的编号推断调用先后。
+
 ## 统一组件定义
 
 所有定义使用组件 manifest。实现差异只体现在 `package_type`：

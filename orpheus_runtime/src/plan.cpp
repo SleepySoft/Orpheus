@@ -4,6 +4,7 @@
 
 #include "json.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 
@@ -100,11 +101,15 @@ Plan Plan::load_from_file(const std::string& path) {
                 cfg.params[pit.key()] = pit.value().dump();
             }
         }
+        const auto audio_payloads = it.value().value(
+            "input_audio_payload_ports", std::vector<std::string>{});
         for (const auto& pid : it.value().value("input_ports", json::array())) {
             const auto port_id = pid.get<std::string>();
             cfg.input_ports.push_back(port_id);
             cfg.input_is_audio.push_back(
                 it.value().at("port_signatures").at(port_id).at("type").get<std::string>() == "audio");
+            cfg.input_is_audio_payload.push_back(
+                std::find(audio_payloads.begin(), audio_payloads.end(), port_id) != audio_payloads.end());
         }
         for (const auto& pid : it.value().value("output_ports", json::array())) {
             cfg.output_ports.push_back(pid.get<std::string>());

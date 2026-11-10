@@ -1592,7 +1592,8 @@ int Runtime::invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
     ctx.trigger_input = UINT32_MAX;
     ctx.delivery = run->delivery;
     if (run->delivery) {
-        if (run->input_port >= inst.inputs.size() || run->input_port >= cfg.input_is_audio.size())
+        if (run->input_port >= inst.inputs.size() || run->input_port >= cfg.input_is_audio.size()
+            || run->input_port >= cfg.input_is_audio_payload.size())
             return ORPHEUS_ERR_INVALID_ARG;
         ctx.trigger_input = run->input_port;
         const OrpheusBuffer* delivered = run->delivery->buffer;
@@ -1607,7 +1608,7 @@ int Runtime::invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
                 binding.delivery_inputs[i] = inst.inputs[i];
             binding.delivery_inputs[run->input_port] = delivered;
             ctx.inputs = binding.delivery_inputs.data();
-            if (cfg.input_is_audio[run->input_port]) {
+            if (cfg.input_is_audio[run->input_port] && !cfg.input_is_audio_payload[run->input_port]) {
                 ctx.frame_count = delivered->frame_count;
                 ctx.valid_frames = delivered->frame_count;
             }

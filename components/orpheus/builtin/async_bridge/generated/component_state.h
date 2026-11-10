@@ -8,6 +8,7 @@ typedef struct orpheus_builtin_async_bridge_State {
     int32_t level_frames;
     int32_t underruns;
     int32_t overruns;
+    uint32_t _orpheus_task_block_size;
 #if defined(__cplusplus)
     alignas(8) bool _orpheus_alive;
 #else

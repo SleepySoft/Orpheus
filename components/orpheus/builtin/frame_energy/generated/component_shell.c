@@ -157,12 +157,18 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     orpheus_builtin_frame_energy_State* s=(orpheus_builtin_frame_energy_State*)state;
     orpheus_builtin_frame_energy_IO io={0};
     if (!s || !s->_orpheus_alive || !ctx) return ORPHEUS_ERR_INVALID_ARG;
+    double _orpheus_payload_in=(double)(s->frames);
+    if (!isfinite(_orpheus_payload_in) || _orpheus_payload_in < 1
+            || _orpheus_payload_in > UINT32_MAX || _orpheus_payload_in != (uint32_t)_orpheus_payload_in)
+        return ORPHEUS_ERR_INVALID_ARG;
     io.in.input_index=0;
     io.in.buffer=(ctx->inputs && ctx->input_count > (0)) ? ctx->inputs[0] : NULL;
     if (!valid_buffer(io.in.buffer, (uint32_t)(s->channels),
         ORPHEUS_FORMAT_F32, sizeof(float), _Alignof(float)))
         return ORPHEUS_ERR_INVALID_ARG;
     io.in.samples=io.in.buffer ? (const float*)io.in.buffer->data : NULL;
+    if (io.in.buffer && io.in.buffer->frame_count != (uint32_t)_orpheus_payload_in)
+        return ORPHEUS_ERR_INVALID_ARG;
     double _orpheus_payload_out=(double)(1);
     if (!isfinite(_orpheus_payload_out) || _orpheus_payload_out < 1
             || _orpheus_payload_out > UINT32_MAX || _orpheus_payload_out != (uint32_t)_orpheus_payload_out)

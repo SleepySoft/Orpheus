@@ -324,10 +324,12 @@ add_test(NAME halfcomplex_smoke COMMAND halfcomplex_smoke)
 add_executable(halfcomplex_runner halfcomplex_runner.cpp)
 target_link_libraries(halfcomplex_runner PRIVATE orpheus_runtime_lib)
 add_executable(halfcomplex_encode_smoke halfcomplex_encode_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_encode/src/halfcomplex_encode.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_encode/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_encode/user/algorithm.c)
 target_include_directories(halfcomplex_encode_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_encode/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_encode/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_encode/user)
 target_compile_definitions(halfcomplex_encode_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME halfcomplex_encode_smoke COMMAND halfcomplex_encode_smoke)
 add_executable(complementary_coefficients_smoke complementary_coefficients_smoke.c
@@ -338,17 +340,21 @@ target_include_directories(complementary_coefficients_smoke PRIVATE
 target_compile_definitions(complementary_coefficients_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME complementary_coefficients_smoke COMMAND complementary_coefficients_smoke)
 add_executable(complex_gain_split_smoke complex_gain_split_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_gain_split/src/complex_gain_split.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_gain_split/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_gain_split/user/algorithm.c)
 target_include_directories(complex_gain_split_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_gain_split/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_gain_split/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_gain_split/user)
 target_compile_definitions(complex_gain_split_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME complex_gain_split_smoke COMMAND complex_gain_split_smoke)
 add_executable(complex_power_smoke complex_power_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_power/src/complex_power.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_power/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_power/user/algorithm.c)
 target_include_directories(complex_power_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_power/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_power/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/complex_power/user)
 target_compile_definitions(complex_power_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME complex_power_smoke COMMAND complex_power_smoke)
 add_executable(dual_trapezoid_smooth_smoke dual_trapezoid_smooth_smoke.c
