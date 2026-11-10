@@ -23,6 +23,7 @@ struct NodeConfig {
     std::map<std::string, std::string> params; // all params as strings
     std::vector<std::string> input_ports;      // ordered port ids for buffer binding
     std::vector<std::string> output_ports;
+    std::map<std::string, uint32_t> output_drive_ports;
     std::vector<HostPortConfig> host_ports;
     std::map<std::string, std::string> resource_access;
     std::map<std::string, uint32_t> output_port_block_sizes;
@@ -109,6 +110,8 @@ struct CallConfig {
     std::string node;
     uint32_t every = 1;
     uint32_t phase = 0;
+    uint32_t output_port = 0;
+    uint32_t input_port = 0;
 };
 
 struct Plan {

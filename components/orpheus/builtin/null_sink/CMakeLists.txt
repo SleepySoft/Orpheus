@@ -6,12 +6,15 @@ add_library(${COMPONENT_NAME} SHARED)
 
 target_sources(${COMPONENT_NAME}
     PRIVATE
-        src/null_sink.c
+        generated/component_shell.c
+        user/algorithm.c
 )
 
 target_include_directories(${COMPONENT_NAME}
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/generated
+        ${CMAKE_CURRENT_SOURCE_DIR}/user
         ${CMAKE_SOURCE_DIR}/orpheus_abi/include
 )
 

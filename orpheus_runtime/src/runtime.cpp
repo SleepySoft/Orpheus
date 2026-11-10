@@ -1501,6 +1501,13 @@ int Runtime::build_chain(ChainScope& scope, const std::vector<std::string>& node
         node.user = &binding;
         node.invoke = invoke_chain;
         node.publish = publish_chain;
+        node.publish_outlet = publish_outlet;
+        binding.delivery_inputs.resize(binding.instance->inputs.size());
+        for (size_t i = 0; i < cfg.output_ports.size(); ++i) {
+            const auto outlet = cfg.output_drive_ports.find(cfg.output_ports[i]);
+            if (outlet != cfg.output_drive_ports.end())
+                binding.delivery_outputs.push_back({outlet->second, binding.instance->outputs[i]});
+        }
         node.period = cfg.period > 0 ? cfg.period : cfg.divisor;
         if (periods && periods->count(id)) node.period = periods->at(id);
         if (!node.period) return ORPHEUS_ERR_INVALID_ARG;
@@ -1517,7 +1524,10 @@ int Runtime::build_chain(ChainScope& scope, const std::vector<std::string>& node
             if (!dst.every || dst.phase >= dst.every) return ORPHEUS_ERR_INVALID_ARG;
             auto target = scope.bindings.find(dst.node);
             if (target == scope.bindings.end()) continue;
-            src->second.children.push_back({&target->second.node, dst.every, dst.phase, 0});
+            if (dst.output_port && dst.input_port >= target->second.instance->inputs.size())
+                return ORPHEUS_ERR_INVALID_ARG;
+            src->second.children.push_back(
+                {&target->second.node, dst.every, dst.phase, 0, dst.output_port, dst.input_port});
         }
     }
     for (const auto& id : nodes) {
@@ -1537,7 +1547,8 @@ int Runtime::invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
     const NodeConfig& cfg = *binding.config;
     OrpheusProcessContext ctx{};
     OrpheusChainCall call{node, run};
-    OrpheusContinuation continuation{&call, orpheus_chain_continue, node->child_count};
+    OrpheusContinuation continuation{
+        &call, orpheus_chain_continue, node->child_count, orpheus_chain_emit};
     ctx.continuation = &continuation;
     ctx.scratch = nullptr;
     ctx.scratch_size = 0;
@@ -1568,6 +1579,33 @@ int Runtime::invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
     ctx.valid_frames = ctx.frame_count;
     ctx.timeline_flags = run->timeline_flags
         | (node->calls == 1 ? ORPHEUS_TIMELINE_DISCONTINUITY : ORPHEUS_TIMELINE_NONE);
+    ctx.trigger_input = UINT32_MAX;
+    ctx.delivery = run->delivery;
+    if (run->delivery) {
+        if (run->input_port >= inst.inputs.size()) return ORPHEUS_ERR_INVALID_ARG;
+        ctx.trigger_input = run->input_port;
+        const OrpheusBuffer* delivered = run->delivery->buffer;
+        if (delivered) {
+            const OrpheusBuffer* expected = inst.inputs[run->input_port];
+            if (!expected || delivered->format != expected->format
+                || delivered->channels != expected->channels
+                || delivered->interleaved != expected->interleaved
+                || delivered->frame_count > expected->frame_capacity)
+                return ORPHEUS_ERR_INVALID_ARG;
+            for (size_t i = 0; i < inst.inputs.size(); ++i)
+                binding.delivery_inputs[i] = inst.inputs[i];
+            binding.delivery_inputs[run->input_port] = delivered;
+            ctx.inputs = binding.delivery_inputs.data();
+            ctx.frame_count = delivered->frame_count;
+            ctx.valid_frames = delivered->frame_count;
+        }
+        ctx.frame_index = run->delivery->frame_index;
+        ctx.epoch = run->delivery->epoch;
+        ctx.timeline_flags = run->delivery->timeline_flags
+            | (node->calls == 1 ? ORPHEUS_TIMELINE_DISCONTINUITY : ORPHEUS_TIMELINE_NONE);
+        ctx.timestamp = ctx.sample_rate > 0
+            ? static_cast<double>(ctx.frame_index) / ctx.sample_rate : 0.0;
+    }
 
     if (runtime.plan_.flow_mode == "task_sequence") {
         const int result = runtime.control_tick_for_task(nullptr, &node_id);
@@ -1600,6 +1638,46 @@ int Runtime::publish_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
     if (writes != runtime.task_bridge_writes_.end()) {
         for (TaskBridge* bridge : writes->second) {
             if (run->task_mode || !bridge->legacy_rate_bridge) runtime.task_bridge_push(*bridge);
+        }
+    }
+    return ORPHEUS_OK;
+}
+
+int Runtime::publish_outlet(OrpheusChainNode* node, const OrpheusChainRun* run,
+                            uint32_t output_port, const OrpheusDelivery* delivery) {
+    auto& binding = *static_cast<ChainBinding*>(node->user);
+    Runtime& runtime = *binding.runtime;
+    const OrpheusBuffer* source = nullptr;
+    for (const auto& outlet : binding.delivery_outputs)
+        if (outlet.first == output_port) source = outlet.second;
+    if (!source || !delivery || !delivery->buffer) return ORPHEUS_ERR_INVALID_ARG;
+    const OrpheusBuffer* buffer = delivery->buffer;
+    if (buffer->format != source->format || buffer->channels != source->channels
+        || buffer->interleaved != source->interleaved
+        || buffer->frame_count > source->frame_capacity)
+        return ORPHEUS_ERR_INVALID_ARG;
+    const auto& node_id = binding.instance->node_id;
+    auto copies = runtime.bridge_copies_.find(node_id);
+    if (!run->task_mode && copies != runtime.bridge_copies_.end()) {
+        for (auto& copy : copies->second) {
+            if (copy.staging != source) continue;
+            if (buffer != source || buffer->frame_count != copy.frames)
+                return ORPHEUS_ERR_UNSUPPORTED;
+            float* dst = static_cast<float*>(copy.bridge->data)
+                + static_cast<size_t>(copy.cursor) * copy.channels;
+            std::memcpy(dst, buffer->data,
+                        static_cast<size_t>(copy.frames) * copy.channels * sizeof(float));
+            copy.cursor = (copy.cursor + copy.frames) % copy.bridge->frame_capacity;
+        }
+    }
+    auto writes = runtime.task_bridge_writes_.find(node_id);
+    if (writes != runtime.task_bridge_writes_.end()) {
+        for (TaskBridge* bridge : writes->second) {
+            if (bridge->staging != source || (!run->task_mode && bridge->legacy_rate_bridge))
+                continue;
+            if (buffer != source || buffer->frame_count != source->frame_capacity)
+                return ORPHEUS_ERR_UNSUPPORTED;
+            runtime.task_bridge_push(*bridge);
         }
     }
     return ORPHEUS_OK;

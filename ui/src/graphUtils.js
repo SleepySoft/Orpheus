@@ -67,6 +67,7 @@ export const isDriveEdge = (edge) => edge.type === 'drive'
 /** 执行引脚由框架提供；复合组件边界同样可调用，配置节点不参与。 */
 export function driveHandles(data, flowMode) {
   if (flowMode !== 'task_sequence' || !data || data.missing || data.bridgeConfig
+    || data.declaredInterfaces
     || data.component === LEGACY_UART_COMPONENT
     || data.component === BRIDGE_COMPONENT || data.component === PLACEHOLDER_ID
     || data.packageType === 'placeholder') return [];
@@ -104,14 +105,31 @@ export function validateDriveConnection(nodes, edges, params, flowMode) {
 export function resolvedDriveEdges(nodes, edges) {
   const calls = edges.filter(isDriveEdge);
   const inferred = [];
+  const endpointKey = (edge) => JSON.stringify([
+    edge.source, edge.sourceHandle, edge.target, edge.targetHandle,
+  ]);
+  const endpoints = new Set(calls.map(endpointKey));
   const explicitTargets = new Set(calls.map((edge) => edge.target));
   const pairs = new Set(calls.map((edge) => `${edge.source}:${edge.target}`));
   const byId = new Map(nodes.map((node) => [node.id, node]));
   for (const edge of edges) {
-    if (isDriveEdge(edge) || edge.type === 'control' || explicitTargets.has(edge.target)
-      || edge.data?.propagate_drive === false || pairs.has(`${edge.source}:${edge.target}`)) continue;
+    if (isDriveEdge(edge) || edge.type === 'control'
+      || edge.data?.propagate_drive === false) continue;
     const sourcePort = byId.get(edge.source)?.data.ports?.find((port) => port.id === edge.sourceHandle);
     const targetPort = byId.get(edge.target)?.data.ports?.find((port) => port.id === edge.targetHandle);
+    if (byId.get(edge.source)?.data.declaredInterfaces || sourcePort?.drive_port_no !== undefined) {
+      if (sourcePort?.drive_port_no !== undefined && targetPort?.process === true
+        && !endpoints.has(endpointKey(edge))) {
+        inferred.push({
+          source: edge.source, target: edge.target,
+          sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle,
+        });
+        endpoints.add(endpointKey(edge));
+      }
+      continue;
+    }
+    if (targetPort?.process === false || explicitTargets.has(edge.target)
+      || pairs.has(`${edge.source}:${edge.target}`)) continue;
     const propagates = (port) => port
       && (port.propagate_drive ?? ['audio', 'bulk'].includes(port.type));
     if (!propagates(sourcePort) || !propagates(targetPort)) continue;
@@ -542,6 +560,7 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
         params: n.params || {},
         task: n.task || 'default',
         clockSource: !!comp?.clock_source,
+        declaredInterfaces: !!comp?.declared_interfaces,
         ports: resolvePorts(comp, n.params),
         manifestPorts: comp?.ports || [],
         parameters: comp?.parameters || [],

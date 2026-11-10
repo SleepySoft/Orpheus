@@ -10,6 +10,8 @@ typedef struct {
     uint64_t epoch;
     const void* trigger;
     bool task_mode;
+    const OrpheusDelivery* delivery;
+    uint32_t input_port;
 } OrpheusChainRun;
 
 typedef struct OrpheusChainNode OrpheusChainNode;
@@ -18,6 +20,8 @@ typedef struct {
     uint32_t every;
     uint32_t phase;
     uint64_t calls;
+    uint32_t output_port;
+    uint32_t input_port;
 } OrpheusChainLink;
 
 struct OrpheusChainNode {
@@ -29,6 +33,8 @@ struct OrpheusChainNode {
     uint32_t period;
     uint32_t phase;
     uint64_t calls;
+    int (*publish_outlet)(OrpheusChainNode*, const OrpheusChainRun*,
+                          uint32_t, const OrpheusDelivery*);
 };
 
 typedef struct {
@@ -61,6 +67,29 @@ static inline int orpheus_chain_continue(void* user, uint32_t branch) {
         OrpheusChainLink* link = &node->children[i];
         if (link->calls++ % link->every != link->phase) continue;
         result = orpheus_chain_enter(link->target, call->run);
+        if (result != ORPHEUS_OK) return result;
+    }
+    return ORPHEUS_OK;
+}
+
+static inline int orpheus_chain_emit(void* user, uint32_t output_port,
+                                     const OrpheusDelivery* delivery) {
+    OrpheusChainCall* call = (OrpheusChainCall*)user;
+    OrpheusChainNode* node = call->node;
+    uint32_t i;
+    int result;
+    if (node->publish_outlet) {
+        result = node->publish_outlet(node, call->run, output_port, delivery);
+        if (result != ORPHEUS_OK) return result;
+    }
+    for (i = 0; i < node->child_count; ++i) {
+        OrpheusChainLink* link = &node->children[i];
+        OrpheusChainRun child_run;
+        if (link->output_port != output_port) continue;
+        child_run = *call->run;
+        child_run.delivery = delivery;
+        child_run.input_port = link->input_port;
+        result = orpheus_chain_enter(link->target, &child_run);
         if (result != ORPHEUS_OK) return result;
     }
     return ORPHEUS_OK;

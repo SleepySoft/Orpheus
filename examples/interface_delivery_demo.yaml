@@ -1,0 +1,27 @@
+version: 0.1.0
+metadata:
+  name: 接口交付入门
+  description: 常量源生成0.25，线性增益乘2后交付丢弃端；配置和组件壳由独立脚本生成。
+flow_mode: task_sequence
+sample_rate: 48000
+block_size: 32
+graph:
+  nodes:
+    - id: source
+      component: orpheus.builtin.constant_source
+      label: 常量 0.25
+      params: {channels: 1, value: 0.25}
+      position: {x: 100, y: 120}
+    - id: gain
+      component: orpheus.builtin.linear_gain
+      label: 线性增益 ×2
+      params: {channels: 1, gain: 2.0}
+      position: {x: 420, y: 120}
+    - id: sink
+      component: orpheus.builtin.null_sink
+      label: 终点
+      params: {channels: 1}
+      position: {x: 740, y: 120}
+  connections:
+    - {from: "source:out", to: "gain:in"}
+    - {from: "gain:out", to: "sink:in"}

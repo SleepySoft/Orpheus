@@ -409,9 +409,9 @@ ChangeThread 各节：
 
 ## 12. 配置驱动组件壳与接口级 Delivery
 
-> 2026-11-10 补充：记录方向，暂不实施或发布新的 YAML/C ABI。
-> 先澄清代码调用、数据匹配与生成边界，再设计对应界面。
-> 本节不表示现有 ABI 已有命名出口续调、类型化 Delivery 或完整组件壳生成器。
+> 2026-11-10：设计确认后进入分批实施，首批发布 ABI v7 与独立组件校验/生成脚本。
+> 固定 f32 音频接口和标量参数已有闭环；资源、动态引脚、完整创建界面及 BAF 仍待迁移。
+> 阶段范围与验收门槛以 [路线图](../roadmap.md#实施顺序与验收门槛) 为准，不代表全量改造完成。
 
 ### 12.1 动机与唯一事实源
 
@@ -486,10 +486,10 @@ ChangeThread 各节：
 
 ### 12.4 Delivery 是类型化交付视图，不是任意参数包
 
-现有实现中，数据通过预绑定 Buffer 交给目标输入；
+尚未迁移的实现中，数据通过预绑定 Buffer 交给目标输入；
 `orpheus_process_next(ctx)` 不带独立 Delivery 参数。
 本节提出 Delivery，是为了让作者清楚知道应填写什么，并由生成代码保证匹配，
-不是假定旧接口已传递同样的对象。
+不是假定旧接口已传递同样的对象。首批 ABI v7 已按此方向增加交付视图。
 
 - 生成器根据出口声明生成类型化的数据视图及交付辅助函数。
   固定类型、容量和维度来自声明/实例配置；算法填数据及要求的本次有效信息。
@@ -497,7 +497,9 @@ ChangeThread 各节：
 - 复用已经绑定和分配的数据 Buffer，Delivery 可以只是小型视图与元数据；
   不要求每次堆分配或复制 PCM，不恢复实时路径中的字符串查找。
 - 对帧数、片段范围、时间线等已有字段先明确唯一来源，不在 Buffer、`ctx`
-  和 Delivery 中维护三份可相互矛盾的值。具体字段和 ABI 布局留待实施前设计。
+  和 Delivery 中维护三份可相互矛盾的值。首批以 `Delivery.buffer` 的
+  `frame_count` 表示有效帧数，`frame_capacity` 表示容量，另外传递
+  `frame_index/epoch/timeline_flags`；目标上下文从本次交付派生。
 - 每次只发布并检测本出口已准备的数据，再同步调用其下游；
   交付 `out_A` 不得顺带发布尚未更新的 `out_B`。
 - 数据类型、形状、方向和速率在编译/加载时校验，本次有效范围在交付时校验；
@@ -686,3 +688,43 @@ python scripts\generate_component.py <组件目录>\component.yaml
 修改 `drive_divide` 不改变执行语义；不同当前目录执行结果一致；
 重复生成保留算法；路径/重名冲突和失败不会破坏已有包；
 UI 确实先保存再调用脚本，脚本失败不会被显示为组件生成成功。
+
+### 12.9 首批实现与命令行使用
+
+首批配置示例见 [常量源](../../../components/orpheus/builtin/constant_source/component.yaml)、
+[线性增益](../../../components/orpheus/builtin/linear_gain/component.yaml)、
+[空终点](../../../components/orpheus/builtin/null_sink/component.yaml)，
+组合图见 [接口交付示例](../../../examples/interface_delivery_demo.yaml)。
+当前使用固定数量、交错 f32 音频接口及 float/int/bool 标量，
+尚未支持的资源、数组、字符串、动态引脚和复杂执行声明会明确拒绝。
+Schema 位于 [component_interface.schema.json](../../../schemas/component_interface.schema.json)。
+
+在仓库根执行（不需要启动服务）：
+
+```powershell
+python scripts\validate_component.py components\orpheus\builtin\linear_gain\component.yaml
+python scripts\generate_component.py components\orpheus\builtin\linear_gain\component.yaml
+# 供未来界面转交的结构化结果
+python scripts\generate_component.py components\orpheus\builtin\linear_gain\component.yaml --format json
+```
+
+配置先落盘，生成器再读取它；工程私有包也可将同一命令指向其配置文件。
+脚本不要求当前目录就是包目录；从其他目录启动时使用脚本与配置的正确路径。
+Registry 只在内存派生旧消费面需要的 ports/parameters，配置里不再维护第二份接口列表。
+构建组件与整图生成都会检查配置和生成物一致性，过期或生成区被改写时明确报错，
+应修改配置/生成器后重新运行脚本，不手改生成源码。
+
+- `generated/`：接口、状态布局、ABI 壳、CMake 源码清单及生成物所有权记录。
+- `user/algorithm.c`、`user/algorithm.h`：手写算法和私有状态；首次可生成模板，
+  再生成不会覆盖。未实现的模板返回不支持，不冒充已工作的算法。
+- 算法通过生成的 `emit_<接口名>(ctx, &io-><接口名>)` 在实际代码位置交付，
+  并将返回码向上传播；不能回到统一“算法返回后交付全部输出”的模式。
+- `ctx->trigger_input` 标识本次目标输入槽，Task 根为 `UINT32_MAX`；
+  `ctx->delivery` 及输入 Buffer 视图只在本次同步调用中借用，不可保存到异步任务。
+- `drive_port_no` 与生成枚举和界面出口编号对应，不代表执行优先级；
+  输入 `process` 缺省为 false，未声明驱动能力的接口只供数、不触发算法。
+
+首批已覆盖多出口交错/跳过/重复交付、目标入口身份、实际帧时间、
+绘图分频不参与执行、同实例重复处理和错误传播。
+真实线性增益也接入独立数值预期、动态 DLL、生成静态图三方对照；
+完整后续迁移及 BAF 验收仍按路线图推进。

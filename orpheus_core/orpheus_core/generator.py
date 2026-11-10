@@ -42,6 +42,9 @@ class CodeGenerator:
         info = self.registry.get(component_id)
         headers = info.manifest.get("headers") if info else None
         if headers:
+            if info is not None and "interfaces" in info.manifest:
+                target = self._component_target_name(component_id)
+                return [f'{target}/{str(header).replace(chr(92), "/")}' for header in headers]
             return [str(header).replace("\\", "/").removeprefix("include/") for header in headers]
         return [f'orpheus_{component_id.replace("orpheus.builtin.", "")}.h']
 
@@ -176,6 +179,11 @@ class CodeGenerator:
         return f"{mod_camel}{param_camel}"
 
     def generate(self, plan: ExecutionPlan, output_dir: Path) -> None:
+        from orpheus_core.component_codegen import check_generated
+        for component_id in {cfg["component"] for cfg in plan.node_configs.values()}:
+            info = self.registry.get(component_id)
+            if info is not None and "interfaces" in info.manifest:
+                check_generated(info.manifest_path)
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -239,10 +247,12 @@ class CodeGenerator:
             comp_target = self._component_target_name(cid)
             comp_out = components_dir / comp_target
             comp_out.mkdir(parents=True, exist_ok=True)
-            if (info.root_dir / "src").exists():
-                shutil.copytree(info.root_dir / "src", comp_out / "src", dirs_exist_ok=True)
+            for folder in ("src", "generated"):
+                if not (info.root_dir / folder).exists():
+                    continue
+                shutil.copytree(info.root_dir / folder, comp_out / folder, dirs_exist_ok=True)
                 entry_name = self._component_target_name(cid) + "_get_interface"
-                for source_path in (comp_out / "src").rglob("*"):
+                for source_path in (comp_out / folder).rglob("*"):
                     if source_path.suffix.lower() not in (".c", ".cc", ".cpp"):
                         continue
                     source_text = source_path.read_text(encoding="utf-8")
@@ -1478,13 +1488,18 @@ class CodeGenerator:
             for i, cp in enumerate(bridge_copies):
                 if cp["src_node"] != node_id:
                     continue
+                drive_port = cfg.get("output_drive_ports", {}).get(cp["src"].split(":", 1)[1], "UINT32_MAX")
+                lines.append(f'{indent}if (publish_port == UINT32_MAX || publish_port == {drive_port}) {{')
                 lines.append(f'{indent}/* rate-bridge: {cp["src"]} -> {cp["to"]} */')
                 lines.append(f'{indent}memcpy(g_buf_{cp["buf"]} + g_bridge_cursor_{i} * {cp["channels"]},')
                 lines.append(f'{indent}       g_stage_buf_{cp["sym"]}, {cp["stride"] * cp["channels"]} * sizeof(float));')
                 lines.append(f'{indent}g_bridge_cursor_{i} = (g_bridge_cursor_{i} + {cp["stride"]}) % {cp["depth"]};')
+                lines.append(f'{indent}}}')
             for i, cp in enumerate(task_bridge_copies):
                 if cp["src_node"] == node_id and not cp["rate_bridge"]:
-                    lines.append(f'{indent}orpheus_task_bridge_push_{i}();')
+                    drive_port = cfg.get("output_drive_ports", {}).get(cp["src"].split(":", 1)[1], "UINT32_MAX")
+                    lines.append(f'{indent}if (publish_port == UINT32_MAX || publish_port == {drive_port}) '
+                                 f'orpheus_task_bridge_push_{i}();')
             invoke = lines[block_start:publish_start]
             publish = lines[publish_start:]
             del lines[block_start:]
@@ -1688,12 +1703,17 @@ class CodeGenerator:
                 for i, cp in enumerate(bridge_copies):
                     if cp["src_node"] != node_id:
                         continue
+                    drive_port = cfg.get("output_drive_ports", {}).get(cp["src"].split(":", 1)[1], "UINT32_MAX")
+                    lines.append(f'{indent}if (publish_port == UINT32_MAX || publish_port == {drive_port}) {{')
                     lines.append(f'{indent}memcpy(g_buf_{cp["buf"]} + g_bridge_cursor_{i} * {cp["channels"]},')
                     lines.append(f'{indent}       g_stage_buf_{cp["sym"]}, {cp["stride"] * cp["channels"]} * sizeof(float));')
                     lines.append(f'{indent}g_bridge_cursor_{i} = (g_bridge_cursor_{i} + {cp["stride"]}) % {cp["depth"]};')
+                    lines.append(f'{indent}}}')
                 for i, cp in enumerate(task_bridge_copies):
                     if cp["src_node"] == node_id:
-                        lines.append(f'{indent}orpheus_task_bridge_push_{i}();')
+                        drive_port = cfg.get("output_drive_ports", {}).get(cp["src"].split(":", 1)[1], "UINT32_MAX")
+                        lines.append(f'{indent}if (publish_port == UINT32_MAX || publish_port == {drive_port}) '
+                                     f'orpheus_task_bridge_push_{i}();')
                 invoke = lines[block_start:publish_start]
                 publish = lines[publish_start:]
                 del lines[block_start:]
@@ -1797,28 +1817,103 @@ class CodeGenerator:
                 '    OrpheusProcessContext ctx = {0};',
                 '    const uint32_t frame_count = run->frame_count;',
                 '    OrpheusChainCall call = {node, run};',
-                '    const OrpheusContinuation continuation = {&call, orpheus_chain_continue, node->child_count};',
+                '    const OrpheusContinuation continuation = {&call, orpheus_chain_continue, node->child_count, orpheus_chain_emit};',
                 '    ctx.continuation = &continuation;',
+                '    ctx.trigger_input = UINT32_MAX;',
+                '    ctx.delivery = run->delivery;',
             ])
+            input_count = len(cfg.get("input_ports", []))
+            if input_count:
+                definitions.append(f'    const OrpheusBuffer* delivery_inputs[{input_count}];')
             if external_trigger:
                 definitions.append('    const OrpheusExternalTriggerContext* trigger = run->trigger;')
             for line in invoke:
                 line = line.replace(counter, "run->counter").replace(flags, "run->timeline_flags")
                 line = re.sub(r'\(run->counter / \d+u\)', '(node->calls - 1u)', line)
                 line = re.sub(r'run->counter < \d+u', 'node->calls == 1u', line)
+                if '->process(' in line:
+                    definitions.extend([
+                        '    if (run->delivery) {',
+                        f'        if (run->input_port >= {input_count}u) return ORPHEUS_ERR_INVALID_ARG;',
+                        '        ctx.trigger_input = run->input_port;',
+                    ])
+                    if input_count:
+                        definitions.extend([
+                            '        const OrpheusBuffer* buffer = run->delivery->buffer;',
+                            '        if (buffer) {',
+                            '            const OrpheusBuffer* expected = ctx.inputs[run->input_port];',
+                            '            if (!expected || buffer->format != expected->format',
+                            '                || buffer->channels != expected->channels',
+                            '                || buffer->interleaved != expected->interleaved',
+                            '                || buffer->frame_count > expected->frame_capacity)',
+                            '                return ORPHEUS_ERR_INVALID_ARG;',
+                            f'            for (uint32_t i = 0; i < {input_count}u; ++i) delivery_inputs[i] = ctx.inputs[i];',
+                            '            delivery_inputs[run->input_port] = buffer;',
+                            '            ctx.inputs = delivery_inputs;',
+                            '            ctx.frame_count = ctx.valid_frames = buffer->frame_count;',
+                            '        }',
+                        ])
+                    definitions.extend([
+                        '        ctx.frame_index = run->delivery->frame_index;',
+                        '        ctx.epoch = run->delivery->epoch;',
+                        '        ctx.timeline_flags = run->delivery->timeline_flags',
+                        '            | (node->calls == 1u ? ORPHEUS_TIMELINE_DISCONTINUITY : 0u);',
+                        '        ctx.timestamp = ctx.sample_rate > 0 ? (double)ctx.frame_index / ctx.sample_rate : 0.0;',
+                        '    }',
+                    ])
                 definitions.append(line)
             definitions.extend(['    return ORPHEUS_OK;', '}'])
             definitions.append(
-                f'static int {symbol}_publish(OrpheusChainNode* node, const OrpheusChainRun* run) {{'
+                f'static int {symbol}_publish_selected(OrpheusChainNode* node, const OrpheusChainRun* run, uint32_t publish_port) {{'
             )
             definitions.extend(publish)
             definitions.extend(['    return ORPHEUS_OK;', '}'])
+            definitions.extend([
+                f'static int {symbol}_publish(OrpheusChainNode* node, const OrpheusChainRun* run) {{',
+                f'    return {symbol}_publish_selected(node, run, UINT32_MAX);',
+                '}',
+                f'static int {symbol}_publish_outlet(OrpheusChainNode* node, const OrpheusChainRun* run,',
+                '    uint32_t output_port, const OrpheusDelivery* delivery) {',
+                '    const OrpheusBuffer* source = NULL;',
+                '    switch (output_port) {',
+            ])
+            node_sym = self._sanitized_node_id(nid)
+            bridge_ports = {
+                connection["from"].split(":", 1)[1]
+                for connection in plan.connections
+                if connection["from"].split(":", 1)[0] == nid
+                and (plan.buffers[connection["buffer"]].get("rate_bridge")
+                     or plan.buffers[connection["buffer"]].get("task_bridge"))
+            }
+            for port, number in cfg.get("output_drive_ports", {}).items():
+                slot = cfg["output_ports"].index(port)
+                definitions.append(f'    case {number}u: source = g_outputs_{node_sym}[{slot}];')
+                if port in bridge_ports:
+                    definitions.extend([
+                        '        if (!delivery || delivery->buffer != source',
+                        '            || delivery->buffer->frame_count != source->frame_capacity)',
+                        '            return ORPHEUS_ERR_UNSUPPORTED;',
+                    ])
+                definitions.append('        break;')
+            definitions.extend([
+                '    default: return ORPHEUS_ERR_INVALID_ARG;',
+                '    }',
+                '    if (!source || !delivery || !delivery->buffer',
+                '        || delivery->buffer->format != source->format',
+                '        || delivery->buffer->channels != source->channels',
+                '        || delivery->buffer->interleaved != source->interleaved',
+                '        || delivery->buffer->frame_count > source->frame_capacity)',
+                '        return ORPHEUS_ERR_INVALID_ARG;',
+                f'    return {symbol}_publish_selected(node, run, output_port);',
+                '}',
+            ])
             edges = [e for e in plan.call_graph.get(nid, []) if e["node"] in symbols]
             if edges:
                 definitions.append(f'static OrpheusChainLink {symbol}_links[] = {{')
                 for edge in edges:
                     definitions.append(
-                        f'    {{&{symbols[edge["node"]]}, {edge["every"]}u, {edge["phase"]}u, 0}},'
+                        f'    {{&{symbols[edge["node"]]}, {edge["every"]}u, {edge["phase"]}u, 0, '
+                        f'{edge.get("output_port", 0)}u, {edge.get("input_port", 0)}u}},'
                     )
                 definitions.append('};')
                 resets.extend(
@@ -1830,6 +1925,7 @@ class CodeGenerator:
             definitions.extend([
                 f'static OrpheusChainNode {symbol} = {{',
                 f'    .invoke = {symbol}_invoke, .publish = {symbol}_publish,',
+                f'    .publish_outlet = {symbol}_publish_outlet,',
                 f'    .children = {symbol + "_links" if edges else "NULL"},',
                 f'    .child_count = {len(edges)}, .period = {period}, .phase = {phase}',
                 '};',
@@ -3647,11 +3743,12 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         lines.append('set(CMAKE_C_STANDARD 11)')
         lines.append('set(CMAKE_C_STANDARD_REQUIRED ON)')
         lines.append("")
-        lines.append('include_directories(${CMAKE_SOURCE_DIR}/include)')
+        lines.append('include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)')
+        lines.append('include_directories(${CMAKE_CURRENT_SOURCE_DIR}/components)')
         # 依赖闭包组件的 include 目录全局可见（父组件头文件可 include 子组件头）
         for cid in component_ids:
             comp_target = self._component_target_name(cid)
-            lines.append(f'include_directories(${{CMAKE_SOURCE_DIR}}/components/{comp_target}/include)')
+            lines.append(f'include_directories(${{CMAKE_CURRENT_SOURCE_DIR}}/components/{comp_target}/include)')
         lines.append('add_definitions(-DORPHEUS_API=)')
         lines.append("")
         # MSVC 必须按 UTF-8 读取源码（中文注释/字符串），与主构建保持一致
@@ -3671,6 +3768,10 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             for src in sources:
                 lines.append(f'target_sources({comp_target} PRIVATE components/{comp_target}/{src})')
             lines.append(f'target_include_directories({comp_target} PUBLIC components/{comp_target}/include)')
+            if "interfaces" in info.manifest:
+                lines.append(
+                    f'target_include_directories({comp_target} PRIVATE '
+                    f'components/{comp_target}/generated components/{comp_target}/user)')
             lines.append("")
 
         graph_sources = "src/orpheus_graph.c"
@@ -3697,6 +3798,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             graph_sources += f" src/{f.name}"
         libs = " ".join(self._component_target_name(cid) for cid in component_ids)
         lines.append(f'add_library(orpheus_graph STATIC {graph_sources})')
+        lines.append('target_include_directories(orpheus_graph PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")')
         lines.append(f'target_link_libraries(orpheus_graph PUBLIC {libs})')
         lines.append('if(NOT MSVC)')
         lines.append('  target_link_libraries(orpheus_graph PUBLIC m)')

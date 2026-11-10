@@ -1,0 +1,29 @@
+id: orpheus.builtin.constant_source
+name: 常量信号源
+category: 输入与输出
+description: 按 Task 节拍交付可调的浮点常量，显式驱动本出口连接的下游。
+version: 1.0.0
+abi_version: 7
+package_type: source
+clock_source: true
+clock_domain: file
+interfaces:
+  out:
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+    drive_port_no: 1
+  value:
+    name: 常量值
+    type: float
+    default: 1.0
+    update_policy: block_boundary
+    readback: true
+  channels:
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true

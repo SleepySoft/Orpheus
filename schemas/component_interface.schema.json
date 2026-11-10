@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orpheus.local/schemas/component_interface.schema.json",
+  "title": "Orpheus 独立组件接口声明（ABI v7）",
+  "description": "唯一配置事实源。重复键、引用、范围默认值与驱动编号唯一性由 Python 共享校验核心补充验证。",
+  "type": "object",
+  "required": ["id", "name", "version", "interfaces"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*(?:[.-][A-Za-z0-9_]+)*$"},
+    "name": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "minLength": 1},
+    "category": {"type": "string", "minLength": 1},
+    "description": {"type": "string", "minLength": 1},
+    "clock_domain": {"type": "string", "minLength": 1},
+    "abi_version": {"const": 7},
+    "package_type": {"const": "source"},
+    "clock_source": {"type": "boolean"},
+    "algorithm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prefix": {"$ref": "#/$defs/identifier"},
+        "state_type": {"$ref": "#/$defs/identifier"},
+        "io_type": {"$ref": "#/$defs/identifier"},
+        "private_type": {"$ref": "#/$defs/identifier"},
+        "function": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "interfaces": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "additionalProperties": {
+        "oneOf": [
+          {"$ref": "#/$defs/port"},
+          {"$ref": "#/$defs/parameter"}
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
+    "positive": {"type": "integer", "minimum": 1, "maximum": 4294967294},
+    "signature": {
+      "oneOf": [
+        {"$ref": "#/$defs/positive"},
+        {"type": "string", "pattern": "^(param:[A-Za-z][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9_]*:(channels|block_size|sample_rate))$"}
+      ]
+    },
+    "port": {
+      "type": "object",
+      "required": ["type", "direction"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string"},
+        "direction": {"enum": ["input", "output"]},
+        "type": {"enum": ["audio", "control", "bulk", "debug"]},
+        "sample_format": {"enum": ["f32", "i16", "i24", "i32"]},
+        "channels": {"$ref": "#/$defs/signature"},
+        "block_size": {"$ref": "#/$defs/signature"},
+        "sample_rate": {"$ref": "#/$defs/signature"},
+        "count": {"$ref": "#/$defs/signature"},
+        "process": {"type": "boolean"},
+        "drive_port_no": {"$ref": "#/$defs/positive"},
+        "drive_divide": {
+          "$ref": "#/$defs/positive",
+          "description": "仅可视化注记，不影响调度、帧数或 Delivery 时间元数据。"
+        }
+      },
+      "allOf": [
+        {"if": {"required": ["drive_port_no"]}, "then": {"properties": {"direction": {"const": "output"}}}},
+        {"if": {"required": ["drive_divide"]}, "then": {"required": ["drive_port_no"]}},
+        {"if": {"required": ["process"], "properties": {"process": {"const": true}}}, "then": {"properties": {"direction": {"const": "input"}}}}
+      ]
+    },
+    "parameter": {
+      "type": "object",
+      "required": ["type", "default"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string"},
+        "type": {"enum": ["float", "int", "bool", "string"]},
+        "default": {},
+        "range": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"type": "number"}
+        },
+        "update_policy": {"enum": ["immediate", "block_boundary", "smoothed", "transactional", "restart_required"]},
+        "affects_signature": {"type": "boolean"},
+        "readback": {"type": "boolean"},
+        "persistent": {"type": "boolean"},
+        "unit": {"type": "string"},
+        "count": {"type": "integer", "minimum": 1}
+      },
+      "allOf": [
+        {"if": {"properties": {"type": {"const": "float"}}}, "then": {"properties": {"default": {"type": "number", "minimum": -3.402823466e38, "maximum": 3.402823466e38}}}},
+        {"if": {"properties": {"type": {"const": "int"}}}, "then": {"properties": {"default": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}, "range": {"items": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}}}}},
+        {"if": {"properties": {"type": {"const": "bool"}}}, "then": {"not": {"required": ["range"]}, "properties": {"default": {"type": "boolean"}}}},
+        {"if": {"properties": {"type": {"const": "string"}}}, "then": {"not": {"required": ["range"]}, "properties": {"default": {"type": "string"}}}},
+        {"if": {"required": ["affects_signature"], "properties": {"affects_signature": {"const": true}}}, "then": {"required": ["update_policy"], "properties": {"update_policy": {"const": "restart_required"}}}}
+      ]
+    }
+  }
+}

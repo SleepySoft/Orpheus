@@ -832,6 +832,7 @@ const { screenToFlowPosition } = useReactFlow();
               params,
               task: doc?.tasks?.[0]?.id || 'default',
               clockSource: !!comp.clock_source,
+              declaredInterfaces: !!comp.declared_interfaces,
               ports: resolvePorts(comp, params),
               manifestPorts: comp.ports || [],
               parameters: comp.parameters || [],

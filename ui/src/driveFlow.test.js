@@ -29,6 +29,43 @@ const connection = (source, target) => ({
   source, target, sourceHandle: DRIVE_OUT, targetHandle: DRIVE_IN,
 });
 
+describe('声明式接口驱动', () => {
+  const nodes = [
+    { id: 'source', data: { declaredInterfaces: true, ports: [
+      { id: 'a', direction: 'output', type: 'audio', drive_port_no: 1, drive_divide: 999 },
+      { id: 'b', direction: 'output', type: 'audio', drive_port_no: 2 },
+      { id: 'data', direction: 'output', type: 'audio' },
+    ] } },
+    { id: 'sink', data: { declaredInterfaces: true, ports: [
+      { id: 'a', direction: 'input', type: 'audio', process: true },
+      { id: 'b', direction: 'input', type: 'audio', process: true },
+      { id: 'data', direction: 'input', type: 'audio', process: false },
+    ] } },
+  ];
+  const edge = (sourceHandle, targetHandle) => ({
+    source: 'source', target: 'sink', sourceHandle, targetHandle,
+  });
+  test('同节点不同出口不合并，分频提示不筛选，完整端点去重', () => {
+    const edges = [edge('a', 'a'), edge('b', 'b'), edge('a', 'a')];
+    expect(resolvedDriveEdges(nodes, edges)).toEqual(edges.slice(0, 2));
+    const explicit = { ...edge('a', 'a'), type: 'drive' };
+    expect(resolvedDriveEdges(nodes, [...edges, explicit])).toEqual([edge('b', 'b'), explicit]);
+  });
+  test('未声明驱动出口和非处理输入不传播', () => {
+    expect(resolvedDriveEdges(nodes, [edge('data', 'a'), edge('a', 'data')])).toEqual([]);
+  });
+  test('声明式接口不再显示旧节点级虚拟执行引脚', () => {
+    expect(driveHandles(nodes[0].data, 'task_sequence')).toEqual([]);
+    expect(driveHandles(nodes[1].data, 'task_sequence')).toEqual([]);
+  });
+  test('目录接口标志在工程加载时保留', () => {
+    const { views } = docToViews({ graph: {
+      nodes: [{ id: 'source', component: 'test.declared' }], connections: [],
+    } }, [{ id: 'test.declared', declared_interfaces: true, ports: nodes[0].data.ports }]);
+    expect(views.main.nodes[0].data.declaredInterfaces).toBe(true);
+  });
+});
+
 describe('跨层源入口的实际归属与折叠投影', () => {
   const typedCatalog = [
     { id: 'test.clock', clock_source: true, ports: [] },

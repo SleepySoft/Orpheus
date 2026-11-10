@@ -209,6 +209,7 @@ def _component_to_dict(info: ComponentInfo) -> dict[str, Any]:
         "order": m.get("order", 0),
         "description": m.get("description", ""),
         "clock_source": m.get("clock_source", False),
+        "declared_interfaces": "interfaces" in m,
         "platforms": info.platforms,  # 平台限制（空=全平台）；UI 平台徽标与 alter 提示用
         "ports": m.get("ports", []),
         "parameters": m.get("parameters", []),

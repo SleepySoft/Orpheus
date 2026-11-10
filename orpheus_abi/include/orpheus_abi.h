@@ -14,8 +14,9 @@ extern "C" {
    v3: 接口表尾部追加统一 hook（外部注册 hook 优先于组件 hook）。
     v4: OrpheusProcessContext 尾部追加绝对帧时间线（frame_index/epoch/flags）。
    v6: 组件显式续接下游（continuation），不再由宿主遍历节点调用。
+   v7: 接口级 emit、借用 Delivery 与处理入口身份。
    组件接口表尾部追加字段，旧 DLL 由 Runtime 按版本号规避访问。 */
-#define ORPHEUS_ABI_VERSION 6
+#define ORPHEUS_ABI_VERSION 7
 
 /* 平台导出宏 */
 #ifndef ORPHEUS_API
@@ -317,6 +318,14 @@ typedef struct {
     bool interleaved;        /* true: 交错布局；false: 平面布局 */
 } OrpheusBuffer;
 
+/* 同步交付的借用视图；帧范围只由 buffer 描述，时间属于本次出口交付。 */
+typedef struct {
+    const OrpheusBuffer* buffer;
+    uint64_t frame_index;
+    uint64_t epoch;
+    uint32_t timeline_flags;
+} OrpheusDelivery;
+
 /* 处理上下文 */
 typedef enum {
     ORPHEUS_TIMELINE_NONE = 0,
@@ -330,6 +339,7 @@ typedef struct {
     void* user;
     int (*call)(void* user, uint32_t branch);
     uint32_t count;
+    int (*emit)(void* user, uint32_t output_port, const OrpheusDelivery* delivery);
 } OrpheusContinuation;
 
 typedef struct {
@@ -348,7 +358,22 @@ typedef struct {
     uint32_t valid_frames;   /* 本块有效帧数；通常等于 frame_count */
     uint32_t timeline_flags; /* OrpheusTimelineFlags 位图 */
     const OrpheusContinuation* continuation; /* v6：仅在本次 process 调用内有效 */
+    uint32_t trigger_input; /* v7：本次交付的输入槽；Task 根为 UINT32_MAX */
+    const OrpheusDelivery* delivery; /* v7：仅在当前同步调用内有效 */
 } OrpheusProcessContext;
+
+static inline int orpheus_emit(const OrpheusProcessContext* ctx, uint32_t output_port,
+                              const OrpheusDelivery* delivery) {
+    if (!ctx || !delivery || output_port == 0 || output_port == UINT32_MAX)
+        return ORPHEUS_ERR_INVALID_ARG;
+    if (delivery->buffer &&
+        (delivery->buffer->frame_count > delivery->buffer->frame_capacity ||
+         (delivery->buffer->frame_count && !delivery->buffer->data)))
+        return ORPHEUS_ERR_INVALID_ARG;
+    if (!ctx->continuation) return ORPHEUS_OK;
+    if (!ctx->continuation->emit) return ORPHEUS_ERR_UNSUPPORTED;
+    return ctx->continuation->emit(ctx->continuation->user, output_port, delivery);
+}
 
 /* 不调用即停止传播；无宿主续接的组件单元测试仍可独立运行。 */
 static inline int orpheus_process_next(const OrpheusProcessContext* ctx) {

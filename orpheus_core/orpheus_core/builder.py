@@ -189,6 +189,13 @@ class ComponentBuilder:
         info = self.registry.get(component_id)
         if info is None:
             raise BuildError(f"component not in registry: {component_id}")
+        if "interfaces" in info.manifest:
+            from orpheus_core.component_codegen import check_generated
+            from orpheus_core.component_definition import ComponentDefinitionError
+            try:
+                check_generated(info.manifest_path)
+            except ComponentDefinitionError as exc:
+                raise BuildError(f"组件生成物不可用：{info.id}：{exc}") from exc
         if info.package_type == "binary":
             # Binary package: verify artifact exists
             artifact = self._resolve_binary_artifact(info)

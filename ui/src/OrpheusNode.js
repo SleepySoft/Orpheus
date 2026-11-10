@@ -202,6 +202,12 @@ const BodyWidget = NODE_WIDGETS[data.component];
         />
       )}
       <span>{p.id}</span>
+      {p.process === true && <small title="上游交付到此输入时触发处理">驱动入</small>}
+      {p.drive_port_no !== undefined && (
+        <small title="驱动出口编号，不代表调用顺序">
+          驱动 {p.drive_port_no}{p.drive_divide !== undefined ? ` · 设计 1/${p.drive_divide}` : ''}
+        </small>
+      )}
       {channelBadge(p)}
       {p.host_binding && <small>{bindingStatus(p, data)}</small>}
       {!isInput && (

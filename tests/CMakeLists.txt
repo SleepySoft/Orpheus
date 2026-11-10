@@ -19,6 +19,25 @@ add_executable(abi_smoke abi_smoke.c)
 target_include_directories(abi_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
 add_test(NAME abi_smoke COMMAND abi_smoke)
 
+add_executable(outlet_delivery_smoke outlet_delivery_smoke.c)
+target_include_directories(outlet_delivery_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
+add_test(NAME outlet_delivery_smoke COMMAND outlet_delivery_smoke)
+
+add_executable(interface_components_smoke interface_components_smoke.c)
+foreach(component constant_source linear_gain null_sink)
+    set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})
+    add_library(interface_test_${component} OBJECT
+        ${component_dir}/generated/component_shell.c ${component_dir}/user/algorithm.c)
+    target_include_directories(interface_test_${component} PRIVATE
+        ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${component_dir}/generated ${component_dir}/user)
+    target_compile_definitions(interface_test_${component} PRIVATE
+        ORPHEUS_BUILDING_COMPONENT ORPHEUS_ENTRY_NAME=test_${component})
+    target_sources(interface_components_smoke PRIVATE $<TARGET_OBJECTS:interface_test_${component}>)
+endforeach()
+target_include_directories(interface_components_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${CMAKE_SOURCE_DIR}/components)
+add_test(NAME interface_components_smoke COMMAND interface_components_smoke)
+
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
 foreach(adapter rational_resample block_split circular_buffer resample)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})

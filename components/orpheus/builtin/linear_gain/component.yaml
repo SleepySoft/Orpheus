@@ -1,0 +1,34 @@
+id: orpheus.builtin.linear_gain
+name: 线性增益
+category: 基础运算
+description: 逐样本乘以线性增益，计算后在算法当前位置显式交付下游。
+version: 1.0.0
+abi_version: 7
+package_type: source
+interfaces:
+  in:
+    direction: input
+    type: audio
+    sample_format: f32
+    channels: param:channels
+    process: true
+  out:
+    direction: output
+    type: audio
+    sample_format: f32
+    channels: param:channels
+    drive_port_no: 1
+    drive_divide: 1
+  gain:
+    name: 线性增益
+    type: float
+    default: 1.0
+    update_policy: block_boundary
+    readback: true
+  channels:
+    name: 通道数
+    type: int
+    default: 2
+    range: [1, 32]
+    update_policy: restart_required
+    affects_signature: true

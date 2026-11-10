@@ -16,24 +16,41 @@ def resolve_drive_connections(project: Project, registry: Registry) -> list[Driv
     inferred: list[DriveConnection] = []
     explicit_targets = {edge.to_ref.node_id for edge in edges}
     pairs = {(edge.from_ref.node_id, edge.to_ref.node_id) for edge in edges}
+    endpoints = {(str(edge.from_ref), str(edge.to_ref)) for edge in edges}
     ports = {}
+    declared_nodes: set[str] = set()
     for node in project.graph.nodes.values():
         info = registry.get(node.component)
         if info is None:
             raise CompileError(f"组件不存在：{node.component}（节点 {node.id}）")
+        if "interfaces" in info.manifest:
+            declared_nodes.add(node.id)
         task = project.tasks.get(node.task, project.get_default_task())
         for port in _expand_port_manifests(node, info, task):
             ports[f"{node.id}:{port['id']}"] = port
     for connection in project.graph.connections:
         src, dst = connection.from_ref.node_id, connection.to_ref.node_id
-        if dst in explicit_targets or (src, dst) in pairs:
-            continue
         if (str(connection.from_ref), str(connection.to_ref)) in project.graph.drive_barriers:
             continue
         source_port = ports.get(str(connection.from_ref))
         target_port = ports.get(str(connection.to_ref))
         if source_port is None or target_port is None:
             raise CompileError(f"数据连接引用不存在的端口：{connection.from_ref} → {connection.to_ref}")
+        declared = src in declared_nodes
+        if declared:
+            identity = (str(connection.from_ref), str(connection.to_ref))
+            if identity in endpoints:
+                continue
+            if "drive_port_no" not in source_port or target_port.get("process") is not True:
+                continue
+            inferred.append(DriveConnection(connection.from_ref, connection.to_ref))
+            endpoints.add(identity)
+            continue
+        if (target_port.get("process") is False
+                or (dst in declared_nodes and target_port.get("process") is not True)):
+            continue
+        if dst in explicit_targets or (src, dst) in pairs:
+            continue
         if not all(port.get("propagate_drive", port["type"] in ("audio", "bulk"))
                    for port in (source_port, target_port)):
             continue
@@ -72,11 +89,31 @@ def build_task_flow(project: Project, registry: Registry) -> TaskFlow:
         src, dst = edge.from_ref.node_id, edge.to_ref.node_id
         if src not in nodes or dst not in nodes:
             raise CompileError(f"驱动连接引用不存在或不可执行的节点：{edge.from_ref} → {edge.to_ref}")
-        if edge.from_ref.port_id != "out" or edge.to_ref.port_id != "in":
-            raise CompileError("驱动接口必须使用 node:out → node:in（与数据端口分别命名）")
-        if (src, dst) in seen:
+        source_info = registry.get(nodes[src].component)
+        target_info = registry.get(nodes[dst].component)
+        declared = bool(source_info and "interfaces" in source_info.manifest)
+        if declared:
+            if source_info is None or target_info is None:
+                raise CompileError(f"驱动连接引用不存在的组件：{edge.from_ref} → {edge.to_ref}")
+            source_ports = _expand_port_manifests(
+                nodes[src], source_info, project.tasks.get(nodes[src].task, project.get_default_task()))
+            target_ports = _expand_port_manifests(
+                nodes[dst], target_info, project.tasks.get(nodes[dst].task, project.get_default_task()))
+            source_port = next((p for p in source_ports if p["id"] == edge.from_ref.port_id), None)
+            target_port = next((p for p in target_ports if p["id"] == edge.to_ref.port_id), None)
+            if (source_port is None or "drive_port_no" not in source_port
+                    or target_port is None or target_port.get("process") is not True):
+                raise CompileError(f"驱动连接必须引用已声明的驱动出口和处理入口：{edge.from_ref} → {edge.to_ref}")
+            if edge.every != 1 or edge.phase != 0:
+                raise CompileError("接口级交付的调用次数由组件控制，连接不能再次分频")
+            identity = (str(edge.from_ref), str(edge.to_ref))
+        else:
+            if edge.from_ref.port_id != "out" or edge.to_ref.port_id != "in":
+                raise CompileError("未迁移组件的驱动接口必须使用 node:out → node:in")
+            identity = (src, dst)
+        if identity in seen:
             raise CompileError(f"驱动连接重复：{src} → {dst}")
-        seen.add((src, dst))
+        seen.add(identity)
         if (type(edge.every) is not int or edge.every < 1 or
                 type(edge.phase) is not int or not 0 <= edge.phase < edge.every):
             raise CompileError(f"驱动连接 {src} → {dst}：every 必须为正整数，phase 必须在 [0, every) 内")

@@ -32,6 +32,8 @@ Plan Plan::load_from_file(const std::string& path) {
             call.node = edge.at("node").get<std::string>();
             call.every = edge.at("every").get<uint32_t>();
             call.phase = edge.at("phase").get<uint32_t>();
+            call.output_port = edge.value("output_port", 0u);
+            call.input_port = edge.value("input_port", 0u);
             edges.push_back(call);
         }
     }
@@ -83,6 +85,8 @@ Plan Plan::load_from_file(const std::string& path) {
         cfg.component = it.value().value("component", "");
         cfg.version = it.value().value("version", "");
         cfg.task = it.value().value("task", "default");
+        cfg.output_drive_ports = it.value().value(
+            "output_drive_ports", std::map<std::string, uint32_t>{});
         cfg.resource_access = it.value().value("resource_access", std::map<std::string, std::string>{});
         json params_json = it.value().value("params", json::object());
         for (auto pit = params_json.begin(); pit != params_json.end(); ++pit) {

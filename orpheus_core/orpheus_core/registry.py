@@ -85,7 +85,13 @@ class Registry:
             manifest = yaml.safe_load(f)
         if not isinstance(manifest, dict):
             raise ValueError("manifest is not a mapping")
-        schemas.validate(manifest, self._schema)
+        if "interfaces" in manifest:
+            from orpheus_core.component_definition import (
+                load_component_definition, normalize_component_definition,
+            )
+            manifest = normalize_component_definition(load_component_definition(manifest_path))
+        else:
+            schemas.validate(manifest, self._schema)
         manifest, _, layout_path = load_document_layout(manifest, manifest_path)
 
         comp_id = manifest["id"]
@@ -120,6 +126,8 @@ class Registry:
         """Return include directories for a source package."""
         headers = info.manifest.get("headers", [])
         dirs: set[Path] = set()
+        if "interfaces" in info.manifest:
+            dirs.add(info.root_dir)
         for h in headers:
             p = info.root_dir / h
             if p.exists() and p.is_file():

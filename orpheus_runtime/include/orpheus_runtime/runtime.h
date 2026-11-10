@@ -217,6 +217,8 @@ private:
         Instance* instance = nullptr;
         const NodeConfig* config = nullptr;
         std::vector<OrpheusChainLink> children;
+        std::vector<const OrpheusBuffer*> delivery_inputs;
+        std::vector<std::pair<uint32_t, const OrpheusBuffer*>> delivery_outputs;
     };
     struct ChainScope {
         std::map<std::string, ChainBinding> bindings;
@@ -229,6 +231,8 @@ private:
                     const std::map<std::string, uint32_t>* phases = nullptr);
     static int invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run);
     static int publish_chain(OrpheusChainNode* node, const OrpheusChainRun* run);
+    static int publish_outlet(OrpheusChainNode* node, const OrpheusChainRun* run,
+                              uint32_t output_port, const OrpheusDelivery* delivery);
     int process_chain(ChainScope& scope, const OrpheusChainRun& run);
     void task_bridge_push(TaskBridge& bridge);
     void task_bridge_pop(TaskBridge& bridge);

@@ -1156,7 +1156,7 @@ class GraphCompiler:
 
         # 4. Build execution plan
         plan = ExecutionPlan(
-            abi_version=6,
+            abi_version=7,
             sample_rate=resolved_task.sample_rate,
             block_size=resolved_task.block_size,
             buffer_size=project.buffer_size,
@@ -1276,6 +1276,9 @@ class GraphCompiler:
                 },
             }
             cfg = plan.node_configs[node.id]
+            cfg["output_drive_ports"] = {
+                p["id"]: p["drive_port_no"] for p in out_ports if "drive_port_no" in p
+            }
             cfg["host_ports"] = []
             params = {
                 p["id"]: node.params.get(p["id"], p.get("default"))
@@ -1482,17 +1485,26 @@ class GraphCompiler:
         # 调用边按声明顺序保存，不展开为执行表，也不对会合节点去重。
         plan.call_graph = {nid: [] for nid in execution_order}
         edges = (
-            [(e.from_ref.node_id, e.to_ref.node_id, e.every, e.phase)
+            [(e.from_ref, e.to_ref, e.every, e.phase)
              for e in project.drive_connections]
             if task_flow else
-            [(e.from_ref.node_id, e.to_ref.node_id, 1, 0) for e in graph.connections]
+            [(e.from_ref, e.to_ref, 1, 0) for e in graph.connections]
         )
-        for src, dst, every, phase in edges:
+        for source_ref, target_ref, every, phase in edges:
+            src, dst = source_ref.node_id, target_ref.node_id
             if src not in plan.call_graph or dst not in plan.call_graph:
                 continue
             if plan.node_configs[src]["task"] != plan.node_configs[dst]["task"]:
                 continue
-            if not task_flow:
+            source_component = self.registry.get(graph.nodes[src].component)
+            declared = bool(source_component and "interfaces" in source_component.manifest)
+            if declared:
+                target_port = next(
+                    (p for p in expanded_ports[dst] if p["id"] == target_ref.port_id), None)
+                if (source_ref.port_id not in plan.node_configs[src]["output_drive_ports"]
+                        or target_port is None or target_port.get("process") is not True):
+                    continue
+            if not task_flow and not declared:
                 # 数据流声明的节拍在编译期落到调用边；不由输出就绪隐式触发。
                 if periods[dst] < periods[src]:
                     continue
@@ -1501,6 +1513,16 @@ class GraphCompiler:
                 every = periods[dst] // periods[src]
                 phase = every - 1
             edge = {"node": dst, "every": every, "phase": phase}
+            drive_ports = plan.node_configs[src].get("output_drive_ports", {})
+            if source_ref.port_id in drive_ports:
+                edge.update({
+                    "output_port": drive_ports[source_ref.port_id],
+                    "input_port": plan.node_configs[dst]["input_ports"].index(target_ref.port_id),
+                    "source_interface": source_ref.port_id,
+                    "target_interface": target_ref.port_id,
+                    "every": 1,
+                    "phase": 0,
+                })
             if edge not in plan.call_graph[src]:
                 plan.call_graph[src].append(edge)
         children = {edge["node"] for targets in plan.call_graph.values() for edge in targets}
