@@ -6,8 +6,12 @@
 
 **第 0/1 期、同 Task BULK 数组控制及跨子图公开参数已落地。** 本文前九节保留最初的可行性分析与分期设计，当前实现状态以第十节为准：manifest/schema、compiler、runtime、generator、UI、标量与数组两相快照、子组件公开控制点和双路径一致性均已接通；跨 Task/Runtime 事务桥和连续 control-rate sidechain 仍属后续。
 
-**与计算数据端口的区别**：本文的`control_connections`更新组件参数，保留块末两相
-快照、下一块提交的语义；非音频`control/bulk/debug`端口传递算法中间数据，
+**与计算数据端口的区别**：`control_connections`更新组件参数。
+当前 `task_sequence` 链按 `before_call` 在目标每次实际调用前读源、写入目标，
+同一 Task 内重复调用也分别应用；不能把历史的一块延迟强加到这条路径。
+旧隐式图路径暂保留块末两相快照，属于待移除的迁移脚手架。
+当前链式契约见[Task 驱动设计](task-driven-execution-design.md)。
+非音频`control/bulk/debug`端口传递算法中间数据，
 可以同轮消费或显式读取最新值，不经过参数槽投递。后者的尺寸/调度契约及双路径
 验收见[时钟调度](clock-scheduling.md#非音频计算数据2026-11)，两类连接不能互相冒充。
 
