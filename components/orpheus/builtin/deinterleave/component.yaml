@@ -3,27 +3,24 @@ name: "音频通道拆分"
 category: "路由与混音"
 description: 将一路 N 通道交错信号拆分为 N 路单声道输出（out0..outN-1），输出引脚数量随通道数变化
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: DeinterleaveState
-sources:
-  - src/deinterleave.c
-headers:
-  - include/orpheus_deinterleave.h
-ports:
-  - id: in
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: 1
     count: param:channels
-parameters:
-  - id: channels
+    drive_port_no: 1
+    drive_divide: 1
+  channels:
     name: 通道数
     type: int
     default: 2

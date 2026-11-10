@@ -156,7 +156,9 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     orpheus_builtin_constant_source_State* s=(orpheus_builtin_constant_source_State*)state;
     orpheus_builtin_constant_source_IO io={0};
     if (!s || !s->_orpheus_alive || !ctx) return ORPHEUS_ERR_INVALID_ARG;
-    io.out.buffer=(ctx->outputs && ctx->output_count > 0) ? ctx->outputs[0] : NULL;
+    io.out.active=true;
+    io.out.drive_port_no=1u;
+    io.out.buffer=(ctx->outputs && ctx->output_count > (0)) ? ctx->outputs[0] : NULL;
     if (!valid_buffer(io.out.buffer, (uint32_t)(s->channels),
         ORPHEUS_FORMAT_F32, sizeof(float), _Alignof(float)))
         return ORPHEUS_ERR_INVALID_ARG;

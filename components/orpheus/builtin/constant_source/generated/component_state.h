@@ -14,4 +14,10 @@ typedef struct orpheus_builtin_constant_source_State {
     orpheus_builtin_constant_source_AlgorithmState algorithm;
 } orpheus_builtin_constant_source_State;
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
 int orpheus_builtin_constant_source_algorithm(orpheus_builtin_constant_source_State* state, orpheus_builtin_constant_source_IO* io, const OrpheusProcessContext* ctx);
+#if defined(__cplusplus)
+}
+#endif

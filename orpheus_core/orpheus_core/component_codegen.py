@@ -62,8 +62,6 @@ def _check_features(definition):
             continue
         if port["sample_format"] not in _FORMATS:
             _error(f"尚不生成压缩 i24 视图：{port['id']}", "unsupported_feature")
-        if "count" in port:
-            _error(f"首版不生成 count 可变引脚：{port['id']}", "unsupported_feature")
     for param in definition["parameters"]:
         if param["type"] not in _TYPES:
             _error(f"不支持的参数元素类型：{param['id']}", "unsupported_feature")
@@ -492,43 +490,59 @@ def _render(definition):
     hooks = set(definition.get("algorithm", {}).get("lifecycle", []))
     inputs = [p for p in ports if p["direction"] == "input"]
     outputs = [p for p in ports if p["direction"] == "output"]
-    api = ["#pragma once", '#include "orpheus_abi.h"', ""]
+    grouped = any("count" in p for p in ports)
+    api = ["#pragma once", '#include "orpheus_abi.h"', "",
+           "/* input_index、drive_port_no、active 由壳填写，算法不得改写。",
+           "   count 组仅 [0, <接口名>_count) 有效；零上界数组保留一个无效占位。 */", ""]
     for c_type, suffix in _FORMATS.values():
         api += [
             f"typedef struct {prefix}_Input{suffix} {{",
             "    const OrpheusBuffer* buffer;", f"    const {c_type}* samples;",
+            "    uint32_t input_index;",
             f"}} {prefix}_Input{suffix};",
             f"typedef struct {prefix}_Output{suffix} {{",
             "    OrpheusBuffer* buffer;", f"    {c_type}* samples;", "    OrpheusDelivery delivery;",
+            "    uint32_t drive_port_no;", "    bool active;",
             f"}} {prefix}_Output{suffix};", "",
         ]
     if any(p["type"] == "trigger" for p in ports):
         api += [
             f"typedef struct {prefix}_InputTrigger {{",
-            "    const OrpheusDelivery* delivery;", f"}} {prefix}_InputTrigger;",
+            "    const OrpheusDelivery* delivery;", "    uint32_t input_index;", f"}} {prefix}_InputTrigger;",
             f"typedef struct {prefix}_OutputTrigger {{",
-            "    OrpheusDelivery delivery;", f"}} {prefix}_OutputTrigger;", "",
+            "    OrpheusDelivery delivery;", "    uint32_t drive_port_no;", "    bool active;",
+            f"}} {prefix}_OutputTrigger;", "",
         ]
-    if inputs:
+    if inputs and not grouped:
         api.append("enum {")
         api.extend(f"    {upper}_INPUT_{p['id'].upper()} = {i}," for i, p in enumerate(inputs))
         api.append("};")
     driven = [p for p in outputs if "drive_port_no" in p]
     # UINT32_MAX-1 超过 C11 enum 的 int 范围，使用强类型常量宏。
-    api.extend(f"#define {upper}_DRIVE_{p['id'].upper()} UINT32_C({p['drive_port_no']})" for p in driven)
+    api.extend(f"#define {upper}_DRIVE_{p['id'].upper()}{'_BASE' if 'count' in p else ''} "
+               f"UINT32_C({p['drive_port_no']})" for p in driven)
     api += [f"typedef struct {io} {{"]
-    api.extend(f"    {prefix}_{'Input' if p['direction'] == 'input' else 'Output'}{_port_suffix(p)} {p['id']};" for p in ports)
+    for port in ports:
+        array = f"[{max(1, port['count_max'])}]" if "count" in port else ""
+        api.append(f"    {prefix}_{'Input' if port['direction'] == 'input' else 'Output'}"
+                   f"{_port_suffix(port)} {port['id']}{array};")
+        if "count" in port:
+            api.append(f"    uint32_t {port['id']}_count;")
     if not ports:
         api.append("    unsigned char reserved;")
     api += [f"}} {io};", ""]
     for port in driven:
         name = port["id"]
+        end = port["drive_port_no"] + port.get("count_max", 1) - 1
         api += [
             f"static inline int {prefix}_emit_{name}(const OrpheusProcessContext* ctx,",
             f"        const {prefix}_Output{_port_suffix(port)}* output) {{",
-            "    if (!output || output->delivery.buffer != " + ("NULL)" if port["type"] == "trigger" else "output->buffer)"),
+            "    if (!ctx || !output || !output->active || output->delivery.buffer != " +
+            ("NULL" if port["type"] == "trigger" else "output->buffer"),
+            f"            || output->drive_port_no < UINT32_C({port['drive_port_no']})",
+            f"            || output->drive_port_no > UINT32_C({end}))",
             "        return ORPHEUS_ERR_INVALID_ARG;",
-            f"    return orpheus_emit(ctx, {upper}_DRIVE_{name.upper()}, &output->delivery);", "}",
+            "    return orpheus_emit(ctx, output->drive_port_no, &output->delivery);", "}",
         ]
     state_header = [
         "#pragma once", '#include "component_api.h"', '#include "../user/algorithm.h"', "",
@@ -545,6 +559,7 @@ def _render(definition):
                      "#else", f"    _Alignas({state_alignment}) bool _orpheus_alive;", "#endif",
                      "    bool _orpheus_cleanup_pending;",
                      f"    {private} algorithm;", f"}} {state};", "",
+                     "#if defined(__cplusplus)", 'extern "C" {', "#endif",
                      f"int {function}({state}* state, {io}* io, const OrpheusProcessContext* ctx);"]
     signatures = _lifecycle_signatures(state)
     if hooks:
@@ -558,6 +573,7 @@ def _render(definition):
     state_header.extend(
         f"int {prefix}_register_{resource['id']}({state}* state, const OrpheusRegistry* reg);"
         for resource in definition.get("bulk_bindings", []))
+    state_header += ["#if defined(__cplusplus)", "}", "#endif"]
     user_header = [
         "#pragma once", "#include <stdint.h>", "#include <stdbool.h>", "",
         "/* 用户私有状态可在此扩展；实时处理不分配内存。 */",
@@ -610,8 +626,9 @@ def _render(definition):
     if ports:
         shell.append("static const OrpheusPort ports[] = {")
         for port in ports:
-            variable = isinstance(port.get("channels"), str)
-            channel_param = port["channels"].split(":")[1] if variable and port["channels"].startswith("param:") else None
+            variable_channels = isinstance(port.get("channels"), str)
+            variable = variable_channels or isinstance(port.get("count"), str)
+            channel_param = port["channels"].split(":")[1] if variable_channels and port["channels"].startswith("param:") else None
             shell.append(
                 f"    {{.id={_quote(port['id'])}, .direction=ORPHEUS_PORT_{port['direction'].upper()}, "
                 f".type=ORPHEUS_PORT_{port['type'].upper()}, .sample_format=ORPHEUS_FORMAT_{port.get('sample_format', 'f32').upper()}, "
@@ -666,41 +683,82 @@ def _render(definition):
               "static int process(void* state, const OrpheusProcessContext* ctx) {",
               f"    {state}* s=({state}*)state;", f"    {io} io={{0}};",
               "    if (!s || !s->_orpheus_alive || !ctx) return ORPHEUS_ERR_INVALID_ARG;"]
+    if grouped:
+        shell += ["    uint32_t _orpheus_input_count=0, _orpheus_output_count=0;"]
+        for port in ports:
+            direction, name = port["direction"], port["id"]
+            if "count" in port:
+                count = f"s->{port['count_param']}" if "count_param" in port else str(port["count"])
+                shell += [
+                    f"    int64_t _orpheus_count_{name}={count};",
+                    f"    if (_orpheus_count_{name} < {port['count_min']} || _orpheus_count_{name} > {port['count_max']})",
+                    "        return ORPHEUS_ERR_INVALID_ARG;",
+                    f"    io.{name}_count=(uint32_t)_orpheus_count_{name};",
+                ]
+            amount = f"io.{name}_count" if "count" in port else "1"
+            shell.append(f"    _orpheus_{direction}_count+={amount};")
+        shell += [
+            "    if (ctx->input_count!=_orpheus_input_count || ctx->output_count!=_orpheus_output_count)",
+            "        return ORPHEUS_ERR_INVALID_ARG;",
+            "    if (ctx->trigger_input!=UINT32_MAX && ctx->trigger_input>=_orpheus_input_count)",
+            "        return ORPHEUS_ERR_INVALID_ARG;",
+            "    if (ctx->delivery && ctx->trigger_input==UINT32_MAX) return ORPHEUS_ERR_INVALID_ARG;",
+        ]
     for group, direction in ((inputs, "input"), (outputs, "output")):
+        if grouped and group:
+            shell.append(f"    uint32_t _orpheus_{direction}_slot=0;")
         for index, port in enumerate(group):
             name = port["id"]
+            is_group = "count" in port
+            flat_index = f"_orpheus_{direction}_slot" if grouped else str(index)
+            if is_group:
+                shell.append(f"    for (uint32_t _orpheus_i=0; _orpheus_i<io.{name}_count; ++_orpheus_i) {{")
+                flat_index += "+_orpheus_i"
+            target = f"io.{name}[_orpheus_i]" if is_group else f"io.{name}"
+            if direction == "input":
+                shell.append(f"    {target}.input_index={flat_index};")
+            else:
+                drive = f"{port['drive_port_no']}u" if "drive_port_no" in port else "0"
+                if is_group and "drive_port_no" in port:
+                    drive += "+_orpheus_i"
+                shell += [f"    {target}.active=true;", f"    {target}.drive_port_no={drive};"]
             if port["type"] == "trigger":
                 shell += [
-                    f"    if (ctx->{direction}s && ctx->{direction}_count>{index} && ctx->{direction}s[{index}])",
+                    f"    if (ctx->{direction}s && ctx->{direction}_count>({flat_index}) && ctx->{direction}s[{flat_index}])",
                     "        return ORPHEUS_ERR_INVALID_ARG;",
                 ]
                 if direction == "input":
                     shell += [
-                        f"    io.{name}.delivery=ctx->trigger_input=={index} ? ctx->delivery : NULL;",
-                        f"    if (io.{name}.delivery && io.{name}.delivery->buffer) return ORPHEUS_ERR_INVALID_ARG;",
+                        f"    {target}.delivery=ctx->trigger_input==({flat_index}) ? ctx->delivery : NULL;",
+                        f"    if ({target}.delivery && {target}.delivery->buffer) return ORPHEUS_ERR_INVALID_ARG;",
                     ]
                 else:
                     shell += [
-                        f"    io.{name}.delivery=(OrpheusDelivery){{.buffer=NULL,.frame_index=ctx->frame_index,",
+                        f"    {target}.delivery=(OrpheusDelivery){{.buffer=NULL,.frame_index=ctx->frame_index,",
                         "        .epoch=ctx->epoch,.timeline_flags=ctx->timeline_flags};",
                     ]
-                continue
-            c_type, _ = _FORMATS[port["sample_format"]]
-            shell += [
-                f"    io.{name}.buffer=(ctx->{direction}s && ctx->{direction}_count > {index}) ? ctx->{direction}s[{index}] : NULL;",
-                f"    if (!valid_buffer(io.{name}.buffer, (uint32_t)({expression(port, 'channels', True)}),",
-                f"        ORPHEUS_FORMAT_{port['sample_format'].upper()}, sizeof({c_type}), _Alignof({c_type})))",
-                "        return ORPHEUS_ERR_INVALID_ARG;",
-                f"    io.{name}.samples=io.{name}.buffer ? ({'const ' if direction == 'input' else ''}{c_type}*)io.{name}.buffer->data : NULL;",
-            ]
-            if direction == "output":
+            else:
+                c_type, _ = _FORMATS[port["sample_format"]]
                 shell += [
-                    f"    if (io.{name}.buffer) {{",
-                    f"        if (ctx->frame_count > io.{name}.buffer->frame_capacity) return ORPHEUS_ERR_INVALID_ARG;",
-                    f"        io.{name}.buffer->frame_count=ctx->frame_count;", "    }",
-                    f"    io.{name}.delivery=(OrpheusDelivery){{.buffer=io.{name}.buffer, .frame_index=ctx->frame_index,",
-                    "        .epoch=ctx->epoch, .timeline_flags=ctx->timeline_flags};",
+                    f"    {target}.buffer=(ctx->{direction}s && ctx->{direction}_count > ({flat_index})) ? ctx->{direction}s[{flat_index}] : NULL;",
+                    f"    if (!valid_buffer({target}.buffer, (uint32_t)({expression(port, 'channels', True)}),",
+                    f"        ORPHEUS_FORMAT_{port['sample_format'].upper()}, sizeof({c_type}), _Alignof({c_type})))",
+                    "        return ORPHEUS_ERR_INVALID_ARG;",
+                    f"    {target}.samples={target}.buffer ? ({'const ' if direction == 'input' else ''}{c_type}*){target}.buffer->data : NULL;",
                 ]
+                if direction == "output":
+                    shell += [
+                        f"    if ({target}.buffer) {{",
+                        f"        if (ctx->frame_count > {target}.buffer->frame_capacity) return ORPHEUS_ERR_INVALID_ARG;",
+                        f"        {target}.buffer->frame_count=ctx->frame_count;", "    }",
+                        f"    {target}.delivery=(OrpheusDelivery){{.buffer={target}.buffer, .frame_index=ctx->frame_index,",
+                        "        .epoch=ctx->epoch, .timeline_flags=ctx->timeline_flags};",
+                    ]
+            if is_group:
+                shell.append("    }")
+            if grouped:
+                amount = f"io.{name}_count" if is_group else "1"
+                shell.append(f"    _orpheus_{direction}_slot+={amount};")
     shell += [f"    return {function}(s, &io, ctx);", "}",
               "static const OrpheusComponentInterface interface = {",
               "    .get_descriptor=get_descriptor, .create=create, .destroy=destroy,",

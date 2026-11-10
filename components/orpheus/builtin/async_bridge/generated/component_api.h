@@ -1,41 +1,56 @@
 #pragma once
 #include "orpheus_abi.h"
 
+/* input_index、drive_port_no、active 由壳填写，算法不得改写。
+   count 组仅 [0, <接口名>_count) 有效；零上界数组保留一个无效占位。 */
+
 typedef struct orpheus_builtin_async_bridge_InputF32 {
     const OrpheusBuffer* buffer;
     const float* samples;
+    uint32_t input_index;
 } orpheus_builtin_async_bridge_InputF32;
 typedef struct orpheus_builtin_async_bridge_OutputF32 {
     OrpheusBuffer* buffer;
     float* samples;
     OrpheusDelivery delivery;
+    uint32_t drive_port_no;
+    bool active;
 } orpheus_builtin_async_bridge_OutputF32;
 
 typedef struct orpheus_builtin_async_bridge_InputI32 {
     const OrpheusBuffer* buffer;
     const int32_t* samples;
+    uint32_t input_index;
 } orpheus_builtin_async_bridge_InputI32;
 typedef struct orpheus_builtin_async_bridge_OutputI32 {
     OrpheusBuffer* buffer;
     int32_t* samples;
     OrpheusDelivery delivery;
+    uint32_t drive_port_no;
+    bool active;
 } orpheus_builtin_async_bridge_OutputI32;
 
 typedef struct orpheus_builtin_async_bridge_InputI16 {
     const OrpheusBuffer* buffer;
     const int16_t* samples;
+    uint32_t input_index;
 } orpheus_builtin_async_bridge_InputI16;
 typedef struct orpheus_builtin_async_bridge_OutputI16 {
     OrpheusBuffer* buffer;
     int16_t* samples;
     OrpheusDelivery delivery;
+    uint32_t drive_port_no;
+    bool active;
 } orpheus_builtin_async_bridge_OutputI16;
 
 typedef struct orpheus_builtin_async_bridge_InputTrigger {
     const OrpheusDelivery* delivery;
+    uint32_t input_index;
 } orpheus_builtin_async_bridge_InputTrigger;
 typedef struct orpheus_builtin_async_bridge_OutputTrigger {
     OrpheusDelivery delivery;
+    uint32_t drive_port_no;
+    bool active;
 } orpheus_builtin_async_bridge_OutputTrigger;
 
 enum {
@@ -51,7 +66,9 @@ typedef struct orpheus_builtin_async_bridge_IO {
 
 static inline int orpheus_builtin_async_bridge_emit_out(const OrpheusProcessContext* ctx,
         const orpheus_builtin_async_bridge_OutputF32* output) {
-    if (!output || output->delivery.buffer != output->buffer)
+    if (!ctx || !output || !output->active || output->delivery.buffer != output->buffer
+            || output->drive_port_no < UINT32_C(1)
+            || output->drive_port_no > UINT32_C(1))
         return ORPHEUS_ERR_INVALID_ARG;
-    return orpheus_emit(ctx, ORPHEUS_BUILTIN_ASYNC_BRIDGE_DRIVE_OUT, &output->delivery);
+    return orpheus_emit(ctx, output->drive_port_no, &output->delivery);
 }

@@ -33,6 +33,28 @@ describe('显式可选数据端口', () => {
   });
 });
 
+describe('动态出口的局部驱动编号', () => {
+  const component = {
+    ports: [
+      { id: 'head', direction: 'output', drive_port_no: 1 },
+      { id: 'items', direction: 'output', count: 'param:ports', optional: true,
+        drive_port_no: 5, drive_divide: 999 },
+      { id: 'tail', direction: 'output', drive_port_no: 100 },
+    ],
+    parameters: [{ id: 'ports', type: 'int', default: 1 }],
+  };
+  test.each([0, 1, 3])('数量%s仅改变组内引脚，不改变后续固定出口编号', (count) => {
+    const ports = resolvePorts(component, { ports: count });
+    expect(ports.map(({ id, drive_port_no }) => [id, drive_port_no])).toEqual([
+      ['head', 1],
+      ...Array.from({ length: count }, (_, i) => [`items${i}`, 5 + i]),
+      ['tail', 100],
+    ]);
+    expect(ports.filter(({ id }) => id.startsWith('items'))
+      .every(({ drive_divide }) => drive_divide === 999)).toBe(true);
+  });
+});
+
 // 最小组件目录：gain（bindable gain_db）/ level_detect（control_source level）/ matrix（shape 表达式）
 const catalog = [
   {

@@ -472,7 +472,8 @@ export function resolvePorts(component, params) {
       const n = Math.max(1, countValue || 1);
       for (let i = 0; i < n; i++) {
         const { count, ...rest } = p;
-        ports.push({ ...rest, id: `${p.id}${i}` });
+        ports.push({ ...rest, id: `${p.id}${i}`,
+          ...(p.drive_port_no === undefined ? {} : { drive_port_no: p.drive_port_no + i }) });
       }
     } else {
       ports.push(p);

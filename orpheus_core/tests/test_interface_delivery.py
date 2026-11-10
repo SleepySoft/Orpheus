@@ -391,8 +391,8 @@ int orpheus_test_interface_source_algorithm(orpheus_test_interface_source_State*
         .frame_capacity=2,.frame_count=2,.interleaved=true};
     OrpheusBuffer second={.data=values+2,.format=ORPHEUS_FORMAT_F32,.channels=1,
         .frame_capacity=3,.frame_count=3,.interleaved=true};
-    orpheus_test_interface_source_OutputF32 part={.buffer=&first,.samples=values,
-        .delivery=io->out.delivery};
+    orpheus_test_interface_source_OutputF32 part=io->out;
+    part.buffer=&first;part.samples=values;
     part.delivery.buffer=&first;
     int rc=orpheus_test_interface_source_emit_out(ctx,&part);
     if(rc) return rc;

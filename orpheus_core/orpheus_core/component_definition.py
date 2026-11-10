@@ -199,6 +199,83 @@ def component_bulk_resources(interfaces: dict) -> list[dict]:
     return resources
 
 
+def _port_count_bounds(key, port, interfaces):
+    """常数时间求组的下界、上界和默认值，不展开任何端口。"""
+    value = port.get("count", 1)
+    lower = 0 if port.get("optional", False) else 1
+    location = f"interfaces.{key}.count"
+    if type(value) is int:
+        if not lower <= value <= 4294967294:
+            _fail("count 必须在 1..UINT32_MAX-1；optional:true 时允许 0", location)
+        return value, value, value
+    if not isinstance(value, str) or not re.fullmatch(r"param:[A-Za-z][A-Za-z0-9_]*", value):
+        _fail("count 仅支持固定整数或 param:<参数名>，不接受其它签名表达式", location)
+    parameter = interfaces.get(value.split(":")[1], {})
+    if (parameter.get("type") != "int" or is_array_parameter(parameter) or
+            parameter.get("update_policy") != "restart_required"):
+        _fail("count 引用必须指向 restart_required 的 int 标量参数", location)
+    bounds = parameter.get("range")
+    if (not isinstance(bounds, list) or len(bounds) != 2 or
+            any(type(v) is not int for v in bounds) or
+            not lower <= bounds[0] <= bounds[1] <= 2147483647):
+        _fail("count 参数须有有限整数 range，非 optional 组的下界至少为 1", location)
+    default = parameter.get("default")
+    if type(default) is not int or not bounds[0] <= default <= bounds[1]:
+        _fail("count 参数默认值必须是 range 内的整数", location)
+    return bounds[0], bounds[1], default
+
+
+def _expanded_index_exists(suffix, maximum):
+    if not re.fullmatch(r"0|[1-9][0-9]*", suffix):
+        return False
+    bound = str(maximum)
+    return len(suffix) < len(bound) or (len(suffix) == len(bound) and suffix < bound)
+
+
+def _validate_port_groups(interfaces):
+    groups, intervals = [], []
+    drive_symbols = set()
+    maximum_slots = {"input": 0, "output": 0}
+    for key, port in interfaces.items():
+        if "direction" not in port:
+            continue
+        _, maximum, _ = _port_count_bounds(key, port, interfaces)
+        maximum_slots[port["direction"]] += maximum
+        if maximum_slots[port["direction"]] > 4294967295:
+            _fail("展开后的最大槽位数超出 uint32 范围", f"interfaces.{key}.count")
+        if "count" in port:
+            groups.append((key, maximum))
+            if key + "_count" in interfaces and "direction" in interfaces[key + "_count"]:
+                _fail("端口名称与生成的组 count 字段冲突", f"interfaces.{key}.count")
+        if "drive_port_no" in port and maximum:
+            start = port["drive_port_no"]
+            end = start + maximum - 1
+            if end > 4294967294:
+                _fail("驱动编号预留区间超出 UINT32_MAX-1", f"interfaces.{key}.drive_port_no")
+            intervals.append((start, end, key))
+        if "drive_port_no" in port:
+            symbol = key.upper() + ("_BASE" if "count" in port else "")
+            if symbol in drive_symbols:
+                _fail("驱动出口常量名称冲突", f"interfaces.{key}.drive_port_no")
+            drive_symbols.add(symbol)
+    intervals.sort()
+    for previous, current in zip(intervals, intervals[1:]):
+        if current[0] <= previous[1]:
+            _fail("驱动编号预留区间重复或重叠（按最大 count 校验）",
+                  f"interfaces.{current[2]}.drive_port_no")
+    group_names = {key for key, _ in groups}
+    for key, maximum in groups:
+        if not maximum:
+            continue
+        for other in interfaces:
+            if other not in group_names and other.startswith(key) and _expanded_index_exists(other[len(key):], maximum):
+                _fail("count 展开后的接口 ID 与固定接口冲突", f"interfaces.{key}.count")
+        for other, other_maximum in groups:
+            if (other != key and other_maximum and other.startswith(key) and
+                    _expanded_index_exists(other[len(key):] + "0", maximum)):
+                _fail("count 组展开后的接口 ID 相互冲突", f"interfaces.{key}.count")
+
+
 def _validate(raw):
     if not isinstance(raw, dict):
         _fail("组件声明必须是映射")
@@ -250,7 +327,6 @@ def _validate(raw):
     interfaces = raw["interfaces"]
     if not isinstance(interfaces, dict) or not interfaces:
         _fail("interfaces 必须是非空映射", "interfaces")
-    drives = set()
     references = {}
     for key, item in interfaces.items():
         loc = f"interfaces.{key}"
@@ -280,10 +356,10 @@ def _validate(raw):
             if item.get("process") and item["direction"] != "input":
                 _fail("process 只能用于输入端口", loc)
             if kind == "trigger":
-                pcm_fields = {"sample_format", "channels", "sample_rate", "block_size", "count", "layout",
-                              "frame_size", "timing", "optional"}
+                pcm_fields = {"sample_format", "channels", "sample_rate", "block_size", "layout",
+                              "frame_size", "timing"}
                 if pcm_fields.intersection(item):
-                    _fail("纯 trigger 不允许 PCM 签名、布局或可变引脚字段", loc)
+                    _fail("纯 trigger 不允许 PCM 签名或布局字段", loc)
                 if item["direction"] == "output" and "drive_port_no" not in item:
                     _fail("trigger 输出必须声明 drive_port_no", loc)
             if item.get("timing", "sync") not in {"sync", "latest"}:
@@ -292,7 +368,7 @@ def _validate(raw):
                 _fail("latest 仅允许不驱动的非音频输入", loc)
             if kind == "audio" and ("layout" in item or "frame_size" in item):
                 _fail("layout/frame_size 仅用于非音频端口", loc)
-            for field in ("channels", "block_size", "sample_rate", "count"):
+            for field in ("channels", "block_size", "sample_rate"):
                 if field not in item:
                     continue
                 value = item[field]
@@ -308,9 +384,6 @@ def _validate(raw):
                 value = item["drive_port_no"]
                 if item["direction"] != "output" or type(value) is not int or not 1 <= value <= 4294967294:
                     _fail("驱动编号必须用于输出且在 1..UINT32_MAX-1", loc + ".drive_port_no")
-                if value in drives:
-                    _fail("驱动编号重复", loc + ".drive_port_no")
-                drives.add(value)
             if "drive_divide" in item:
                 value = item["drive_divide"]
                 if "drive_port_no" not in item or type(value) is not int or not 1 <= value <= 4294967294:
@@ -444,6 +517,9 @@ def _validate(raw):
                     if not isinstance(dimension, str) or not re.fullmatch(r"param:[A-Za-z][A-Za-z0-9_]*", dimension):
                         _fail("shape 维度必须是正整数或 param 引用", loc)
                     references[(key, f"shape{len(references)}")] = dimension
+    _validate_port_groups(interfaces)
+    count_parameters = {item["count"].split(":")[1] for item in interfaces.values()
+                        if "direction" in item and isinstance(item.get("count"), str)}
     visiting, done = set(), set()
 
     def check_ref(node):
@@ -458,7 +534,8 @@ def _validate(raw):
                 _fail("Task 仅支持 task:block_size/task:sample_rate 引用", f"interfaces.{node[0]}.{node[1]}")
         elif target == "param":
             parameter = interfaces.get(field, {})
-            if parameter.get("type") != "int" or is_array_parameter(parameter) or not parameter.get("affects_signature"):
+            if (parameter.get("type") != "int" or is_array_parameter(parameter) or
+                    not (parameter.get("affects_signature") or field in count_parameters)):
                 _fail("签名参数引用必须指向 affects_signature 的 int 参数", f"interfaces.{node[0]}.{node[1]}")
             if parameter["default"] < 1 or ("range" in parameter and parameter["range"][0] < 1):
                 _fail("签名参数必须保持正数", f"interfaces.{target}.{field}")
@@ -523,7 +600,11 @@ def load_component_definition(path: Path) -> dict:
 
 
 def normalize_component_definition(raw: dict) -> dict:
-    """深拷贝并派生内部视图；bulk_slots.id 使用外部键，bulk_bindings.id 保留 C 接口名。"""
+    """深拷贝内部视图；bulk_slots.id 是外部键，bulk_bindings.id 是 C 接口名。
+
+    端口组保留 count 并派生 count_min/count_max/count_default/count_param；
+    被 count 引用的参数在内部 parameters 中自动标记 affects_signature。
+    """
     try:
         _validate(raw)
     except (TypeError, RecursionError, OverflowError) as exc:
@@ -531,6 +612,8 @@ def normalize_component_definition(raw: dict) -> dict:
     result = copy.deepcopy(raw)
     result["ports"] = []
     result["parameters"] = []
+    count_parameters = {item["count"].split(":")[1] for item in raw["interfaces"].values()
+                        if "direction" in item and isinstance(item.get("count"), str)}
     for key, value in raw["interfaces"].items():
         item = {"id": key, **copy.deepcopy(value)}
         if "direction" in value:
@@ -541,9 +624,16 @@ def normalize_component_definition(raw: dict) -> dict:
             item["propagate_drive"] = (
                 "drive_port_no" in value if value["direction"] == "output" else item["process"]
             )
+            if "count" in value:
+                item["count_min"], item["count_max"], item["count_default"] = _port_count_bounds(
+                    key, value, raw["interfaces"])
+                if isinstance(value["count"], str):
+                    item["count_param"] = value["count"].split(":")[1]
             result["ports"].append(item)
         else:
             item.setdefault("update_policy", "block_boundary")
+            if key in count_parameters:
+                item["affects_signature"] = True
             if value["type"] == "string":
                 item.setdefault("capacity", 256)
             if is_array_parameter(value) or "bulk" in value:

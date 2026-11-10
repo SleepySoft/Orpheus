@@ -190,13 +190,20 @@ def _expand_port_manifests(
         if count_expr is None:
             expanded.append(pm)
             continue
+        parameter = next((p for p in comp.manifest.get("parameters", [])
+                          if count_expr == f"param:{p['id']}"), None)
         count = _resolve_value(count_expr, node, task)
-        if count is None and isinstance(count_expr, str) and count_expr.startswith("param:"):
-            param_id = count_expr[6:]
-            for p in comp.manifest.get("parameters", []):
-                if p["id"] == param_id:
-                    count = p.get("default")
-                    break
+        if (count is None and parameter is not None
+                and ("interfaces" not in comp.manifest or parameter["id"] not in node.params)):
+            count = parameter.get("default")
+        if "interfaces" in comp.manifest:
+            if isinstance(count, bool) or not isinstance(count, int):
+                raise CompileError(f"节点 {node.id} 端口 {pm['id']} 数量必须是整数，实际为 {count!r}")
+            if parameter is not None:
+                minimum, maximum = parameter["range"]
+                if not minimum <= count <= maximum:
+                    raise CompileError(
+                        f"节点 {node.id} 端口 {pm['id']} 数量 {count} 超出范围 [{minimum}, {maximum}]")
         try:
             count = int(count)
         except (TypeError, ValueError) as exc:
@@ -210,7 +217,13 @@ def _expand_port_manifests(
         for i in range(count):
             replica = {k: v for k, v in pm.items() if k != "count"}
             replica["id"] = f"{pm['id']}{i}"
+            if "drive_port_no" in replica:
+                replica["drive_port_no"] += i
             expanded.append(replica)
+    if "interfaces" in comp.manifest:
+        identifiers = [port["id"] for port in expanded]
+        if len(identifiers) != len(set(identifiers)):
+            raise CompileError(f"节点 {node.id} 展开后的接口名称重复")
     return expanded
 
 

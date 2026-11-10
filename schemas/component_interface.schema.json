@@ -114,7 +114,10 @@
         "channels": {"$ref": "#/$defs/signature"},
         "block_size": {"$ref": "#/$defs/signature"},
         "sample_rate": {"$ref": "#/$defs/signature"},
-        "count": {"$ref": "#/$defs/signature"},
+        "count": {"oneOf": [
+          {"type": "integer", "minimum": 0, "maximum": 4294967294},
+          {"type": "string", "pattern": "^param:[A-Za-z][A-Za-z0-9_]*$"}
+        ]},
         "process": {"type": "boolean"},
         "optional": {"type": "boolean"},
         "timing": {"enum": ["sync", "latest"]},
@@ -127,6 +130,9 @@
         }
       },
       "allOf": [
+        {"if": {"required": ["count"], "properties": {"count": {"const": 0}}}, "then": {
+          "required": ["optional"], "properties": {"optional": {"const": true}}
+        }},
         {"if": {"required": ["drive_port_no"]}, "then": {"properties": {"direction": {"const": "output"}}}},
         {"if": {"required": ["drive_divide"]}, "then": {"required": ["drive_port_no"]}},
         {"if": {"required": ["process"], "properties": {"process": {"const": true}}}, "then": {"properties": {"direction": {"const": "input"}}}},
@@ -135,8 +141,8 @@
         {"if": {"properties": {"type": {"const": "trigger"}}}, "then": {
           "not": {"anyOf": [
             {"required": ["sample_format"]}, {"required": ["channels"]}, {"required": ["sample_rate"]},
-            {"required": ["block_size"]}, {"required": ["count"]}, {"required": ["layout"]},
-            {"required": ["frame_size"]}, {"required": ["timing"]}, {"required": ["optional"]}
+            {"required": ["block_size"]}, {"required": ["layout"]},
+            {"required": ["frame_size"]}, {"required": ["timing"]}
           ]},
           "allOf": [
             {"if": {"properties": {"direction": {"const": "output"}}}, "then": {"required": ["drive_port_no"]}}

@@ -14,4 +14,10 @@ typedef struct orpheus_builtin_linear_gain_State {
     orpheus_builtin_linear_gain_AlgorithmState algorithm;
 } orpheus_builtin_linear_gain_State;
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
 int orpheus_builtin_linear_gain_algorithm(orpheus_builtin_linear_gain_State* state, orpheus_builtin_linear_gain_IO* io, const OrpheusProcessContext* ctx);
+#if defined(__cplusplus)
+}
+#endif

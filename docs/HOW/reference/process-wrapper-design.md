@@ -411,7 +411,7 @@ ChangeThread 各节：
 
 > 2026-11-10：设计确认后进入分批实施，首批发布 ABI v7 与独立组件校验/生成脚本。
 > 固定数据/纯触发接口、标量与字符串、生命周期和配置先落盘的创建界面已有闭环；
-> 资源、动态引脚、剩余普通工程及 BAF 仍待迁移。
+> 私有资源、固定数组与有界动态引脚已有小图闭环，剩余普通组件/工程及 BAF 仍待迁移。
 > 阶段范围与验收门槛以 [路线图](../roadmap.md#实施顺序与验收门槛) 为准，不代表全量改造完成。
 
 ### 12.1 动机与唯一事实源
@@ -634,8 +634,24 @@ gains:
 `storage` 必须是私有状态中的同类型、同容量固定数组，生成代码作编译期检查。
 shape 决定实际槽数量且不得超过容量；`auto_register: false` 生成类型化注册 helper，
 用户生命周期钩子只决定何时注册，不重复填写偏移、类型、数量或资源描述。
-固定数值数组也可直接用 `count` 与等长默认列表声明；动态端口 count 尚不支持。
+固定数值数组也可直接用 `count` 与等长默认列表声明。
 生命周期通过 `algorithm.lifecycle` 显式选择，create 只建立状态，不提前执行用户 prepare。
+
+数据/触发接口的 `count` 表示引脚组，可为固定整数或引用带有限整数范围的
+`restart_required` 参数；可选组允许零个引脚，显式 count=1 仍为组。
+规范化定义保留 count，并导出 count_min/count_max/count_default 与可选 count_param。
+生成 `io->items[max(1,count_max)]` 与实际 `items_count`；输入视图的 `input_index`
+始终是真实扁平槽，动态组之后的固定口不得沿用声明序号作为槽号。
+含引脚组时不生成误导性的固定输入槽枚举。
+IO 视图按上界占用固定栈空间，必须纳入嵌套调用链的栈预算。
+
+组出口编号为 `drive_port_no + index`，按最大数量预留区间并检查冲突/溢出，
+同样检查展开名称和生成成员冲突。输出视图含只读语义的 `drive_port_no/active`；
+算法通过 `emit_items(ctx, &io->items[i])` 交付，未激活元素明确失败。
+需要临时/分片载荷时先复制对应的已生成输出视图，再替换 buffer/samples、
+Delivery 的 buffer 和时间；帧范围由载荷 Buffer 的 frame_count/frame_capacity 描述，
+保留生成器准备的出口身份与激活状态，
+不要重新手填整个输出视图。输出顺序仍由算法调用点决定，不由编号或分频提示排序。
 
 ### 12.8 界面创建、配置落盘与独立脚本生成
 
@@ -723,8 +739,9 @@ UI 确实先保存再调用脚本，脚本失败不会被显示为组件生成�
 [线性增益](../../../components/orpheus/builtin/linear_gain/component.yaml)、
 [空终点](../../../components/orpheus/builtin/null_sink/component.yaml)，
 组合图见 [接口交付示例](../../../examples/interface_delivery_demo.yaml)。
-当前使用固定数量、交错 f32 音频接口及 float/int/bool 标量，
-尚未支持的资源、数组、字符串、动态引脚和复杂执行声明会明确拒绝。
+首批采用固定数量、交错 f32 音频接口及 float/int/bool 标量；
+后续已扩展字符串、生命周期、固定数组/私有 BULK 及有界动态引脚，
+当前范围以路线图为准，尚未支持的声明明确拒绝。
 Schema 位于 [component_interface.schema.json](../../../schemas/component_interface.schema.json)。
 
 在仓库根执行（不需要启动服务）：

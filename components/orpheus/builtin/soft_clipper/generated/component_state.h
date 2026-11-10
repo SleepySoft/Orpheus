@@ -14,6 +14,9 @@ typedef struct orpheus_builtin_soft_clipper_State {
     orpheus_builtin_soft_clipper_AlgorithmState algorithm;
 } orpheus_builtin_soft_clipper_State;
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
 int orpheus_builtin_soft_clipper_algorithm(orpheus_builtin_soft_clipper_State* state, orpheus_builtin_soft_clipper_IO* io, const OrpheusProcessContext* ctx);
 /* create 不调用用户 prepare；prepare 应用配置后调用用户入口，失败自动 destroy 收尾。
    set 先校验，再以旧 State 调用户 hook，成功提交当前字段，失败恢复生成参数。
@@ -22,3 +25,6 @@ int orpheus_builtin_soft_clipper_algorithm(orpheus_builtin_soft_clipper_State* s
 int orpheus_builtin_soft_clipper_prepare(orpheus_builtin_soft_clipper_State* state, const OrpheusConfig* config);
 int orpheus_builtin_soft_clipper_reset(orpheus_builtin_soft_clipper_State* state);
 int orpheus_builtin_soft_clipper_set_parameter(orpheus_builtin_soft_clipper_State* state, const char* key, const OrpheusValue* value);
+#if defined(__cplusplus)
+}
+#endif

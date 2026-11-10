@@ -172,7 +172,7 @@ def test_duplicate_keys_and_illegal_top_level(package, raw):
         with pytest.raises(ComponentDefinitionError):
             normalize_component_definition(candidate)
     raw["interfaces"]["other"] = dict(raw["interfaces"]["out"])
-    with pytest.raises(ComponentDefinitionError, match="驱动编号重复"):
+    with pytest.raises(ComponentDefinitionError, match="驱动编号预留区间重复"):
         normalize_component_definition(raw)
 
 
@@ -220,11 +220,9 @@ def test_generated_ownership(package, raw, mode):
     assert snapshot(package) == before
 
 
-@pytest.mark.parametrize("feature", ["count", "format", "array", "execution"])
+@pytest.mark.parametrize("feature", ["format", "array", "execution"])
 def test_unsupported_generation_is_explicit_and_readonly(package, raw, feature):
-    if feature == "count":
-        raw["interfaces"]["in"]["count"] = "param:channels"
-    elif feature == "format":
+    if feature == "format":
         raw["interfaces"]["in"]["sample_format"] = "i24"
     elif feature == "array":
         raw["interfaces"]["gain"]["shape"] = [2]
@@ -917,7 +915,7 @@ def test_real_non_audio_typed_buffer_views(package, raw, port_type, format_name,
 
 @pytest.mark.parametrize("field,value", [
     ("sample_format", "f32"), ("channels", 1), ("block_size", 32), ("sample_rate", 48000),
-    ("count", 1), ("layout", "pcm"), ("frame_size", 0), ("timing", "sync"), ("optional", True),
+    ("layout", "pcm"), ("frame_size", 0), ("timing", "sync"),
 ])
 def test_trigger_rejects_pcm_fields_in_schema_and_core(package, raw, field, value):
     import jsonschema
@@ -1894,3 +1892,464 @@ def test_explicit_count_one_rejects_scalar_default_without_writes(package, raw, 
     with pytest.raises(ComponentDefinitionError):
         generate_component(path)
     assert snapshot(package) == before
+
+
+def _add_port_group_test_interfaces(raw):
+    def audio(direction, **fields):
+        return {"type": "audio", "direction": direction, "channels": 1, **fields}
+    raw["interfaces"] = {
+        "head": audio("input", process=True),
+        "out_head": audio("output", drive_port_no=1),
+        "ins": audio("input", count="param:n", optional=True, process=True),
+        "items": audio("output", count="param:m", optional=True, drive_port_no=10, drive_divide=999),
+        "tail": audio("input", process=True),
+        "out_tail": audio("output", drive_port_no=20),
+        "n": {"type": "int", "default": 1, "range": [0, 3], "update_policy": "restart_required"},
+        "m": {"type": "int", "default": 1, "range": [0, 3], "update_policy": "restart_required"},
+    }
+
+
+@pytest.mark.parametrize("count,optional,bounds", [
+    (0, True, (0, 0, 0)), (1, False, (1, 1, 1)), (3, False, (3, 3, 3)),
+    ("param:m", True, (0, 3, 1)), ("param:m", False, (1, 3, 1)),
+])
+def test_port_group_normalization_and_bounded_api_are_single_source(package, raw, count, optional, bounds):
+    import jsonschema
+    _add_port_group_test_interfaces(raw)
+    raw["interfaces"]["items"].update({"count": count, "optional": optional})
+    if isinstance(count, str) and not optional:
+        raw["interfaces"]["m"]["range"] = [1, 3]
+    before = copy.deepcopy(raw)
+    normalized = normalize_component_definition(raw)
+    assert raw == before
+    group = next(p for p in normalized["ports"] if p["id"] == "items")
+    assert group["count"] == count
+    assert (group["count_min"], group["count_max"], group["count_default"]) == bounds
+    assert group.get("count_param") == ("m" if isinstance(count, str) else None)
+    assert next(p for p in normalized["parameters"] if p["id"] == "n")["affects_signature"]
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    generate_component(path)
+    api = (package / "generated" / "component_api.h").read_text(encoding="utf-8")
+    assert f"test_pilot_OutputF32 items[{max(1, bounds[1])}];" in api
+    assert "uint32_t items_count;" in api
+    assert "uint32_t input_index;" in api and "uint32_t drive_port_no;" in api
+    assert "#define TEST_PILOT_DRIVE_ITEMS_BASE UINT32_C(10)" in api
+    assert "TEST_PILOT_INPUT_" not in api
+    check_generated(path)
+
+
+@pytest.mark.parametrize("count,optional", [
+    (0, False), (-1, True), (True, True), (1.5, True), (4294967295, True),
+    ("param:missing", True), ("head:channels", True), ("task:block_size", True),
+    ("param:n*2", True), ("1", True), (None, True), ([], True),
+])
+def test_invalid_port_count_declarations_are_readonly(package, raw, count, optional):
+    _add_port_group_test_interfaces(raw)
+    raw["interfaces"]["ins"].update({"count": count, "optional": optional})
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("parameter,optional", [
+    ({"type": "int", "default": 1, "update_policy": "restart_required"}, True),
+    ({"type": "int", "default": 1, "range": [0, 3], "update_policy": "restart_required"}, False),
+    ({"type": "int", "default": 1, "range": [-1, 3], "update_policy": "restart_required"}, True),
+    ({"type": "int", "default": 1, "range": [1, 3]}, True),
+    ({"type": "int", "default": 1, "range": [1, 3], "update_policy": "immediate"}, True),
+    ({"type": "int", "default": 1, "range": [1, 3], "update_policy": "block_boundary"}, True),
+    ({"type": "float", "default": 1, "range": [1, 3], "update_policy": "restart_required"}, True),
+    ({"type": "int", "count": 1, "default": [1], "range": [1, 3],
+      "update_policy": "restart_required"}, True),
+])
+def test_port_count_requires_bounded_restart_int_scalar(package, raw, parameter, optional):
+    _add_port_group_test_interfaces(raw)
+    raw["interfaces"]["n"] = parameter
+    raw["interfaces"]["ins"]["optional"] = optional
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("base,maximum,other,valid", [
+    (10, 3, 12, False), (10, 3, 13, True),
+    (4294967294, 1, 20, True), (4294967294, 2, 20, False),
+    (4294967293, 2, 20, True), (4294967293, 3, 20, False),
+    (10, 2147483647, 2147483650, False),
+])
+def test_port_drive_reserved_intervals_use_maximum_not_default(package, raw, base, maximum, other, valid):
+    _add_port_group_test_interfaces(raw)
+    raw["interfaces"]["items"]["drive_port_no"] = base
+    raw["interfaces"]["out_tail"]["drive_port_no"] = other
+    raw["interfaces"]["m"].update({"default": 0, "range": [0, maximum]})
+    path = save(package, raw)
+    before = snapshot(package)
+    if valid:
+        load_component_definition(path)
+    else:
+        with pytest.raises(ComponentDefinitionError):
+            generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("other,other_count,maximum,collision", [
+    ("items0", None, 1, True), ("items2", None, 3, True), ("items3", None, 3, False),
+    ("items00", None, 3, False), ("items1", 1, 11, True), ("items1", 1, 10, False),
+    ("items0", 2, 100, False), ("items1", 0, 100, False),
+    ("items" + "9" * 100, None, 2147483647, False),
+])
+def test_port_expanded_id_collisions_are_checked_without_expansion(
+        package, raw, other, other_count, maximum, collision):
+    _add_port_group_test_interfaces(raw)
+    raw["interfaces"]["items"].pop("drive_port_no")
+    raw["interfaces"]["items"].pop("drive_divide")
+    raw["interfaces"]["m"]["range"] = [0, maximum]
+    raw["interfaces"][other] = {"type": "audio", "direction": "output"}
+    if other_count is not None:
+        raw["interfaces"][other].update({"count": other_count, "optional": True})
+    path = save(package, raw)
+    before = snapshot(package)
+    if collision:
+        with pytest.raises(ComponentDefinitionError, match="接口 ID"):
+            generate_component(path)
+    else:
+        load_component_definition(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("other,direction,valid", [
+    ("items_count", "input", False), ("items_count", "output", False),
+    ("items_count", None, True), ("items_base", "output", False),
+])
+def test_port_group_generated_field_and_drive_constant_collisions(package, raw, other, direction, valid):
+    _add_port_group_test_interfaces(raw)
+    raw["interfaces"][other] = ({"type": "audio", "direction": direction, "drive_port_no": 30}
+                               if direction == "output" else
+                               {"type": "audio", "direction": direction} if direction else
+                               {"type": "int", "default": 1})
+    path = save(package, raw)
+    if valid:
+        generate_component(path)
+    else:
+        before = snapshot(package)
+        with pytest.raises(ComponentDefinitionError, match="冲突"):
+            generate_component(path)
+        assert snapshot(package) == before
+
+
+def test_huge_bounded_group_generation_has_constant_size_and_slot_overflow_is_rejected(package, raw):
+    _add_port_group_test_interfaces(raw)
+    raw["interfaces"]["n"]["range"] = [0, 2147483647]
+    path = save(package, raw)
+    generate_component(path)
+    assert (package / "generated" / "component_shell.c").stat().st_size < 50000
+    assert "ins[2147483647]" in (package / "generated" / "component_api.h").read_text(encoding="utf-8")
+    raw["interfaces"]["ins"]["count"] = 4294967294
+    save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError, match="槽位数"):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+def _compile_cpp_component_algorithm_harness(package):
+    compiler = Path(r"C:\BuildTools\Strawberry\c\bin\gcc.exe")
+    cpp_compiler = compiler.with_name("g++.exe")
+    if not compiler.exists() or not cpp_compiler.exists():
+        pytest.skip("当前环境没有仓库指定的 C/C++ 编译器")
+    options = ["-Wall", "-Wextra", "-Werror", "-DORPHEUS_BUILDING_COMPONENT",
+               "-I", str(ROOT / "orpheus_abi" / "include"), "-I", "generated", "-I", "user"]
+    commands = [
+        [str(compiler), "-std=c11", *options, "-c", r"generated\component_shell.c", "harness.c"],
+        [str(cpp_compiler), "-std=c++11", *options, "-x", "c++", "-c",
+         r"user\algorithm.c", "-o", "algorithm_cpp.o"],
+        [str(cpp_compiler), "component_shell.o", "algorithm_cpp.o", "harness.o", "-o", "cpp_harness.exe"],
+        [str(package / "cpp_harness.exe")],
+    ]
+    for command in commands:
+        result = subprocess.run(command, cwd=package, capture_output=True, encoding="utf-8", errors="replace")
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("cpp", [False, True])
+def test_real_port_groups_map_actual_input_slots_and_independent_output_drives(package, raw, cpp):
+    _add_port_group_test_interfaces(raw)
+    path = save(package, raw)
+    generate_component(path)
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+unsigned calls;
+static void copy_samples(test_pilot_InputF32* input,test_pilot_OutputF32* output,
+        const OrpheusProcessContext* ctx) {
+    if (!output->samples) return;
+    for (unsigned f=0;f<ctx->frame_count;f++)
+        output->samples[f]=input->samples ? input->samples[f] : -99;
+}
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    ++calls;
+    assert(io->ins_count==(unsigned)s->n && io->items_count==(unsigned)s->m);
+    assert(io->head.input_index==0 && io->tail.input_index==io->ins_count+1);
+    assert(io->out_head.drive_port_no==1 && io->out_tail.drive_port_no==20);
+    for(unsigned i=0;i<io->ins_count;i++) assert(io->ins[i].input_index==i+1);
+    if (io->items_count<3) {
+        assert(!io->items[io->items_count].active);
+        assert(test_pilot_emit_items(ctx,&io->items[io->items_count])==ORPHEUS_ERR_INVALID_ARG);
+    }
+    copy_samples(&io->head,&io->out_head,ctx);
+    assert(test_pilot_emit_out_head(ctx,&io->out_head)==ORPHEUS_OK);
+    for(unsigned i=0;i<io->items_count;i++) {
+        assert(io->items[i].drive_port_no==10+i);
+        copy_samples(i<io->ins_count ? &io->ins[i] : &io->head,&io->items[i],ctx);
+        assert(test_pilot_emit_items(ctx,&io->items[i])==ORPHEUS_OK);
+        test_pilot_OutputF32 wrong=io->items[i];wrong.drive_port_no=20;
+        assert(test_pilot_emit_items(ctx,&wrong)==ORPHEUS_ERR_INVALID_ARG);
+    }
+    copy_samples(&io->tail,&io->out_tail,ctx);
+    assert(test_pilot_emit_out_tail(ctx,&io->out_tail)==ORPHEUS_OK);
+    return ORPHEUS_OK;
+}
+''', encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+extern unsigned calls;
+static unsigned n,m,emissions;static bool null_outputs;
+static OrpheusBuffer* expected_outputs[5];
+static int emit(void* user,uint32_t drive,const OrpheusDelivery* delivery) {
+    (void)user;
+    unsigned index=drive==1 ? 0 : drive==20 ? m+1 : drive-10+1;
+    assert(index<m+2 && (drive==1 || drive==20 || (drive>=10 && drive<10+m)));
+    assert(delivery->buffer==(null_outputs ? NULL : expected_outputs[index]));
+    assert(delivery->frame_index==123 && delivery->epoch==7 && delivery->timeline_flags==1);
+    if (delivery->buffer) assert(delivery->buffer->frame_count==2);
+    ++emissions;return ORPHEUS_OK;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;
+    const char* keys[]={"n","m"};
+    OrpheusValue values[]={{.type=ORPHEUS_VALUE_INT},{.type=ORPHEUS_VALUE_INT}};
+    OrpheusConfig config={.state_block=&state,.param_ids=keys,.param_values=values,.param_count=2};
+    assert(api->create(&instance,&config)==ORPHEUS_OK);
+    float source[5][2],dest[5][2];
+    OrpheusBuffer inputs[5],outputs[5];
+    const OrpheusBuffer* in[5];
+    for(unsigned i=0;i<5;i++) {
+        source[i][0]=100+(float)i;source[i][1]=200+(float)i;
+        inputs[i]=(OrpheusBuffer){.data=source[i],.format=ORPHEUS_FORMAT_F32,.channels=1,
+            .frame_count=2,.frame_capacity=2,.interleaved=true};
+        outputs[i]=inputs[i];outputs[i].data=dest[i];
+        in[i]=&inputs[i];expected_outputs[i]=&outputs[i];
+    }
+    OrpheusContinuation continuation={.emit=emit};
+    OrpheusProcessContext ctx={.inputs=in,.outputs=expected_outputs,.frame_count=2,
+        .frame_index=123,.epoch=7,.timeline_flags=1,.trigger_input=UINT32_MAX,.continuation=&continuation};
+    const unsigned counts[]={0,1,3};
+    for(unsigned a=0;a<3;a++) for(unsigned b=0;b<3;b++) {
+        n=counts[a];m=counts[b];values[0].value.i32=(int32_t)n;values[1].value.i32=(int32_t)m;
+        assert(api->prepare(instance,&config)==ORPHEUS_OK);
+        ctx.input_count=n+2;ctx.output_count=m+2;emissions=0;
+        memset(dest,0,sizeof(dest));
+        unsigned before=calls;
+        assert(api->process(instance,&ctx)==ORPHEUS_OK && calls==before+1 && emissions==m+2);
+        assert(dest[0][0]==100 && dest[m+1][1]==201+(float)n);
+        for(unsigned i=0;i<m;i++) assert(dest[i+1][0]==(i<n ? 101+(float)i : 100));
+        before=calls;
+        --ctx.input_count;assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+        ctx.input_count+=2;assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);--ctx.input_count;
+        --ctx.output_count;assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+        ctx.output_count+=2;assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);--ctx.output_count;
+        ctx.trigger_input=n+2;assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+        ctx.trigger_input=UINT32_MAX;
+        OrpheusDelivery delivery={0};ctx.delivery=&delivery;
+        assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);ctx.delivery=NULL;
+        assert(calls==before);
+        ctx.trigger_input=n+1;assert(api->process(instance,&ctx)==ORPHEUS_OK);
+        ctx.trigger_input=UINT32_MAX;
+    }
+    in[1]=NULL;
+    assert(api->process(instance,&ctx)==ORPHEUS_OK && dest[1][0]==-99);in[1]=&inputs[1];
+    ctx.inputs=NULL;assert(api->process(instance,&ctx)==ORPHEUS_OK && dest[0][0]==-99);ctx.inputs=in;
+    null_outputs=true;ctx.outputs=NULL;
+    assert(api->process(instance,&ctx)==ORPHEUS_OK);ctx.outputs=expected_outputs;null_outputs=false;
+    unsigned before=calls;
+    outputs[1].format=ORPHEUS_FORMAT_I16;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);outputs[1].format=ORPHEUS_FORMAT_F32;
+    state.n=-1;assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    state.n=4;assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);state.n=3;
+    assert(calls==before);
+    values[0].value.i32=-1;assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG);
+    values[0].value.i32=4;assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG);
+    values[0].type=ORPHEUS_VALUE_FLOAT;values[0].value.f32=1.5f;
+    assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG);
+    assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+''', encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+    check_generated(path)
+
+
+@pytest.mark.parametrize("cpp", [False, True])
+@pytest.mark.parametrize("kind", ["audio", "trigger"])
+@pytest.mark.parametrize("count_spec", [0, 1, "param:n"])
+def test_real_fixed_zero_one_and_zero_bound_groups_are_safe_in_c_and_cpp(package, raw, cpp, kind, count_spec):
+    import jsonschema
+    expected_count = count_spec if type(count_spec) is int else 0
+    raw["interfaces"] = {
+        "items": {"type": kind, "direction": "output", "count": count_spec,
+                  "optional": True, "drive_port_no": 4294967294},
+    }
+    if isinstance(count_spec, str):
+        raw["interfaces"]["n"] = {
+            "type": "int", "default": 0, "range": [0, 0], "update_policy": "restart_required"}
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    generate_component(path)
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    (void)s;
+    assert(io->items_count==EXPECTED_COUNT);
+    if (!io->items_count) {
+        assert(!io->items[0].active);
+        assert(test_pilot_emit_items(ctx,&io->items[0])==ORPHEUS_ERR_INVALID_ARG);
+        return ORPHEUS_OK;
+    }
+    assert(io->items[0].active && io->items[0].drive_port_no==UINT32_MAX-1);
+    return test_pilot_emit_items(ctx,&io->items[0]);
+}
+'''.replace("EXPECTED_COUNT", str(expected_count)), encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+static unsigned emissions;
+static int emit(void* user,uint32_t drive,const OrpheusDelivery* delivery) {
+    (void)user;++emissions;
+    assert(drive==UINT32_MAX-1 && delivery->frame_index==17);
+    if (delivery->buffer) assert(delivery->buffer->frame_count==1);
+    return ORPHEUS_OK;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;
+    OrpheusConfig config={.state_block=&state};
+    assert(api->create(&instance,&config)==ORPHEUS_OK);
+    assert(api->prepare(instance,&config)==ORPHEUS_OK);
+    float data=0;
+    OrpheusBuffer buffer={.data=&data,.format=ORPHEUS_FORMAT_F32,.channels=1,
+        .frame_count=1,.frame_capacity=1,.interleaved=true};
+    OrpheusBuffer* outputs[]={TRIGGER ? NULL : &buffer};
+    OrpheusContinuation continuation={.emit=emit};
+    OrpheusProcessContext ctx={.outputs=outputs,.output_count=EXPECTED_COUNT,.frame_count=1,
+        .frame_index=17,.trigger_input=UINT32_MAX,.continuation=&continuation};
+    assert(api->process(instance,&ctx)==ORPHEUS_OK && emissions==EXPECTED_COUNT);
+    ctx.trigger_input=0;assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    ctx.trigger_input=UINT32_MAX;ctx.output_count=EXPECTED_COUNT+1;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+'''.replace("TRIGGER", str(int(kind == "trigger"))).replace("EXPECTED_COUNT", str(expected_count)),
+        encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+
+
+@pytest.mark.parametrize("cpp", [False, True])
+def test_real_trigger_groups_select_delivery_by_actual_flat_input_index(package, raw, cpp):
+    raw["interfaces"] = {
+        "head": {"type": "audio", "direction": "input"},
+        "kicks": {"type": "trigger", "direction": "input", "process": True,
+                  "count": "param:n", "optional": True},
+        "tail": {"type": "audio", "direction": "input"},
+        "ticks": {"type": "trigger", "direction": "output", "count": "param:n",
+                  "optional": True, "drive_port_no": 100, "drive_divide": 999},
+        "done": {"type": "trigger", "direction": "output", "drive_port_no": 200},
+        "n": {"type": "int", "default": 0, "range": [0, 3], "update_policy": "restart_required"},
+    }
+    generate_component(save(package, raw))
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    assert(io->kicks_count==(unsigned)s->n && io->ticks_count==(unsigned)s->n);
+    assert(io->head.input_index==0 && io->tail.input_index==io->kicks_count+1);
+    for(unsigned i=0;i<io->kicks_count;i++) {
+        assert(io->kicks[i].input_index==i+1);
+        assert(io->kicks[i].delivery==(ctx->trigger_input==i+1 ? ctx->delivery : NULL));
+    }
+    if(io->ticks_count<3)
+        assert(test_pilot_emit_ticks(ctx,&io->ticks[io->ticks_count])==ORPHEUS_ERR_INVALID_ARG);
+    for(unsigned i=0;i<io->ticks_count;i++) {
+        assert(io->ticks[i].drive_port_no==100+i && !io->ticks[i].delivery.buffer);
+        assert(test_pilot_emit_ticks(ctx,&io->ticks[i])==ORPHEUS_OK);
+        OrpheusBuffer buffer;memset(&buffer,0,sizeof(buffer));
+        test_pilot_OutputTrigger wrong=io->ticks[i];wrong.delivery.buffer=&buffer;
+        assert(test_pilot_emit_ticks(ctx,&wrong)==ORPHEUS_ERR_INVALID_ARG);
+    }
+    assert(io->done.active && io->done.drive_port_no==200);
+    return test_pilot_emit_done(ctx,&io->done);
+}
+''', encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+static unsigned n,emissions;
+static int emit(void* user,uint32_t drive,const OrpheusDelivery* delivery) {
+    (void)user;
+    assert(!delivery->buffer && (drive==200 || (drive>=100 && drive<100+n)));
+    assert(delivery->frame_index==18 && delivery->epoch==2 && delivery->timeline_flags==1);
+    ++emissions;return ORPHEUS_OK;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;
+    const char* keys[]={"n"};
+    OrpheusValue value={.type=ORPHEUS_VALUE_INT,.value.i32=0};
+    OrpheusConfig config={.state_block=&state,.param_ids=keys,.param_values=&value,.param_count=1};
+    assert(api->create(&instance,&config)==ORPHEUS_OK);
+    float data=0;
+    OrpheusBuffer buffer={.data=&data,.format=ORPHEUS_FORMAT_F32,.channels=1,
+        .frame_count=1,.frame_capacity=1,.interleaved=true};
+    const OrpheusBuffer* inputs[5];
+    OrpheusContinuation continuation={.emit=emit};
+    OrpheusProcessContext ctx={.inputs=inputs,.frame_count=1,.sample_rate=48000,
+        .frame_index=18,.epoch=2,.timeline_flags=1,.continuation=&continuation};
+    OrpheusDelivery delivery={.frame_index=18,.epoch=2,.timeline_flags=1};
+    const unsigned counts[]={0,1,3};
+    for(unsigned k=0;k<3;k++) {
+        n=counts[k];value.value.i32=(int32_t)n;
+        assert(api->prepare(instance,&config)==ORPHEUS_OK);
+        for(unsigned i=0;i<5;i++) inputs[i]=NULL;
+        inputs[0]=&buffer;inputs[n+1]=&buffer;
+        ctx.input_count=n+2;ctx.output_count=n+1;
+        for(unsigned selected=0;selected<n+3;selected++) {
+            ctx.trigger_input=selected==n+2 ? UINT32_MAX : selected;
+            delivery.buffer=selected==0 || selected==n+1 ? &buffer : NULL;
+            ctx.delivery=ctx.trigger_input==UINT32_MAX ? NULL : &delivery;
+            emissions=0;
+            assert(api->process(instance,&ctx)==ORPHEUS_OK && emissions==n+1);
+        }
+        if(n) {
+            ctx.trigger_input=1;ctx.delivery=&delivery;delivery.buffer=&buffer;
+            assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+            ctx.delivery=NULL;inputs[1]=&buffer;
+            assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);inputs[1]=NULL;
+        }
+    }
+    assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+''', encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
