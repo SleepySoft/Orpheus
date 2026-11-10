@@ -4,6 +4,20 @@
   height: 100vh;
 }
 
+.edit-controls {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.edit-lease-status {
+  font-size: 12px;
+}
+
+.edit-lease-status.editing { color: #8ce99a; }
+.edit-lease-status.readonly { color: #ffd43b; }
+
 .project-loading-backdrop {
   position: fixed;
   inset: 0;

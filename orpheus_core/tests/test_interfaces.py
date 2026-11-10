@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 import jsonschema
-from fastapi.testclient import TestClient
+from editor_client import EditorClient as TestClient
 
 from orpheus_core.compiler import CompileError, GraphCompiler
 from orpheus_core.interfaces import preview_interfaces

@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./editor-test');
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -52,6 +52,7 @@ test('Router 初始化/运行期公开参数默认隐藏，显露不删映射且
   await page.context().route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path.startsWith('/api/editor/')) return route.continue();
     if (request.method() === 'POST' && path.endsWith('/interfaces')) {
       const { view_key: viewKey } = request.postDataJSON();
       const nodeId = viewKey === 'main' ? 'router_instance' : 'body';

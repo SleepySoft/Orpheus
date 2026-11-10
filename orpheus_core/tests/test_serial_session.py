@@ -462,7 +462,7 @@ def test_async_file_log_sink(tmp_path):
 
 
 def test_link_ports_endpoint_shape():
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
     from orpheus_core.server.app import create_app
     from pathlib import Path
 
@@ -478,7 +478,7 @@ def test_link_ports_endpoint_shape():
 
 def test_rt_start_serial_requires_port():
     import uuid
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
     from orpheus_core.server.app import create_app
     from pathlib import Path
 

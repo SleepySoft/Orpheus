@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import ParameterWorkspace from './ParameterWorkspace';
 import ParamPanel from './ParamPanel';
+import ProjectSettings from './ProjectSettings';
 
 let container;
 let root;
@@ -104,6 +105,22 @@ test('卸载面板关闭所属窗口并移除主页面离开监听', () => {
   expect(popup.close).toHaveBeenCalledTimes(1);
   act(() => window.dispatchEvent(new Event('pagehide')));
   expect(popup.close).toHaveBeenCalledTimes(1);
+});
+
+test('失权后设置草稿仍保留，但不能修改或提交', () => {
+  const props = { doc: { sample_rate: 48000, block_size: 32 }, onSave: jest.fn(), onClose: jest.fn() };
+  act(() => root.render(<ProjectSettings {...props} />));
+  const input = container.querySelector('.settings-field input[type="number"]');
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '60000');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  act(() => root.render(<ProjectSettings {...props} readOnly />));
+  expect(input.value).toBe('60000');
+  expect(input.matches(':disabled')).toBe(true);
+  expect(container.textContent).toContain('设置草稿仍保留');
+  expect(button(container, '保存').disabled).toBe(true);
+  expect(props.onSave).not.toHaveBeenCalled();
 });
 
 test('参数、Buffer 与端口按分组折叠，观测更新不重新展开', () => {

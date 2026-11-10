@@ -267,7 +267,7 @@ def test_fractional_rate_cannot_be_silently_truncated_by_physical_io(compiler):
 
 @pytest.mark.parametrize("kind", ["src", "split", "window"])
 def test_audio_adapters_dynamic_generated_parity(kind):
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
 
     from orpheus_core.server.app import create_app
 

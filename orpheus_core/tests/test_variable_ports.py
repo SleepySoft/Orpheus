@@ -106,7 +106,7 @@ def test_api_run_channel_map_example():
     import shutil
     import uuid
 
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
 
     from orpheus_core.server.app import create_app
 

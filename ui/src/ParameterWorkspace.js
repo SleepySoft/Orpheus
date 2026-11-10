@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-export default function ParameterWorkspace({ open, onOpenChange, children }) {
+export default function ParameterWorkspace({ open, onOpenChange, children, readOnly = false }) {
   const [popup, setPopup] = useState(null);
   const [error, setError] = useState('');
 
@@ -71,7 +71,8 @@ export default function ParameterWorkspace({ open, onOpenChange, children }) {
         </div>
       </div>
       {error && <p className="parameter-window-error" role="alert">{error}</p>}
-      {children}
+      {readOnly && <p className="muted">当前页面只读；未保存内容仍保留，可复制后再接管。</p>}
+      <fieldset className="edit-controls" disabled={readOnly}>{children}</fieldset>
     </section>
   );
 

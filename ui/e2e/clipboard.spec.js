@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./editor-test');
 
 const component = { id: 'test.copyable', name: '测试组件类型', ports: [], parameters: [] };
 const document = {
@@ -11,6 +11,7 @@ test('字段文字复制不被节点快捷键截获，整节点复制粘贴仍�
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path.startsWith('/api/editor/')) return route.continue();
     if (request.method() !== 'GET') {
       await route.abort();
       return;

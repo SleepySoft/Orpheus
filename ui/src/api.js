@@ -9,6 +9,41 @@ const api = axios.create({
 });
 
 const unwrap = (p) => p.then((r) => r.data);
+let editToken = null;
+let editDeadline = 0;
+const leaseListeners = new Set();
+export const setEditToken = (token, seconds = 30) => {
+  editToken = token;
+  editDeadline = token ? Date.now() + seconds * 1000 : 0;
+};
+export const getEditToken = () => Date.now() < editDeadline ? editToken : null;
+export const onEditLeaseLost = (listener) => {
+  leaseListeners.add(listener);
+  return () => leaseListeners.delete(listener);
+};
+api.interceptors.request.use((config) => {
+  const token = config.editToken !== undefined ? config.editToken : getEditToken();
+  if (token) config.headers.set('X-Orpheus-Edit-Token', token);
+  return config;
+});
+api.interceptors.response.use((response) => response, (error) => {
+  const token = error.config?.headers?.get?.('X-Orpheus-Edit-Token');
+  if (error.response?.data?.code === 'edit_lease_lost' && token && token === editToken) {
+    leaseListeners.forEach((listener) => listener(error.response.data.detail));
+  }
+  return Promise.reject(error);
+});
+export const acquireEditing = (takeover = false) =>
+  unwrap(api.post('/editor/acquire', { takeover }, { timeout: 5000 }));
+export const renewEditing = (token) =>
+  unwrap(api.post('/editor/renew', null, { editToken: token, timeout: 5000 }));
+export const releaseEditing = (token, keepalive = false) => keepalive
+  ? fetch(`${api.defaults.baseURL}/editor/release`, {
+    method: 'POST', headers: { 'X-Orpheus-Edit-Token': token }, keepalive: true,
+  }).then((response) => {
+    if (!response.ok && response.status !== 409) throw new Error(`释放编辑权失败：${response.status}`);
+  })
+  : unwrap(api.post('/editor/release', null, { editToken: token, timeout: 5000 }));
 
 // 冒号在工程目录名中非法，可无歧义地将嵌套路径编码为一个 URL 段。
 export const projectPath = (name) => `/projects/${encodeURIComponent(name.replace(/\//g, ':'))}`;
@@ -35,14 +70,15 @@ export const createProject = (name, fromExample = null) =>
 export const importDistilled = (name, yamlText) =>
   unwrap(api.post(`${projectPath(name)}/distill`, { yaml: yamlText }));
 export const getProject = (name, config) => unwrap(api.get(projectPath(name), config));
-export const saveProject = (name, doc) => unwrap(api.put(projectPath(name), doc));
+export const saveProject = (name, doc, token = getEditToken()) =>
+  unwrap(api.put(projectPath(name), doc, { editToken: token }));
 export const resolveProjectInterfaces = (name, document, viewKey, config) =>
   unwrap(api.post(`${projectPath(name)}/interfaces`, { document, view_key: viewKey }, config));
 export const checkLesson = (name) => unwrap(api.post(`${projectPath(name)}/lesson/check`));
 export const getProjectNotes = (name) => unwrap(api.get(`${projectPath(name)}/notes`));
 export const saveProjectNotes = (name, content) =>
   unwrap(api.put(`${projectPath(name)}/notes`, { content }));
-export const getNodeNotes = (name) => unwrap(api.get(`${projectPath(name)}/node_notes`));
+export const getNodeNotes = (name, config) => unwrap(api.get(`${projectPath(name)}/node_notes`, config));
 export const saveNodeNotes = (name, notes) =>
   unwrap(api.put(`${projectPath(name)}/node_notes`, { notes }));
 export const deleteProject = (name) => unwrap(api.delete(projectPath(name)));

@@ -41,6 +41,7 @@ from orpheus_core.interfaces import preview_interfaces
 from orpheus_core.project import ProjectLoader
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.server.manager import ProjectError, ProjectManager, ProjectRecord
+from orpheus_core.server.edit_lease import install_edit_lease
 from orpheus_core.server.bridge_process_session import ProcessBridgeSession
 from orpheus_core.server.session_manager import RuntimeSessionManager
 from orpheus_core.subgraph import flatten_project
@@ -227,6 +228,7 @@ def create_app(project_root: Path, *,
                transport_adapters: TransportAdapterRegistry | None = None) -> FastAPI:
     root = Path(project_root).resolve()
     app = FastAPI(title="Orpheus Server", version="0.1.0")
+    install_edit_lease(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],

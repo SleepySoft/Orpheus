@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./editor-test');
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -51,6 +51,7 @@ test('源本体连接普通组件本体，退出后仍可连接PCM，保存两�
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path.startsWith('/api/editor/')) return route.continue();
     if (request.method() === 'PUT' && path === '/api/projects/drive-buffer-preview') {
       saved = request.postDataJSON();
       await route.fulfill({ json: saved });

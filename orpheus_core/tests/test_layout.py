@@ -4,7 +4,7 @@ import copy
 import io
 import zipfile
 
-from fastapi.testclient import TestClient
+from editor_client import EditorClient as TestClient
 import jsonschema
 import pytest
 import yaml

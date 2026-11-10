@@ -247,7 +247,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
     <>
       {selected && (
         <NodeResizer
-          isVisible={selected}
+          isVisible={selected && !data.editorReadOnly}
           minWidth={160}
           minHeight={80}
           color="#4cc9f0"

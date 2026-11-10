@@ -209,6 +209,7 @@ export default function ParamBrowser({
   onDeletePreset,
   onLocate,
   onClose,
+  readOnly = false,
 }) {
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState({});
@@ -467,7 +468,7 @@ export default function ParamBrowser({
             onChange={(e) => setSearch(e.target.value)}
           />
           <button onClick={exportAll}>导出全部 (JSON)</button>
-          <button onClick={() => importFileRef.current && importFileRef.current.click()}>
+          <button disabled={readOnly} onClick={() => importFileRef.current && importFileRef.current.click()}>
             导入 JSON
           </button>
           <input
@@ -481,14 +482,14 @@ export default function ParamBrowser({
         </div>
         <div className="pb-presets">
           <strong>预设</strong>
-          <button onClick={savePreset}>保存当前为预设</button>
+          <button disabled={readOnly} onClick={savePreset}>保存当前为预设</button>
           {!presets.length && <span className="pb-meta">暂无（预设随工程保存）</span>}
           {presets.map((p) => (
             <div key={p.name} className="pb-preset-row">
               <span className="pb-preset-name">{p.name}</span>
               <span className="pb-meta">{p.created_at ? new Date(p.created_at).toLocaleString() : ''}</span>
-              <button onClick={() => applyPreset(p)}>应用</button>
-              <button className="pb-preset-del" onClick={() => onDeletePreset(p.name)}>
+              <button disabled={readOnly} onClick={() => applyPreset(p)}>应用</button>
+              <button disabled={readOnly} className="pb-preset-del" onClick={() => onDeletePreset(p.name)}>
                 删除
               </button>
             </div>
@@ -559,7 +560,7 @@ export default function ParamBrowser({
                                     <span className="pb-meta"> 运行期槽</span>
                                   </span>
                                   <RuntimeBulkRow
-                                    schema={p}
+                                    schema={readOnly ? { ...p, access: 'read' } : p}
                                     running={rt.running}
                                     onWrite={(vals) => onWriteBulk(e.flatId, p.id, vals)}
                                   />
@@ -571,7 +572,7 @@ export default function ParamBrowser({
                               <div key={p.id} className="pb-row">
                                 <span className="pb-name">{p.name || p.id}</span>
                                 <BulkRow
-                                  schema={p}
+                                  schema={readOnly ? { ...p, access: 'read' } : p}
                                   value={value}
                                   onChange={(id, v) =>
                                     onNodeParamChange(e.viewKey, e.nodeId, id, v, e.flatId)
@@ -585,6 +586,7 @@ export default function ParamBrowser({
                             <div key={p.id} className="pb-row">
                               <ParamField
                                 schema={p}
+                                disabled={readOnly}
                                 value={value}
                                 onChange={(id, v) =>
                                   onNodeParamChange(e.viewKey, e.nodeId, id, v, e.flatId)

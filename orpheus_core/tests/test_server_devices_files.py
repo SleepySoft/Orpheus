@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from editor_client import EditorClient as TestClient
 
 from orpheus_core.server.app import create_app
 from orpheus_core.server.bridge_process_session import ProcessBridgeSession

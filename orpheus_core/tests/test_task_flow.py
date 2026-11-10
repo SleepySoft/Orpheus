@@ -372,7 +372,7 @@ def test_task_sequence_example(registry):
 
 
 def test_api_persists_driver_contract(registry):
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
     from orpheus_core.server.app import create_app
 
     name = f"task_flow_{uuid.uuid4().hex[:8]}"
@@ -397,7 +397,7 @@ def test_api_persists_driver_contract(registry):
 
 
 def test_default_host_explicitly_rejects_multiple_source_tasks():
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
     from orpheus_core.server.app import create_app
 
     name = f"task_host_{uuid.uuid4().hex[:8]}"

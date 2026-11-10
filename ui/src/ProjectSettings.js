@@ -28,7 +28,7 @@ function deriveFrames(ms, sr) {
   return Math.round(m * sr / 1000);
 }
 
-export default function ProjectSettings({ doc, onSave, onClose }) {
+export default function ProjectSettings({ doc, onSave, onClose, readOnly = false }) {
   const sr0 = parseInt(doc?.sample_rate ?? 48000, 10) || 48000;
   const [sampleRate, setSampleRate] = useState(String(sr0));
   const [blockSize, setBlockSize] = useState(String(doc?.block_size ?? 128));
@@ -99,6 +99,7 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
   };
 
   const save = () => {
+    if (readOnly) return;
     const srVal = parseInt(sampleRate, 10);
     const bs = parseInt(blockSize, 10);
     if (!Number.isFinite(srVal) || srVal < 1000 || srVal > 192000) {
@@ -178,7 +179,8 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" style={{ width: 720, maxWidth: 'calc(100vw - 32px)' }} onClick={(e) => e.stopPropagation()}>
         <h4>工程设置</h4>
-
+        {readOnly && <p role="status">编辑权已失效；设置草稿仍保留，当前只读。</p>}
+        <fieldset className="edit-controls" disabled={readOnly}>
         <div className="settings-field">
           <label htmlFor="project-flow-mode">执行编排</label>
           <select id="project-flow-mode" value={flowMode} onChange={(event) => setFlowMode(event.target.value)}>
@@ -357,10 +359,11 @@ export default function ProjectSettings({ doc, onSave, onClose }) {
           </span>
         </div>
 
+        </fieldset>
         {error && <div className="modal-error">{error}</div>}
         <div className="modal-actions">
           <button onClick={onClose}>取消</button>
-          <button className="primary" onClick={save}>保存</button>
+          <button className="primary" onClick={save} disabled={readOnly}>保存</button>
         </div>
       </div>
     </div>

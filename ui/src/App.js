@@ -15,6 +15,7 @@ import 'reactflow/dist/style.css';
 import './App.css';
 import * as api from './api';
 import usePortInterfaces, { resolvedNodeInterfaces } from './usePortInterfaces';
+import useEditLease from './useEditLease';
 import {
   docToViewsAsync,
   viewsToDoc,
@@ -134,6 +135,8 @@ const portSetSignature = (ports) =>
     .join('|');
 
 function Editor() {
+  const editLease = useEditLease();
+  const { canEdit, canEditRef } = editLease;
   const [catalog, setCatalog] = useState([]);
   const [projects, setProjects] = useState([]);
   const [examples, setExamples] = useState([]);
@@ -168,6 +171,7 @@ function Editor() {
   const [readmeError, setReadmeError] = useState(null);
   const [nodeNotes, setNodeNotes] = useState({});
   const [nodeNotesDirty, setNodeNotesDirty] = useState(false);
+  const [documentVersion, setDocumentVersion] = useState(0);
   const [leftTab, setLeftTab] = useState('palette'); // 'palette' | 'tree' | 'notes'
   const [leftOpen, setLeftOpen] = useState(true);   // 组件库
   const [leftWidth, setLeftWidth] = useState(() => {
@@ -300,7 +304,7 @@ const { screenToFlowPosition } = useReactFlow();
     setStatus(message);
   }, []);
 
-  const loadDocument = useCallback(async (name, document, comps, controller) => {
+  const loadDocument = useCallback(async (name, document, comps, controller, notes) => {
     const { views: v, subsMeta: sm } = await docToViewsAsync(document, comps, {
       signal: controller.signal,
       onProgress: (progress) => reportLoading(controller, { stage: 'convert', ...progress }),
@@ -316,6 +320,11 @@ const { screenToFlowPosition } = useReactFlow();
     setSelectedId(null);
     setSelectedIds([]);
     setDirty(false);
+    setNodeNotesDirty(false);
+    setShowSettings(false);
+    setShowParams(false);
+    setDocumentVersion((version) => version + 1);
+    setNodeNotes(notes.notes || {});
     setOutputs([]);
     setGeneratedInfo(null);
     setIdMap([]);
@@ -325,25 +334,26 @@ const { screenToFlowPosition } = useReactFlow();
   }, [reportLoading]);
 
   const fetchProject = useCallback(async (name, presetDoc, controller) => {
-    reportLoading(controller, { name, stage: 'fetch', completed: 0, total: 2 });
+    reportLoading(controller, { name, stage: 'fetch', completed: 0, total: 3 });
     let completed = 0;
     const received = (value) => {
       reportLoading(controller, { completed: ++completed });
       return value;
     };
     const config = { signal: controller.signal };
-    const [document, projectComponents] = await Promise.all([
+    const [document, projectComponents, notes] = await Promise.all([
       (presetDoc ? Promise.resolve(presetDoc) : api.getProject(name, config)).then(received),
       api.listProjectComponents(name, config).then(received),
+      api.getNodeNotes(name, config).then(received),
     ]);
-    await loadDocument(name, document, projectComponents, controller);
+    await loadDocument(name, document, projectComponents, controller, notes);
   }, [loadDocument, reportLoading]);
 
   const openProject = useCallback(
     async (name, presetDoc = null) => {
       const controller = startLoading(name);
       try {
-        if (current && current !== name && rt.running) {
+        if (canEditRef.current && current && current !== name && rt.running) {
           await api.rtStop(current);
         }
         await fetchProject(name, presetDoc, controller);
@@ -351,7 +361,7 @@ const { screenToFlowPosition } = useReactFlow();
         failLoading(controller, `打开工程失败: ${api.errorDetail(e)}`);
       }
     },
-    [current, fetchProject, failLoading, rt.running, startLoading]
+    [current, fetchProject, failLoading, rt.running, startLoading, canEditRef]
   );
 
   useEffect(() => {
@@ -416,26 +426,6 @@ const { screenToFlowPosition } = useReactFlow();
     });
     return () => cancelAnimationFrame(frame);
   }, [current, loading, nodesInitialized, view.nodes.length]);
-
-  // load per-node notes sidecar whenever the current project changes
-  useEffect(() => {
-    if (!current) {
-      setNodeNotes({});
-      return undefined;
-    }
-    let cancelled = false;
-    api
-      .getNodeNotes(current)
-      .then((r) => {
-        if (!cancelled) setNodeNotes(r.notes || {});
-      })
-      .catch(() => {
-        if (!cancelled) setNodeNotes({});
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [current]);
 
   // reflect note presence on React Flow nodes (used for the 📝 badge)
   useEffect(() => {
@@ -530,16 +520,17 @@ const { screenToFlowPosition } = useReactFlow();
   // ---------------------------------------------------------- save
 
   const doSave = useCallback(async () => {
-    if (!current || !doc || loadControllerRef.current) return;
+    if (!canEditRef.current || !current || !doc || loadControllerRef.current) return;
     setSaving(true);
     try {
       const document = viewsToDoc(views, subsMeta, doc);
       setDoc(document);
       setDirty(false);
       dirtyRef.current = false;
+      const token = api.getEditToken();
       const request = pendingSaveRef.current
         .catch(() => {})
-        .then(() => api.saveProject(current, document));
+        .then(() => api.saveProject(current, document, token));
       pendingSaveRef.current = request;
       await request;
       setStatus(`已保存 ${current} · ${new Date().toLocaleTimeString()}`);
@@ -550,28 +541,29 @@ const { screenToFlowPosition } = useReactFlow();
     } finally {
       setSaving(false);
     }
-  }, [current, doc, views, subsMeta]);
+  }, [current, doc, views, subsMeta, canEditRef]);
 
   // debounced auto-save: fire 1.5s after the last edit while dirty
   useEffect(() => {
-    if (!dirty || !autoSave || !current || loading) return undefined;
+    if (!canEdit || !dirty || !autoSave || !current || loading) return undefined;
     const timer = setTimeout(doSave, AUTOSAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [dirty, autoSave, current, views, subsMeta, doSave, loading]);
+  }, [canEdit, dirty, autoSave, current, views, subsMeta, doSave, loading]);
 
   // debounced auto-save for per-node notes sidecar
   useEffect(() => {
-    if (!nodeNotesDirty || !current || loading) return undefined;
+    if (!canEdit || !nodeNotesDirty || !current || loading) return undefined;
     const timer = setTimeout(async () => {
+      const token = api.getEditToken();
       try {
         await api.saveNodeNotes(current, nodeNotes);
-        setNodeNotesDirty(false);
+        if (token && token === api.getEditToken()) setNodeNotesDirty(false);
       } catch (e) {
-        setStatus(`节点笔记保存失败: ${api.errorDetail(e)}`);
+        if (token === api.getEditToken()) setStatus(`节点笔记保存失败: ${api.errorDetail(e)}`);
       }
     }, AUTOSAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [nodeNotesDirty, current, nodeNotes, loading]);
+  }, [canEdit, nodeNotesDirty, current, nodeNotes, loading]);
 
   // Ctrl+S
   useEffect(() => {
@@ -589,6 +581,7 @@ const { screenToFlowPosition } = useReactFlow();
 
   const onNodesChange = useCallback(
     (changes) => {
+      if (!canEditRef.current) changes = changes.filter((change) => ['select', 'dimensions'].includes(change.type));
       const removed = changes.filter((c) => c.type === 'remove').map((c) => c.id);
       updateView(activeView, (v) => {
         const gone = new Set(removed);
@@ -608,11 +601,12 @@ const { screenToFlowPosition } = useReactFlow();
       }
       if (changes.some((c) => ['position', 'add'].includes(c.type))) setDirty(true);
     },
-    [activeView, selectedId, updateView]
+    [activeView, selectedId, updateView, canEditRef]
   );
 
   /** 显式删除选中节点（多选/单选通用；连边一并清理）。 */
   const deleteSelected = useCallback(() => {
+    if (!canEditRef.current) return;
     const ids = selectedIds.filter((id) => view.nodes.some((n) => n.id === id));
     if (!ids.length) return;
     const gone = new Set(ids);
@@ -626,7 +620,7 @@ const { screenToFlowPosition } = useReactFlow();
     setSelectedIds([]);
     setSelectedId(null);
     setDirty(true);
-  }, [selectedIds, view, activeView, updateView]);
+  }, [selectedIds, view, activeView, updateView, canEditRef]);
 
   /** 设为替代组：合并选中节点已有的 alter 组与新选中集合，组内成员互相声明。 */
   const makeAlterGroup = useCallback(() => {
@@ -683,10 +677,11 @@ const { screenToFlowPosition } = useReactFlow();
 
   const onEdgesChange = useCallback(
     (changes) => {
+      if (!canEditRef.current) changes = changes.filter((change) => change.type === 'select');
       updateView(activeView, (v) => ({ ...v, edges: applyEdgeChanges(changes, v.edges) }));
       if (changes.some((c) => ['remove', 'add'].includes(c.type))) setDirty(true);
     },
-    [activeView, updateView]
+    [activeView, updateView, canEditRef]
   );
 
   useEffect(() => {
@@ -702,6 +697,7 @@ const { screenToFlowPosition } = useReactFlow();
         pasteCountRef.current = 0;
         setStatus(`已复制 ${clipboardRef.current.nodes.length} 个节点及内部连线`);
       } else if (key === 'v' && clipboardRef.current?.nodes.length) {
+        if (!canEditRef.current) return;
         event.preventDefault();
         pasteCountRef.current += 1;
         const pasted = pasteFlowSelection(view, clipboardRef.current, pasteCountRef.current * 40);
@@ -714,10 +710,11 @@ const { screenToFlowPosition } = useReactFlow();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeView, current, selectedIds, updateView, view]);
+  }, [activeView, current, selectedIds, updateView, view, canEditRef]);
 
   const onConnect = useCallback(
     (params, replacedEdge = null) => {
+      if (!canEditRef.current) return;
       const remainingEdges = view.edges.filter((edge) => edge.id !== replacedEdge?.id);
       const replaceOrAdd = (edge) => updateView(activeView, (v) => ({
         ...v,
@@ -764,7 +761,7 @@ const { screenToFlowPosition } = useReactFlow();
       }
       setDirty(true);
     },
-    [activeView, updateView, view.edges, view.nodes, flowMode]
+    [activeView, updateView, view.edges, view.nodes, flowMode, canEditRef]
   );
 
   const onConnectStart = useCallback((_event, connection) => {
@@ -799,6 +796,7 @@ const { screenToFlowPosition } = useReactFlow();
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
+      if (!canEditRef.current) return;
       const componentId = event.dataTransfer.getData('application/orpheus-component');
       const comp = catalogById[componentId];
       if (!comp) return;
@@ -850,11 +848,12 @@ const { screenToFlowPosition } = useReactFlow();
       setSelectedIds([id]);
       setDirty(true);
     },
-    [catalogById, activeView, view.nodes, screenToFlowPosition, updateView, doc, flowMode]
+    [catalogById, activeView, view.nodes, screenToFlowPosition, updateView, doc, flowMode, canEditRef]
   );
 
   const onParamChange = useCallback(
     (paramId, value) => {
+      if (!canEditRef.current) return;
       const editedNode = view.nodes.find((nd) => nd.id === selectedId);
       const schema = editedNode?.data.parameters?.find((p) => p.id === paramId);
       if (schema && !canEditDesignParameter(schema, editedNode.data)) return;
@@ -891,10 +890,11 @@ const { screenToFlowPosition } = useReactFlow();
       });
       setDirty(true);
     },
-    [activeView, selectedId, updateView, catalogById]
+    [activeView, selectedId, updateView, catalogById, canEditRef]
   );
 
   const onTaskChange = useCallback((nodeId, taskId) => {
+    if (!canEditRef.current) return;
     updateView(activeView, (currentView) => ({
       ...currentView,
       nodes: currentView.nodes.map((node) => (
@@ -902,20 +902,22 @@ const { screenToFlowPosition } = useReactFlow();
       )),
     }));
     setDirty(true);
-  }, [activeView, updateView]);
+  }, [activeView, updateView, canEditRef]);
 
   const onTodosChange = useCallback((todos) => {
+    if (!canEditRef.current) return;
     updateView(activeView, (currentView) => ({
       ...currentView,
       nodes: currentView.nodes.map((node) => node.id === selectedId
         ? { ...node, data: { ...node.data, todos } } : node),
     }));
     setDirty(true);
-  }, [activeView, selectedId, updateView]);
+  }, [activeView, selectedId, updateView, canEditRef]);
 
   /** 参数面板专用：更新任意视图（主图/子组件标签）里某节点的参数，并在实时会话中即时推送。 */
   const onNodeParamChange = useCallback(
     (viewKey, nodeId, paramId, value, flatId) => {
+      if (!canEditRef.current) return;
       const nd = (views[viewKey] && views[viewKey].nodes.find((n) => n.id === nodeId)) || null;
       const schema = (nd && nd.data.parameters || []).find((p) => p.id === paramId);
       if (schema && !canEditDesignParameter(schema, nd.data)) return;
@@ -947,7 +949,7 @@ const { screenToFlowPosition } = useReactFlow();
       });
       setDirty(true);
     },
-    [views, current, updateView, catalogById]
+    [views, current, updateView, catalogById, canEditRef]
   );
 
   /** 打开组件 README 弹窗；若组件没有 README 则回退显示 description。 */
@@ -980,6 +982,7 @@ const { screenToFlowPosition } = useReactFlow();
   /** 更新某个节点的实例笔记（保存在 node-notes.json，不写入 project.yaml）。 */
   const handleNodeNoteChange = useCallback(
     (viewKey, nodeId, text) => {
+      if (!canEditRef.current) return;
       const key = nodeNoteKey(viewKey, nodeId);
       setNodeNotes((prev) => {
         const next = { ...prev };
@@ -992,13 +995,13 @@ const { screenToFlowPosition } = useReactFlow();
       });
       setNodeNotesDirty(true);
     },
-    [nodeNoteKey]
+    [nodeNoteKey, canEditRef]
   );
 
   /** 参数面板导入：把值写回各视图节点参数（含 Bulk 数组回写字符串），并在实时会话中推送非重启参数。 */
   const onImportApply = useCallback(
     (items) => {
-      if (!items.length) return;
+      if (!canEditRef.current || !items.length) return;
       setViews((prev) => {
         const next = {};
         for (const [key, v] of Object.entries(prev)) {
@@ -1039,7 +1042,7 @@ const { screenToFlowPosition } = useReactFlow();
       }
       setStatus(`已导入 ${items.length} 个节点的参数（含 Bulk 数据）`);
     },
-    [views, current, catalogById]
+    [views, current, catalogById, canEditRef]
   );
 
   const onLocateParam = useCallback(
@@ -1560,7 +1563,7 @@ const { screenToFlowPosition } = useReactFlow();
   }, [doSave]);
 
   const setDebugMode = useCallback(async (enabled) => {
-    if (!current || !doc) return;
+    if (!canEditRef.current || !current || !doc) return;
     const nextDoc = { ...doc, debug_mode: enabled };
     const document = viewsToDoc(views, subsMeta, nextDoc);
     setDoc(document);
@@ -1569,9 +1572,10 @@ const { screenToFlowPosition } = useReactFlow();
     setSaving(true);
     setStatus(enabled ? '正在开启调试旁路…' : '正在关闭调试旁路…');
     try {
+      const token = api.getEditToken();
       const request = pendingSaveRef.current
         .catch(() => {})
-        .then(() => api.saveProject(current, document));
+        .then(() => api.saveProject(current, document, token));
       pendingSaveRef.current = request;
       await request;
       setStatus(enabled ? '已开启并保存调试旁路' : '已关闭并保存调试旁路');
@@ -1582,7 +1586,7 @@ const { screenToFlowPosition } = useReactFlow();
     } finally {
       setSaving(false);
     }
-  }, [current, doc, views, subsMeta]);
+  }, [current, doc, views, subsMeta, canEditRef]);
 
   const doCompile = useCallback(async () => {
     if (!current) return;
@@ -1872,7 +1876,7 @@ const { screenToFlowPosition } = useReactFlow();
             ...e, type: 'drive',
             data: {
               ...e.data,
-              ...(!activeSub?.read_only ? { onTimingChange: (timing) => {
+              ...(canEdit && !activeSub?.read_only ? { onTimingChange: (timing) => {
                 updateView(activeView, (currentView) => ({
                   ...currentView,
                   edges: currentView.edges.map((edge) => edge.id === e.id || e.data?.entryEdgeIds?.includes(edge.id)
@@ -1898,7 +1902,7 @@ const { screenToFlowPosition } = useReactFlow();
           };
         });
     },
-    [view.edges, view.nodes, flowMode, activeView, activeSub, updateView, portInterfaces]
+    [canEdit, view.edges, view.nodes, flowMode, activeView, activeSub, updateView, portInterfaces]
   );
 
   const viewMemberships = useMemo(() => driveMembershipsForViews(views, flowMode),
@@ -1922,6 +1926,7 @@ const { screenToFlowPosition } = useReactFlow();
         ...node,
         data: {
           ...node.data,
+          editorReadOnly: !canEdit,
           ...resolvedNodeInterfaces(node.data, portInterfaces, node.id),
           flowMode,
           driveMemberships: memberships[node.id],
@@ -1933,7 +1938,7 @@ const { screenToFlowPosition } = useReactFlow();
       decorated.data.interfaces = interfaceState(decorated, view.edges);
       return decorated;
     });
-  }, [activeSub, view.nodes, view.edges, flowMode, memberships, portInterfaces]);
+  }, [canEdit, activeSub, view.nodes, view.edges, flowMode, memberships, portInterfaces]);
 
   const selectedNode = displayNodes.find((node) => node.id === selectedId) || null;
   const onInterfaceChange = (field, id, exposed) => {
@@ -1970,11 +1975,35 @@ const { screenToFlowPosition } = useReactFlow();
     return () => document.removeEventListener('click', onDocClick);
   }, [openMenu]);
 
+  const takeControl = async () => {
+    if (!window.confirm('接管将使其他页面变为只读，并重新加载最新工程。当前页面及参数/笔记中的未保存修改不会合并，请先复制需要保留的内容。')) return;
+    const controller = startLoading(current);
+    try {
+      await pendingSaveRef.current.catch(() => {});
+      await editLease.takeover(async () => {
+        await refreshProjects();
+        if (current) await fetchProject(current, null, controller);
+        else {
+          controller.abort();
+          loadControllerRef.current = null;
+          setLoading(null);
+        }
+      });
+    } catch (error) {
+      failLoading(controller, `接管失败：${api.errorDetail(error)}`);
+    }
+  };
+
   return (
     <>
     <div className="app" aria-busy={!!loading} inert={loading ? '' : undefined}>
       <div className="toolbar">
         <h1>Orpheus</h1>
+        <span className={`edit-lease-status ${canEdit ? 'editing' : 'readonly'}`} role="status">
+          {canEdit ? '可编辑' : editLease.status === 'connecting' ? '获取编辑权中…' : '只读'} · {editLease.message}
+        </span>
+        {!canEdit && <button onClick={takeControl}
+          disabled={['connecting', 'taking'].includes(editLease.status)}>接管并刷新</button>}
         <span className="tb-group">
           <select value={current || ''} onChange={(e) => e.target.value && openProject(e.target.value)}>
             <option value="" disabled>
@@ -1986,8 +2015,8 @@ const { screenToFlowPosition } = useReactFlow();
               </option>
             ))}
           </select>
-          <button onClick={doCreate}>新建工程</button>
-          <select value="" onChange={(e) => doImportExample(e.target.value)}>
+          <button onClick={doCreate} disabled={!canEdit}>新建工程</button>
+          <select value="" disabled={!canEdit} onChange={(e) => doImportExample(e.target.value)}>
             <option value="">导入示例…</option>
             {examples.map((ex) => (
               <option key={ex} value={ex}>
@@ -1998,6 +2027,7 @@ const { screenToFlowPosition } = useReactFlow();
           <button
             className="tb-more"
             onClick={() => setOpenMenu(openMenu === 'project' ? null : 'project')}
+            disabled={!canEdit}
             title="更多工程操作"
           >
             ⋯
@@ -2024,7 +2054,7 @@ const { screenToFlowPosition } = useReactFlow();
           />
         </span>
         <span className="toolbar-sep" />
-        <span className="tb-group">
+        <fieldset className="tb-group edit-controls" disabled={!canEdit}>
           <span title="左键拖拽平移画布；Ctrl+拖拽圈选；Ctrl+点击多选">
             <button onClick={wrapSelection} disabled={!current || selectedIds.length === 0}>
               包装为子组件
@@ -2060,14 +2090,14 @@ const { screenToFlowPosition } = useReactFlow();
           >
             删除选中
           </button>
-        </span>
+        </fieldset>
         <span className="toolbar-sep" />
         <span className="tb-group">
-          <button onClick={doSave} disabled={!dirty || !current || saving}>
+          <button onClick={doSave} disabled={!canEdit || !dirty || !current || saving}>
             {saving ? '保存中…' : '保存'}
           </button>
           <label className="autosave">
-            <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
+            <input type="checkbox" disabled={!canEdit} checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
             自动保存
           </label>
           <label
@@ -2084,7 +2114,7 @@ const { screenToFlowPosition } = useReactFlow();
           {flowMode === 'task_sequence' && (
             <label className="autosave" title="从驱动源本体拖向组件本体；退出后恢复移动节点和普通数据连线">
               <input type="checkbox" checked={driveLinking}
-                disabled={!current || !!activeSub?.read_only}
+                disabled={!canEdit || !current || !!activeSub?.read_only}
                 onChange={(event) => setDriveLinking(event.target.checked)} />
               驱动连线
             </label>
@@ -2096,7 +2126,7 @@ const { screenToFlowPosition } = useReactFlow();
             <input
               type="checkbox"
               checked={!!doc?.debug_mode}
-              disabled={!current || !doc || saving}
+              disabled={!canEdit || !current || !doc || saving}
               onChange={(e) => setDebugMode(e.target.checked)}
             />
             调试旁路
@@ -2104,7 +2134,7 @@ const { screenToFlowPosition } = useReactFlow();
         </span>
         <span className="toolbar-sep" />
         <span className="tb-group">
-          <button onClick={() => setShowSettings(true)} disabled={!current || !doc} title="工程全局设置（采样率/块长度/缓冲）">
+          <button onClick={() => setShowSettings(true)} disabled={!canEdit || !current || !doc} title="工程全局设置（采样率/块长度/缓冲）">
             ⚙ 设置
           </button>
           {doc?.lesson && (
@@ -2121,7 +2151,7 @@ const { screenToFlowPosition } = useReactFlow();
           </button>
         </span>
         <span className="toolbar-sep" />
-        <span className="tb-group">
+        <fieldset className="tb-group edit-controls" disabled={!canEdit}>
           <select
             className="rt-target"
             value={rtTarget}
@@ -2209,7 +2239,7 @@ const { screenToFlowPosition } = useReactFlow();
               )}
             </div>
           )}
-        </span>
+        </fieldset>
       </div>
       <div className="statusbar">
         <span className={`status ${dirty ? 'dirty' : ''}`}>
@@ -2288,7 +2318,7 @@ const { screenToFlowPosition } = useReactFlow();
               </button>
             </div>
             {leftTab === 'palette' && (
-              <Palette
+              <Palette readOnly={!canEdit}
                 components={catalog}
                 subsMeta={subsMeta}
                 onDeleteSub={deleteSub}
@@ -2309,6 +2339,8 @@ const { screenToFlowPosition } = useReactFlow();
             )}
             {leftTab === 'notes' && (
               <NotesPanel
+                key={`${current}:${documentVersion}`}
+                readOnly={!canEdit}
                 projectName={current}
                 views={views}
                 nodeNotes={nodeNotes}
@@ -2323,7 +2355,7 @@ const { screenToFlowPosition } = useReactFlow();
         <div className={`canvas ${showControlLinks ? 'control-links-visible' : ''}`} onDrop={onDrop} onDragOver={onDragOver}>
           <SignalLegend flowMode={flowMode} showControlLinks={showControlLinks} />
           <NodeActionsContext.Provider value={{ showReadme: handleShowReadme, showControlLinks, revealSubExport,
-            driveLinking: driveLinking && flowMode === 'task_sequence' && !activeSub?.read_only }}>
+            driveLinking: canEdit && driveLinking && flowMode === 'task_sequence' && !activeSub?.read_only }}>
             <ReactFlow
             key={`${current || 'empty'}:${activeView}`}
             nodes={displayNodes}
@@ -2347,7 +2379,10 @@ const { screenToFlowPosition } = useReactFlow();
             }}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
-            deleteKeyCode={['Delete', 'Backspace']}
+            nodesDraggable={canEdit}
+            nodesConnectable={canEdit}
+            edgesUpdatable={canEdit}
+            deleteKeyCode={canEdit ? ['Delete', 'Backspace'] : null}
             selectionKeyCode="Control"
             multiSelectionKeyCode="Control"
             fitView
@@ -2359,7 +2394,7 @@ const { screenToFlowPosition } = useReactFlow();
           <AlterGroupOverlay nodes={displayNodes} />
           </NodeActionsContext.Provider>
         </div>
-        <ParameterWorkspace open={rightOpen} onOpenChange={setRightOpen}>
+        <ParameterWorkspace open={rightOpen} onOpenChange={setRightOpen} readOnly={!canEdit}>
             {activeSub && (
               <SubPortsPanel
                 sub={activeSub}
@@ -2399,6 +2434,7 @@ const { screenToFlowPosition } = useReactFlow();
       {showSettings && doc && (
         <ProjectSettings
           doc={doc}
+          readOnly={!canEdit}
           onClose={() => setShowSettings(false)}
           onSave={(fields) => {
             setDoc({ ...doc, ...fields });
@@ -2418,6 +2454,7 @@ const { screenToFlowPosition } = useReactFlow();
       )}
       {showParams && doc && (
         <ParamBrowser
+          readOnly={!canEdit}
           projectName={current}
           views={views}
           catalogById={catalogById}

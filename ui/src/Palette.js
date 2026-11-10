@@ -51,7 +51,7 @@ function flattenItems(node) {
 }
 
 /** Left-hand palette: project subcomponents + category tree of global components. */
-export default function Palette({ components, subsMeta, onDeleteSub, onDeleteComponent, onPromoteComponent, onShowReadme }) {
+export default function Palette({ components, subsMeta, onDeleteSub, onDeleteComponent, onPromoteComponent, onShowReadme, readOnly = false }) {
   const [collapsed, setCollapsed] = useState({ '@project-subs': true, '@project-custom': true });
   const [query, setQuery] = useState('');
 
@@ -99,7 +99,7 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
     <div
       key={c.id}
       className={`palette-item ${c.sub ? 'sub' : ''}`}
-      draggable
+      draggable={!readOnly}
       onDragStart={(e) => onDragStart(e, c.id)}
       title={c.description || c.id}
     >
@@ -121,7 +121,7 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
               ℹ
             </button>
           )}
-          {deletable && (
+          {deletable && !readOnly && (
             <span
               className="palette-item-del"
               title="删除子组件（无实例引用时可用）"
@@ -139,6 +139,7 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
       {!c.sub && c.user_owned && !c.project_local && (
         <div className="palette-manage">
           <button
+            disabled={readOnly}
             title="提升为公共库组件（之后不可直接删除）"
             onClick={(e) => {
               e.stopPropagation();
@@ -148,6 +149,7 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
             提升
           </button>
           <button
+            disabled={readOnly}
             className="palette-del-btn"
             title="删除自定义组件（移除源码目录，需确认）"
             onClick={(e) => {

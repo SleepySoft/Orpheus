@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./editor-test');
 
 const components = [{ id: 'test.leaf', name: '测试节点', ports: [], parameters: [] }];
 const document = (id) => ({
@@ -12,6 +12,7 @@ const document = (id) => ({
 async function mockBackend(page, projectResponse) {
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.startsWith('/api/editor/')) return route.continue();
     let data;
     if (path === '/api/projects') data = [{ name: 'first' }, { name: 'second' }];
     else if (path === '/api/components' || path.endsWith('/components')) data = components;

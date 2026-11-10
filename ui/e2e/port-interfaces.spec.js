@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./editor-test');
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -43,6 +43,7 @@ test('真实 API 递归解析实例端口，编辑快照不落盘且定义视图
     expect(saved.ok(), await saved.text()).toBeTruthy();
     await page.route('**/api/**', async (route) => {
       const { pathname } = new URL(route.request().url());
+      if (pathname.startsWith('/api/editor/')) return route.continue();
       const method = route.request().method();
       if (pathname === '/api/projects' && method === 'GET') {
         await route.fulfill({ json: [{ name }] });
@@ -115,6 +116,7 @@ test('已配置格式直接显示，失配仅标红对应线，用户修正参�
     expect((await request.put(`/api/projects/${name}`, { data: document })).ok()).toBeTruthy();
     await page.route('**/api/**', async (route) => {
       const { pathname } = new URL(route.request().url());
+      if (pathname.startsWith('/api/editor/')) return route.continue();
       const method = route.request().method();
       if (pathname === '/api/projects' && method === 'GET') {
         await route.fulfill({ json: [{ name }] });

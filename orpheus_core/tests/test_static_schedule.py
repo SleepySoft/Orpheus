@@ -150,7 +150,7 @@ def test_merge_sink_no_duplicate_writes():
     """
     import shutil
 
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
 
     from orpheus_core.server.app import create_app
 

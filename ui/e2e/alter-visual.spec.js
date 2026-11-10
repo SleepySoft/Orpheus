@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./editor-test');
 
 const projectName = `e2e_alter_visual_${Date.now()}`;
 

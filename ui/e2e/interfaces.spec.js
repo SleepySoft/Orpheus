@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./editor-test');
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -43,6 +43,7 @@ test('完整参数/Buffer/签名审查、独立显露保存重载及上游宿主
   await page.context().route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path.startsWith('/api/editor/')) return route.continue();
     if (request.method() === 'POST' && path.endsWith('/interfaces')) {
       const { document: snapshot, view_key: viewKey } = request.postDataJSON();
       await route.fulfill({ json: {

@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./editor-test');
 
 test.use({ viewport: { width: 1920, height: 1080 } });
 
@@ -136,6 +136,7 @@ test('配置 Task、区分链路并定位导出引脚', async ({ page, request }
   const blockedRequests = [];
   await page.route('**/api/**', async (route) => {
     const { pathname } = new URL(route.request().url());
+    if (pathname.startsWith('/api/editor/')) return route.continue();
     const method = route.request().method();
     if (pathname === '/api/projects' && method === 'GET') {
       await route.fulfill({ json: [{ name: projectName }] });

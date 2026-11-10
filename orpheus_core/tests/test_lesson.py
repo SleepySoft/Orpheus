@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from editor_client import EditorClient as TestClient
 
 from orpheus_core.compiler import GraphCompiler
 from orpheus_core.lesson import evaluate_lesson

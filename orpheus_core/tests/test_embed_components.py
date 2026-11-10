@@ -17,7 +17,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from editor_client import EditorClient as TestClient
 
 from orpheus_core.builder import run_cmake_with_msvc_env
 from orpheus_core.parameter_catalog import build_catalog

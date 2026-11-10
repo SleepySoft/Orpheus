@@ -5,7 +5,7 @@ import os
 import shutil
 from urllib.parse import quote
 
-from fastapi.testclient import TestClient
+from editor_client import EditorClient as TestClient
 import pytest
 import yaml
 

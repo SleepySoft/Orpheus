@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from editor_client import EditorClient as TestClient
 
 from orpheus_core.compiler import GraphCompiler
 from orpheus_core.generator import CodeGenerator

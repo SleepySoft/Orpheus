@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from fastapi.testclient import TestClient
+from editor_client import EditorClient as TestClient
 
 from orpheus_core.compiler import GraphCompiler
 from orpheus_core.project import ProjectLoader

@@ -163,7 +163,7 @@ def test_transport_registry_is_user_replaceable() -> None:
 
 
 def test_tcp_rest_session_lifecycle() -> None:
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
     from orpheus_core.server.app import create_app
 
     name = f"tcp_{uuid.uuid4().hex[:8]}"
@@ -207,7 +207,7 @@ def test_tcp_rest_session_lifecycle() -> None:
 
 
 def test_local_pipe_rest_session_lifecycle(tmp_path) -> None:
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
     from orpheus_core.server.app import create_app
 
     name = f"pipe_{uuid.uuid4().hex[:8]}"
@@ -241,7 +241,7 @@ def test_local_pipe_rest_session_lifecycle(tmp_path) -> None:
 
 
 def test_hlos_rest_target_validation() -> None:
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
     from orpheus_core.server.app import create_app
 
     name = f"hlos_{uuid.uuid4().hex[:8]}"

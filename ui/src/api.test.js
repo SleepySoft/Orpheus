@@ -4,6 +4,7 @@ import * as api from './api';
 jest.mock('axios', () => ({
   create: jest.fn(() => ({
     defaults: { baseURL: '/api' },
+    interceptors: { request: { use: jest.fn() }, response: { use: jest.fn() } },
     get: jest.fn().mockResolvedValue({ data: {} }),
     post: jest.fn().mockResolvedValue({ data: {} }),
     put: jest.fn().mockResolvedValue({ data: {} }),
@@ -12,6 +13,7 @@ jest.mock('axios', () => ({
 }));
 
 const client = axios.create.mock.results[0].value;
+const rejectResponse = client.interceptors.response.use.mock.calls[0][1];
 
 test('工程载入请求传递中止信号', async () => {
   const config = { signal: new AbortController().signal };
@@ -22,9 +24,33 @@ test('工程载入请求传递中止信号', async () => {
 });
 
 beforeEach(() => {
+  api.setEditToken(null);
   for (const method of ['get', 'post', 'put', 'delete']) {
     client[method].mockResolvedValue({ data: {} });
   }
+});
+
+test('排队保存固定原租约，不因接管而使用新令牌发送旧快照', async () => {
+  api.setEditToken('old');
+  const token = api.getEditToken();
+  api.setEditToken('new');
+  await api.saveProject('demo', {}, token);
+  expect(client.put).toHaveBeenLastCalledWith('/projects/demo', {}, { editToken: 'old' });
+});
+
+test('旧请求的失权响应不能清除新编辑权', async () => {
+  const lost = jest.fn();
+  const unsubscribe = api.onEditLeaseLost(lost);
+  const rejected = rejectResponse;
+  api.setEditToken('new');
+  const stale = { config: { headers: { get: () => 'old' } },
+    response: { data: { code: 'edit_lease_lost', detail: '失权' } } };
+  await expect(rejected(stale)).rejects.toBe(stale);
+  expect(lost).not.toHaveBeenCalled();
+  const current = { ...stale, config: { headers: { get: () => 'new' } } };
+  await expect(rejected(current)).rejects.toBe(current);
+  expect(lost).toHaveBeenCalledWith('失权');
+  unsubscribe();
 });
 
 test.each([

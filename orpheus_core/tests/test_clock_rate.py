@@ -311,7 +311,7 @@ def test_resample_offline_run_and_generated_match():
     """wav_in(48k) -> resample(2) -> wav_out(24k): dynamic vs generated identical."""
     import shutil
 
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
 
     from orpheus_core.server.app import create_app
 
@@ -374,7 +374,7 @@ def test_downrate_offline_run_and_generated_match():
     """
     import shutil
 
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
 
     from orpheus_core.server.app import create_app
 
@@ -488,7 +488,7 @@ def test_gain_float_param_dynamic_generated_match():
     """
     import shutil
 
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
 
     from orpheus_core.server.app import create_app
 
@@ -570,7 +570,7 @@ def test_distilled_downrate_import_runs_dynamic_generated():
     """
     import shutil
 
-    from fastapi.testclient import TestClient
+    from editor_client import EditorClient as TestClient
 
     from orpheus_core.server.app import create_app
 

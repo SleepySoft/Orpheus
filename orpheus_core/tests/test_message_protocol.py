@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from editor_client import EditorClient as TestClient
 
 from orpheus_core.builder import run_cmake_with_msvc_env
 from orpheus_core.compiler import GraphCompiler

@@ -11,7 +11,7 @@ import * as api from './api';
  *
  * Both are independent from project.yaml, keeping the project document clean.
  */
-export default function NotesPanel({ projectName, views, nodeNotes, onNodeNoteChange }) {
+export default function NotesPanel({ projectName, views, nodeNotes, onNodeNoteChange, readOnly = false }) {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -53,7 +53,7 @@ export default function NotesPanel({ projectName, views, nodeNotes, onNodeNoteCh
   }, [projectName]);
 
   const doSave = async () => {
-    if (!projectName) return;
+    if (readOnly || !projectName) return;
     setSaving(true);
     setStatus('');
     try {
@@ -69,10 +69,10 @@ export default function NotesPanel({ projectName, views, nodeNotes, onNodeNoteCh
 
   // Autosave 1.5s after the last keystroke.
   useEffect(() => {
-    if (!dirty || !projectName) return undefined;
+    if (readOnly || !dirty || !projectName) return undefined;
     const timer = setTimeout(doSave, 1500);
     return () => clearTimeout(timer);
-  }, [dirty, content, projectName]);
+  }, [readOnly, dirty, content, projectName]);
 
   if (loading) {
     return (
@@ -125,13 +125,14 @@ export default function NotesPanel({ projectName, views, nodeNotes, onNodeNoteCh
         >
           预览
         </button>
-        <button onClick={doSave} disabled={saving} title="Ctrl+S 也可保存">
+        <button onClick={doSave} disabled={readOnly || saving} title="Ctrl+S 也可保存">
           {saving ? '保存中…' : '保存'}
         </button>
       </div>
       {status && <div className="notes-status">{status}</div>}
       {mode === 'edit' ? (
         <textarea
+          readOnly={readOnly}
           className="notes-editor"
           value={content}
           onChange={(e) => {
@@ -161,6 +162,7 @@ export default function NotesPanel({ projectName, views, nodeNotes, onNodeNoteCh
                 {n.label}
               </div>
               <textarea
+                readOnly={readOnly}
                 className="node-notes-textarea"
                 rows={3}
                 value={nodeNotes[n.key] || ''}
