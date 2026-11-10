@@ -1,18 +1,18 @@
 id: orpheus.builtin.bulk_constant
 name: "浮点数组常量"
 category: "数学与控制"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: BulkConstantState
-description: 固定长度f32常量表，输出完整数组及首尾元素。值数量必须恰好等于elements；配置时严格校验有限数值，无隐式补零或截断。零处理量不续调，悬空输出不阻断后继。
-sources: [src/bulk_constant.c]
-headers: [include/orpheus_bulk_constant.h]
-ports:
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: 1, block_size: "param:elements"}
-  - {id: first, direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1}
-  - {id: last, direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1}
-parameters:
-  - {id: elements, name: 元素数, type: int, default: 2, range: [1, 2048], update_policy: restart_required, affects_signature: true}
-  - {id: values, name: 常量值列表, type: string, default: "0,1", update_policy: restart_required}
+description: 显式触发后依次交付完整f32数组、首项、末项；三个出口独立编号，悬空不阻断其它出口。CSV严格要求elements个有限数值，不补齐、不截断。零量子不交付，禁止输出与State或其它输出重叠。
+algorithm:
+  lifecycle: [validate, prepare, reset]
+interfaces:
+  tick: {direction: input, type: trigger, process: true}
+  out: {direction: output, type: bulk, sample_format: f32, channels: 1, block_size: "param:elements", drive_port_no: 1}
+  first: {direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1, drive_port_no: 2}
+  last: {direction: output, type: bulk, sample_format: f32, channels: 1, block_size: 1, drive_port_no: 3}
+  elements: {name: 元素数, type: int, default: 2, range: [1, 2048], update_policy: restart_required, affects_signature: true}
+  values: {name: 常量值列表, type: string, capacity: 65536, default: "0,1", update_policy: restart_required}
+memory: {alignment: 8}
 execution: {realtime_safe: true, supports_inplace: false}

@@ -1,6 +1,6 @@
 #include "orpheus_scalar_math.h"
-#include "orpheus_bulk_constant.h"
-#include "orpheus_bulk_lookup.h"
+#include "../components/orpheus/builtin/bulk_constant/generated/component_state.h"
+#include "../components/orpheus/builtin/bulk_lookup/generated/component_state.h"
 #include "orpheus_scalar_memory.h"
 #include <math.h>
 #include <stdio.h>
@@ -13,11 +13,19 @@ const OrpheusComponentInterface* lookup_api(void);
 const OrpheusComponentInterface* memory_api(void);
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%d: %s\n", __LINE__, #x); return 1; } } while (0)
 static unsigned calls;
+static unsigned ports, fail_port;
 static int downstream;
 static int next(void* user, uint32_t branch) {
     (void)user;
     ++calls;
     return branch==UINT32_MAX ? downstream : 99;
+}
+static int emit(void* user, uint32_t port, const OrpheusDelivery* delivery) {
+    (void)user;
+    ++calls;
+    if (!port || port > 3 || !delivery) return 99;
+    ports = ports*10+port;
+    return fail_port == port ? -77 : downstream;
 }
 static OrpheusBuffer buffer(void* data, unsigned count) {
     OrpheusBuffer b={.data=data, .channels=1, .frame_count=count, .frame_capacity=count,
@@ -101,7 +109,7 @@ static int memory_contract(void) {
 int main(void) {
     CHECK(memory_contract()==0);
     OrpheusConfig config={0};
-    OrpheusContinuation continuation={.call=next, .count=1};
+    OrpheusContinuation continuation={.call=next, .count=1, .emit=emit};
     float data[]={-0.0f, NAN, 13.0f}, result=99;
     OrpheusBuffer a=buffer(data, 1), b=buffer(data+1, 1), c=buffer(data+2, 1), out=buffer(&result, 1);
     const OrpheusBuffer* inputs[]={&a, &b, &c};
@@ -150,20 +158,24 @@ int main(void) {
     CHECK(api->destroy(state)==0);
 
     api=constant_api();
-    BulkConstantState external;
+    orpheus_builtin_bulk_constant_State external;
     config.state_block=&external;
     CHECK(api->create(&state, &config)==0 && state==&external && api->prepare(state, &config)==0);
     float table[4]={0}, first=-1, last=-1;
     OrpheusBuffer full=buffer(table, 4), head=buffer(&first, 1), tail=buffer(&last, 1);
     OrpheusBuffer* table_outputs[]={&full, &head, &tail};
     context.outputs=table_outputs; context.output_count=3;
+    CHECK(api->process(state, &context)!=0);
+    context.inputs=NULL; context.input_count=0;
+    ports=0; calls=0;
     CHECK(api->process(state, &context)==0 && full.frame_count==2 && table[0]==0 && table[1]==1 && first==0 && last==1);
+    CHECK(ports==123 && calls==3);
     const char* keys[]={"elements", "values"};
     OrpheusValue values[]={{.type=ORPHEUS_VALUE_INT, .value.i32=4},
         {.type=ORPHEUS_VALUE_STRING, .value.str="-2, -0, 3.5, 9"}};
     config.param_count=2; config.param_ids=keys; config.param_values=values;
     CHECK(api->prepare(state, &config)==0 && api->process(state, &context)==0 && first==-2 && last==9);
-    const char* invalid[]={"1,2", "1,2,3,4,5", "1,2,,4", "1,2,3,4,", "1,2,nan,4", "1,2,inf,4", "1,2,bad,4", "1,2,3,1e99"};
+    const char* invalid[]={"1,2", "1,2,3,4,5", "1,2,,4", "1,2,3,4,", "1,2,nan,4", "1,2,inf,4", "1,2,bad,4", "1,2,3,1e99", "1,2,3,1e-9999"};
     for (unsigned i=0; i<sizeof(invalid)/sizeof(*invalid); ++i) {
         values[1].value.str=invalid[i];
         CHECK(api->prepare(state, &config)!=0);
@@ -173,16 +185,22 @@ int main(void) {
     full.frame_capacity=3; calls=0;
     CHECK(api->process(state, &context)!=0 && calls==0); full.frame_capacity=4;
     tail.data=table+1; CHECK(api->process(state, &context)!=0); tail.data=&last;
+    full.data=external.algorithm.values; CHECK(api->process(state, &context)!=0); full.data=table;
+    fail_port=2; calls=0; ports=0;
+    CHECK(api->process(state, &context)==-77 && calls==2 && ports==12); fail_port=0;
     table_outputs[0]=NULL; table_outputs[1]=NULL; table_outputs[2]=NULL;
     downstream=-77; calls=0;
     CHECK(api->process(state, &context)==-77 && calls==1); downstream=0;
     CHECK(api->reset(state)==0 && api->destroy(state)==0);
 
-    api=lookup_api(); config=(OrpheusConfig){0};
+    api=lookup_api();
+    orpheus_builtin_bulk_lookup_State lookup_state;
+    config=(OrpheusConfig){.state_block=&lookup_state};
     CHECK(api->create(&state, &config)==0 && api->prepare(state, &config)==0);
     float x=0, axis[]={0, 2, 5, 7}, ys[]={-1, 3, 3, 19};
     a=buffer(&x, 1); b=buffer(axis, 2); c=buffer(ys, 2);
     inputs[0]=&a; inputs[1]=&b; inputs[2]=&c;
+    context.inputs=inputs; context.input_count=3;
     context.outputs=outputs; context.output_count=1;
     const float queries[]={-INFINITY, -1, 0, .5f, 1, 2, INFINITY, NAN};
     const float expected[]={0, 0, -1, 0, 1, 3, 0, 0};
