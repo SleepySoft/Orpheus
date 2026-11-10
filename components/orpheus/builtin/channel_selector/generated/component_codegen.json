@@ -1,0 +1,10 @@
+{
+  "configuration_sha256": "6545f33188a713e1f26f10527381103189fc55618a9a67d7cce3773dfced071d",
+  "files": {
+    "component_api.h": "cae06cf9785d7f100d9b69fef7ead83f4a4d74fc9f664bff0f5743f799c34b55",
+    "component_shell.c": "1246fba1f5c220f61235456a39f3b4bd85a91b7ee43502080a2bc1beca8e93d7",
+    "component_sources.cmake": "396ececfdef8638d495b23e7a4ddd1a2bf6c1bc245fc6e9ddce4dc511e1a6871",
+    "component_state.h": "5eb9eeca88b220d2bfccdcf0688239acfda789189b13ba9f5885525c6be0b0c7"
+  },
+  "tool": "orpheus.component_codegen.v1"
+}

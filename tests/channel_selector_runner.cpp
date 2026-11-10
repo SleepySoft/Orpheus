@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#ifdef ORPHEUS_TEST_GENERATED
+#ifndef DYNAMIC
 #include "orpheus_graph.h"
 #include "orpheus_control.h"
 #else
@@ -10,8 +10,8 @@
 #endif
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%d: %s\n", __LINE__, #x); return 1; } } while (0)
 int main(int argc, char** argv) {
-#ifdef ORPHEUS_TEST_GENERATED
-    CHECK(argc >= 5 && orpheus_generated_init(48000, 32) == ORPHEUS_OK);
+#ifndef DYNAMIC
+    CHECK(argc >= 5 && orpheus_generated_init(48000, 8) == ORPHEUS_OK);
     int first = 2; const char* mode = argv[1];
 #define GET(n, v) orpheus_control_get_value(n, "channels_out", v)
 #define ACCUMULATE(n, v) orpheus_control_get_value(n, "accumulate", v)
@@ -19,7 +19,9 @@ int main(int argc, char** argv) {
 #define READ(n, k, v, c) orpheus_control_get_bulk(n, k, v, c)
 #define WRITE(n, k, v, c) orpheus_control_write_bulk(n, k, v, c)
 #define WRITE_ID(id, v, c) orpheus_control_write_bulk_id(id, v, c)
-#define PROCESS() (strcmp(mode, "task") == 0 ? orpheus_generated_process_task_default(0) : orpheus_generated_process(32))
+#define CAPTURE(n, v) orpheus_control_get_value(n, "calls", v)
+#define EXPECTED(n, v) orpheus_control_get_value(n, "expected_calls", v)
+#define PROCESS() (strcmp(mode, "task") == 0 ? orpheus_generated_process_task_task_source(8) : orpheus_generated_process(8))
 #else
     CHECK(argc >= 7);
     orpheus::Runtime runtime;
@@ -31,12 +33,15 @@ int main(int argc, char** argv) {
 #define READ(n, k, v, c) runtime.get_bulk(n, k, v, c)
 #define WRITE(n, k, v, c) runtime.write_bulk(n, k, v, c)
 #define WRITE_ID(id, v, c) runtime.write_bulk_id(id, v, c)
-#define PROCESS() (strcmp(mode, "task") == 0 ? runtime.process_task("default", 0) : runtime.process_block(32))
+#define CAPTURE(n, v) runtime.get_parameter(n, "calls", v)
+#define EXPECTED(n, v) runtime.get_parameter(n, "expected_calls", v)
+#define PROCESS() (strcmp(mode, "task") == 0 ? runtime.process_task("task_source", 8) : runtime.process_block(8))
 #endif
     int32_t initial_indices[4][64];
     float initial_gains[4][64];
     const unsigned blocks[] = {2, 1, 2, 1};
     CHECK((argc-first) % 3 == 0 && (argc-first)/3 <= 4);
+    int total_blocks = 0;
     for (unsigned step = 0; step < 4; ++step) {
         for (int i = first; i < argc; i += 3) {
             unsigned ci = (unsigned)(i-first)/3;
@@ -75,9 +80,21 @@ int main(int argc, char** argv) {
                       !memcmp(before_gains, actual_gains, count*sizeof(float)));
             }
         }
-        for (unsigned b = 0; b < blocks[step]; ++b) CHECK(PROCESS() == ORPHEUS_OK);
+        for (unsigned b = 0; b < blocks[step]; ++b) {
+            CHECK(PROCESS() == ORPHEUS_OK);
+            ++total_blocks;
+            for (int i = first; i < argc; i += 3) {
+                char capture[128];
+                CHECK(snprintf(capture, sizeof(capture), "%s_capture", argv[i]) < (int)sizeof(capture));
+                OrpheusValue calls = {ORPHEUS_VALUE_INT, {0}}, expected = {ORPHEUS_VALUE_INT, {0}};
+                CHECK(CAPTURE(capture, &calls) == ORPHEUS_OK);
+                CHECK(EXPECTED(capture, &expected) == ORPHEUS_OK);
+                CHECK(expected.value.i32 >= 6 && expected.value.i32 <= 18 && expected.value.i32 % 6 == 0);
+                CHECK(calls.value.i32 == total_blocks*(expected.value.i32/6));
+            }
+        }
     }
-#ifdef ORPHEUS_TEST_GENERATED
+#ifndef DYNAMIC
     orpheus_generated_teardown();
 #endif
     return 0;

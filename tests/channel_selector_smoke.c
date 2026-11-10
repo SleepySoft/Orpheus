@@ -1,4 +1,4 @@
-#include "orpheus_channel_selector.h"
+#include "component_state.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -23,7 +23,7 @@ int main(void) {
         {.type=ORPHEUS_VALUE_STRING, .value.str="-2147483648,0,1,3,4,2147483647"},
         {.type=ORPHEUS_VALUE_STRING, .value.str="1,2,-1,0,0.5,-0"}
     };
-    ChannelSelectorState state = {0};
+    orpheus_builtin_channel_selector_State state = {0};
     OrpheusConfig config = {.sample_rate=48000, .block_size=2, .param_ids=keys,
         .param_values=values, .param_count=8, .state_block=&state};
     void* instance = NULL;
@@ -49,7 +49,7 @@ int main(void) {
         CHECK(output[n*6+4] == b[n*2] && output[n*6+5] == b[n*2+1]);
     }
     state.apply_gain = true;
-    state.gains[0] = state.gains[1] = NAN;
+    state.algorithm.gains[0] = state.algorithm.gains[1] = NAN;
     CHECK(iface->process(instance, &context) == ORPHEUS_OK);
     CHECK(output[0] == 0 && !signbit(output[0]) && output[1] == 0 && !signbit(output[1]));
     CHECK(!signbit(output[2]) && output[2] == 0 && isnan(output[3]) && output[4] == 1);
@@ -58,14 +58,14 @@ int main(void) {
     CHECK(iface->process(instance, &context) == ORPHEUS_OK);
     CHECK(output[4] == 0 && !signbit(output[4]) && output[5] == 0 && !signbit(output[5]));
     state.high_index_policy = 0;
-    CHECK(iface->reset(instance) == ORPHEUS_OK && state.indices[5] == INT32_MAX && isnan(state.gains[0]));
+    CHECK(iface->reset(instance) == ORPHEUS_OK && state.algorithm.indices[5] == INT32_MAX && isnan(state.algorithm.gains[0]));
     CHECK(iface->process(instance, &context) == ORPHEUS_OK && !signbit(output[5]));
     bo.frame_capacity = 1;
     CHECK(iface->process(instance, &context) == ORPHEUS_ERR_INVALID_ARG);
     bo.frame_capacity = 2;
     float base[12];
     for (unsigned i = 0; i < 12; ++i) memcpy(&base[i], &raw[i%6], 4);
-    OrpheusBuffer base_buffer = {.data=base, .channels=6, .format=ORPHEUS_FORMAT_F32, .frame_capacity=2};
+    OrpheusBuffer base_buffer = {.data=base, .channels=6, .format=ORPHEUS_FORMAT_F32, .frame_capacity=2, .interleaved=true};
     inputs[2] = &base_buffer; context.input_count = 3; state.accumulate = true;
     OrpheusValue enabled = {.type=ORPHEUS_VALUE_BOOL, .value.b=false}, readback;
     CHECK(iface->set_parameter(instance, "enabled", &enabled) == ORPHEUS_OK);
@@ -79,12 +79,26 @@ int main(void) {
         CHECK(!memcmp(&output[n*6], &base[n*6], 4) && !memcmp(&output[n*6+1], &base[n*6+1], 4));
         CHECK(!memcmp(&output[n*6+4], &base[n*6+4], 4) && !memcmp(&output[n*6+5], &base[n*6+5], 4));
     }
-    CHECK(iface->destroy(instance) == ORPHEUS_OK);
+    bo.data = a;
+    CHECK(iface->process(instance, &context) == ORPHEUS_ERR_INVALID_ARG);
+    bo.data = output;
+    ba.frame_capacity = 1;
+    CHECK(iface->process(instance, &context) == ORPHEUS_ERR_INVALID_ARG);
+    ba.frame_capacity = 2;
+    outputs[0] = NULL;
+    CHECK(iface->process(instance, &context) == ORPHEUS_OK);
+    outputs[0] = &bo;
+    float saved[12];
+    memcpy(saved, output, sizeof(saved));
+    context.frame_count = 0;
+    CHECK(iface->process(instance, &context) == ORPHEUS_OK && !memcmp(saved, output, sizeof(saved)));
+    context.frame_count = 2;
     const char* bad_indices[] = {"1,2", "1,2,3,4,5,6,7", "1.5,2,3,4,5,6", "1,,3,4,5,6",
         "1,2,3,4,5,6x", "1,2,3,4,5,", "2147483648,2,3,4,5,6"};
     for (unsigned i = 0; i < sizeof(bad_indices)/sizeof(bad_indices[0]); ++i) {
         values[6].value.str = bad_indices[i];
         CHECK(iface->prepare(instance, &config) == ORPHEUS_ERR_INVALID_ARG);
+        CHECK(state.algorithm.indices[5] == INT32_MAX && isnan(state.algorithm.gains[0]));
     }
     values[6].value.str = "";
     const char* bad_gains[] = {"1,2", "1,2,3,4,5,6,7", "1,2,3,4,5,inf", "1,2,3,4,5,nan", "1,2,3,4,5,6x"};
@@ -93,8 +107,9 @@ int main(void) {
         CHECK(iface->prepare(instance, &config) == ORPHEUS_ERR_INVALID_ARG);
     }
     values[7].value.str = "";
-    CHECK(iface->prepare(instance, &config) == ORPHEUS_OK && state.indices[0] == 1 && state.gains[0] == 1);
+    CHECK(iface->prepare(instance, &config) == ORPHEUS_OK && state.algorithm.indices[0] == 1 && state.algorithm.gains[0] == 1);
     values[0].value.i32 = 65;
     CHECK(iface->prepare(instance, &config) == ORPHEUS_ERR_INVALID_ARG);
+    CHECK(iface->destroy(instance) == ORPHEUS_OK);
     return 0;
 }

@@ -111,6 +111,18 @@ destroy 必须能安全清理失败或尚未 prepare 的实例。
 bulk_one_pole 与 bulk_guarded_slew 的原生验收覆盖分配失败、重试、
 reset/destroy 及处理期间零内存分配。
 
+## 接口化通道选择与索引资源
+
+channel_router 的 `in` 是驱动入口，`out` 是 1 号出口；空索引 CSV 表示顺序映射，
+非空恰好要求输出通道数个 int32，不再容忍垃圾字符、静默截断或不足项补齐。
+负值和越界置正零，有效通道按位拷贝。
+
+channel_selector 的 a/b/base 都是处理入口：每次实际交付立即处理当前可见输入，
+不等待其它入口，也不合并同一 Task 的多次调用。`indices/gains` 字符串是设计初值，
+分别绑定私有 int32/f32 BULK；运行期按真实数量整组写入，双 Bank 在 Task 边界提交。
+reset 保留运行期索引和增益。缺失输入或无效索引不做乘法，输出正零或原样保留 base；
+禁用分支时同样保留 base。两组件都拒绝输入输出重叠，零量子不交付下游。
+
 ## 统一组件定义
 
 所有定义使用组件 manifest。实现差异只体现在 `package_type`：
