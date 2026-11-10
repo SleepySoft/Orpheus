@@ -10,7 +10,7 @@ int orpheus_test_array_source_algorithm(orpheus_test_array_source_State* s,
     orpheus_test_array_source_IO* io, const OrpheusProcessContext* ctx) {
     if(!io->out.buffer) return ORPHEUS_ERR_INVALID_ARG;
     for(int32_t i=0;i<s->channels*s->elements;i++)
-        io->out.samples[i]=((i*17+s->calls*13)%129-64)*0.03125f;
+        io->out.samples[i]=@VALUE@;
     io->out.buffer->frame_count=(uint32_t)s->elements;
     s->calls++;
     return orpheus_test_array_source_emit_out(ctx,&io->out);
@@ -25,7 +25,7 @@ int orpheus_test_array_source_algorithm(orpheus_test_array_source_State* s,
     if(!io->out.buffer || !io->other.buffer) return ORPHEUS_ERR_INVALID_ARG;
     int32_t tick=s->calls++;
     for(int32_t i=0;i<s->channels*s->elements;i++)
-        io->out.samples[i]=((i*17+tick*13)%129-64)*0.03125f;
+        io->out.samples[i]=@VALUE@;
     io->out.buffer->frame_count=io->other.buffer->frame_count=(uint32_t)s->elements;
     int result=orpheus_test_array_source_emit_out(ctx,&io->out);
     if(result) return result;
@@ -59,7 +59,8 @@ int orpheus_test_array_capture_algorithm(orpheus_test_array_capture_State* s,
 '''
 
 
-def register_array_interfaces(directory, registry, *, capture_b_process=True, paired_source=False):
+def register_array_interfaces(directory, registry, *, capture_b_process=True, paired_source=False,
+                              source_audio=False):
     def parameter(default, maximum):
         return {**scalar("int", default), "range": [1, maximum],
                 "affects_signature": True, "update_policy": "restart_required"}
@@ -75,8 +76,13 @@ def register_array_interfaces(directory, registry, *, capture_b_process=True, pa
     }
     if paired_source:
         source_interfaces["other"] = port("output", "channels", "elements", drive_port_no=2)
-    source = create_component(directory, "array_source", source_interfaces,
-                              PAIRED_SOURCE if paired_source else SOURCE, source=True)
+    if source_audio:
+        source_interfaces["out"]["type"] = "audio"
+    call = "tick" if paired_source else "s->calls"
+    value = f"((i*17+{call}*13)%50001-25000)*0.000030517578125f" if source_audio else (
+        f"((i*17+{call}*13)%129-64)*0.03125f")
+    source_code = (PAIRED_SOURCE if paired_source else SOURCE).replace("@VALUE@", value)
+    source = create_component(directory, "array_source", source_interfaces, source_code, source=True)
     interfaces = {
         "a": port("input", "channels_a", "frames_a", process=True),
         "b": port("input", "channels_b", "frames_b", process=capture_b_process),

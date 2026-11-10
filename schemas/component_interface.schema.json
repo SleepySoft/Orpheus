@@ -98,7 +98,8 @@
         "storage": {"type": "string", "pattern": "^algorithm(?:\\.[A-Za-z][A-Za-z0-9_]*)+$"},
         "double_bank": {"type": "boolean"},
         "auto_register": {"type": "boolean", "default": true},
-        "range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}
+        "range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {
+          "type": "number", "minimum": -3.4028234663852886e38, "maximum": 3.4028234663852886e38}}
       }
     },
     "identifier": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
@@ -206,9 +207,10 @@
       },
       "allOf": [
         {"if": {"properties": {"type": {"const": "float"}}}, "then": {"properties": {"default": {"oneOf": [
-          {"type": "number", "minimum": -3.402823466e38, "maximum": 3.402823466e38},
-          {"type": "array", "items": {"type": "number", "minimum": -3.402823466e38, "maximum": 3.402823466e38}}
-        ]}}}},
+          {"type": "number", "minimum": -3.4028234663852886e38, "maximum": 3.4028234663852886e38},
+          {"type": "array", "items": {"type": "number", "minimum": -3.4028234663852886e38, "maximum": 3.4028234663852886e38}}
+        ]}, "range": {"items": {
+          "type": "number", "minimum": -3.4028234663852886e38, "maximum": 3.4028234663852886e38}}}}},
         {"if": {"properties": {"type": {"const": "int"}}}, "then": {"properties": {"default": {"oneOf": [
           {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
           {"type": "array", "items": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}}

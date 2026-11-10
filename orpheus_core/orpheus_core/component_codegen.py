@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .component_definition import (
     ComponentDefinitionError,
+    F32_MAX,
     LIFECYCLE_HOOKS,
     encode_array_initializer,
     is_array_parameter,
@@ -243,7 +244,7 @@ def _render_parameter_shell(definition):
                 if kind == "float":
                     lines += ["            double number=strtod(cursor, &end);",
                               "            if (end==cursor || errno==ERANGE || !isfinite(number) ||",
-                              "                number < -3.402823466e38 || number > 3.402823466e38) return ORPHEUS_ERR_INVALID_ARG;"]
+                              f"                number < -{F32_MAX!r} || number > {F32_MAX!r}) return ORPHEUS_ERR_INVALID_ARG;"]
                 else:
                     lines += ["            long long number=strtoll(cursor, &end, 10);",
                               "            if (end==cursor || errno==ERANGE || number<INT32_MIN || number>INT32_MAX)",

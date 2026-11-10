@@ -2,8 +2,10 @@
 
 import copy
 import json
+import math
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import uuid
@@ -14,6 +16,7 @@ import yaml
 
 from orpheus_core.component_definition import (
     ComponentDefinitionError,
+    F32_MAX,
     encode_array_initializer,
     is_array_parameter,
     load_component_definition,
@@ -2997,4 +3000,141 @@ int main(void) {
 }
 '''.replace("TWO_GROUPS", str(int(two_groups))).replace("AUDIO_INPUT", str(int(port_type == "audio"))),
         encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+
+
+def _add_f32_max_test_interfaces(raw):
+    maximum = struct.unpack("!f", bytes.fromhex("7f7fffff"))[0]
+    raw["interfaces"] = {
+        "epsilon": {"type": "float", "default": 2.22044605e-16, "range": [0, maximum]},
+        "limit": {"type": "float", "default": -maximum, "range": [-maximum, maximum]},
+        "weights": {"type": "float", "count": 2, "default": [maximum, -maximum],
+                    "range": [-maximum, maximum], "update_policy": "restart_required"},
+        "gains": {"type": "string", "default": "", "kind": "bulk",
+                  "bulk": {"sample_format": "f32", "capacity": 2, "storage": "algorithm.coefs",
+                           "range": [-maximum, maximum], "double_bank": True}},
+    }
+    return maximum
+
+
+def test_f32_max_matches_ieee_bits_and_exact_endpoints_work_in_schema_cli_and_initializer(package, raw):
+    import jsonschema
+    maximum = _add_f32_max_test_interfaces(raw)
+    assert F32_MAX == maximum == (2 ** 24 - 1) * 2 ** 104
+    assert 3.402823466e38 < maximum
+    assert struct.pack("!f", F32_MAX) == bytes.fromhex("7f7fffff")
+    assert encode_array_initializer({"type": "float", "count": 2}, [maximum, -maximum]) == (
+        f"{maximum!r},{-maximum!r}")
+    assert encode_array_initializer({"type": "float", "count": 1}, [int(maximum)]) == repr(maximum)
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    before = snapshot(package)
+    loaded = load_component_definition(path)
+    assert loaded["interfaces"]["epsilon"]["range"] == [0, maximum]
+    assert snapshot(package) == before
+    for script in ("validate_component.py", "generate_component.py"):
+        result = subprocess.run([str(PYTHON), str(ROOT / "scripts" / script), str(path), "--format", "json"],
+                                cwd=package, capture_output=True, encoding="utf-8")
+        assert result.returncode == 0, result.stderr + result.stdout
+        assert json.loads(result.stdout)["ok"] is True
+    check_generated(path)
+
+
+@pytest.mark.parametrize("target", ["scalar_default", "scalar_range", "array_default", "array_range", "bulk_range"])
+@pytest.mark.parametrize("sign", [-1, 1])
+@pytest.mark.parametrize("boundary", ["next_double", "next_integer"])
+def test_f32_values_just_outside_max_are_rejected_without_writes(package, raw, target, sign, boundary):
+    import jsonschema
+    maximum = _add_f32_max_test_interfaces(raw)
+    outside = sign * (math.nextafter(maximum, math.inf) if boundary == "next_double" else int(maximum) + 1)
+    assert abs(outside) > maximum
+    bounds = [-maximum, outside] if sign > 0 else [outside, maximum]
+    if target == "scalar_default":
+        raw["interfaces"]["limit"]["default"] = outside
+    elif target == "scalar_range":
+        raw["interfaces"]["limit"]["range"] = bounds
+    elif target == "array_default":
+        raw["interfaces"]["weights"]["default"][0] = outside
+    elif target == "array_range":
+        raw["interfaces"]["weights"]["range"] = bounds
+    else:
+        raw["interfaces"]["gains"]["bulk"]["range"] = bounds
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    with pytest.raises(ComponentDefinitionError):
+        encode_array_initializer({"type": "float", "count": 1}, [outside])
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("cpp", [False, True])
+def test_real_f32_exact_max_defaults_setters_csv_and_resource_bounds(package, raw, cpp):
+    maximum = _add_f32_max_test_interfaces(raw)
+    generate_component(save(package, raw))
+    good_csv = f"{maximum!r},{-maximum!r}"
+    outside = math.nextafter(maximum, math.inf)
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <float.h>
+#include <math.h>
+#include <string.h>
+static unsigned registrations;
+static OrpheusSlotId add(void* user,const OrpheusSlotInfo* slot) {
+    (void)user;++registrations;
+    assert(slot->type==ORPHEUS_VALUE_FLOAT && slot->max_f32==FLT_MAX);
+    if(strcmp(slot->key,"epsilon")==0) assert(slot->min_f32==0);
+    else assert(slot->min_f32==-FLT_MAX);
+    if(slot->kind==ORPHEUS_SLOT_BULK) assert(slot->count==2);
+    return registrations;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    const OrpheusComponentDescriptor* descriptor=api->get_descriptor();
+    assert(descriptor->params[0].max_f32==FLT_MAX);
+    assert(descriptor->params[1].min_f32==-FLT_MAX && descriptor->params[1].max_f32==FLT_MAX);
+    test_pilot_State state;void* instance=NULL;
+    OrpheusConfig config={.state_block=&state};
+    assert(api->create(&instance,&config)==ORPHEUS_OK && api->prepare(instance,&config)==ORPHEUS_OK);
+    assert(state.epsilon>0 && isfinite(state.epsilon));
+    assert(state.limit==-FLT_MAX && state.weights[0]==FLT_MAX && state.weights[1]==-FLT_MAX);
+    OrpheusRegistry registry={.add=add};
+    assert(api->register_slots(instance,&registry)==ORPHEUS_OK && registrations==4);
+    OrpheusValue value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=FLT_MAX},readback;
+    assert(api->set_parameter(instance,"epsilon",&value)==ORPHEUS_OK && state.epsilon==FLT_MAX);
+    assert(api->get_parameter(instance,"epsilon",&readback)==ORPHEUS_OK && readback.value.f32==FLT_MAX);
+    value.value.f32=-FLT_MAX;
+    assert(api->set_parameter(instance,"limit",&value)==ORPHEUS_OK && state.limit==-FLT_MAX);
+    unsigned char before[sizeof(state)];memcpy(before,&state,sizeof(state));
+    const float adjacent=nextafterf(FLT_MAX,INFINITY);
+    assert(isinf(adjacent));
+    const float invalid[]={adjacent,-adjacent,NAN,-FLT_MAX};
+    for(unsigned i=0;i<sizeof(invalid)/sizeof(invalid[0]);i++) {
+        value.value.f32=invalid[i];
+        assert(api->set_parameter(instance,"epsilon",&value)==ORPHEUS_ERR_INVALID_ARG);
+        assert(memcmp(before,&state,sizeof(state))==0);
+    }
+    const char* keys[]={"weights"};
+    value.type=ORPHEUS_VALUE_STRING;value.value.str=GOOD_CSV;
+    config.param_ids=keys;config.param_values=&value;config.param_count=1;
+    assert(api->prepare(instance,&config)==ORPHEUS_OK);
+    assert(state.weights[0]==FLT_MAX && state.weights[1]==-FLT_MAX);
+    memcpy(before,&state,sizeof(state));
+    const char* invalid_csv[]={POSITIVE_OUTSIDE_CSV,NEGATIVE_OUTSIDE_CSV};
+    for(unsigned i=0;i<2;i++) {
+        value.value.str=invalid_csv[i];
+        assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG);
+        assert(memcmp(before,&state,sizeof(state))==0);
+    }
+    assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+'''.replace("GOOD_CSV", json.dumps(good_csv)).replace(
+        "POSITIVE_OUTSIDE_CSV", json.dumps(f"{outside!r},0")).replace(
+        "NEGATIVE_OUTSIDE_CSV", json.dumps(f"{-outside!r},0")), encoding="utf-8", newline="\n")
     (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)

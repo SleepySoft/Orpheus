@@ -404,10 +404,12 @@ target_compile_definitions(bulk_scale_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_scale_smoke COMMAND bulk_scale_smoke)
 
 add_executable(bulk_db_smoke bulk_db_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_db/src/bulk_db.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_db/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_db/user/algorithm.c)
 target_include_directories(bulk_db_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_db/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_db/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_db/user)
 target_compile_definitions(bulk_db_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 if(NOT WIN32)
     target_link_libraries(bulk_db_smoke PRIVATE m)
@@ -415,10 +417,12 @@ endif()
 add_test(NAME bulk_db_smoke COMMAND bulk_db_smoke)
 
 add_executable(frame_energy_smoke frame_energy_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/frame_energy/src/frame_energy.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/frame_energy/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/frame_energy/user/algorithm.c)
 target_include_directories(frame_energy_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/frame_energy/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/frame_energy/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/frame_energy/user)
 target_compile_definitions(frame_energy_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME frame_energy_smoke COMMAND frame_energy_smoke)
 

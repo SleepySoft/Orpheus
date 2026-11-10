@@ -42,6 +42,7 @@ _KEYWORDS = set(("auto break case char const continue default do double else enu
                  "typedef union unsigned void volatile while bool true false class namespace template "
                  "private public protected new delete operator NULL").split())
 _POLICIES = {"immediate", "block_boundary", "smoothed", "transactional", "restart_required"}
+F32_MAX = float.fromhex("0x1.fffffep+127")
 LIFECYCLE_HOOKS = ("validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
         "category", "description", "interfaces", "algorithm", "order", "execution", "memory",
@@ -69,7 +70,7 @@ def _valid_numeric_element(kind, value):
         return type(value) is bool
     if kind == "int":
         return type(value) is int and -2147483648 <= value <= 2147483647
-    return type(value) in (float, int) and -3.402823466e38 <= value <= 3.402823466e38
+    return type(value) in (float, int) and -F32_MAX <= value <= F32_MAX
 
 
 def encode_array_initializer(parameter: dict, value: object, *, location: str | None = None) -> str:
@@ -445,7 +446,7 @@ def _validate(raw):
                         or any(type(v) not in ((int,) if kind == "int" else (int, float))
                                or not math.isfinite(v) for v in bounds)):
                     _fail("range 必须是同类型的有限数值二元数组", loc)
-                limit = 2147483647 if kind == "int" else 3.402823466e38
+                limit = 2147483647 if kind == "int" else F32_MAX
                 lower = -2147483648 if kind == "int" else -limit
                 if not lower <= bounds[0] <= bounds[1] <= limit or not bounds[0] <= value <= bounds[1]:
                     _fail("默认值不在 range 中或 range 越界/倒置", loc)
@@ -489,7 +490,7 @@ def _validate(raw):
                             any(type(v) not in ((int,) if resource_kind == "int" else (int, float))
                                 or not math.isfinite(v) for v in bounds) or bounds[0] > bounds[1]):
                         _fail("BULK range 必须是同类型的有序有限数值区间", loc + ".bulk.range")
-                    lower, upper = (-2147483648, 2147483647) if resource_kind == "int" else (-3.402823466e38, 3.402823466e38)
+                    lower, upper = (-2147483648, 2147483647) if resource_kind == "int" else (-F32_MAX, F32_MAX)
                     if not lower <= bounds[0] <= bounds[1] <= upper:
                         _fail("BULK range 超出元素类型范围", loc + ".bulk.range")
             if is_array or "bulk" in item:
