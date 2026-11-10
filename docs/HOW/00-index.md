@@ -36,6 +36,7 @@ HOW 记录“怎么做”：架构、实现、验证和历史。
 - [[reference/distillation-semantics-discussion|算法蒸馏执行语义讨论（全局数据读写与更新顺序）]]
 - [[reference/drive-entry-buffer-design|驱动入口与 Buffer 分离（入口箭头、声明式传播与执行域圆点）]]
 - [[reference/task-driven-execution-design|组件链式调用（当前 ABI v6 实现与此前设计）]]
+- [[reference/process-wrapper-design|处理调用 Wrapper 与有界调用统计树（设计记录，未实现）]]
 - [[reference/sport-boundary|SPORT Boundary、Clock Domain 与 Trigger Group]]
 - [[reference/pc-generated-app|PC 配置好即完整程序]]
 - [[reference/pc-generated-app-audit|PC 生成程序 Bridge 交接审计]]
