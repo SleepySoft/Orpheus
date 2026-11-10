@@ -3,6 +3,13 @@
   "title": "Orpheus Component Manifest",
   "type": "object",
   "required": ["id", "version", "abi_version"],
+  "allOf": [
+    {
+      "if": { "properties": { "package_type": { "const": "composite" } }, "required": ["package_type"] },
+      "then": { "properties": { "ports": { "items": { "required": ["maps_to"] } } } },
+      "else": { "properties": { "ports": { "items": { "required": ["type"] } } } }
+    }
+  ],
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$" },
     "name": { "type": "string", "description": "Human-readable display name (UI palette)" },
@@ -92,7 +99,7 @@
       "description": "计算数据端口，通过 process 的 inputs/outputs 交换 buffer；不使用参数槽的更新策略",
       "items": {
         "type": "object",
-        "required": ["id", "direction", "type"],
+        "required": ["id", "direction"],
         "properties": {
           "id": { "type": "string" },
           "description": { "type": "string", "description": "数据含义、布局、单位及与参数共存时的优先级/未连接行为" },

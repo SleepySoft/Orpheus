@@ -36,6 +36,8 @@ export const importDistilled = (name, yamlText) =>
   unwrap(api.post(`${projectPath(name)}/distill`, { yaml: yamlText }));
 export const getProject = (name, config) => unwrap(api.get(projectPath(name), config));
 export const saveProject = (name, doc) => unwrap(api.put(projectPath(name), doc));
+export const resolveProjectInterfaces = (name, document, viewKey, config) =>
+  unwrap(api.post(`${projectPath(name)}/interfaces`, { document, view_key: viewKey }, config));
 export const checkLesson = (name) => unwrap(api.post(`${projectPath(name)}/lesson/check`));
 export const getProjectNotes = (name) => unwrap(api.get(`${projectPath(name)}/notes`));
 export const saveProjectNotes = (name, content) =>

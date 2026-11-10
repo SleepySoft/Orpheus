@@ -358,7 +358,7 @@ describe('任务驱动执行图', () => {
     test('复合实例端口刷新保留传播声明及内部映射', () => {
       const ports = [{ id: 'out', direction: 'output', maps_to: 'inner:out', propagate_drive: false }];
       expect(resolvePorts(subCatalogEntry({ id: 'pair', ports }), {}))
-        .toEqual([{ ...ports[0], type: 'audio' }]);
+        .toEqual(ports);
     });
   });
 

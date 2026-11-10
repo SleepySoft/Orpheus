@@ -131,6 +131,28 @@ def _resolve_public_parameter(
     )
 
 
+def instantiate_subgraph(node: Node, sub: Subcomponent) -> Graph:
+    """在直接子实例上注入公开初始化值，递归展开和定义预览共用。"""
+    output_overrides = [
+        public.id for public in sub.public_parameters
+        if public.direction == "output" and public.id in node.params
+    ]
+    if output_overrides:
+        raise CompileError(f"node {node.id}: 子组件控制输出不可由实例赋值: {output_overrides}")
+    graph = copy.deepcopy(sub.graph)
+    for public in sub.public_parameters:
+        if public.direction != "input":
+            continue
+        value = node.params.get(public.id, public.default)
+        if value is None:
+            continue
+        target = PortRef.parse(public.maps_to)
+        if target.node_id not in graph.nodes:
+            raise CompileError(f"公开参数 {sub.id}:{public.id} 引用不存在的节点 {target.node_id}")
+        graph.nodes[target.node_id].params[target.port_id] = copy.deepcopy(value)
+    return graph
+
+
 def _expand_graph(
     graph: Graph,
     subs: dict[str, Subcomponent],
@@ -157,25 +179,21 @@ def _expand_graph(
         if sub_id in stack:
             cycle = " -> ".join((*stack, sub_id))
             raise CompileError(f"subcomponent cycle: {cycle}")
-        output_overrides = [
-            public.id for public in sub.public_parameters
-            if public.direction == "output" and public.id in node.params
-        ]
-        if output_overrides:
-            raise CompileError(
-                f"node {node.id}: 子组件控制输出不可由实例赋值: {output_overrides}"
-            )
-        inner = _expand_graph(sub.graph, subs, f"{prefix}{node.id}{NODE_SEP}", (*stack, sub_id),
+        inner_source = instantiate_subgraph(node, sub)
+        inner = _expand_graph(inner_source, subs, f"{prefix}{node.id}{NODE_SEP}", (*stack, sub_id),
                               context, registry)
-        for public in sub.public_parameters:
-            if public.direction != "input":
-                continue
-            value = node.params.get(public.id, public.default)
-            if value is None:
-                continue
-            _, _, target = _resolve_public_parameter(sub, public.id, subs)
-            flat_target = f"{prefix}{node.id}{NODE_SEP}{target.node_id}"
-            inner.nodes[flat_target].params[target.port_id] = copy.deepcopy(value)
+        for port in sub.ports:
+            target = _resolve_boundary_port(sub, port.id, subs)
+            context.interface_bindings.append({
+                "origin": f"{prefix}{node.id}:{port.id}",
+                "endpoint": f"{prefix}{node.id}{NODE_SEP}{target}",
+                "direction": port.direction,
+                "signature": port.signature,
+                "node": replace(node, params={
+                    **{p.id: p.default for p in sub.public_parameters if p.default is not None},
+                    **node.params,
+                }),
+            })
         flat.nodes.update(inner.nodes)
         flat.connections.extend(inner.connections)
         flat.drive_connections.extend(inner.drive_connections)
@@ -283,8 +301,9 @@ def flatten_project(project: Project, registry: Registry | None = None) -> Proje
     flat = copy.copy(project)  # shallow: tasks/metadata shared, graph replaced
     graph = copy.copy(project.graph)
     graph.drive_connections = project.drive_connections
+    flat.interface_bindings = []
     flat.graph = _expand_graph(graph, subs, prefix="", stack=(),
-                               context=project, registry=registry or project.registry)
+                               context=flat, registry=registry or project.registry)
     flat.drive_connections = flat.graph.drive_connections
     flat.graph.drive_connections = []
     flat.bridges = copy.deepcopy(project.bridges)

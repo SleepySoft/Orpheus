@@ -109,6 +109,7 @@ class SubPort:
     direction: str  # "input" | "output"
     maps_to: str    # "inner_node:inner_port", must reference an atomic internal node
     propagate_drive: bool | None = None
+    signature: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -223,6 +224,7 @@ class Project:
     # 顶层未知字段（如 presets、model_tree 蒸馏注释）：schema 放行但 loader 不认识，
     # 统一收进这里，保证 保存→重载→导出 往返不丢数据。
     extra: dict[str, Any] = field(default_factory=dict)
+    interface_bindings: list[dict[str, Any]] = field(default_factory=list, repr=False, compare=False)
 
     @property
     def presets(self) -> list[dict[str, Any]]:
@@ -421,7 +423,8 @@ def project_to_dict(
                 **({"read_only": True} if s.read_only else {}),
                 "ports": [
                     {"id": p.id, "direction": p.direction, "maps_to": p.maps_to,
-                     **({"propagate_drive": p.propagate_drive} if p.propagate_drive is not None else {})}
+                     **({"propagate_drive": p.propagate_drive} if p.propagate_drive is not None else {}),
+                     **p.signature}
                     for p in s.ports
                 ],
                 **({
@@ -516,6 +519,9 @@ def _subcomponent_from_manifest(info: ComponentInfo) -> Subcomponent:
         ports.append(SubPort(
             id=port["id"], direction=port["direction"], maps_to=port["maps_to"],
             propagate_drive=port.get("propagate_drive"),
+            signature={key: port[key] for key in
+                       ("type", "sample_format", "format", "channels", "block_size", "sample_rate")
+                       if key in port},
         ))
     public_parameters = []
     for parameter in manifest.get("parameters", []) or []:
@@ -687,6 +693,11 @@ class ProjectLoader:
         path = self._entry_path(path).resolve()
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
+        return self.load_document(data, path)
+
+    def load_document(self, data: dict[str, Any], path: Path) -> Project:
+        """解析内存中的工程快照，不保存工程或组件定义。"""
+        path = self._entry_path(path).resolve()
         schemas.validate(data, self._schema)
         data, layout, layout_path = load_document_layout(data, path)
 
@@ -797,7 +808,10 @@ class ProjectLoader:
                 description=s.get("description", ""),
                 ports=[
                     SubPort(id=p["id"], direction=p["direction"], maps_to=p["maps_to"],
-                            propagate_drive=p.get("propagate_drive"))
+                            propagate_drive=p.get("propagate_drive"),
+                            signature={key: p[key] for key in
+                                       ("type", "sample_format", "format", "channels", "block_size", "sample_rate")
+                                       if key in p})
                     for p in s.get("ports", [])
                 ],
                 public_parameters=[

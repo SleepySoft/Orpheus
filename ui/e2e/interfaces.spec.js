@@ -43,6 +43,20 @@ test('完整参数/Buffer/签名审查、独立显露保存重载及上游宿主
   await page.context().route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (request.method() === 'POST' && path.endsWith('/interfaces')) {
+      const { document: snapshot, view_key: viewKey } = request.postDataJSON();
+      await route.fulfill({ json: {
+        view_key: viewKey, diagnostics: [],
+        nodes: Object.fromEntries(snapshot.graph.nodes.map((node) => [node.id, {
+          status: 'resolved',
+          ports: component.ports.map((port) => ({
+            ...port, sample_format: port.format, frames: port.id === 'samples' ? 8 : node.params.frames,
+            sample_rate: 48000, resolution: { status: 'resolved', endpoint: `${node.id}:${port.id}`, component: component.id },
+          })),
+        }])),
+      } });
+      return;
+    }
     if (request.method() === 'PUT' && path === '/api/projects/interfaces-preview') {
       saved = request.postDataJSON();
       if (saved.layout?.file && saved.layout?.node_ui) {

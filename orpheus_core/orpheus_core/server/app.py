@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 import time
 import yaml
+import jsonschema
 
 from fastapi import Body, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +37,8 @@ from orpheus_core.compiler import CompileError, ExecutionPlan, GraphCompiler
 from orpheus_core.distill_topology import build_topology
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.lesson import evaluate_lesson
+from orpheus_core.interfaces import preview_interfaces
+from orpheus_core.project import ProjectLoader
 from orpheus_core.registry import ComponentInfo, Registry
 from orpheus_core.server.manager import ProjectError, ProjectManager, ProjectRecord
 from orpheus_core.server.bridge_process_session import ProcessBridgeSession
@@ -125,6 +128,11 @@ def _parse_probe_lines(stdout: str) -> list[dict[str, Any]]:
 class CreateProjectRequest(BaseModel):
     name: str
     from_example: str | None = None
+
+
+class InterfacePreviewRequest(BaseModel):
+    document: dict[str, Any]
+    view_key: str = "main"
 
 
 class RtParamRequest(BaseModel):
@@ -600,6 +608,17 @@ def create_app(project_root: Path, *,
         except CompileError as exc:
             compile_error = str(exc)
         return evaluate_lesson(rec.project, flat, plan, compile_error)
+
+    @app.post("/api/projects/{name:project_name}/interfaces")
+    def project_interfaces(name: str, request: InterfacePreviewRequest) -> dict[str, Any]:
+        try:
+            rec = manager.get(name)
+            project = ProjectLoader(registry).load_document(request.document, rec.path)
+            return preview_interfaces(project, project.registry or registry, request.view_key)
+        except ProjectError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        except (CompileError, ValueError, TypeError, OSError, jsonschema.ValidationError) as exc:
+            raise HTTPException(status_code=422, detail=f"接口解析失败：{exc}") from exc
 
     @app.get("/api/projects/{name:project_name}/notes")
     def get_project_notes(name: str) -> dict[str, Any]:

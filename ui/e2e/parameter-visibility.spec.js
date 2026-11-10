@@ -52,6 +52,17 @@ test('Router 初始化/运行期公开参数默认隐藏，显露不删映射且
   await page.context().route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (request.method() === 'POST' && path.endsWith('/interfaces')) {
+      const { view_key: viewKey } = request.postDataJSON();
+      const nodeId = viewKey === 'main' ? 'router_instance' : 'body';
+      await route.fulfill({ json: { view_key: viewKey, diagnostics: [], nodes: {
+        [nodeId]: { status: 'resolved', ports: component.ports.map((port) => ({
+          ...port, channels: 30, frames: 32, sample_rate: 48000,
+          resolution: { status: 'resolved', endpoint: 'router_instance__body:' + port.id, component: component.id },
+        })) },
+      } } });
+      return;
+    }
     if (request.method() === 'PUT' && path === '/api/projects/parameter-visibility-preview') {
       saved = request.postDataJSON();
       document = saved;

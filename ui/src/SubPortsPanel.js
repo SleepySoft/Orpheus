@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { isSubRef, resolvePorts } from './graphUtils';
+import { isSubRef } from './graphUtils';
 import { canEditDesignParameter, isInitializationParameter } from './interfaceModel';
 
 /**
@@ -7,7 +7,7 @@ import { canEditDesignParameter, isInitializationParameter } from './interfaceMo
  * add/remove them. Each port maps to an internal atomic node's port.
  */
 export default function SubPortsPanel({
-  sub, viewNodes, catalogById, onAddPort, onRemovePort, onAddParameter, onRemoveParameter,
+  sub, viewNodes, onAddPort, onRemovePort, onAddParameter, onRemoveParameter,
   highlightedExport,
 }) {
   const [direction, setDirection] = useState('input');
@@ -21,16 +21,14 @@ export default function SubPortsPanel({
     highlightedRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [highlightedExport]);
 
-  // candidate internal endpoints: atomic nodes' ports matching the direction
-  // (resolved per node params so variable pins like out0..outN-1 appear)
   const options = [];
   for (const n of viewNodes) {
-    if (isSubRef(n.data.component)) continue;
-    const comp = catalogById[n.data.component];
-    for (const p of resolvePorts(comp, n.data.params)) {
-      if (p.direction === direction) options.push(`${n.id}:${p.id}`);
+    for (const p of n.data.ports || []) {
+      if (['resolved', 'conflict'].includes(p.resolution?.status) && p.direction === direction)
+        options.push(`${n.id}:${p.id}`);
     }
   }
+  const validMapsTo = options.includes(mapsTo);
 
   const parameterOptions = [];
   for (const n of viewNodes) {
@@ -68,7 +66,7 @@ export default function SubPortsPanel({
           <option value="input">输入</option>
           <option value="output">输出</option>
         </select>
-        <select value={mapsTo} onChange={(e) => setMapsTo(e.target.value)}>
+        <select value={validMapsTo ? mapsTo : ''} onChange={(e) => setMapsTo(e.target.value)}>
           <option value="">映射到…</option>
           {options.map((o) => (
             <option key={o} value={o}>
@@ -76,7 +74,7 @@ export default function SubPortsPanel({
             </option>
           ))}
         </select>
-        <button disabled={!mapsTo} onClick={() => { onAddPort(direction, mapsTo); setMapsTo(''); }}>
+        <button disabled={!validMapsTo} onClick={() => { onAddPort(direction, mapsTo); setMapsTo(''); }}>
           添加
         </button>
       </div>

@@ -1,4 +1,4 @@
-import { isControlHandle, ctlParamId, isDriveEdge, resolveExprValue, isHostDeliveryStatus } from './graphUtils';
+import { isControlHandle, ctlParamId, isDriveEdge, isHostDeliveryStatus } from './graphUtils';
 
 export const accessText = (resource) => ({
   read: '只读', write: '只写', read_write: '可读写',
@@ -41,18 +41,19 @@ export function interfaceState(node, edges = []) {
   };
 }
 
-const signatureValue = (expression, data) => {
-  const value = resolveExprValue(expression, data.params, { parameters: data.parameters });
-  const numeric = typeof value === 'number' ? value
-    : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN;
-  return Number.isSafeInteger(numeric) && numeric > 0
-    ? String(numeric) : `未确定${expression === undefined ? '' : ` (${expression})`}`;
-};
-
 export function portSignature(port, data) {
-  return `${port.type || 'audio'} · ${port.format || port.sample_format || '格式未声明'} · `
-    + `${signatureValue(port.channels, data)}ch · `
-    + `${signatureValue(port.block_size ?? data.blockSize, data)}帧`;
+  if (data.portResolution?.status === 'error') return `解析失败：${data.portResolution.message}`;
+  if (data.portResolution?.status === 'pending'
+    || !['resolved', 'conflict'].includes(port.resolution?.status)) return '待解析：等待后端解析端口引用';
+  const actual = `${port.type} · ${port.sample_format} · ${port.channels}ch · `
+    + `${port.frames}帧 · ${port.sample_rate}Hz`;
+  return port.resolution.status === 'conflict' ? `${actual} · 约束冲突` : actual;
+}
+
+export function portOrigin(port) {
+  return ['resolved', 'conflict'].includes(port.resolution?.status)
+    ? `引用来源：${port.resolution.endpoint}（${port.resolution.component}）`
+      + (port.resolution.message ? `；${port.resolution.message}` : '') : '';
 }
 
 export function bindingStatus(port, data) {

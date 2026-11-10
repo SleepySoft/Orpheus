@@ -14,6 +14,7 @@ import 'reactflow/dist/style.css';
 
 import './App.css';
 import * as api from './api';
+import usePortInterfaces, { resolvedNodeInterfaces } from './usePortInterfaces';
 import {
   docToViewsAsync,
   viewsToDoc,
@@ -126,8 +127,8 @@ const stripAlters = (nodes, gone) =>
   );
 
 /** 节点端口签名（方向:引脚 id 排序拼接）——替代组接口一致性轻量提示用。 */
-const portSignature = (node) =>
-  (node.data.ports || [])
+const portSetSignature = (ports) =>
+  ports
     .map((p) => `${p.direction}:${p.id}`)
     .sort()
     .join('|');
@@ -244,6 +245,9 @@ const { screenToFlowPosition } = useReactFlow();
   const initializedViewRef = useRef('');
   const activeSubId = activeView === 'main' ? null : subIdOf(activeView);
   const activeSub = activeSubId ? subsMeta.find((s) => s.id === activeSubId) : null;
+  const interfaceDocument = useMemo(() => doc ? viewsToDoc(views, subsMeta, doc) : null,
+    [views, subsMeta, doc]);
+  const portInterfaces = usePortInterfaces(current, interfaceDocument, activeView);
 
   // Stable key for per-node notes: main graph uses node id; subcomponent views
   // use "sub:<subId>/<nodeId>" to avoid collisions when the same id appears in
@@ -638,8 +642,9 @@ const { screenToFlowPosition } = useReactFlow();
     const members = view.nodes.filter((n) => union.has(n.id));
     if (members.length < 2) return;
     // 轻量提示：组内组件端口集合应一致（后端编译时是最终裁判，此处仅提示不阻止）
-    const sig = portSignature(members[0]);
-    if (members.some((n) => portSignature(n) !== sig)) {
+    const resolved = members.map((node) => portInterfaces?.nodes?.[node.id]);
+    if (resolved.every((node) => node?.status === 'resolved')
+      && resolved.some((node) => portSetSignature(node.ports) !== portSetSignature(resolved[0].ports))) {
       window.alert('提示：选中节点的接口（端口集合）不一致，编译将报错。\n仍已设为替代组，请确认各成员组件端口一致。');
     }
     const ids = members.map((n) => n.id).sort();
@@ -653,7 +658,7 @@ const { screenToFlowPosition } = useReactFlow();
     }));
     setDirty(true);
     setStatus(`已设替代组（${ids.length} 个成员）：${ids.join('、')}`);
-  }, [selectedIds, view, activeView, updateView]);
+  }, [selectedIds, view, activeView, updateView, portInterfaces]);
 
   /** 解除替代组：清空选中节点所在组的全部成员 alters（组内未选中成员一并清，保持对称）。 */
   const clearAlterGroup = useCallback(() => {
@@ -1908,9 +1913,9 @@ const { screenToFlowPosition } = useReactFlow();
         ...node,
         data: {
           ...node.data,
+          ...resolvedNodeInterfaces(node.data, portInterfaces, node.id),
           flowMode,
           driveMemberships: memberships[node.id],
-          blockSize: doc?.block_size,
           exportSubId: activeSub?.id,
           exportedAudioPorts: audioByNode[node.id] || {},
           exportedControlParameters: controlByNode[node.id] || {},
@@ -1919,7 +1924,7 @@ const { screenToFlowPosition } = useReactFlow();
       decorated.data.interfaces = interfaceState(decorated, view.edges);
       return decorated;
     });
-  }, [activeSub, view.nodes, view.edges, flowMode, doc?.block_size, memberships]);
+  }, [activeSub, view.nodes, view.edges, flowMode, memberships, portInterfaces]);
 
   const selectedNode = displayNodes.find((node) => node.id === selectedId) || null;
   const onInterfaceChange = (field, id, exposed) => {
@@ -2346,8 +2351,7 @@ const { screenToFlowPosition } = useReactFlow();
             {activeSub && (
               <SubPortsPanel
                 sub={activeSub}
-                viewNodes={view.nodes}
-                catalogById={catalogById}
+                viewNodes={displayNodes}
                 onAddPort={addSubPort}
                 onRemovePort={removeSubPort}
                 onAddParameter={addSubParameter}

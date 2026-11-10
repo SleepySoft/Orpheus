@@ -147,7 +147,8 @@ test('纯宿主Buffer独立于时钟源呈现方向、通道和块长', () => {
           host_binding: { slot: 'samples', access: 'read', status: 'valid', when: { mode: 1 } } },
         { id: 'out', type: 'audio', direction: 'output', channels: 'param:channels',
           host_binding: { slot: 'samples', access: 'write', status: 'ready', when: { mode: 0 } } },
-      ] }} />
+      ].map((port) => ({ ...port, channels: 30, frames: 32, sample_format: 'f32',
+        resolution: { status: 'resolved' } })) }} />
   ));
   render(0);
   expect(container.querySelector('.source-buffer-summary').textContent).toContain('输入 Buffer30ch × 32帧');
@@ -167,7 +168,8 @@ test('驱动路由不可见，组件本体接收入口，音频端口及Buffer�
         ? 'orpheus.builtin.buffer_source' : 'orpheus.builtin.gain',
         flowMode: 'task_sequence', clockSource: source, blockSize: 32, params: { channels: 2 },
         interfaceUi: { exposedPorts: ['out'] },
-        ports: [{ id: 'out', type: 'audio', direction: 'output', channels: 'param:channels' }] }} />
+        ports: [{ id: 'out', type: 'audio', direction: 'output', channels: 2, frames: 32,
+          sample_format: 'f32', resolution: { status: 'resolved' } }] }} />
     </NodeActionsContext.Provider>
   ));
   render(true);

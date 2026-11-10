@@ -1,7 +1,7 @@
 import React from 'react';
 import ParamField from './widgets';
 import { NodeTodos, isRunnablePlaceholder } from './TodoPanel';
-import { accessText, canEditParameter, canEditDesignParameter, isInitializationParameter, portSignature, bindingStatus } from './interfaceModel';
+import { accessText, canEditParameter, canEditDesignParameter, isInitializationParameter, portSignature, portOrigin, bindingStatus } from './interfaceModel';
 import { isHostDeliveryStatus } from './graphUtils';
 
 // Universal params (channel count, sample rate, ...) always go on top,
@@ -145,10 +145,16 @@ export default function ParamPanel({
       ))}
       </InterfaceSection>
       <InterfaceSection title="数据端口签名（逐端口）" count={(node.data.ports || []).length}>
+      {node.data.portResolution?.status === 'error'
+        && <p role="status">数据端口解析失败：{node.data.portResolution.message}</p>}
+      {(node.data.portResolution?.diagnostics || []).map((item) => (
+        <p role="status" key={item.origin}>接口约束冲突：{item.message}</p>
+      ))}
       {(node.data.ports || []).map((port) => (
         <div key={port.id} className="declared-interface" data-interface={`port:${port.id}`}>
           <strong>{port.id} · {port.direction === 'input' ? '输入' : '输出'}</strong>
           <small>{portSignature(port, node.data)}</small>
+          {portOrigin(port) && <small>{portOrigin(port)}</small>}
           {port.host_binding && <small>
             {(node.data.bulkSlots || []).some((slot) => slot.id === port.host_binding.slot)
               ? '绑定已声明资源' : '绑定资源未在目录声明'}：{port.host_binding.slot} · {port.host_binding.access} · {port.host_binding.status}

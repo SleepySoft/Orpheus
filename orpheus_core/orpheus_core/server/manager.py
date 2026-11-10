@@ -330,8 +330,6 @@ class ProjectManager:
         for port in sub.get("ports", []) or []:
             merged = dict(old_ports.get(port["id"], {}))
             merged.update(port)
-            merged.setdefault("type", "audio")
-            merged.setdefault("sample_format", "f32")
             ports.append(merged)
         manifest["ports"] = ports
         old_parameters = {

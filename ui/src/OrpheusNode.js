@@ -1,11 +1,11 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, NodeResizer, useUpdateNodeInternals } from 'reactflow';
-import { resolveExprValue, resolveShape, shapeText, CTL_PREFIX, driveHandles, DRIVE_IN, DRIVE_OUT } from './graphUtils';
+import { resolveShape, shapeText, CTL_PREFIX, driveHandles, DRIVE_IN, DRIVE_OUT } from './graphUtils';
 import { NODE_WIDGETS } from './nodeWidgets';
 import { NodeActionsContext } from './NodeActionsContext';
 import { PLACEHOLDER_ID } from './placeholder';
-import { interfaceState, portSignature, bindingStatus, accessText, canEditDesignParameter, isInitializationParameter } from './interfaceModel';
+import { interfaceState, portSignature, portOrigin, bindingStatus, accessText, canEditDesignParameter, isInitializationParameter } from './interfaceModel';
 
 /** Custom React Flow node: ports come from the component manifest (resolved). */
 export default function OrpheusNode({ id, data, selected }) {
@@ -74,7 +74,9 @@ export default function OrpheusNode({ id, data, selected }) {
   };
 
   // resolved channel count badge, e.g. "out0 · 1ch"
-  const channelBadge = (p) => <span className="ch-badge">{portSignature(p, data)}</span>;
+  const channelBadge = (p) => <span className="ch-badge" title={data.portResolution?.message || portOrigin(p)}>
+    {data.portResolution?.status === 'error' ? '解析失败' : portSignature(p, data)}
+  </span>;
 
 
 /**
@@ -237,10 +239,8 @@ const BodyWidget = NODE_WIDGETS[data.component];
   const hostBuffer = data.component === 'orpheus.builtin.host_audio';
   const hostOutput = hostBuffer && Number(data.params?.mode ?? 0) === 1;
   const bufferPort = (data.ports || []).find((port) => port.direction === (hostOutput ? 'input' : 'output') && port.type === 'audio');
-  const sourceFrames = resolveExprValue(bufferPort?.block_size ?? data.blockSize, data.params, data);
-  const sourceChannels = (audioSource || hostBuffer) && bufferPort
-    ? resolveExprValue(bufferPort.channels, data.params, data)
-    : null;
+  const sourceFrames = bufferPort?.resolution ? bufferPort.frames : null;
+  const sourceChannels = bufferPort?.resolution ? bufferPort.channels : null;
 
   return (
     <>
@@ -272,6 +272,10 @@ const BodyWidget = NODE_WIDGETS[data.component];
             <span className="placeholder-badge" title="在参数面板查看待办，工程 TODO 可查找全部待办">TODO</span>
           )}
           {rateBadge}
+          {(data.portResolution?.status === 'error' || data.portResolution?.diagnostics?.length > 0) && (
+            <span className="missing-badge" title={data.portResolution.message
+              || data.portResolution.diagnostics.map((item) => item.message).join('\n')}>接口异常</span>
+          )}
           {data.hasNote && (
             <span className="note-badge" title="该节点有笔记">
               📝
@@ -332,11 +336,11 @@ const BodyWidget = NODE_WIDGETS[data.component];
           ? '纯宿主音频缓冲，不产生驱动；宿主在实际Task调用边界交付或读取完整交错f32块'
           : 'PCM输出绑定与驱动入口相互独立；输入供数由具体源决定'}>
           <span>{hostBuffer ? hostOutput ? '输出 Buffer' : '输入 Buffer' : '音频 Buffer'}</span>
-          <strong>{typeof sourceChannels === 'number' ? sourceChannels : '?'}ch × {typeof sourceFrames === 'number' ? sourceFrames : '?'}帧</strong>
+          <strong>{typeof sourceChannels === 'number' ? sourceChannels : '待解析'}ch × {typeof sourceFrames === 'number' ? sourceFrames : '待解析'}帧</strong>
           {hostBuffer && (data.ports || []).filter((port) => port.host_binding).map((port) => (
             <small key={port.id}>{bindingStatus(port, data)}</small>
           ))}
-          {hostBuffer && <small>交错 f32 · 独立驱动 · 生成代码含适配 TODO</small>}
+          {hostBuffer && <small>交错 {bufferPort?.resolution ? bufferPort.sample_format : '待解析'} · 独立驱动 · 生成代码含适配 TODO</small>}
           {data.component === 'orpheus.builtin.buffer_source' && <small>宿主交付与驱动独立；此界面不提交 PCM</small>}
         </div>
       )}

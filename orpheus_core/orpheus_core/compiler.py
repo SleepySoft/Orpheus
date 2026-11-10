@@ -8,7 +8,7 @@ import copy
 from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from orpheus_core.project import Connection, ControlConnection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import ComponentInfo, Registry
@@ -40,6 +40,17 @@ class ResolvedPort:
     timing: str = "sync"
     layout: str | None = None
     frame_size: int | None = None
+
+
+def port_signature_to_dict(port: ResolvedPort) -> dict[str, Any]:
+    return {
+        "direction": port.direction,
+        "type": port.type,
+        "sample_format": port.sample_format,
+        "channels": port.channels,
+        "frames": port.block_size,
+        "sample_rate": float(port.sample_rate),
+    }
 
 
 @dataclass
@@ -471,129 +482,18 @@ class GraphCompiler:
         ]
         return prepared, ignored
 
-    def compile(self, project: Project, target: str | None = None) -> ExecutionPlan:
-        if project.flow_mode not in ("dataflow", "task_sequence"):
-            raise CompileError(f"未知流程模式：{project.flow_mode}")
-        for node in project.graph.nodes.values():
-            if node.component in ("orpheus.builtin.task_source", "orpheus.builtin.buffer_source") and project.flow_mode != "task_sequence":
-                raise CompileError("驱动源需要显式启用 flow_mode: task_sequence")
+    def _resolve_graph_ports(
+        self, graph: Graph, node_task: Callable[[Node], Task],
+    ) -> tuple[dict[str, ResolvedPort], dict[str, list[dict[str, Any]]],
+               dict[str, list[Connection]]]:
+        for node in graph.nodes.values():
             comp = self.registry.get(node.component)
-            if comp is None or comp.package_type != "placeholder":
-                continue
-            blockers = comp.manifest.get("blockers", []) or []
-            details = "; ".join(
-                f"{item.get('gate', 'unknown')}:{item.get('reason', item.get('id', 'unknown'))}"
-                for item in blockers
-            ) or "未声明 blocker"
-            raise CompileError(
-                f"节点 {node.id} 使用未实现算法组件 {node.component}：{details}"
-            )
-
-        # 目标平台与 alter 组解析：先把工程解析为选定平台下的等价副本
-        # （替换 alter 成员、剔除未激活成员、重映射边），再走现有编译管线。
-        from orpheus_core.resolve import resolve_project
-
-        project, ignored_nodes = self.prepare_debug_project(project)
-        resolved, _resolution = resolve_project(project, self.registry, target)
-        project = resolved
-        graph = project.graph
-        task_flow = None
-        if project.flow_mode == "task_sequence":
-            from orpheus_core.task_flow import build_task_flow
-            task_flow = build_task_flow(project, self.registry)
-        resolved_platform = _resolution.platform
-        default_task = project.get_default_task()
-        task_values = list(project.tasks.values()) or [default_task]
-        resolved_tasks = {
-            task.id: self._resolve_source_rate(project, task)
-            for task in task_values
-        }
-        resolved_task = resolved_tasks[default_task.id]
-
-        def node_task(node: Node) -> Task:
-            return resolved_tasks.get(node.task, resolved_task)
-
-        sport_bindings = self._validate_external_contract(project, graph)
-
-        # 声明式平台节点（execution.none，如 platform_hook）：不参与执行计划，
-        # 仅作为声明进入 plan.declarations，生成器据此产出用户钩子（不连线）。
-        declarations: list[dict[str, Any]] = []
-        bridges: list[dict[str, Any]] = [
-            {
-                "id": bridge.id,
-                "transport": bridge.transport,
-                "codec": bridge.codec,
-                "enabled": bridge.enabled,
-                "params": dict(bridge.params),
-            }
-            for bridge in project.bridges
-        ]
-        for nid in list(graph.nodes):
-            decl_comp = self.registry.get(graph.nodes[nid].component)
-            if decl_comp and decl_comp.manifest.get("execution", {}).get("none"):
-                for conn in graph.connections:
-                    if conn.from_ref.node_id == nid or conn.to_ref.node_id == nid:
-                        raise CompileError(
-                            f"平台资源节点 {nid}（{graph.nodes[nid].component}）不支持连线"
-                        )
-                node = graph.nodes[nid]
-                if node.component == "orpheus.builtin.uart_link":
-                    bridges.append({
-                        "id": nid,
-                        "transport": "uart",
-                        "codec": "olink",
-                        "enabled": True,
-                        "params": dict(node.params),
-                        "resource_access": {
-                            p["id"]: p["access"]
-                            for p in [*comp.manifest.get("parameters", []), *comp.manifest.get("bulk_slots", [])]
-                            if "access" in p
-                        },
-                    })
-                elif decl_comp.manifest.get("bridge_config"):
-                    params = dict(node.params)
-                    bridges.append({
-                        "id": nid,
-                        "transport": str(params.pop("transport", "uart")),
-                        "codec": str(params.pop("codec", "olink")),
-                        "enabled": bool(params.pop("enabled", True)),
-                        "params": params,
-                    })
-                else:
-                    declarations.append(
-                        {
-                            "id": nid,
-                            "component": node.component,
-                            "params": dict(node.params),
-                        }
-                    )
-                graph.nodes.pop(nid)
-
-        bridge_ids: set[str] = set()
-        for bridge in bridges:
-            bridge_id = bridge["id"]
-            if bridge_id in bridge_ids:
-                raise CompileError(f"Bridge ID 重复：{bridge_id}")
-            if bridge_id in graph.nodes:
-                raise CompileError(f"Bridge ID 与音频节点重复：{bridge_id}")
-            bridge_ids.add(bridge_id)
-            if not bridge.get("enabled", True):
-                continue
-            transport = bridge.get("transport")
-            codec = bridge.get("codec")
-            if transport != "uart" or codec != "olink":
-                raise CompileError(
-                    f"Bridge {bridge_id} 的 Adapter 尚未安装：transport={transport}, codec={codec}；"
-                    "当前支持 uart + olink"
-                )
-            params = bridge.setdefault("params", {})
-            duplex = str(params.get("duplex", "half"))
-            if duplex not in ("half", "full"):
-                raise CompileError(
-                    f"Bridge {bridge_id} 的 duplex 无效：{duplex}；可选 half / full"
-                )
-            params["duplex"] = duplex
-
+            if comp is None:
+                raise CompileError(f"组件不存在：{node.component}（节点 {node.id}）")
+            node.params = {**{p['id']: p['default'] for p in comp.manifest.get('parameters', [])
+                             if 'default' in p and not (
+                                 comp.manifest.get("clock_source") and p["id"] == "sample_rate"
+                             )}, **node.params}
         # 0.5 wav_out 输入采样率自动跟随源端口（免手填）：
         #     先解析所有输出端口，把源端口采样率注入 wav_out 的 sample_rate 参数，
         #     其输入端口声明为 param:sample_rate，随后按注入值解析，连接校验自然一致。
@@ -620,25 +520,6 @@ class GraphCompiler:
                 # 仅在编译内存中注入（compile 不持久化工程），运行时/生成路径经 plan 参数消费
                 to_node.params = {**to_node.params, "sample_rate": str(int(fp.sample_rate))}
 
-        # sweep_record：采集参数自动跟随扫频发生器（时长/起始/结束频率/对数）
-        # 免手填，且频率轴与发生器一致（参数不一致会提前完结或频率映射错乱）
-        sweep_params: dict[str, Any] = {}
-        sweep_dur = 0.0
-        for node in graph.nodes.values():
-            if node.component != "orpheus.builtin.sweep_gen":
-                continue
-            try:
-                sweep_dur = max(sweep_dur, float(node.params.get("duration_s", 0.0) or 0.0))
-            except (TypeError, ValueError):
-                pass
-            for k in ("start_freq", "end_freq", "duration_s", "log_scale"):
-                if node.params.get(k) is not None:
-                    sweep_params[k] = node.params[k]
-        if sweep_params:
-            for node in graph.nodes.values():
-                if node.component == "orpheus.builtin.sweep_record":
-                    node.params = {**node.params, **sweep_params}
-
         # 1. Resolve remaining ports (inputs; variable-count expansion already done)
         for node in graph.nodes.values():
             comp = self.registry.get(node.component)
@@ -648,20 +529,6 @@ class GraphCompiler:
                 if key in resolved_ports:
                     continue
                 resolved_ports[key] = _resolve_port_signature(node, comp, port_manifest, nt)
-
-        connected_inputs = {str(conn.to_ref) for conn in graph.connections}
-        for node in graph.nodes.values():
-            comp = self.registry.get(node.component)
-            for group in comp.manifest.get("input_alternatives", []):
-                if any(
-                    f"{node.id}:{port}" not in resolved_ports
-                    or resolved_ports[f"{node.id}:{port}"].direction != "input"
-                    for port in group
-                ):
-                    raise CompileError(f"节点 {node.id}：输入互斥组包含未知输入 {group}")
-                count = sum(f"{node.id}:{port}" in connected_inputs for port in group)
-                if count != 1:
-                    raise CompileError(f"节点 {node.id}：输入互斥组 {group} 必须且只能连接一个输入")
 
         # 同Task默认端口跟随上游速率；显式速率约束保持不变。
         rate_inputs: dict[str, list[Connection]] = {key: [] for key in graph.nodes}
@@ -673,7 +540,7 @@ class GraphCompiler:
             changed = False
             for node in graph.nodes.values():
                 incoming = rate_inputs[node.id]
-                if not incoming or any(
+                if any(
                     conn.from_ref.node_id not in graph.nodes
                     or graph.nodes[conn.from_ref.node_id].task != node.task
                     for conn in incoming
@@ -685,7 +552,13 @@ class GraphCompiler:
                     if str(conn.from_ref) in resolved_ports
                     and resolved_ports[str(conn.from_ref)].type == "audio"
                 }
-                first_source = resolved_ports.get(str(incoming[0].from_ref))
+                if not incoming:
+                    rates = {
+                        resolved_ports[f"{node.id}:{pm['id']}"].sample_rate
+                        for pm in expanded_ports[node.id]
+                        if pm["direction"] == "input" and pm.get("type", "audio") == "audio"
+                    } or {Fraction(node_task(node).sample_rate)}
+                first_source = resolved_ports.get(str(incoming[0].from_ref)) if incoming else None
                 if not rates and first_source is not None:
                     rates = {first_source.sample_rate}
                 if len(rates) != 1:
@@ -733,132 +606,14 @@ class GraphCompiler:
                             f"节点 {node.id}：物理IO端点不能使用 {rate} Hz；请先重采样为整数Hz"
                         )
 
-        # 2. Validate connections
-        driven_inputs: set[str] = set()
-        for conn in graph.connections:
-            from_key = str(conn.from_ref)
-            to_key = str(conn.to_ref)
-            if to_key in driven_inputs:
-                raise CompileError(f"input port driven by multiple sources: {to_key}")
-            driven_inputs.add(to_key)
-            from_port = resolved_ports.get(from_key)
-            to_port = resolved_ports.get(to_key)
-            if from_port is None:
-                raise CompileError(f"unknown source port: {from_key}")
-            if to_port is None:
-                raise CompileError(f"unknown target port: {to_key}")
-            if from_port.direction != "output":
-                raise CompileError(f"source port is not output: {from_key}")
-            if to_port.direction != "input":
-                raise CompileError(f"target port is not input: {to_key}")
-            if from_port.type != to_port.type:
-                raise CompileError(
-                    f"type mismatch: {from_key} ({from_port.type}) -> {to_key} ({to_port.type})"
-                )
-            if from_port.sample_format != to_port.sample_format:
-                raise CompileError(
-                    f"format mismatch: {from_key} ({from_port.sample_format}) -> {to_key} ({to_port.sample_format})"
-                )
-            if from_port.channels != to_port.channels:
-                raise CompileError(
-                    f"channels mismatch: {from_key} ({from_port.channels}) -> {to_key} ({to_port.channels})"
-                )
-            if from_port.type == "audio" and from_port.sample_rate != to_port.sample_rate:
-                raise CompileError(
-                    f"sample rate mismatch: {from_key} ({from_port.sample_rate}) -> {to_key} ({to_port.sample_rate})"
-                )
-            from_task = node_task(graph.nodes[conn.from_ref.node_id]).id
-            to_task = node_task(graph.nodes[conn.to_ref.node_id]).id
-            if from_task != to_task:
-                if from_port.type != "audio":
-                    raise CompileError(
-                        f"非音频数据连接不能直接跨 Task：{from_key} → {to_key}；"
-                        "请使用显式数据快照/事务桥，latest 不提供跨线程同步"
-                    )
-                to_comp = self.registry.get(graph.nodes[conn.to_ref.node_id].component)
-                scheduling = (to_comp.manifest.get("scheduling") or {}) if to_comp else {}
-                if not (scheduling.get("async_bridge") or scheduling.get("merge")):
-                    raise CompileError(
-                        f"跨 Task 连接必须经过异步任务桥：{from_key}（{from_task}）→ "
-                        f"{to_key}（{to_task}）；请在目标 Task 插入 orpheus.builtin.async_bridge"
-                    )
+        return resolved_ports, expanded_ports, rate_inputs
 
-        for node in graph.nodes.values():
-            if node.component != PLACEHOLDER_ID or node.params.get("mode", "passthrough") != "passthrough":
-                continue
-            inputs = [p for p in expanded_ports[node.id] if p["direction"] == "input"]
-            for token in node.params.get("routes", "0").split(","):
-                if not token.strip() or int(token) < 0:
-                    continue
-                port_id = inputs[int(token)]["id"]
-                if f"{node.id}:{port_id}" not in driven_inputs:
-                    raise CompileError(f"占位模块 {node.id} 的透传输入 {port_id} 未连接；请连接或显式使用 -1 置零")
-
-        # 2.5 Clock domains: every flow must be driven by exactly one clock
-        clock_graph = Graph(
-            nodes=graph.nodes,
-            connections=graph.connections + (project.drive_connections if task_flow else []),
-        )
-        self._validate_clock_domains(clock_graph, node_task, source_tasks=bool(task_flow))
-
-        # 2.6 控制连接校验（control_source/bindable/类型/形状），产出 plan.control_links
-        control_links = self._validate_control_links(graph, project.control_connections, node_task)
-
-        # 3. Topological sort
-        execution_order = task_flow.order if task_flow else self._topological_sort(graph)
-        if task_flow:
-            for conn in graph.connections:
-                if (graph.nodes[conn.from_ref.node_id].task == graph.nodes[conn.to_ref.node_id].task
-                        and resolved_ports[str(conn.to_ref)].timing != "latest"):
-                    task_flow.require_before(conn.from_ref.node_id, conn.to_ref.node_id)
-            for link in control_links:
-                if graph.nodes[link["src_node"]].task != graph.nodes[link["dst_node"]].task:
-                    raise CompileError("Task 顺序模式的参数连接不能隐式跨 Task；请使用显式快照/事务桥")
-                task_flow.require_before(link["src_node"], link["dst_node"])
-                link["delivery"] = "before_call"
-
-        # 3.5 Rate divisor propagation (multi-rate scheduling)
-        node_divisor = ({nid: value[0] for nid, value in task_flow.cadences.items()}
-                        if task_flow else self._propagate_rate_divisors(
-            graph, expanded_ports, execution_order, node_task, rate_inputs
-        ))
-
-        # 4. Build execution plan
-        plan = ExecutionPlan(
-            abi_version=6,
-            sample_rate=resolved_task.sample_rate,
-            block_size=resolved_task.block_size,
-            buffer_size=project.buffer_size,
-            task_id=resolved_task.id,
-            flow_mode=project.flow_mode,
-            nodes=list(graph.nodes.keys()),
-            execution_order=execution_order,
-        )
-        plan.declarations = declarations
-        plan.bridges = bridges
-        plan.target = resolved_platform
-        plan.control_links = control_links
-        plan.ignored_nodes = ignored_nodes
-        plan.clock_domains = [
-            {
-                "id": domain.id,
-                "sample_rate": domain.sample_rate,
-                "assurance": domain.assurance,
-            }
-            for domain in project.clock_domains.values()
-        ]
-        plan.trigger_groups = [
-            {
-                "id": trigger.id,
-                "clock_domain": trigger.clock_domain,
-                "dispatch": trigger.dispatch,
-                "master": trigger.master,
-                "members": list(trigger.members),
-            }
-            for trigger in project.trigger_groups.values()
-        ]
-        plan.sport_bindings = sport_bindings
-
+    def _resolve_graph_blocks(
+        self, graph: Graph, expanded_ports: dict[str, list[dict[str, Any]]],
+        resolved_ports: dict[str, ResolvedPort], rate_inputs: dict[str, list[Connection]],
+        node_task: Callable[[Node], Task], execution_order: list[str],
+    ) -> dict[str, int]:
+        connected_inputs = {str(conn.to_ref) for conn in graph.connections}
         # 数据端口的 block_size 是数组长度，不参与音频处理量子的推导。
         def _compute_in_frames(strict: bool = False) -> dict[str, int]:
             frames: dict[str, int] = {}
@@ -1005,6 +760,366 @@ class GraphCompiler:
                     )
                 resolved_ports[key] = replace(port, frame_size=int(size))
 
+        return in_frames
+
+    def _validate_interface_bindings(
+        self, project: Project, ports: dict[str, ResolvedPort],
+        node_task: Callable[[Node], Task], diagnostics: list[dict[str, Any]] | None = None,
+    ) -> None:
+        for binding in project.interface_bindings:
+            endpoint = binding["endpoint"]
+            if endpoint.split(":")[0] not in project.graph.nodes:
+                continue
+            try:
+                self._validate_interface_binding(binding, ports, node_task)
+            except CompileError as exc:
+                if diagnostics is None or endpoint not in ports:
+                    raise
+                diagnostics.append({"origin": binding["origin"], "endpoint": endpoint, "message": str(exc)})
+
+    def _validate_interface_binding(
+        self, binding: dict[str, Any], ports: dict[str, ResolvedPort],
+        node_task: Callable[[Node], Task],
+    ) -> None:
+        endpoint = binding["endpoint"]
+        port = ports.get(endpoint)
+        if port is None:
+            raise CompileError(f"接口 {binding['origin']} 引用不存在的端口 {endpoint}")
+        declared = {"direction": binding["direction"], **binding["signature"]}
+        actual = port_signature_to_dict(port)
+        actual["sample_rate"] = port.sample_rate
+        for key, expression in declared.items():
+            key = {"format": "sample_format", "block_size": "frames"}.get(key, key)
+            expected = _resolve_value(expression, binding["node"], node_task(binding["node"]), exact=True)
+            if key in {"channels", "frames", "sample_rate"}:
+                try:
+                    expected = Fraction(expected)
+                except (TypeError, ValueError, ZeroDivisionError) as exc:
+                    raise CompileError(
+                        f"接口 {binding['origin']} 的 {key} 无法求值：{expression!r}"
+                    ) from exc
+            if expected != actual[key]:
+                raise CompileError(
+                    f"接口 {binding['origin']} 的 {key} 声明 {expected} 与引用 "
+                    f"{endpoint} 的实际值 {actual[key]} 不一致"
+                )
+
+    def resolve_port_signatures(
+        self, project: Project, *, diagnostics: list[dict[str, Any]] | None = None,
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+        """只推导接口；无需时钟连通或可执行计划，复用编译阶段的全部签名规则。"""
+        project = copy.deepcopy(project)
+        default = project.get_default_task()
+        tasks = {task.id: self._resolve_source_rate(project, task)
+                 for task in (list(project.tasks.values()) or [default])}
+
+        def node_task(node: Node) -> Task:
+            if node.task not in tasks:
+                raise CompileError(f"节点 {node.id} 引用不存在的 Task {node.task}")
+            return tasks[node.task]
+
+        ports, expanded, incoming = self._resolve_graph_ports(project.graph, node_task)
+        for connection in project.graph.connections:
+            for ref in (connection.from_ref, connection.to_ref):
+                if str(ref) not in ports:
+                    raise CompileError(f"连接引用不存在的端口 {ref}")
+        dependencies = Graph(nodes=project.graph.nodes, connections=[
+            connection for connection in project.graph.connections
+            if ports[str(connection.to_ref)].timing != "latest"
+        ])
+        order = self._topological_sort(dependencies)
+        self._resolve_graph_blocks(project.graph, expanded, ports, incoming, node_task, order)
+        self._validate_interface_bindings(project, ports, node_task, diagnostics)
+        return {key: port_signature_to_dict(port) for key, port in ports.items()}, expanded
+
+    def compile(self, project: Project, target: str | None = None) -> ExecutionPlan:
+        if project.flow_mode not in ("dataflow", "task_sequence"):
+            raise CompileError(f"未知流程模式：{project.flow_mode}")
+        for node in project.graph.nodes.values():
+            if node.component in ("orpheus.builtin.task_source", "orpheus.builtin.buffer_source") and project.flow_mode != "task_sequence":
+                raise CompileError("驱动源需要显式启用 flow_mode: task_sequence")
+            comp = self.registry.get(node.component)
+            if comp is None or comp.package_type != "placeholder":
+                continue
+            blockers = comp.manifest.get("blockers", []) or []
+            details = "; ".join(
+                f"{item.get('gate', 'unknown')}:{item.get('reason', item.get('id', 'unknown'))}"
+                for item in blockers
+            ) or "未声明 blocker"
+            raise CompileError(
+                f"节点 {node.id} 使用未实现算法组件 {node.component}：{details}"
+            )
+
+        # 目标平台与 alter 组解析：先把工程解析为选定平台下的等价副本
+        # （替换 alter 成员、剔除未激活成员、重映射边），再走现有编译管线。
+        from orpheus_core.resolve import resolve_project
+
+        project, ignored_nodes = self.prepare_debug_project(project)
+        resolved, _resolution = resolve_project(project, self.registry, target)
+        project = resolved
+        graph = project.graph
+        task_flow = None
+        if project.flow_mode == "task_sequence":
+            from orpheus_core.task_flow import build_task_flow
+            task_flow = build_task_flow(project, self.registry)
+        resolved_platform = _resolution.platform
+        default_task = project.get_default_task()
+        task_values = list(project.tasks.values()) or [default_task]
+        resolved_tasks = {
+            task.id: self._resolve_source_rate(project, task)
+            for task in task_values
+        }
+        resolved_task = resolved_tasks[default_task.id]
+
+        def node_task(node: Node) -> Task:
+            return resolved_tasks.get(node.task, resolved_task)
+
+        sport_bindings = self._validate_external_contract(project, graph)
+
+        # 声明式平台节点（execution.none，如 platform_hook）：不参与执行计划，
+        # 仅作为声明进入 plan.declarations，生成器据此产出用户钩子（不连线）。
+        declarations: list[dict[str, Any]] = []
+        bridges: list[dict[str, Any]] = [
+            {
+                "id": bridge.id,
+                "transport": bridge.transport,
+                "codec": bridge.codec,
+                "enabled": bridge.enabled,
+                "params": dict(bridge.params),
+            }
+            for bridge in project.bridges
+        ]
+        for nid in list(graph.nodes):
+            decl_comp = self.registry.get(graph.nodes[nid].component)
+            if decl_comp and decl_comp.manifest.get("execution", {}).get("none"):
+                for conn in graph.connections:
+                    if conn.from_ref.node_id == nid or conn.to_ref.node_id == nid:
+                        raise CompileError(
+                            f"平台资源节点 {nid}（{graph.nodes[nid].component}）不支持连线"
+                        )
+                node = graph.nodes[nid]
+                if node.component == "orpheus.builtin.uart_link":
+                    bridges.append({
+                        "id": nid,
+                        "transport": "uart",
+                        "codec": "olink",
+                        "enabled": True,
+                        "params": dict(node.params),
+                        "resource_access": {
+                            p["id"]: p["access"]
+                            for p in [*comp.manifest.get("parameters", []), *comp.manifest.get("bulk_slots", [])]
+                            if "access" in p
+                        },
+                    })
+                elif decl_comp.manifest.get("bridge_config"):
+                    params = dict(node.params)
+                    bridges.append({
+                        "id": nid,
+                        "transport": str(params.pop("transport", "uart")),
+                        "codec": str(params.pop("codec", "olink")),
+                        "enabled": bool(params.pop("enabled", True)),
+                        "params": params,
+                    })
+                else:
+                    declarations.append(
+                        {
+                            "id": nid,
+                            "component": node.component,
+                            "params": dict(node.params),
+                        }
+                    )
+                graph.nodes.pop(nid)
+
+        bridge_ids: set[str] = set()
+        for bridge in bridges:
+            bridge_id = bridge["id"]
+            if bridge_id in bridge_ids:
+                raise CompileError(f"Bridge ID 重复：{bridge_id}")
+            if bridge_id in graph.nodes:
+                raise CompileError(f"Bridge ID 与音频节点重复：{bridge_id}")
+            bridge_ids.add(bridge_id)
+            if not bridge.get("enabled", True):
+                continue
+            transport = bridge.get("transport")
+            codec = bridge.get("codec")
+            if transport != "uart" or codec != "olink":
+                raise CompileError(
+                    f"Bridge {bridge_id} 的 Adapter 尚未安装：transport={transport}, codec={codec}；"
+                    "当前支持 uart + olink"
+                )
+            params = bridge.setdefault("params", {})
+            duplex = str(params.get("duplex", "half"))
+            if duplex not in ("half", "full"):
+                raise CompileError(
+                    f"Bridge {bridge_id} 的 duplex 无效：{duplex}；可选 half / full"
+                )
+            params["duplex"] = duplex
+
+        resolved_ports, expanded_ports, rate_inputs = self._resolve_graph_ports(graph, node_task)
+
+        # sweep_record：采集参数自动跟随扫频发生器（时长/起始/结束频率/对数）
+        # 免手填，且频率轴与发生器一致（参数不一致会提前完结或频率映射错乱）
+        sweep_params: dict[str, Any] = {}
+        sweep_dur = 0.0
+        for node in graph.nodes.values():
+            if node.component != "orpheus.builtin.sweep_gen":
+                continue
+            try:
+                sweep_dur = max(sweep_dur, float(node.params.get("duration_s", 0.0) or 0.0))
+            except (TypeError, ValueError):
+                pass
+            for k in ("start_freq", "end_freq", "duration_s", "log_scale"):
+                if node.params.get(k) is not None:
+                    sweep_params[k] = node.params[k]
+        if sweep_params:
+            for node in graph.nodes.values():
+                if node.component == "orpheus.builtin.sweep_record":
+                    node.params = {**node.params, **sweep_params}
+
+        connected_inputs = {str(conn.to_ref) for conn in graph.connections}
+        for node in graph.nodes.values():
+            comp = self.registry.get(node.component)
+            for group in comp.manifest.get("input_alternatives", []):
+                if any(
+                    f"{node.id}:{port}" not in resolved_ports
+                    or resolved_ports[f"{node.id}:{port}"].direction != "input"
+                    for port in group
+                ):
+                    raise CompileError(f"节点 {node.id}：输入互斥组包含未知输入 {group}")
+                count = sum(f"{node.id}:{port}" in connected_inputs for port in group)
+                if count != 1:
+                    raise CompileError(f"节点 {node.id}：输入互斥组 {group} 必须且只能连接一个输入")
+
+        # 2. Validate connections
+        driven_inputs: set[str] = set()
+        for conn in graph.connections:
+            from_key = str(conn.from_ref)
+            to_key = str(conn.to_ref)
+            if to_key in driven_inputs:
+                raise CompileError(f"input port driven by multiple sources: {to_key}")
+            driven_inputs.add(to_key)
+            from_port = resolved_ports.get(from_key)
+            to_port = resolved_ports.get(to_key)
+            if from_port is None:
+                raise CompileError(f"unknown source port: {from_key}")
+            if to_port is None:
+                raise CompileError(f"unknown target port: {to_key}")
+            if from_port.direction != "output":
+                raise CompileError(f"source port is not output: {from_key}")
+            if to_port.direction != "input":
+                raise CompileError(f"target port is not input: {to_key}")
+            if from_port.type != to_port.type:
+                raise CompileError(
+                    f"type mismatch: {from_key} ({from_port.type}) -> {to_key} ({to_port.type})"
+                )
+            if from_port.sample_format != to_port.sample_format:
+                raise CompileError(
+                    f"format mismatch: {from_key} ({from_port.sample_format}) -> {to_key} ({to_port.sample_format})"
+                )
+            if from_port.channels != to_port.channels:
+                raise CompileError(
+                    f"channels mismatch: {from_key} ({from_port.channels}) -> {to_key} ({to_port.channels})"
+                )
+            if from_port.type == "audio" and from_port.sample_rate != to_port.sample_rate:
+                raise CompileError(
+                    f"sample rate mismatch: {from_key} ({from_port.sample_rate}) -> {to_key} ({to_port.sample_rate})"
+                )
+            from_task = node_task(graph.nodes[conn.from_ref.node_id]).id
+            to_task = node_task(graph.nodes[conn.to_ref.node_id]).id
+            if from_task != to_task:
+                if from_port.type != "audio":
+                    raise CompileError(
+                        f"非音频数据连接不能直接跨 Task：{from_key} → {to_key}；"
+                        "请使用显式数据快照/事务桥，latest 不提供跨线程同步"
+                    )
+                to_comp = self.registry.get(graph.nodes[conn.to_ref.node_id].component)
+                scheduling = (to_comp.manifest.get("scheduling") or {}) if to_comp else {}
+                if not (scheduling.get("async_bridge") or scheduling.get("merge")):
+                    raise CompileError(
+                        f"跨 Task 连接必须经过异步任务桥：{from_key}（{from_task}）→ "
+                        f"{to_key}（{to_task}）；请在目标 Task 插入 orpheus.builtin.async_bridge"
+                    )
+
+        for node in graph.nodes.values():
+            if node.component != PLACEHOLDER_ID or node.params.get("mode", "passthrough") != "passthrough":
+                continue
+            inputs = [p for p in expanded_ports[node.id] if p["direction"] == "input"]
+            for token in node.params.get("routes", "0").split(","):
+                if not token.strip() or int(token) < 0:
+                    continue
+                port_id = inputs[int(token)]["id"]
+                if f"{node.id}:{port_id}" not in driven_inputs:
+                    raise CompileError(f"占位模块 {node.id} 的透传输入 {port_id} 未连接；请连接或显式使用 -1 置零")
+
+        # 2.5 Clock domains: every flow must be driven by exactly one clock
+        clock_graph = Graph(
+            nodes=graph.nodes,
+            connections=graph.connections + (project.drive_connections if task_flow else []),
+        )
+        self._validate_clock_domains(clock_graph, node_task, source_tasks=bool(task_flow))
+
+        # 2.6 控制连接校验（control_source/bindable/类型/形状），产出 plan.control_links
+        control_links = self._validate_control_links(graph, project.control_connections, node_task)
+
+        # 3. Topological sort
+        execution_order = task_flow.order if task_flow else self._topological_sort(graph)
+        if task_flow:
+            for conn in graph.connections:
+                if (graph.nodes[conn.from_ref.node_id].task == graph.nodes[conn.to_ref.node_id].task
+                        and resolved_ports[str(conn.to_ref)].timing != "latest"):
+                    task_flow.require_before(conn.from_ref.node_id, conn.to_ref.node_id)
+            for link in control_links:
+                if graph.nodes[link["src_node"]].task != graph.nodes[link["dst_node"]].task:
+                    raise CompileError("Task 顺序模式的参数连接不能隐式跨 Task；请使用显式快照/事务桥")
+                task_flow.require_before(link["src_node"], link["dst_node"])
+                link["delivery"] = "before_call"
+
+        # 3.5 Rate divisor propagation (multi-rate scheduling)
+        node_divisor = ({nid: value[0] for nid, value in task_flow.cadences.items()}
+                        if task_flow else self._propagate_rate_divisors(
+            graph, expanded_ports, execution_order, node_task, rate_inputs
+        ))
+
+        # 4. Build execution plan
+        plan = ExecutionPlan(
+            abi_version=6,
+            sample_rate=resolved_task.sample_rate,
+            block_size=resolved_task.block_size,
+            buffer_size=project.buffer_size,
+            task_id=resolved_task.id,
+            flow_mode=project.flow_mode,
+            nodes=list(graph.nodes.keys()),
+            execution_order=execution_order,
+        )
+        plan.declarations = declarations
+        plan.bridges = bridges
+        plan.target = resolved_platform
+        plan.control_links = control_links
+        plan.ignored_nodes = ignored_nodes
+        plan.clock_domains = [
+            {
+                "id": domain.id,
+                "sample_rate": domain.sample_rate,
+                "assurance": domain.assurance,
+            }
+            for domain in project.clock_domains.values()
+        ]
+        plan.trigger_groups = [
+            {
+                "id": trigger.id,
+                "clock_domain": trigger.clock_domain,
+                "dispatch": trigger.dispatch,
+                "master": trigger.master,
+                "members": list(trigger.members),
+            }
+            for trigger in project.trigger_groups.values()
+        ]
+        plan.sport_bindings = sport_bindings
+
+        in_frames = self._resolve_graph_blocks(
+            graph, expanded_ports, resolved_ports, rate_inputs, node_task, execution_order)
+        self._validate_interface_bindings(project, resolved_ports, node_task)
+
         for conn in graph.connections:
             source = resolved_ports[str(conn.from_ref)]
             target = resolved_ports[str(conn.to_ref)]
@@ -1077,14 +1192,7 @@ class GraphCompiler:
                 "input_ports": [p["id"] for p in port_manifests if p["direction"] == "input"],
                 "output_ports": [p["id"] for p in out_ports],
                 "port_signatures": {
-                    p["id"]: {
-                        "direction": p["direction"],
-                        "type": resolved_ports[f"{node.id}:{p['id']}"].type,
-                        "sample_format": resolved_ports[f"{node.id}:{p['id']}"].sample_format,
-                        "channels": resolved_ports[f"{node.id}:{p['id']}"].channels,
-                        "frames": resolved_ports[f"{node.id}:{p['id']}"].block_size,
-                        "sample_rate": float(resolved_ports[f"{node.id}:{p['id']}"].sample_rate),
-                    }
+                    p["id"]: port_signature_to_dict(resolved_ports[f"{node.id}:{p['id']}"])
                     for p in port_manifests
                 },
                 "output_port_block_sizes": {

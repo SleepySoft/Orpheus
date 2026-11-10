@@ -48,6 +48,7 @@ test('工程操作和下载资源统一使用嵌套工程路径', async () => {
     ['get', '/components', () => api.listProjectComponents(name)],
     ['get', '/components/gain/readme', () => api.getComponentReadme('gain', name)],
     ['post', '/lesson/check', () => api.checkLesson(name)],
+    ['post', '/interfaces', () => api.resolveProjectInterfaces(name, {}, 'main')],
     ['get', '/notes', () => api.getProjectNotes(name)],
     ['put', '/notes', () => api.saveProjectNotes(name, '')],
     ['get', '/node_notes', () => api.getNodeNotes(name)],

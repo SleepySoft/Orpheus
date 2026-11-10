@@ -20,7 +20,10 @@ const ports = [
     block_size: 8, host_binding: { slot: 'samples', access: 'write', status: 'ready', when: { mode: 0 } } },
   { id: 'out', direction: 'output', type: 'audio', format: 's16', channels: 6, block_size: 'param:frames' },
   { id: 'other', direction: 'output', type: 'audio', format: 'f32', channels: 1, block_size: 'param:frames*2' },
-];
+].map((port, index) => ({
+  ...port, sample_format: port.format, frames: [8, 16, 32][index], sample_rate: 48000,
+  resolution: { status: 'resolved', endpoint: `host:${port.id}`, component: 'test.host' },
+}));
 const parameters = [
   { id: 'samples', name: '普通配置', type: 'float', default: 2, access: 'write' },
   { id: 'ready', type: 'bool', default: false, access: 'read_write', readback: true },
@@ -57,7 +60,8 @@ test('完整声明参数包含 readback/未知旧权限，读权限只读而非�
   expect(container.querySelectorAll('[data-interface^="port:"]')).toHaveLength(3);
   expect(container.textContent).toContain('f32 · 2ch · 8帧');
   expect(container.textContent).toContain('s16 · 6ch · 16帧');
-  expect(container.textContent).toContain('未确定 (param:frames*2)');
+  expect(container.textContent).toContain('f32 · 1ch · 32帧');
+  expect(container.textContent).toContain('引用来源：host:other');
   expect(container.querySelector('[data-interface="parameter:ready"]').textContent).toContain('由完整 PCM 提交原子更新');
 });
 
@@ -168,7 +172,10 @@ test('宿主条件和交付观测准确，不伪造 ready/valid 或触发', () =
   const outputBinding = { ...ports[0], id: 'delivery', direction: 'output' };
   expect(bindingStatus(outputBinding, { ...node.data, interfaces: { upstreamPorts: ['samples'] } }))
     .toContain('上游供数，禁止宿主写入');
-  expect(portSignature({ channels: 2 }, node.data)).toContain('32帧');
+  expect(portSignature({ channels: 2 }, node.data)).toContain('待解析');
+  expect(portSignature(ports[0], { portResolution: { status: 'pending' } })).toContain('待解析');
+  expect(portSignature(ports[0], { portResolution: { status: 'error', message: '循环引用' } }))
+    .toBe('解析失败：循环引用');
 });
 
 test('旧控制连线保留禁连接锚点，不授予普通配置 bindable', () => {
@@ -216,9 +223,28 @@ test('普通可写配置可导出，不要求 bindable，不包含只读输入',
     select.value = 'host:legacy';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
+
   act(() => [...container.querySelectorAll('button')].at(-1).click());
   expect(onAddParameter).toHaveBeenCalledWith('input', 'host:legacy', parameters[4]);
   expect(onAddParameter.mock.calls[0][2].bindable).toBeUndefined();
+});
+
+test('公开音频候选复用后端展开端口，允许递归引用且不使用过期选择', () => {
+  const onAddPort = jest.fn();
+  const nested = { id: 'nested', data: { component: 'sub:inner', ports: [
+    { id: 'in5', direction: 'input', resolution: { status: 'resolved' } },
+  ] } };
+  const render = (viewNodes) => act(() => root.render(<SubPortsPanel
+    sub={{ id: 'outer', name: '外层', ports: [] }} viewNodes={viewNodes} onAddPort={onAddPort} />));
+  render([nested]);
+  const select = container.querySelectorAll('select')[1];
+  expect(select.querySelector('[value="nested:in5"]')).not.toBeNull();
+  act(() => { select.value = 'nested:in5'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(container.querySelector('.subport-add button').disabled).toBe(false);
+  render([{ ...nested, data: { ...nested.data, ports: [] } }]);
+  expect(container.querySelector('.subport-add button').disabled).toBe(true);
+  act(() => container.querySelector('.subport-add button').click());
+  expect(onAddPort).not.toHaveBeenCalled();
 });
 
 test.each(['setting', 'probe', undefined])('全局参数页宿主 ready 保留读写声明，但不直接编辑交付状态（kind=%s）', (kind) => {

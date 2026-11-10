@@ -470,7 +470,7 @@ export function subCatalogEntry(sub) {
     name: sub.name || sub.id,
     description: sub.description || '',
     version: '',
-    ports: (sub.ports || []).map((p) => ({ ...p, type: p.type || 'audio' })),
+    ports: (sub.ports || []).map((p) => ({ ...p })),
     parameters: (sub.public_parameters || []).map((p) => ({
       ...p,
       ...(p.direction === 'input'
