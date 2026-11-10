@@ -51,7 +51,7 @@ function flattenItems(node) {
 }
 
 /** Left-hand palette: project subcomponents + category tree of global components. */
-export default function Palette({ components, subsMeta, onDeleteSub, onDeleteComponent, onPromoteComponent, onShowReadme, readOnly = false }) {
+export default function Palette({ components, subsMeta, onDeleteSub, onDeleteComponent, onPromoteComponent, onShowReadme, onCreateSource, readOnly = false }) {
   const [collapsed, setCollapsed] = useState({ '@project-subs': true, '@project-custom': true });
   const [query, setQuery] = useState('');
 
@@ -217,6 +217,7 @@ export default function Palette({ components, subsMeta, onDeleteSub, onDeleteCom
 
   return (
     <div className="palette">
+      {onCreateSource && <button disabled={readOnly} onClick={onCreateSource}>＋ 新建源码组件</button>}
       <input
         className="palette-search"
         placeholder="搜索组件（中/英文模糊）"

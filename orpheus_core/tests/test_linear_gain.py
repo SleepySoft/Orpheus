@@ -11,6 +11,7 @@ import wave
 import yaml
 
 from orpheus_core.compiler import GraphCompiler
+from orpheus_core.component_definition import normalize_component_definition
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import Registry
@@ -21,9 +22,9 @@ TARGETS = [None, -1.25, 0.0, 0.625, -0.0]
 
 
 def test_gain_manifest_preserves_legacy_parameter_order():
-    manifest = yaml.safe_load(
+    manifest = normalize_component_definition(yaml.safe_load(
         (ROOT / "components/orpheus/builtin/gain/component.yaml").read_text(encoding="utf-8"),
-    )
+    ))
     assert [p["id"] for p in manifest["parameters"][:3]] == ["gain_db", "channels", "smoothing_ms"]
 
 

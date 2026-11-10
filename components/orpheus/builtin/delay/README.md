@@ -2,6 +2,16 @@
 
 ## 功能
 
+`component.yaml.interfaces` 是 ABI7 端口、参数与资源槽的唯一事实源；
+`scripts\generate_component.py components\orpheus\builtin\delay\component.yaml` 生成壳，
+`user/algorithm.c/h` 保存私有延迟线与算法，并通过 `emit_out` 实际交付。
+create 只初始化宿主提供的 State，不分配延迟线；宿主明确 prepare 一次。
+prepare 分配按通道整除的环形容量，重入先释放旧资源；destroy 释放延迟线，
+重复 destroy 安全。reset 清延迟线与写游标，并将平滑 mix 对齐目标。
+mix 保持原有逐交错样本的约 5ms 平滑，零延迟先写后读保持真直通。
+运行时仅 mix 可更新；壳严格拒绝声明外类型、越界与非有限数值，
+不保留旧 DLL/descriptor 适配，也不再将声明外 mix 隐式裁剪至 [0,1]。
+
 单速率、全通道同时延迟的延迟器，并提供干/湿交叉混合。
 输出为原声（干）与延迟声（湿）的凸组合：
 

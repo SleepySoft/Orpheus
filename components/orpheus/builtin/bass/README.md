@@ -1,5 +1,16 @@
 # orpheus.builtin.bass — 低频音调控制
 
+## ABI7 接口交付
+
+`component.yaml.interfaces` 是端口、参数与资源槽的唯一事实源；运行
+`.\.venv\Scripts\python.exe scripts\generate_component.py components\orpheus\builtin\bass\component.yaml`
+生成 `generated/`，手写算法与私有历史位于 `user/algorithm.c/h`。宿主提供 State 内存，
+create 只初始化字段，宿主随后明确 prepare 一次；算法通过 `emit_out` 实际交付输出。
+壳严格拒绝声明外类型（包括 int 隐式转 float）、越界与非有限数值。
+运行时仅 `gain_db` 可更新；读回为当前平滑增益，注册槽保存目标值。
+reset 仅清滤波历史，不跳变当前增益或目标；prepare 重新计算系数并加载初始增益。
+无新增探针或动态资源，不保留旧 DLL/descriptor 适配。
+
 ## 功能
 
 一阶低频搁架（low-shelf）音调控制：只提升或衰减低频部分，中高频保持原样。核心公式是“直通 + 增益 × 低通分量”，因此 `gain_db = 0` 时输出与输入完全一致。

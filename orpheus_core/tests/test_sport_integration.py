@@ -109,7 +109,7 @@ def test_sport_contract_roundtrip_compile_and_generate(tmp_path: Path) -> None:
     source = (generated / "src" / "orpheus_sport.c").read_text(encoding="utf-8")
     graph = (generated / "src" / "orpheus_graph.c").read_text(encoding="utf-8")
     manifest = json.loads((generated / "orpheus_app_manifest.json").read_text(encoding="utf-8"))
-    gain_source = (generated / "components" / "orpheus_builtin_gain" / "src" / "gain.c").read_text(encoding="utf-8")
+    gain_source = (generated / "components" / "orpheus_builtin_gain" / "generated" / "component_shell.c").read_text(encoding="utf-8")
     abi_header = (generated / "include" / "orpheus_abi.h").read_text(encoding="utf-8")
 
     assert "const int32_t* sport0a_rx" in header

@@ -3,33 +3,32 @@ name: 软削波
 category: "增益与动态"
 description: tanh 软削波（drive 控制输入增益，小信号近似线性，大信号饱和）
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: SoftClipperState
-sources:
-  - src/soft_clipper.c
-headers:
-  - include/orpheus_soft_clipper.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [prepare, reset, set_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: drive_db
+    drive_port_no: 1
+    drive_divide: 1
+  drive_db:
     name: 驱动
     type: float
     default: 0.0
     range: [-12.0, 24.0]
     unit: dB
     update_policy: smoothed
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2

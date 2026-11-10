@@ -4,26 +4,24 @@ category: "增益与动态"
 description: "音频增益处理：支持共享dB增益、共享线性目标或逐通道线性系数，并按所选模式平滑；不测量响度，也不自动计算补偿目标。"
 order: 1
 version: 1.2.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: GainState
-sources:
-  - src/gain.c
-headers:
-  - include/orpheus_gain.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [prepare, reset, set_parameter, register_slots]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: gain_db
+    drive_port_no: 1
+  gain_db:
     name: 增益
     type: float
     default: 0.0
@@ -31,60 +29,60 @@ parameters:
     unit: dB
     update_policy: smoothed
     bindable: true  # 控制连接目标（smoothed 策略合规）
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: smoothing_ms
+  smoothing_ms:
     name: 平滑时间
     type: float
     default: 5.0
     range: [0.0, 1000.0]
     unit: ms
     update_policy: restart_required
-  - id: gain_mode
+  gain_mode:
     name: 增益模式（0=dB，1=共享线性，2=逐通道线性）
     type: int
     default: 0
     range: [0, 2]
     update_policy: restart_required
-  - id: gain_linear
+  gain_linear:
     name: 线性目标增益
     type: float
     default: 1.0
     update_policy: smoothed
     bindable: true
     description: 仅在线性模式生效；允许零和负数，每帧计算一次并同步应用到所有通道
-  - id: linear_b0
+  linear_b0:
     name: 线性控制平滑分子
     type: float
     default: 1.0
     update_policy: restart_required
-  - id: linear_a1
+  linear_a1:
     name: 线性控制平滑反馈系数
     type: float
     default: 0.0
     range: [-1.0, 1.0]
     update_policy: restart_required
     description: 线性模式按y=b0×目标+z、z=-a1×y递推；要求-1<a1<1。b0=1且a1=0时直接相乘，不平滑
-  - id: gains
+  gains:
     name: 逐通道线性增益
     type: string
+    capacity: 4096
     default: ""
     kind: bulk
     shape: [param:channels]
     update_policy: restart_required
     description: 模式2使用；空CSV为全1，非空严格要求channels个有限值。运行期用同名浮点BULK整组写入，不进行dB转换或平滑
-bulk_slots:
-  - id: gains
-    name: 逐通道线性增益
-    type: float
-    count: 32
-    shape: [param:channels]
-    double_bank: true
+    bulk:
+      sample_format: f32
+      capacity: 32
+      storage: algorithm.per_channel_gains
+      double_bank: true
+      auto_register: false
 memory:
   state_size: 0
   scratch_size: 0

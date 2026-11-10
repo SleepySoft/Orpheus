@@ -11,6 +11,26 @@ typedef struct orpheus_builtin_constant_source_OutputF32 {
     OrpheusDelivery delivery;
 } orpheus_builtin_constant_source_OutputF32;
 
+typedef struct orpheus_builtin_constant_source_InputI32 {
+    const OrpheusBuffer* buffer;
+    const int32_t* samples;
+} orpheus_builtin_constant_source_InputI32;
+typedef struct orpheus_builtin_constant_source_OutputI32 {
+    OrpheusBuffer* buffer;
+    int32_t* samples;
+    OrpheusDelivery delivery;
+} orpheus_builtin_constant_source_OutputI32;
+
+typedef struct orpheus_builtin_constant_source_InputI16 {
+    const OrpheusBuffer* buffer;
+    const int16_t* samples;
+} orpheus_builtin_constant_source_InputI16;
+typedef struct orpheus_builtin_constant_source_OutputI16 {
+    OrpheusBuffer* buffer;
+    int16_t* samples;
+    OrpheusDelivery delivery;
+} orpheus_builtin_constant_source_OutputI16;
+
 #define ORPHEUS_BUILTIN_CONSTANT_SOURCE_DRIVE_OUT UINT32_C(1)
 typedef struct orpheus_builtin_constant_source_IO {
     orpheus_builtin_constant_source_OutputF32 out;

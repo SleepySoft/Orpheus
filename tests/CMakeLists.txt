@@ -24,7 +24,7 @@ target_include_directories(outlet_delivery_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orp
 add_test(NAME outlet_delivery_smoke COMMAND outlet_delivery_smoke)
 
 add_executable(interface_components_smoke interface_components_smoke.c)
-foreach(component constant_source linear_gain null_sink)
+foreach(component constant_source linear_gain null_sink async_bridge)
     set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})
     add_library(interface_test_${component} OBJECT
         ${component_dir}/generated/component_shell.c ${component_dir}/user/algorithm.c)
@@ -145,10 +145,11 @@ add_executable(iir_coefs_runner iir_coefs_runner.cpp)
 target_link_libraries(iir_coefs_runner PRIVATE orpheus_runtime_lib)
 
 add_executable(linear_gain_smoke linear_gain_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain/src/gain.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain/user/algorithm.c)
 target_include_directories(linear_gain_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/gain/generated)
 target_compile_definitions(linear_gain_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 if(NOT WIN32)
     target_link_libraries(linear_gain_smoke PRIVATE m)
@@ -156,15 +157,35 @@ endif()
 add_test(NAME linear_gain_smoke COMMAND linear_gain_smoke)
 
 add_executable(exponential_gain_smoke exponential_gain_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/exponential_gain/src/exponential_gain.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/exponential_gain/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/exponential_gain/user/algorithm.c)
 target_include_directories(exponential_gain_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/exponential_gain/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/exponential_gain/generated)
 target_compile_definitions(exponential_gain_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 if(NOT WIN32)
     target_link_libraries(exponential_gain_smoke PRIVATE m)
 endif()
 add_test(NAME exponential_gain_smoke COMMAND exponential_gain_smoke)
+add_executable(common_components_delivery_smoke common_components_delivery_smoke.c)
+foreach(component balance mute square saturation soft_clipper exponential_gain)
+    set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})
+    add_library(delivery_test_${component} OBJECT
+        ${component_dir}/generated/component_shell.c
+        ${component_dir}/user/algorithm.c)
+    target_include_directories(delivery_test_${component} PRIVATE
+        ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${component_dir}/generated)
+    target_compile_definitions(delivery_test_${component} PRIVATE
+        ORPHEUS_ENTRY_NAME=delivery_${component})
+    target_sources(common_components_delivery_smoke PRIVATE $<TARGET_OBJECTS:delivery_test_${component}>)
+endforeach()
+target_include_directories(common_components_delivery_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)
+if(MSVC)
+    target_compile_options(common_components_delivery_smoke PRIVATE /utf-8)
+elseif(NOT WIN32)
+    target_link_libraries(common_components_delivery_smoke PRIVATE m)
+endif()
+add_test(NAME common_components_delivery_smoke COMMAND common_components_delivery_smoke)
 add_executable(exponential_gain_runner exponential_gain_runner.cpp)
 target_link_libraries(exponential_gain_runner PRIVATE orpheus_runtime_lib)
 

@@ -75,7 +75,7 @@ export default function OrpheusNode({ id, data, selected }) {
 
   // resolved channel count badge, e.g. "out0 · 1ch"
   const channelBadge = (p) => <span className="ch-badge" title={data.portResolution?.message || portOrigin(p)}>
-    {data.portResolution?.status === 'error' ? '解析失败' : portSignature(p, data)}
+    {data.portResolution?.status === 'error' && p.type !== 'trigger' ? '解析失败' : portSignature(p, data)}
   </span>;
   const unresolvedLabel = data.portResolution?.status === 'error' ? '解析失败' : '解析中';
 

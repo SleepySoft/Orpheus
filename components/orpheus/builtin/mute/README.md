@@ -2,7 +2,7 @@
 
 ## 功能
 
-通过平滑增益 ramps 实现静音/恢复，避免开关瞬间产生咔哒声。`mute = 0` 时直通，`mute = 1` 时输出静音，中间值可用来实现半静音或淡入淡出。
+通过平滑增益 ramps 实现静音/恢复，避免开关瞬间产生咔哒声。`mute <= 0.5` 时恢复正常，`mute > 0.5` 时静音；中间值不是线性音量。
 
 ## 参数
 
@@ -49,3 +49,15 @@ main_chain ──► mute ──► output
 ```
 
 把 `mute` 放在主输出前，用户点击静音按钮时不会产生咔哒声。也常用在测试场景，快速关闭某一路子系统。
+
+## 配置驱动接口（ABI v7）
+
+`component.yaml` 的 `interfaces` 是唯一接口事实源；修改后运行
+`python scripts\generate_component.py components\orpheus\builtin\mute\component.yaml`。
+`generated/` 是脚本生成的元数据和 ABI 壳，`user/algorithm.c/.h` 是手写算法与私有包络状态。
+`in` 为唯一驱动输入；保留原核按**交错样本**推进包络的顺序（不是每帧一次），
+整块计算后显式 `emit_out`，稳定出口编号为 `1`，通过 delivery 交付，不会合、不去重。
+prepare/reset 将当前增益直接对齐静音目标，运行期更新只改变目标。
+
+参数按声明严格校验；越界、非有限值或错误类型返回 `ORPHEUS_ERR_INVALID_ARG`，
+不再隐式 clamp/类型转换；`mute` 必须传 float，不接受 bool/int。

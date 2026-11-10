@@ -3,94 +3,115 @@ name: "双段二阶滤波器"
 category: "滤波与均衡"
 description: "两段级联二阶滤波，每段独立设置频率、Q和增益，也可提交五项原始系数；支持DF1或DF2T结构。与可配置级数的iir_bank不同，本组件固定两段。"
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: BiquadBankState
-deps:
-  - orpheus.builtin.biquad
-sources:
-  - src/biquad_bank.c
-headers:
-  - include/orpheus_biquad_bank.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [prepare, reset, set_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: fc0
+    drive_port_no: 1
+    drive_divide: 1
+  fc0:
     name: 第 1 段频率
     type: float
     default: 1000.0
     range: [20.0, 20000.0]
     unit: Hz
+    readback: false
     update_policy: restart_required
-  - id: q0
+  q0:
     name: 第 1 段 Q
     type: float
     default: 1.0
     range: [0.1, 10.0]
+    readback: false
     update_policy: restart_required
-  - id: gain_db0
+  gain_db0:
     name: 第 1 段增益
     type: float
     default: 0.0
     range: [-24.0, 24.0]
     unit: dB
+    readback: false
     update_policy: restart_required
-  - id: fc1
+  fc1:
     name: 第 2 段频率
     type: float
     default: 3000.0
     range: [20.0, 20000.0]
     unit: Hz
+    readback: false
     update_policy: restart_required
-  - id: q1
+  q1:
     name: 第 2 段 Q
     type: float
     default: 1.0
     range: [0.1, 10.0]
+    readback: false
     update_policy: restart_required
-  - id: gain_db1
+  gain_db1:
     name: 第 2 段增益
     type: float
     default: 0.0
     range: [-24.0, 24.0]
     unit: dB
+    readback: false
     update_policy: restart_required
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: form
+  form:
     name: 滤波结构
     type: string
+    capacity: 8
     default: df2t
     widget: select
     options:
       - {value: df2t, label: "DF-II 转置（滚动，推荐）"}
       - {value: df1, label: "DF-I（传统直接 I 型）"}
     update_policy: restart_required
-bulk_slots:
-  - id: bq0.coefs
+  bq0_coefs:
     name: 第 1 段系数
-    type: float
-    count: 5
-    double_bank: true
-  - id: bq1.coefs
+    type: string
+    default: ""
+    kind: bulk
+    persistent: false
+    readback: false
+    update_policy: restart_required
+    bulk:
+      slot_key: bq0.coefs
+      sample_format: f32
+      capacity: 5
+      storage: algorithm.stage0.coefs
+      double_bank: true
+  bq1_coefs:
     name: 第 2 段系数
-    type: float
-    count: 5
-    double_bank: true
+    type: string
+    default: ""
+    kind: bulk
+    persistent: false
+    readback: false
+    update_policy: restart_required
+    bulk:
+      slot_key: bq1.coefs
+      sample_format: f32
+      capacity: 5
+      storage: algorithm.stage1.coefs
+      double_bank: true
 memory:
   state_size: 0
   scratch_size: 0

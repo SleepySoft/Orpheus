@@ -1,9 +1,9 @@
 # 处理调用 Wrapper 与有界调用统计树
 
-> 状态：2026-11-10 讨论收敛后的设计记录，尚未实现。
+> 状态：2026-11-10 讨论收敛后的设计记录；处理 wrapper 与统计树尚未实现。
 > 本文不修改组件链式调用语义，不实施统计树、bypass 或噪声检测。
 > 设计名称和阶段名不是现有 API；内存数字是布局预算，不是实测结果。
-> 后续讨论补充见第 12 节：接口级交付与配置驱动组件壳，仍为设计方向，未实现。
+> 第 12 节的接口级交付与配置驱动组件壳已进入分批实施，现状见[路线图](../roadmap.md)。
 
 ## 1. 目标与适用范围
 
@@ -34,9 +34,9 @@
   `invoke_chain` 按实例绑定构造本节点的局部 `ctx`，然后调用接口表中的 `process`。
 - [生成器](../../../orpheus_core/orpheus_core/generator.py)：
   `_generate_chain_scope` 生成逐节点入口适配，复用同一链式执行实现。
-- [Gain](../../../components/orpheus/builtin/gain/src/gain.c)：
-  `prepare` 从配置数组读取参数并保存到实例；`process` 读取实例和 Buffer，
-  最后显式调用 `orpheus_process_next`。
+- [Gain](../../../components/orpheus/builtin/gain/user/algorithm.c)：
+  生成壳把配置保存到类型化实例，用户 `prepare` 建立平滑状态；
+  算法读写接口视图，完成输出后显式交付 `emit_out`。
 
 所以，A 调 B 时既不是传递一份任意算法形参列表，也不是复用 A 的整个 `ctx`：
 B 有自己的状态和端口绑定，适配入口为 B 构造新 `ctx`。
@@ -410,7 +410,8 @@ ChangeThread 各节：
 ## 12. 配置驱动组件壳与接口级 Delivery
 
 > 2026-11-10：设计确认后进入分批实施，首批发布 ABI v7 与独立组件校验/生成脚本。
-> 固定 f32 音频接口和标量参数已有闭环；资源、动态引脚、完整创建界面及 BAF 仍待迁移。
+> 固定数据/纯触发接口、标量与字符串、生命周期和配置先落盘的创建界面已有闭环；
+> 资源、动态引脚、剩余普通工程及 BAF 仍待迁移。
 > 阶段范围与验收门槛以 [路线图](../roadmap.md#实施顺序与验收门槛) 为准，不代表全量改造完成。
 
 ### 12.1 动机与唯一事实源
@@ -569,7 +570,7 @@ ChangeThread 各节：
 
 2026-11-10 确认方向：在导出接口的常规类型与规格上直接附加驱动语义，
 不要求拆分数据节点与驱动节点，也不引入 `drive_bases` 等额外对象。
-下例是候选新格式，不表示当前 manifest Schema 或 ABI 已支持：
+下例已由独立接口 Schema 和 ABI v7 支持，未支持的扩展仍明确拒绝：
 
 ```yaml
 interfaces:
@@ -607,14 +608,41 @@ interfaces:
 
 字段方向、类型、编号重复和引用有效性属于格式/语义校验；
 实际调用比例不符合提示不属于生成失败条件。
-正式字段命名、无载荷类型及完整 Schema 在实施时定稿。
+无载荷类型已定为 `type: trigger`：输入仍声明 `process: true`，
+输出必须声明 `drive_port_no`；不声明音频规格，交付的 `buffer` 为 NULL。
+纯触发数据线只产生调用关系，不分配 PCM Buffer。
+
+字符串由实例内固定容量存储持有；`capacity` 包含结尾零字节，非法 UTF-8 和溢出明确失败。
+需要以 CSV 初始化、以数值资源调音的接口可在同一声明中绑定私有存储：
+
+```yaml
+gains:
+  type: string
+  default: ""
+  capacity: 4096
+  kind: bulk
+  shape: [param:channels]
+  update_policy: restart_required
+  bulk:
+    sample_format: f32
+    capacity: 32
+    storage: algorithm.per_channel_gains
+    double_bank: true
+    auto_register: false
+```
+
+`storage` 必须是私有状态中的同类型、同容量固定数组，生成代码作编译期检查。
+shape 决定实际槽数量且不得超过容量；`auto_register: false` 生成类型化注册 helper，
+用户生命周期钩子只决定何时注册，不重复填写偏移、类型、数量或资源描述。
+固定数值数组也可直接用 `count` 与等长默认列表声明；动态端口 count 尚不支持。
+生命周期通过 `algorithm.lifecycle` 显式选择，create 只建立状态，不提前执行用户 prepare。
 
 ### 12.8 界面创建、配置落盘与独立脚本生成
 
 2026-11-10 新增硬性要求：用户可在界面新建组件、填写接口和规格，
 也可完全手写配置。两条路径必须汇合到同一份已保存配置，
 格式校验和组件壳代码生成必须有独立脚本，可脱离界面和服务直接从命令行执行。
-本节是方案记录，不表示脚本、API 或创建向导已经实现。
+独立脚本、保存/生成 API 与创建向导均已实现；剩余组件和工程迁移仍按路线图推进。
 
 ```text
 UI 新建/编辑 → 保存 component.yaml ─┐

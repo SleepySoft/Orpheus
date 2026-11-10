@@ -52,6 +52,7 @@ import ParamPanel from './ParamPanel';
 import ParameterWorkspace from './ParameterWorkspace';
 import ParamBrowser from './ParamBrowser';
 import Palette from './Palette';
+import SourceComponentDialog from './SourceComponentDialog';
 import ProjectTree from './ProjectTree';
 import SubPortsPanel from './SubPortsPanel';
 import ProjectSettings from './ProjectSettings';
@@ -64,7 +65,7 @@ import AlterGroupOverlay from './AlterGroupOverlay';
 import TodoPanel from './TodoPanel';
 import { PLACEHOLDER_ID, newTodo } from './placeholder';
 import ProjectLoading from './ProjectLoading';
-import { interfaceState, canEditDesignParameter } from './interfaceModel';
+import { interfaceState, canEditDesignParameter, validateTriggerConnection } from './interfaceModel';
 
 const nodeTypes = { orpheus: OrpheusNode };
 const edgeTypes = { audio: AudioEdge, control: ControlEdge, drive: DriveEdge };
@@ -160,6 +161,7 @@ function Editor() {
   const loadControllerRef = useRef(null);
   const [autoSave, setAutoSave] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [sourceComponentProject, setSourceComponentProject] = useState(null);
   const clipboardRef = useRef(null);
   const pasteCountRef = useRef(0);
   const [showParams, setShowParams] = useState(false);
@@ -322,6 +324,7 @@ const { screenToFlowPosition } = useReactFlow();
     setDirty(false);
     setNodeNotesDirty(false);
     setShowSettings(false);
+    setSourceComponentProject(null);
     setShowParams(false);
     setDocumentVersion((version) => version + 1);
     setNodeNotes(notes.notes || {});
@@ -534,10 +537,12 @@ const { screenToFlowPosition } = useReactFlow();
       pendingSaveRef.current = request;
       await request;
       setStatus(`已保存 ${current} · ${new Date().toLocaleTimeString()}`);
+      return true;
     } catch (e) {
       setDirty(true);
       dirtyRef.current = true;
       setStatus(`保存失败: ${api.errorDetail(e)}`);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -757,6 +762,11 @@ const { screenToFlowPosition } = useReactFlow();
         const id = `ec-${params.source}:${ctlParamId(params.sourceHandle)}-${params.target}:${ctlParamId(params.targetHandle)}`;
         replaceOrAdd({ ...params, id, type: 'control' });
       } else {
+        const error = validateTriggerConnection(view.nodes, params);
+        if (error) {
+          setStatus(`接口连接被拒绝：${error}`);
+          return;
+        }
         replaceOrAdd(params);
       }
       setDirty(true);
@@ -2320,6 +2330,9 @@ const { screenToFlowPosition } = useReactFlow();
             </div>
             {leftTab === 'palette' && (
               <Palette readOnly={!canEdit}
+                onCreateSource={current ? async () => {
+                  if (await doSave()) setSourceComponentProject(current);
+                } : null}
                 components={catalog}
                 subsMeta={subsMeta}
                 onDeleteSub={deleteSub}
@@ -2353,6 +2366,19 @@ const { screenToFlowPosition } = useReactFlow();
           <div className="side-resizer" onMouseDown={onLeftResizeStart} title="拖拽调整宽度" />
           </>
         )}
+        {sourceComponentProject && <SourceComponentDialog
+          key={sourceComponentProject}
+          project={sourceComponentProject}
+          readOnly={!canEdit}
+          onClose={() => setSourceComponentProject(null)}
+          onRegistered={async (report) => {
+            const components = await api.listProjectComponents(sourceComponentProject);
+            if (!canEditRef.current) throw new Error('编辑权已失效，请接管并刷新');
+            setDoc((previous) => ({ ...previous, imports: report.imports }));
+            setCatalog(components);
+            setStatus(`已注册源码组件 ${report.component.name}`);
+          }}
+        />}
         <div className={`canvas ${showControlLinks ? 'control-links-visible' : ''}`} onDrop={onDrop} onDragOver={onDragOver}>
           <SignalLegend flowMode={flowMode} showControlLinks={showControlLinks} />
           <NodeActionsContext.Provider value={{ showReadme: handleShowReadme, showControlLinks, revealSubExport,

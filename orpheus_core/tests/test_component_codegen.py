@@ -14,6 +14,8 @@ import yaml
 
 from orpheus_core.component_definition import (
     ComponentDefinitionError,
+    encode_array_initializer,
+    is_array_parameter,
     load_component_definition,
     normalize_component_definition,
 )
@@ -218,16 +220,16 @@ def test_generated_ownership(package, raw, mode):
     assert snapshot(package) == before
 
 
-@pytest.mark.parametrize("feature", ["count", "format", "string", "smoothed"])
+@pytest.mark.parametrize("feature", ["count", "format", "array", "execution"])
 def test_unsupported_generation_is_explicit_and_readonly(package, raw, feature):
     if feature == "count":
         raw["interfaces"]["in"]["count"] = "param:channels"
     elif feature == "format":
-        raw["interfaces"]["in"]["sample_format"] = "i16"
-    elif feature == "string":
-        raw["interfaces"]["text"] = {"type": "string", "default": ""}
+        raw["interfaces"]["in"]["sample_format"] = "i24"
+    elif feature == "array":
+        raw["interfaces"]["gain"]["shape"] = [2]
     else:
-        raw["interfaces"]["gain"]["update_policy"] = "smoothed"
+        raw["execution"] = {"none": True}
     path = save(package, raw)
     load_component_definition(path)
     before = snapshot(package)
@@ -404,13 +406,28 @@ def test_invalid_display_metadata_rejected(raw, key, value):
         normalize_component_definition(raw)
 
 
-def test_execution_metadata_explicitly_rejected(raw):
+def test_execution_metadata_preserved_and_validated(raw):
     import jsonschema
-    raw["execution"] = {"realtime_safe": True}
+    raw.update({"order": 12, "platforms": ["win"], "ui_hidden": False,
+                "memory": {"state_size": 0, "scratch_size": 64, "alignment": 16}})
+    raw["execution"] = {"sample_rate_independent": True, "realtime_safe": True,
+                        "supports_inplace": True, "latency_samples": 3}
+    raw["interfaces"]["gain"].update({
+        "update_policy": "smoothed", "bindable": True, "shape": [], "kind": "setting",
+        "widget": "slider", "description": "平滑由算法或 Runtime 管理", "readonly": False,
+        "options": [{"value": 1.0, "label": "单位增益"}],
+    })
     schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    normalized = normalize_component_definition(raw)
+    for key in ("order", "platforms", "ui_hidden", "execution", "memory"):
+        assert normalized[key] == raw[key]
+    assert normalized["parameters"][0]["shape"] == []
+    assert normalized["parameters"][0]["bindable"] is True
+    raw["execution"]["realtime_safe"] = "yes"
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(raw, schema)
-    with pytest.raises(ComponentDefinitionError, match="execution"):
+    with pytest.raises(ComponentDefinitionError, match="execution.realtime_safe"):
         normalize_component_definition(raw)
 
 
@@ -628,3 +645,1252 @@ def test_compile_default_template_and_unilateral_ports(package, raw, shape):
     assert result.returncode == 0, result.stdout + result.stderr
     result = subprocess.run([str(package / "harness.exe")], capture_output=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("lifecycle", ["prepare", ["unknown"], ["prepare", "prepare"], [1], {"reset": True}])
+def test_invalid_lifecycle_rejected(package, raw, lifecycle):
+    raw["algorithm"] = {"lifecycle": lifecycle}
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("parameter", [
+    {"type": "string", "default": "中文", "capacity": 6},
+    {"type": "string", "default": "", "capacity": 0},
+    {"type": "string", "default": "", "capacity": True},
+    {"type": "string", "default": "", "capacity": 65537},
+    {"type": "float", "default": 1, "capacity": 256},
+    {"type": "float", "default": 1, "bindable": True, "update_policy": "transactional"},
+    {"type": "float", "default": 1, "control_source": True, "access": "write"},
+    {"type": "float", "default": 1, "shape": ["param:missing"]},
+])
+def test_string_and_control_metadata_validation(package, raw, parameter):
+    raw["interfaces"]["extra"] = parameter
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+def test_lifecycle_generated_symbols_and_parameter_policies(package, raw):
+    import jsonschema
+    raw["algorithm"] = {"lifecycle": ["prepare", "destroy", "reset"]}
+    raw["interfaces"]["gain"]["update_policy"] = "smoothed"
+    raw["interfaces"]["enabled"]["update_policy"] = "transactional"
+    raw["interfaces"]["text"] = {"type": "string", "default": "中文"}
+    del raw["interfaces"]["in"]["block_size"]
+    path = save(package, raw)
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    generate_component(path)
+    shell = (package / "generated" / "component_shell.c").read_text(encoding="utf-8")
+    header = (package / "generated" / "component_state.h").read_text(encoding="utf-8")
+    assert "char text[256];" in header
+    assert "int test_pilot_prepare(test_pilot_State* state, const OrpheusConfig* config);" in header
+    assert "int test_pilot_set_parameter(" not in header
+    assert "test_pilot_get_parameter(" not in shell
+    assert "ORPHEUS_UPDATE_SMOOTHED" in shell
+    assert "ORPHEUS_UPDATE_TRANSACTIONAL" in shell
+    assert "ORPHEUS_SLOT_DIRECT_WRITE" not in shell
+    assert ".block_size=0" in shell
+    assert_component_generated_current(path)
+
+
+def _compile_component_harness(package):
+    compiler = Path(r"C:\BuildTools\Strawberry\c\bin\gcc.exe")
+    if not compiler.exists():
+        pytest.skip("当前环境没有仓库指定的 C 编译器")
+    command = [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror", "-DORPHEUS_BUILDING_COMPONENT",
+               "-I", str(ROOT / "orpheus_abi" / "include"), "-I", "generated", "-I", "user",
+               r"generated\component_shell.c", r"user\algorithm.c", "harness.c", "-o", "harness.exe"]
+    result = subprocess.run(command, cwd=package, capture_output=True, encoding="utf-8", errors="replace")
+    assert result.returncode == 0, result.stdout + result.stderr
+    result = subprocess.run([str(package / "harness.exe")], capture_output=True, encoding="utf-8")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_real_lifecycle_transactions_and_utf8_string_ownership(package, raw):
+    raw["algorithm"] = {"lifecycle": [
+        "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook"]}
+    raw["interfaces"]["gain"]["update_policy"] = "smoothed"
+    raw["interfaces"]["enabled"]["update_policy"] = "transactional"
+    raw["interfaces"]["label"] = {"type": "string", "default": "初", "capacity": 8, "kind": "setting"}
+    raw["interfaces"]["current_gain"] = {
+        "type": "float", "default": 0.0, "kind": "probe", "persistent": False, "readonly": True,
+        "readback": True, "control_source": True}
+    raw["execution"] = {"realtime_safe": True, "supports_inplace": True, "latency_samples": 3}
+    raw["memory"] = {"state_size": 0, "scratch_size": 64, "alignment": 16}
+    path = save(package, raw)
+    generate_component(path)
+    (package / "user" / "algorithm.h").write_text(
+        "#pragma once\n"
+        "typedef struct test_pilot_AlgorithmState { int* resource; int counter; } test_pilot_AlgorithmState;\n",
+        encoding="utf-8", newline="\n")
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
+int prepares, destroys, sets, gets, resets, registered;
+char readback_text[8]="view";
+int test_pilot_algorithm(test_pilot_State* s, test_pilot_IO* io, const OrpheusProcessContext* ctx) {
+    (void)io; (void)ctx; ++s->algorithm.counter; return ORPHEUS_OK;
+}
+int test_pilot_prepare(test_pilot_State* s, const OrpheusConfig* config) {
+    assert(s->algorithm.resource==NULL);
+    ++prepares;
+    s->algorithm.resource=(int*)malloc(sizeof(int));
+    if (!s->algorithm.resource) return ORPHEUS_ERR_OUT_OF_MEMORY;
+    *s->algorithm.resource=42; s->current_gain=7.0f;
+    return config->sample_rate<0 ? ORPHEUS_ERR_PROCESSING : ORPHEUS_OK;
+}
+int test_pilot_reset(test_pilot_State* s) {
+    ++resets; s->algorithm.counter=0; s->current_gain=0.0f; return ORPHEUS_OK;
+}
+int test_pilot_destroy(test_pilot_State* s) {
+    ++destroys; free(s->algorithm.resource); s->algorithm.resource=NULL; return ORPHEUS_OK;
+}
+int test_pilot_set_parameter(test_pilot_State* s, const char* key, const OrpheusValue* value) {
+    ++sets;
+    if (strcmp(key,"gain")==0 && value->value.f32==3.0f) {
+        s->gain=99.0f; s->enabled=false; s->current_gain=99.0f;
+        return ORPHEUS_ERR_PROCESSING;
+    }
+    if (strcmp(key,"gain")==0) s->current_gain=12.0f;
+    return ORPHEUS_OK;
+}
+int test_pilot_get_parameter(test_pilot_State* s, const char* key, OrpheusValue* value) {
+    (void)s; ++gets;
+    if (strcmp(key,"label")==0) {
+        value->type=ORPHEUS_VALUE_STRING; value->value.str=readback_text; return ORPHEUS_OK;
+    }
+    if (strcmp(key,"enabled")==0) return ORPHEUS_ERR_PROCESSING;
+    return ORPHEUS_ERR_NOT_FOUND;
+}
+int test_pilot_register_slots(test_pilot_State* s, const OrpheusRegistry* reg) {
+    assert(registered==5);
+    return ORPHEUS_REG_SLOT(reg,s,algorithm.counter,ORPHEUS_SLOT_PROBE,"counter","计数",
+        ORPHEUS_VALUE_INT,.flags=ORPHEUS_SLOT_READBACK)==ORPHEUS_SLOT_ID_INVALID
+        ? ORPHEUS_ERR_PROCESSING : ORPHEUS_OK;
+}
+int test_pilot_hook(test_pilot_State* s,uint32_t id,uint32_t event,const OrpheusBlob* req,OrpheusBlob* resp) {
+    assert(s && id==8 && event==ORPHEUS_EVENT_CUSTOM && req && req->len==4);
+    if (resp) resp->len=17;
+    return ORPHEUS_HOOK_HANDLED;
+}
+''', encoding="utf-8", newline="\n")
+    users = {p.name: p.read_bytes() for p in (package / "user").iterdir()}
+    generate_component(path)
+    assert users == {p.name: p.read_bytes() for p in (package / "user").iterdir()}
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+extern int prepares,destroys,sets,gets,resets,registered;
+extern char readback_text[8];
+static OrpheusSlotId add(void* user,const OrpheusSlotInfo* slot) {
+    (void)user; ++registered;
+    assert(!(slot->flags & ORPHEUS_SLOT_DIRECT_WRITE));
+    if (strcmp(slot->key,"label")==0) {
+        assert(slot->type==ORPHEUS_VALUE_STRING && slot->size==8 && slot->count==1);
+    }
+    if (strcmp(slot->key,"current_gain")==0) {
+        assert(slot->kind==ORPHEUS_SLOT_PROBE && slot->type==ORPHEUS_VALUE_FLOAT);
+        assert(!(slot->flags & ORPHEUS_SLOT_PERSISTENT));
+    }
+    assert(slot->offset+slot->size*slot->count<=sizeof(test_pilot_State));
+    return registered;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    assert(api->get_descriptor()->scratch_size==64 && api->get_descriptor()->alignment>=16);
+    assert(api->get_descriptor()->supports_inplace && api->get_descriptor()->latency_samples==3);
+    assert(api->get_descriptor()->params[0].update_policy==ORPHEUS_UPDATE_SMOOTHED);
+    assert(api->get_descriptor()->params[2].update_policy==ORPHEUS_UPDATE_TRANSACTIONAL);
+    _Alignas(16) test_pilot_State state; void* instance=NULL;
+    char config_label[8]="config";
+    const char* ids[]={"label","gain"};
+    OrpheusValue vals[]={{.type=ORPHEUS_VALUE_STRING,.value.str=config_label},
+                        {.type=ORPHEUS_VALUE_FLOAT,.value.f32=2.0f}};
+    OrpheusConfig config={.state_block=&state,.channels=3,.param_count=2,.param_ids=ids,.param_values=vals};
+    assert(api->create(&instance,&config)==0 && prepares==0 && destroys==0 && sets==0);
+    assert(state.channels==3 && state.gain==2.0f && strcmp(state.label,"config")==0);
+    config_label[0]='X'; assert(strcmp(state.label,"config")==0);
+    config_label[0]='c';
+    assert(api->prepare(instance,&config)==0 && prepares==1 && destroys==0 && sets==0);
+    assert(state.current_gain==7.0f && *state.algorithm.resource==42);
+    config_label[0]='X'; assert(strcmp(state.label,"config")==0);
+    OrpheusRegistry reg={.add=add};
+    assert(api->register_slots(instance,&reg)==0 && registered==6);
+    OrpheusValue v={.type=ORPHEUS_VALUE_FLOAT,.value.f32=3.0f};
+    assert(api->set_parameter(instance,"gain",&v)==ORPHEUS_ERR_PROCESSING);
+    assert(state.gain==2.0f && state.enabled && state.current_gain==7.0f);
+    v.value.f32=2.5f;
+    assert(api->set_parameter(instance,"gain",&v)==0 && state.gain==2.5f && state.current_gain==12.0f);
+    int calls_before_probe=sets;
+    assert(api->set_parameter(instance,"current_gain",&v)==ORPHEUS_ERR_UNSUPPORTED);
+    assert(sets==calls_before_probe && state.current_gain==12.0f);
+    int calls=sets; v.value.f32=99;
+    assert(api->set_parameter(instance,"gain",&v)==ORPHEUS_ERR_INVALID_ARG && sets==calls);
+    v.type=ORPHEUS_VALUE_INT; v.value.i32=2;
+    assert(api->set_parameter(instance,"gain",&v)==ORPHEUS_ERR_INVALID_ARG && sets==calls);
+    char own[8]="中文"; v.type=ORPHEUS_VALUE_STRING; v.value.str=own;
+    assert(api->set_parameter(instance,"label",&v)==0);
+    own[0]='X'; assert(strcmp(state.label,"中文")==0);
+    calls=sets; v.value.str="中文呀";
+    assert(api->set_parameter(instance,"label",&v)==ORPHEUS_ERR_INVALID_ARG && sets==calls);
+    v.value.str="\xC0\xAF";
+    assert(api->set_parameter(instance,"label",&v)==ORPHEUS_ERR_INVALID_ARG && sets==calls);
+    v.value.str="\xED\xA0\x80";
+    assert(api->set_parameter(instance,"label",&v)==ORPHEUS_ERR_INVALID_ARG && sets==calls);
+    v.value.str=NULL;
+    assert(api->set_parameter(instance,"label",&v)==ORPHEUS_ERR_INVALID_ARG && sets==calls);
+    OrpheusValue got;
+    assert(api->get_parameter(instance,"gain",&got)==0 && got.value.f32==2.5f);
+    assert(api->get_parameter(instance,"enabled",&got)==ORPHEUS_ERR_PROCESSING);
+    assert(api->get_parameter(instance,"label",&got)==0 && strcmp(got.value.str,"view")==0);
+    assert(got.value.str==state._orpheus_readback_label);
+    readback_text[0]='X'; assert(strcmp(got.value.str,"view")==0);
+    assert(strcmp(state.label,"中文")==0);
+    state.algorithm.counter=12;
+    assert(api->reset(instance)==0 && resets==1 && state.algorithm.counter==0);
+    assert(state.gain==2.5f && state.channels==3 && state.current_gain==0.0f);
+    assert(strcmp(state.label,"中文")==0 && *state.algorithm.resource==42);
+    uint32_t data=7; OrpheusBlob req={.data=&data,.len=4},resp={0};
+    assert(api->hook(instance,8,ORPHEUS_EVENT_CUSTOM,&req,&resp)==ORPHEUS_HOOK_HANDLED && resp.len==17);
+    assert(api->prepare(instance,&config)==0 && prepares==2 && destroys==1);
+    assert(api->destroy(instance)==0 && destroys==2);
+    assert(api->destroy(instance)==0 && destroys==2);
+    assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG);
+    config.sample_rate=-1;
+    assert(api->create(&instance,&config)==0 && prepares==2);
+    assert(api->prepare(instance,&config)==ORPHEUS_ERR_PROCESSING && prepares==3 && destroys==3);
+    assert(state.algorithm.resource==NULL);
+    assert(api->destroy(instance)==0 && destroys==3);
+    config.sample_rate=48000;
+    assert(api->create(&instance,&config)==0);
+    config.channels=99;
+    assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG && prepares==3);
+    assert(api->destroy(instance)==0 && destroys==3);
+    return 0;
+}
+''', encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+@pytest.mark.parametrize("port_type,format_name,c_type,format_enum", [
+    ("control", "i32", "int32_t", "ORPHEUS_FORMAT_I32"),
+    ("bulk", "i16", "int16_t", "ORPHEUS_FORMAT_I16"),
+    ("debug", "f32", "float", "ORPHEUS_FORMAT_F32"),
+])
+def test_real_non_audio_typed_buffer_views(package, raw, port_type, format_name, c_type, format_enum):
+    raw["interfaces"]["in"].update({"type": port_type, "sample_format": format_name, "channels": 1})
+    raw["interfaces"]["out"].update({"type": port_type, "sample_format": format_name, "channels": "in:channels"})
+    path = save(package, raw)
+    generate_component(path)
+    (package / "user" / "algorithm.c").write_text(
+        '#include "component_state.h"\n'
+        'int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {\n'
+        '    (void)s;\n'
+        '    if (!io->in.samples || !io->out.samples) return ORPHEUS_OK;\n'
+        '    for (unsigned i=0;i<ctx->frame_count;i++) io->out.samples[i]=io->in.samples[i];\n'
+        '    return test_pilot_emit_out(ctx,&io->out);\n}\n', encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(
+        '#include "component_state.h"\n#include <assert.h>\nint main(void) {\n'
+        '    const OrpheusComponentInterface* api=orpheus_get_interface();\n'
+        f'    assert(api->get_descriptor()->ports[0].type==ORPHEUS_PORT_{port_type.upper()});\n'
+        '    test_pilot_State state;void* instance=0;OrpheusConfig config={.state_block=&state};\n'
+        '    assert(api->create(&instance,&config)==0);\n'
+        f'    {c_type} src[2]={{3,7}},dst[2]={{0}};\n'
+        f'    OrpheusBuffer in={{.data=src,.format={format_enum},.channels=1,.frame_count=2,.frame_capacity=2,.interleaved=true}};\n'
+        '    OrpheusBuffer out=in;out.data=dst;\n'
+        '    const OrpheusBuffer* inputs[]={&in};OrpheusBuffer* outputs[]={&out};\n'
+        '    OrpheusProcessContext ctx={.inputs=inputs,.outputs=outputs,.input_count=1,.output_count=1,.frame_count=2};\n'
+        '    assert(api->process(instance,&ctx)==0 && dst[0]==3 && dst[1]==7);\n'
+        '    return 0;\n}\n', encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("sample_format", "f32"), ("channels", 1), ("block_size", 32), ("sample_rate", 48000),
+    ("count", 1), ("layout", "pcm"), ("frame_size", 0), ("timing", "sync"), ("optional", True),
+])
+def test_trigger_rejects_pcm_fields_in_schema_and_core(package, raw, field, value):
+    import jsonschema
+    raw["interfaces"]["tick"] = {"type": "trigger", "direction": "output", "drive_port_no": 2, field: value}
+    path = save(package, raw)
+    before = snapshot(package)
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(raw, schema)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+def test_real_trigger_delivery_views_and_explicit_emission(package, raw):
+    import jsonschema
+    raw["interfaces"]["kick"] = {"type": "trigger", "direction": "input", "process": True}
+    raw["interfaces"]["other"] = {"type": "trigger", "direction": "input"}
+    raw["interfaces"]["tick"] = {"type": "trigger", "direction": "output", "drive_port_no": 2, "drive_divide": 999}
+    path = save(package, raw)
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    normalized = normalize_component_definition(raw)
+    ports = {p["id"]: p for p in normalized["ports"]}
+    assert ports["kick"]["propagate_drive"] is True
+    assert ports["other"]["propagate_drive"] is False
+    assert ports["tick"]["propagate_drive"] is True
+    assert "channels" not in ports["kick"] and "sample_format" not in ports["tick"]
+    generate_component(path)
+    (package / "user" / "algorithm.h").write_text(
+        "#pragma once\ntypedef struct test_pilot_AlgorithmState { unsigned calls; } test_pilot_AlgorithmState;\n",
+        encoding="utf-8", newline="\n")
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+int test_pilot_algorithm(test_pilot_State* state,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    assert(io->kick.delivery==(ctx->trigger_input==1 ? ctx->delivery : NULL));
+    assert(io->other.delivery==(ctx->trigger_input==2 ? ctx->delivery : NULL));
+    if (io->in.samples && io->out.samples) io->out.samples[0]=io->in.samples[0];
+    if (ctx->timestamp<0) {
+        io->tick.delivery.buffer=io->in.buffer;
+        return test_pilot_emit_tick(ctx,&io->tick);
+    }
+    if (++state->algorithm.calls%2) return ORPHEUS_OK;
+    return test_pilot_emit_tick(ctx,&io->tick);
+}
+''', encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+static unsigned emissions;
+static int emit(void* user,uint32_t drive,const OrpheusDelivery* delivery) {
+    (void)user; assert(drive==TEST_PILOT_DRIVE_TICK && !delivery->buffer);
+    assert(delivery->frame_index==100 && delivery->epoch==3 && delivery->timeline_flags==1);
+    ++emissions; return ORPHEUS_OK;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    assert(api->get_descriptor()->ports[2].type==ORPHEUS_PORT_TRIGGER);
+    assert(api->get_descriptor()->ports[2].channels==0);
+    test_pilot_State state;void* instance=NULL;OrpheusConfig config={.state_block=&state};
+    assert(api->create(&instance,&config)==0);
+    float data[2]={5,7},dest[2]={0};
+    OrpheusBuffer input={.data=data,.format=ORPHEUS_FORMAT_F32,.channels=2,.frame_count=1,
+        .frame_capacity=1,.interleaved=true},output=input;output.data=dest;
+    const OrpheusBuffer* inputs[]={&input,NULL,NULL};
+    OrpheusBuffer* outputs[]={&output,NULL};
+    OrpheusDelivery delivery={.buffer=NULL,.frame_index=101};
+    OrpheusContinuation continuation={.emit=emit};
+    OrpheusProcessContext ctx={.inputs=inputs,.outputs=outputs,.input_count=3,.output_count=2,
+        .frame_count=1,.frame_index=100,.epoch=3,.timeline_flags=1,.trigger_input=1,
+        .delivery=&delivery,.continuation=&continuation};
+    assert(api->process(instance,&ctx)==0 && emissions==0 && dest[0]==5);
+    assert(api->process(instance,&ctx)==0 && emissions==1);
+    ctx.trigger_input=2;
+    assert(api->process(instance,&ctx)==0 && emissions==1);
+    ctx.trigger_input=0;
+    assert(api->process(instance,&ctx)==0 && emissions==2);
+    ctx.timestamp=-1;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG && emissions==2);
+    ctx.timestamp=0;ctx.trigger_input=1;delivery.buffer=&input;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    delivery.buffer=NULL;inputs[1]=&input;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    inputs[1]=NULL;outputs[1]=&output;
+    assert(api->process(instance,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    return 0;
+}
+''', encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+def test_compile_trigger_only_and_empty_parameters(package):
+    raw = {"id": "test.pilot", "name": "纯触发", "version": "1",
+           "interfaces": {"tick": {"type": "trigger", "direction": "output", "drive_port_no": 1}}}
+    generate_component(save(package, raw))
+    (package / "harness.c").write_text(
+        '#include "component_state.h"\n#include <assert.h>\nint main(void) {\n'
+        '    const OrpheusComponentInterface* api=orpheus_get_interface();\n'
+        '    test_pilot_State state;void* instance=NULL;OrpheusConfig config={.state_block=&state};\n'
+        '    assert(api->create(&instance,&config)==0);\n'
+        '    OrpheusProcessContext ctx={0};\n'
+        '    assert(api->prepare(instance,&config)==0);\n'
+        '    assert(api->process(instance,&ctx)==ORPHEUS_ERR_UNSUPPORTED);\n'
+        '    assert(api->reset(instance)==0 && api->destroy(instance)==0);\n'
+        '    return 0;\n}\n', encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+def test_compile_control_characters_and_trigraph_string_default(package, raw):
+    raw["interfaces"]["text"] = {"type": "string", "default": "中文\1??/\\\"\n"}
+    path = save(package, raw)
+    generate_component(path)
+    (package / "harness.c").write_text(
+        '#include "component_state.h"\n#include <assert.h>\n#include <string.h>\nint main(void) {\n'
+        '    test_pilot_State state;void* instance=NULL;OrpheusConfig config={.state_block=&state};\n'
+        '    assert(orpheus_get_interface()->create(&instance,&config)==0);\n'
+        '    assert(strcmp(state.text,"中文\\001\\?\\?/\\\\\\"\\012")==0);\n'
+        '    OrpheusValue got;assert(orpheus_get_interface()->get_parameter(instance,"text",&got)==0);\n'
+        '    assert(got.type==ORPHEUS_VALUE_STRING && got.value.str==state.text);\n'
+        '    return 0;\n}\n', encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+def test_compile_all_default_lifecycle_stubs_and_get_fallback(package, raw):
+    raw["algorithm"] = {"lifecycle": ["prepare", "reset", "destroy", "set_parameter",
+                                    "get_parameter", "register_slots", "hook"]}
+    raw["interfaces"]["text"] = {"type": "string", "default": "中文"}
+    generate_component(save(package, raw))
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;OrpheusConfig config={.state_block=&state};
+    assert(api->create(&instance,&config)==0 && api->prepare(instance,&config)==0);
+    OrpheusValue value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=2};
+    assert(api->set_parameter(instance,"gain",&value)==0 && state.gain==2);
+    assert(api->get_parameter(instance,"gain",&value)==0 && value.value.f32==2);
+    assert(api->get_parameter(instance,"text",&value)==0 && strcmp(value.value.str,"中文")==0);
+    assert(value.value.str==state.text);
+    assert(api->hook(instance,0,ORPHEUS_EVENT_CUSTOM,NULL,NULL)==ORPHEUS_HOOK_CONTINUE);
+    assert(api->reset(instance)==0 && state.gain==2 && api->destroy(instance)==0);
+    return 0;
+}
+''', encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+def test_default_reset_closes_user_resources_without_losing_parameters(package, raw):
+    raw["algorithm"] = {"lifecycle": ["prepare", "destroy"]}
+    generate_component(save(package, raw))
+    (package / "user" / "algorithm.h").write_text(
+        "#pragma once\ntypedef struct test_pilot_AlgorithmState { int* resource; } test_pilot_AlgorithmState;\n",
+        encoding="utf-8", newline="\n")
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <stdlib.h>
+unsigned allocations,destructions;
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    (void)s;(void)io;(void)ctx;return ORPHEUS_OK;
+}
+int test_pilot_prepare(test_pilot_State* s,const OrpheusConfig* config) {
+    (void)config;++allocations;s->algorithm.resource=(int*)malloc(sizeof(int));
+    return s->algorithm.resource ? ORPHEUS_OK : ORPHEUS_ERR_OUT_OF_MEMORY;
+}
+int test_pilot_destroy(test_pilot_State* s) {
+    ++destructions;free(s->algorithm.resource);return ORPHEUS_OK;
+}
+''', encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+extern unsigned allocations,destructions;
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;OrpheusConfig config={.state_block=&state};
+    assert(api->create(&instance,&config)==0 && api->prepare(instance,&config)==0);
+    assert(allocations==1 && destructions==0 && state.algorithm.resource);
+    OrpheusValue value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=2};
+    assert(api->set_parameter(instance,"gain",&value)==0);
+    assert(api->reset(instance)==0 && destructions==1 && state.algorithm.resource==NULL && state.gain==2);
+    assert(api->prepare(instance,&config)==0 && allocations==2 && destructions==1);
+    assert(api->destroy(instance)==0 && destructions==2);
+    assert(api->destroy(instance)==0 && destructions==2);
+    return 0;
+}
+''', encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+def _add_bulk_test_interfaces(raw, manual=False):
+    raw["interfaces"]["gains"] = {
+        "type": "string", "default": "1,1", "kind": "bulk", "shape": ["param:channels"],
+        "update_policy": "restart_required",
+        "bulk": {"sample_format": "f32", "capacity": 4, "storage": "algorithm.per_channel_gains",
+                 "double_bank": True, "auto_register": not manual, "range": [-2.0, 2.0]},
+    }
+    raw["interfaces"]["weights"] = {
+        "type": "float", "count": 3, "default": [0.0, 0.5, 1.0], "range": [-1.0, 1.0],
+        "shape": [3], "bulk": {"double_bank": True}, "update_policy": "restart_required",
+    }
+    raw["interfaces"]["steps"] = {
+        "type": "int", "count": 2, "default": [1, 2], "range": [0, 8], "update_policy": "restart_required",
+    }
+    raw["interfaces"]["switches"] = {
+        "type": "bool", "count": 2, "default": [True, False], "update_policy": "restart_required",
+    }
+
+
+def test_bulk_metadata_has_one_fact_source_and_generated_private_storage(package, raw):
+    import jsonschema
+    _add_bulk_test_interfaces(raw)
+    raw.update({"scheduling": {"divisor": "param:channels", "input_block_size": "2*param:channels",
+                               "history": False, "split": True, "merge": False, "async_bridge": True},
+                "clock_source": True, "clock_domain": "file", "platforms": ["win"]})
+    before = copy.deepcopy(raw)
+    normalized = normalize_component_definition(raw)
+    assert raw == before
+    resources = {slot["id"]: slot for slot in normalized["bulk_slots"]}
+    assert resources["gains"] == {
+        "id": "gains", "name": "gains", "type": "float", "count": 4,
+        "shape": ["param:channels"], "double_bank": True, "access": "read_write", "range": [-2.0, 2.0],
+    }
+    assert resources["weights"]["count"] == 3 and resources["weights"]["double_bank"]
+    assert resources["steps"]["type"] == "int" and resources["switches"]["type"] == "bool"
+    assert normalized["scheduling"] == raw["scheduling"]
+    assert normalized["clock_source"] and normalized["clock_domain"] == "file"
+    assert normalized["platforms"] == ["win"]
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    generate_component(path)
+    header = (package / "user" / "algorithm.h").read_text(encoding="utf-8")
+    assert "float per_channel_gains[4];" in header
+    state_header = (package / "generated" / "component_state.h").read_text(encoding="utf-8")
+    assert "float weights[3];" in state_header and "int32_t steps[2];" in state_header
+    assert "bool switches[2];" in state_header
+    shell = (package / "generated" / "component_shell.c").read_text(encoding="utf-8")
+    assert "ORPHEUS_REG_SLOT(reg, s, gains," not in shell
+    assert "ORPHEUS_REG_ARRAY(reg, s, algorithm.per_channel_gains," in shell
+    assert "ORPHEUS_SLOT_DOUBLE_BUFFERED" in shell
+    assert "_Static_assert(_Generic" in shell
+    assert_component_generated_current(path)
+    raw["bulk_slots"] = []
+    with pytest.raises(ComponentDefinitionError, match="bulk_slots"):
+        normalize_component_definition(raw)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("storage", "algorithm.values[0]"), ("storage", "algorithm->values"),
+    ("storage", "algorithm.values + 1"), ("storage", "user.values"),
+    ("storage", "algorithm.float"), ("capacity", 0), ("capacity", True), ("capacity", 65537),
+    ("sample_format", "i16"), ("double_bank", 1), ("auto_register", 0),
+    ("range", [2, -2]), ("range", [0, float("nan")]), ("range", [True, 1]),
+])
+def test_invalid_bulk_binding_is_readonly(package, raw, field, value):
+    _add_bulk_test_interfaces(raw)
+    raw["interfaces"]["gains"]["bulk"][field] = value
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("parameter", [
+    {"type": "float", "count": 2, "default": 1.0},
+    {"type": "float", "count": 2, "default": [1.0]},
+    {"type": "float", "count": 2, "default": [1.0, True]},
+    {"type": "float", "count": 2, "default": [1.0, float("nan")]},
+    {"type": "int", "count": 2, "default": [1, 2.0]},
+    {"type": "bool", "count": 2, "default": [True, 1]},
+    {"type": "string", "count": 2, "default": ["a", "b"]},
+    {"type": "float", "count": "param:channels", "default": [1, 2]},
+    {"type": "float", "count": 2, "default": [1, 2], "range": [0, 1]},
+    {"type": "float", "count": 2, "default": [1, 2], "shape": [3]},
+    {"type": "float", "count": 2, "default": [1, 2], "bulk": {"capacity": 2}},
+    {"type": "float", "count": 2, "default": [1, 2], "bulk": {"sample_format": "i32"}},
+])
+def test_fixed_array_declarations_are_strict_and_readonly(package, raw, parameter):
+    raw["interfaces"]["array"] = parameter
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+def test_bulk_shape_capacity_storage_overlap_and_schedule_references(raw):
+    _add_bulk_test_interfaces(raw)
+    raw["interfaces"]["gains"]["shape"] = [5]
+    with pytest.raises(ComponentDefinitionError, match="容量"):
+        normalize_component_definition(raw)
+    raw["interfaces"]["gains"]["shape"] = ["param:channels"]
+    raw["interfaces"]["other"] = copy.deepcopy(raw["interfaces"]["gains"])
+    with pytest.raises(ComponentDefinitionError, match="同一存储"):
+        normalize_component_definition(raw)
+    del raw["interfaces"]["other"]
+    raw["scheduling"] = {"divisor": "system('bad')"}
+    with pytest.raises(ComponentDefinitionError, match="调度量"):
+        normalize_component_definition(raw)
+    raw["scheduling"] = {"input_block_size": "2*param:missing"}
+    with pytest.raises(ComponentDefinitionError, match="调度引用"):
+        normalize_component_definition(raw)
+
+
+@pytest.mark.parametrize("key", ["async_bridge", "merge"])
+@pytest.mark.parametrize("value", [0, "true", [], None])
+def test_scheduling_bridge_flags_require_boolean(raw, key, value):
+    import jsonschema
+    raw["scheduling"] = {key: value}
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(raw, schema)
+    with pytest.raises(ComponentDefinitionError):
+        normalize_component_definition(raw)
+
+
+def test_real_bulk_private_binding_arrays_shadow_banks_and_lifecycle(package, raw):
+    _add_bulk_test_interfaces(raw)
+    raw["algorithm"] = {"lifecycle": ["prepare", "reset", "destroy"]}
+    path = save(package, raw)
+    generate_component(path)
+    (package / "user" / "algorithm.h").write_text(
+        "#pragma once\ntypedef struct test_pilot_AlgorithmState {\n"
+        "    float per_channel_gains[4]; unsigned history;\n} test_pilot_AlgorithmState;\n",
+        encoding="utf-8", newline="\n")
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <stdlib.h>
+#include <math.h>
+unsigned prepares,destroys,resets;
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    (void)ctx;++s->algorithm.history;
+    if (io->in.samples && io->out.samples)
+        io->out.samples[0]=io->in.samples[0]*s->algorithm.per_channel_gains[0]*s->weights[0];
+    return ORPHEUS_OK;
+}
+int test_pilot_prepare(test_pilot_State* s,const OrpheusConfig* config) {
+    (void)config;++prepares;
+    const char* text=s->gains;
+    for (int32_t i=0;i<s->channels;i++) {
+        char* end;float value=strtof(text,&end);
+        if (end==text || !isfinite(value) || value < -2 || value > 2) return ORPHEUS_ERR_INVALID_ARG;
+        s->algorithm.per_channel_gains[i]=value;
+        if (i+1<s->channels) { if (*end!=',') return ORPHEUS_ERR_INVALID_ARG;text=end+1; }
+        else if (*end) return ORPHEUS_ERR_INVALID_ARG;
+    }
+    return ORPHEUS_OK;
+}
+int test_pilot_reset(test_pilot_State* s) { ++resets;s->algorithm.history=0;return ORPHEUS_OK; }
+int test_pilot_destroy(test_pilot_State* s) { (void)s;++destroys;return ORPHEUS_OK; }
+''', encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+#include <math.h>
+extern unsigned prepares,destroys,resets;
+typedef struct { OrpheusSlotInfo info;unsigned char shadow[64];bool pending; } Slot;
+static Slot slots[16];static unsigned used;static test_pilot_State* state;
+static OrpheusSlotId add(void* user,const OrpheusSlotInfo* info) {
+    (void)user;
+    for(unsigned i=0;i<used;i++) assert(strcmp(slots[i].info.key,info->key)!=0);
+    assert(info->offset+info->size*info->count<=sizeof(*state));
+    slots[used].info=*info;
+    assert(info->size*info->count<=sizeof(slots[used].shadow));
+    memcpy(slots[used].shadow,(char*)state+info->offset,info->size*info->count);
+    return used++;
+}
+static Slot* find(const char* key) {
+    for(unsigned i=0;i<used;i++) if(strcmp(slots[i].info.key,key)==0) return &slots[i];
+    assert(0);return NULL;
+}
+static int write_bulk(const char* key,const void* values,unsigned count) {
+    Slot* slot=find(key);OrpheusSlotInfo* info=&slot->info;
+    if(info->kind!=ORPHEUS_SLOT_BULK || count>info->count) return ORPHEUS_ERR_INVALID_ARG;
+    for(unsigned i=0;i<count;i++) {
+        if(info->type==ORPHEUS_VALUE_FLOAT) {
+            float value=((const float*)values)[i];
+            if(!isfinite(value)||value<info->min_f32||value>info->max_f32) return ORPHEUS_ERR_INVALID_ARG;
+        } else if(info->type==ORPHEUS_VALUE_INT) {
+            int32_t value=((const int32_t*)values)[i];
+            if(value<info->min_i32||value>info->max_i32) return ORPHEUS_ERR_INVALID_ARG;
+        }
+    }
+    if(info->flags & ORPHEUS_SLOT_DOUBLE_BUFFERED) {
+        memmove(slot->shadow,values,count*info->size);slot->pending=true;
+    } else memmove((char*)state+info->offset,values,count*info->size);
+    return ORPHEUS_OK;
+}
+static void commit(void) {
+    for(unsigned i=0;i<used;i++) if(slots[i].pending) {
+        memcpy((char*)state+slots[i].info.offset,slots[i].shadow,slots[i].info.size*slots[i].info.count);
+        slots[i].pending=false;
+    }
+}
+static void read_bulk(const char* key,void* out,unsigned count) {
+    Slot* slot=find(key);assert(count<=slot->info.count);
+    memcpy(out,(char*)state+slot->info.offset,count*slot->info.size);
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();test_pilot_State memory;state=&memory;
+    void* instance=NULL;OrpheusConfig config={.state_block=state};
+    assert(api->create(&instance,&config)==0);
+    assert(state->weights[1]==0.5f&&state->steps[1]==2&&state->switches[0]&&!state->switches[1]);
+    const char* keys[]={"weights","steps","switches"};
+    OrpheusValue vals[]={{.type=ORPHEUS_VALUE_STRING,.value.str="0.25, 0.5, 0.75"},
+                        {.type=ORPHEUS_VALUE_STRING,.value.str="3,4"},
+                        {.type=ORPHEUS_VALUE_STRING,.value.str="false,true"}};
+    config.param_ids=keys;config.param_values=vals;config.param_count=3;
+    assert(api->prepare(instance,&config)==0&&prepares==1&&destroys==0);
+    assert(state->weights[0]==0.25f&&state->steps[0]==3&&!state->switches[0]&&state->switches[1]);
+    OrpheusRegistry reg={.add=add};
+    assert(api->register_slots(instance,&reg)==0&&used==7);
+    assert(find("gains")->info.kind==ORPHEUS_SLOT_BULK&&find("gains")->info.type==ORPHEUS_VALUE_FLOAT);
+    assert(find("gains")->info.count==2&&find("gains")->info.size==sizeof(float));
+    assert(find("gains")->info.offset==offsetof(test_pilot_State,algorithm.per_channel_gains));
+    assert(find("weights")->info.kind==ORPHEUS_SLOT_BULK&&find("weights")->info.count==3);
+    assert(find("switches")->info.type==ORPHEUS_VALUE_BOOL&&find("switches")->info.size==sizeof(bool));
+    float gains[]={2,0.5f},weights[]={0.5f,0.25f,0.75f},result[2]={0};
+    assert(write_bulk("gains",gains,2)==0&&write_bulk("weights",weights,3)==0);
+    read_bulk("gains",result,2);assert(result[0]==1);
+    assert(state->weights[0]==0.25f);
+    float invalid[]={3,0};
+    assert(write_bulk("gains",invalid,2)==ORPHEUS_ERR_INVALID_ARG);
+    assert(write_bulk("gains",gains,3)==ORPHEUS_ERR_INVALID_ARG);
+    commit();read_bulk("gains",result,2);assert(result[0]==2&&state->weights[0]==0.5f);
+    int32_t steps[]={5,6};bool switches[]={true,false};
+    assert(write_bulk("steps",steps,2)==0&&state->steps[0]==5);
+    assert(write_bulk("switches",switches,2)==0&&state->switches[0]&&!state->switches[1]);
+    OrpheusValue scalar={.type=ORPHEUS_VALUE_FLOAT,.value.f32=0};
+    assert(api->set_parameter(instance,"weights",&scalar)==ORPHEUS_ERR_UNSUPPORTED);
+    assert(api->get_parameter(instance,"weights",&scalar)==ORPHEUS_ERR_UNSUPPORTED);
+    assert(api->get_parameter(instance,"gains",&scalar)==0&&strcmp(scalar.value.str,"1,1")==0);
+    const char* bad[]={"0.5,1","0.5,1,0,1","0.5,1,","nan,0,0","2,0,0","1e999,0,0"};
+    for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);i++) {
+        vals[0].value.str=bad[i];
+        assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG&&prepares==1&&destroys==0);
+        assert(state->weights[0]==0.5f&&state->algorithm.per_channel_gains[0]==2);
+    }
+    vals[0].value.str="0.25,0.5,0.75";vals[1].value.str="1.5,2";
+    assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG&&prepares==1);
+    vals[1].value.str="3,4";vals[2].value.str="2,true";
+    assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG&&prepares==1);
+    vals[2].value.str="false,true";config.channels=5;
+    assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG&&prepares==1);
+    config.channels=2;
+    state->algorithm.history=9;
+    assert(api->reset(instance)==0&&resets==1&&state->algorithm.history==0);
+    assert(state->weights[0]==0.5f&&state->algorithm.per_channel_gains[0]==2);
+    assert(api->destroy(instance)==0&&destroys==1);
+    const char* csvkey[]={"gains"};OrpheusValue csv={.type=ORPHEUS_VALUE_STRING,.value.str="bad"};
+    config.param_ids=csvkey;config.param_values=&csv;config.param_count=1;
+    assert(api->create(&instance,&config)==0);
+    assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG&&prepares==2&&destroys==2);
+    assert(api->destroy(instance)==0&&destroys==2);
+    return 0;
+}
+''', encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+def test_real_manual_bulk_registration_uses_only_generated_metadata(package, raw):
+    _add_bulk_test_interfaces(raw, manual=True)
+    raw["interfaces"]["mode"] = {"type": "int", "default": 0}
+    raw["algorithm"] = {"lifecycle": ["register_slots"]}
+    path = save(package, raw)
+    generate_component(path)
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    (void)s;(void)io;(void)ctx;return ORPHEUS_OK;
+}
+int test_pilot_register_slots(test_pilot_State* s,const OrpheusRegistry* reg) {
+    return s->mode==2 ? test_pilot_register_gains(s,reg) : ORPHEUS_OK;
+}
+''', encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+static unsigned gains,others;
+static OrpheusSlotId add(void* user,const OrpheusSlotInfo* slot) {
+    (void)user;
+    if(strcmp(slot->key,"gains")==0) {
+        ++gains;
+        assert(slot->kind==ORPHEUS_SLOT_BULK&&slot->type==ORPHEUS_VALUE_FLOAT&&slot->count==3);
+        assert(slot->flags&ORPHEUS_SLOT_DOUBLE_BUFFERED);
+        assert(slot->offset==offsetof(test_pilot_State,algorithm.per_channel_gains));
+    } else ++others;
+    return gains+others;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;OrpheusConfig config={.state_block=&state,.channels=3};
+    OrpheusRegistry reg={.add=add};
+    assert(api->create(&instance,&config)==0&&api->register_slots(instance,&reg)==0);
+    assert(gains==0&&others==7);
+    state.mode=2;assert(api->register_slots(instance,&reg)==0&&gains==1);
+    state.channels=5;
+    assert(test_pilot_register_gains(&state,&reg)==ORPHEUS_ERR_INVALID_ARG&&gains==1);
+    return 0;
+}
+''', encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+def test_nested_private_bulk_storage_template_compiles(package, raw):
+    _add_bulk_test_interfaces(raw)
+    raw["interfaces"]["gains"]["bulk"]["storage"] = "algorithm.coefficients.active"
+    generate_component(save(package, raw))
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+static unsigned gains;
+static OrpheusSlotId add(void* user,const OrpheusSlotInfo* slot) {
+    (void)user;
+    if(strcmp(slot->key,"gains")==0) {
+        ++gains;
+        assert(slot->offset==offsetof(test_pilot_State,algorithm.coefficients.active));
+        assert(slot->count==3 && slot->size==sizeof(float));
+    }
+    return 0;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;OrpheusConfig config={.state_block=&state,.channels=3};
+    assert(api->create(&instance,&config)==0);
+    OrpheusRegistry reg={.add=add};
+    assert(api->register_slots(instance,&reg)==0 && gains==1);
+    assert(api->get_descriptor()->params[4].type==ORPHEUS_VALUE_FLOAT);
+    assert(api->get_descriptor()->params[4].default_value.type==ORPHEUS_VALUE_STRING);
+    assert(strcmp(api->get_descriptor()->params[4].default_value.value.str,"0.0,0.5,1.0")==0);
+    return 0;
+}
+''', encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+@pytest.mark.parametrize("storage_declaration", [
+    "float per_channel_gains[3];", "float* per_channel_gains;",
+    "int32_t per_channel_gains[4];", "float per_channel_gains[4][1];",
+])
+def test_c_compiler_rejects_wrong_private_bulk_storage(package, raw, storage_declaration):
+    compiler = Path(r"C:\BuildTools\Strawberry\c\bin\gcc.exe")
+    if not compiler.exists():
+        pytest.skip("当前环境没有仓库指定的 C 编译器")
+    _add_bulk_test_interfaces(raw)
+    path = save(package, raw)
+    generate_component(path)
+    (package / "user" / "algorithm.h").write_text(
+        '#pragma once\n#include <stdint.h>\n'
+        f'typedef struct test_pilot_AlgorithmState {{ {storage_declaration} }} test_pilot_AlgorithmState;\n',
+        encoding="utf-8", newline="\n")
+    result = subprocess.run(
+        [str(compiler), "-std=c11", "-fsyntax-only", "-DORPHEUS_BUILDING_COMPONENT",
+         "-I", str(ROOT / "orpheus_abi" / "include"), "-I", "generated", "-I", "user",
+         r"generated\component_shell.c"],
+        cwd=package, capture_output=True, encoding="utf-8", errors="replace")
+    assert result.returncode != 0
+    assert "BULK gains" in result.stderr and "storage" in result.stderr
+
+
+@pytest.mark.parametrize("reference", ["task:block_size", "task:sample_rate"])
+def test_task_signature_references_preserved_and_executable(package, raw, reference):
+    import jsonschema
+    raw["interfaces"]["in"]["channels"] = reference
+    raw["interfaces"]["in"]["block_size"] = "task:block_size"
+    raw["interfaces"]["in"]["sample_rate"] = "task:sample_rate"
+    raw["interfaces"]["out"]["channels"] = "in:channels"
+    raw["interfaces"]["out"]["block_size"] = "task:block_size"
+    raw["interfaces"]["out"]["sample_rate"] = "task:sample_rate"
+    path = save(package, raw)
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    normalized = normalize_component_definition(load_component_definition(path))
+    assert normalized["ports"][0]["channels"] == reference
+    assert normalized["ports"][1]["block_size"] == "task:block_size"
+    generate_component(path)
+    assert_component_generated_current(path)
+    (package / "user" / "algorithm.c").write_text(
+        '#include "component_state.h"\n'
+        'int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {\n'
+        '    (void)s;\n'
+        '    if (!io->in.samples || !io->out.samples) return ORPHEUS_OK;\n'
+        '    for (unsigned i=0;i<ctx->frame_count*io->in.buffer->channels;i++) io->out.samples[i]=io->in.samples[i];\n'
+        '    return test_pilot_emit_out(ctx,&io->out);\n}\n', encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    assert(api->get_descriptor()->ports[0].channels==0);
+    assert(api->get_descriptor()->ports[0].sample_rate==0);
+    assert(api->get_descriptor()->ports[1].block_size==0);
+    test_pilot_State state;void* instance=NULL;
+    OrpheusConfig config={.state_block=&state,.block_size=2,.sample_rate=2};
+    assert(api->create(&instance,&config)==0 && api->prepare(instance,&config)==0);
+    float data[4]={1,2,3,4},output_data[4]={0};
+    OrpheusBuffer in={.data=data,.format=ORPHEUS_FORMAT_F32,.channels=2,.frame_count=2,
+        .frame_capacity=2,.interleaved=true},out=in;out.data=output_data;
+    const OrpheusBuffer* inputs[]={&in};OrpheusBuffer* outputs[]={&out};
+    OrpheusProcessContext ctx={.inputs=inputs,.outputs=outputs,.input_count=1,.output_count=1,
+        .frame_count=2,.sample_rate=2};
+    assert(api->process(instance,&ctx)==0 && output_data[0]==1 && output_data[3]==4);
+    return 0;
+}
+''', encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+@pytest.mark.parametrize("reference", ["task:channels", "task:frames", "task:unknown"])
+def test_unsupported_task_fields_rejected_without_side_effects(package, raw, reference):
+    import jsonschema
+    raw["interfaces"]["out"]["block_size"] = reference
+    path = save(package, raw)
+    before = snapshot(package)
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(raw, schema)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("alignment", [None, 1, 8, 16, 32])
+@pytest.mark.parametrize("private_alignment", [None, 16, 32])
+def test_state_layout_alignment_matches_descriptor_in_c_and_cpp(package, raw, alignment, private_alignment):
+    if alignment is not None:
+        raw["memory"] = {"alignment": alignment}
+    generate_component(save(package, raw))
+    if private_alignment:
+        (package / "user" / "algorithm.h").write_text(
+            "#pragma once\n"
+            "typedef struct test_pilot_AlgorithmState {\n"
+            "#if defined(__cplusplus)\n"
+            f"    alignas({private_alignment}) unsigned char history;\n"
+            "#else\n"
+            f"    _Alignas({private_alignment}) unsigned char history;\n"
+            "#endif\n"
+            "} test_pilot_AlgorithmState;\n",
+            encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <stddef.h>
+#include <string.h>
+#ifdef __cplusplus
+#define ALIGNOF(T) alignof(T)
+#else
+#define ALIGNOF(T) _Alignof(T)
+#endif
+typedef struct LegacyState {
+    float phase,frequency,amplitude;
+    uint32_t channels,sample_rate;
+} LegacyState;
+typedef struct StateGroup {
+    LegacyState before;
+    test_pilot_State first;
+    LegacyState between;
+    test_pilot_State second;
+} StateGroup;
+typedef struct Arena {
+    char prefix[3];
+    StateGroup group;
+} Arena;
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    const OrpheusComponentDescriptor* descriptor=api->get_descriptor();
+    assert(ALIGNOF(test_pilot_State)>=EXPECTED_ALIGNMENT);
+    assert(ALIGNOF(test_pilot_AlgorithmState)>=EXPECTED_PRIVATE_ALIGNMENT);
+    assert(ALIGNOF(test_pilot_State)>=ALIGNOF(test_pilot_AlgorithmState));
+    assert(descriptor->alignment==ALIGNOF(test_pilot_State));
+    assert(sizeof(test_pilot_State)%descriptor->alignment==0);
+    assert(sizeof(LegacyState)==20);
+    assert((offsetof(Arena,group)+offsetof(StateGroup,first))%descriptor->alignment==0);
+    assert((offsetof(Arena,group)+offsetof(StateGroup,second))%descriptor->alignment==0);
+    Arena arena;
+    OrpheusConfig config;
+    memset(&config,0,sizeof(config));
+    config.channels=2;config.block_size=32;config.sample_rate=48000;
+    test_pilot_State* states[]={&arena.group.first,&arena.group.second};
+    for (unsigned i=0;i<2;++i) {
+        void* instance=NULL;
+        assert((uintptr_t)states[i]%descriptor->alignment==0);
+        config.state_block=states[i];
+        assert(api->create(&instance,&config)==ORPHEUS_OK);
+        assert(instance==states[i] && api->prepare(instance,&config)==ORPHEUS_OK);
+        assert(api->destroy(instance)==ORPHEUS_OK);
+    }
+    return 0;
+}
+'''.replace("EXPECTED_ALIGNMENT", str(alignment or 1)).replace(
+        "EXPECTED_PRIVATE_ALIGNMENT", str(private_alignment or 1)), encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+    compiler = Path(r"C:\BuildTools\Strawberry\c\bin\gcc.exe")
+    cpp_compiler = compiler.with_name("g++.exe")
+    if not cpp_compiler.exists():
+        pytest.skip("当前环境没有仓库指定的 C++ 编译器")
+    options = ["-Wall", "-Wextra", "-Werror", "-DORPHEUS_BUILDING_COMPONENT",
+               "-I", str(ROOT / "orpheus_abi" / "include"), "-I", "generated", "-I", "user"]
+    commands = [
+        [str(compiler), "-std=c11", *options, "-c",
+         r"generated\component_shell.c", r"user\algorithm.c"],
+        [str(cpp_compiler), "-std=c++11", *options, "harness.c",
+         "component_shell.o", "algorithm.o", "-o", "cpp_harness.exe"],
+        [str(package / "cpp_harness.exe")],
+    ]
+    for command in commands:
+        result = subprocess.run(command, cwd=package, capture_output=True, encoding="utf-8", errors="replace")
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("private_storage", [False, True])
+@pytest.mark.parametrize("manual", [False, True])
+def test_bulk_slot_key_preserves_two_dotted_resource_ids_in_native_c(package, raw, private_storage, manual):
+    import jsonschema
+    raw["interfaces"] = {}
+    for index in range(2):
+        binding = {"slot_key": f"bq{index}.coefs", "double_bank": True, "auto_register": not manual}
+        item = {"type": "float", "count": 5, "default": [0.0] * 5, "range": [-4, 4],
+                "update_policy": "restart_required", "bulk": binding}
+        if private_storage:
+            binding.update({"sample_format": "f32", "capacity": 5,
+                            "storage": f"algorithm.stage{index}.coefs", "range": [-4, 4]})
+            item = {"type": "string", "default": "", "kind": "bulk",
+                    "update_policy": "restart_required", "bulk": binding}
+        raw["interfaces"][f"bq{index}_coefs"] = item
+    before = copy.deepcopy(raw)
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    definition = normalize_component_definition(raw)
+    assert raw == before
+    assert [p["id"] for p in definition["parameters"]] == ["bq0_coefs", "bq1_coefs"]
+    assert [p["id"] for p in definition["bulk_slots"]] == ["bq0.coefs", "bq1.coefs"]
+    assert all(p["type"] == "float" and p["count"] == 5 and p["double_bank"]
+               and "slot_key" not in p for p in definition["bulk_slots"])
+    assert [(p["id"], p["slot_key"]) for p in definition["bulk_bindings"]] == [
+        ("bq0_coefs", "bq0.coefs"), ("bq1_coefs", "bq1.coefs")]
+    path = save(package, raw)
+    generate_component(path)
+    state_header = (package / "generated" / "component_state.h").read_text(encoding="utf-8")
+    assert "test_pilot_register_bq0_coefs(" in state_header
+    assert "test_pilot_register_bq1_coefs(" in state_header
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+typedef struct Slot { OrpheusSlotInfo info; float shadow[5]; } Slot;
+static Slot slots[2];
+static unsigned used;
+static test_pilot_State* state;
+static OrpheusSlotId add(void* user,const OrpheusSlotInfo* info) {
+    (void)user;
+    assert(used<2 && info->kind==ORPHEUS_SLOT_BULK && info->type==ORPHEUS_VALUE_FLOAT);
+    assert(info->count==5 && info->size==sizeof(float));
+    assert(info->flags&ORPHEUS_SLOT_DOUBLE_BUFFERED);
+    assert(info->min_f32==-4 && info->max_f32==4);
+    assert(info->offset+info->size*info->count<=sizeof(*state));
+    assert(strcmp(info->key,used ? "bq1.coefs" : "bq0.coefs")==0);
+    slots[used].info=*info;
+    memcpy(slots[used].shadow,(char*)state+info->offset,sizeof(slots[used].shadow));
+    return used++;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State memory;state=&memory;
+    void* instance=NULL;
+    OrpheusConfig config={.state_block=state};
+    assert(api->create(&instance,&config)==ORPHEUS_OK);
+    assert(api->prepare(instance,&config)==ORPHEUS_OK);
+    OrpheusRegistry reg={.add=add};
+    assert(api->register_slots(instance,&reg)==ORPHEUS_OK);
+    if (MANUAL) {
+        assert(used==0);
+        assert(test_pilot_register_bq0_coefs(state,&reg)==ORPHEUS_OK);
+        assert(test_pilot_register_bq1_coefs(state,&reg)==ORPHEUS_OK);
+    }
+    assert(used==2);
+    assert(slots[0].info.offset==offsetof(test_pilot_State,STORAGE0));
+    assert(slots[1].info.offset==offsetof(test_pilot_State,STORAGE1));
+    assert(slots[0].info.offset!=slots[1].info.offset);
+    const float values[2][5]={{1,2,3,4,-1},{-1,-2,-3,-4,1}};
+    for (unsigned i=0;i<2;++i) {
+        assert(((float*)((char*)state+slots[i].info.offset))[0]==0);
+        memcpy(slots[i].shadow,values[i],sizeof(values[i]));
+        assert(((float*)((char*)state+slots[i].info.offset))[0]==0);
+    }
+    for (unsigned i=0;i<2;++i)
+        memcpy((char*)state+slots[i].info.offset,slots[i].shadow,sizeof(slots[i].shadow));
+    for (unsigned i=0;i<2;++i) {
+        float readback[5];
+        memcpy(readback,(char*)state+slots[i].info.offset,sizeof(readback));
+        assert(memcmp(readback,values[i],sizeof(readback))==0);
+    }
+    OrpheusValue value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=1};
+    assert(api->set_parameter(instance,"bq0.coefs",&value)==ORPHEUS_ERR_NOT_FOUND);
+    assert(api->get_parameter(instance,"bq1.coefs",&value)==ORPHEUS_ERR_NOT_FOUND);
+    assert(api->reset(instance)==ORPHEUS_OK);
+    if (PRIVATE_STORAGE) assert(state->STORAGE0[0]==0 && state->STORAGE1[0]==0);
+    else assert(state->STORAGE0[0]==1 && state->STORAGE1[0]==-1);
+    assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+'''.replace("MANUAL", str(int(manual))).replace("PRIVATE_STORAGE", str(int(private_storage))).replace(
+        "STORAGE0", "algorithm.stage0.coefs" if private_storage else "bq0_coefs").replace(
+        "STORAGE1", "algorithm.stage1.coefs" if private_storage else "bq1_coefs"),
+        encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+    check_generated(path)
+
+
+@pytest.mark.parametrize("slot_key", [
+    None, True, 1, "", ".coefs", "bq0.", "bq0..coefs", "bq0.coefs[0]", "bq0->coefs",
+    "bq0/coefs", "bq0 coefs", "bq0.coefs\n", "bq0.\"coefs", "0bq.coefs", "bq0.系数",
+])
+def test_invalid_bulk_slot_key_is_rejected_by_schema_and_core_without_writes(package, raw, slot_key):
+    import jsonschema
+    _add_bulk_test_interfaces(raw)
+    raw["interfaces"]["gains"]["bulk"]["slot_key"] = slot_key
+    path = save(package, raw)
+    before = snapshot(package)
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(raw, schema)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("collision", ["gain", "channels", "weights", "bq0.coefs"])
+def test_bulk_slot_key_collisions_are_rejected_without_writes(package, raw, collision):
+    _add_bulk_test_interfaces(raw)
+    raw["interfaces"]["gains"]["bulk"]["slot_key"] = collision
+    if collision == "bq0.coefs":
+        raw["interfaces"]["weights"]["bulk"]["slot_key"] = collision
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError, match="注册键重复"):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("kind,value,expected", [
+    ("float", [1, 0.125, -2.0], "1.0,0.125,-2.0"),
+    ("int", [-2147483648, 0, 2147483647], "-2147483648,0,2147483647"),
+    ("bool", [True, False, True], "1,0,1"),
+    ("float", [0.25], "0.25"), ("int", [2], "2"), ("bool", [False], "0"),
+])
+def test_encode_array_initializer_is_strict_canonical_and_nonmutating(kind, value, expected):
+    parameter = {"id": "weights", "type": kind, "count": len(value)}
+    before = copy.deepcopy((parameter, value))
+    assert is_array_parameter(parameter)
+    assert encode_array_initializer(parameter, value) == expected
+    assert (parameter, value) == before
+    if kind != "bool":
+        parameter["range"] = [min(value), max(value)]
+        assert encode_array_initializer(parameter, value) == expected
+
+
+@pytest.mark.parametrize("parameter,value", [
+    (None, [1]), ([], [1]), ({"type": []}, [1]),
+    ({"type": "float"}, [1]), ({"type": "string", "count": 1}, ["1"]),
+    ({"type": "float", "count": 0}, []), ({"type": "int", "count": True}, [1]),
+    ({"type": "int", "count": 65537}, [1]), ({"type": "int", "count": "param:n"}, [1]),
+    ({"type": "float", "count": 1}, 1), ({"type": "float", "count": 1}, "1"),
+    ({"type": "int", "count": 1}, (1,)), ({"type": "float", "count": 1}, []),
+    ({"type": "float", "count": 1}, [1, 2]), ({"type": "float", "count": 1}, [True]),
+    ({"type": "int", "count": 1}, [False]), ({"type": "bool", "count": 1}, [1]),
+    ({"type": "bool", "count": 1}, ["true"]), ({"type": "int", "count": 1}, [1.0]),
+    ({"type": "float", "count": 1}, [float("nan")]),
+    ({"type": "float", "count": 1}, [float("inf")]),
+    ({"type": "float", "count": 1}, [-float("inf")]),
+    ({"type": "float", "count": 1}, [10 ** 400]),
+    ({"type": "float", "count": 1}, [3.5e38]),
+    ({"type": "int", "count": 1}, [2147483648]),
+    ({"type": "int", "count": 1}, [-2147483649]),
+    ({"type": "float", "count": 1, "range": [0, 1]}, [-0.5]),
+    ({"type": "int", "count": 1, "range": [0, 1]}, [2]),
+    ({"type": "float", "count": 1, "range": None}, [0]),
+    ({"type": "float", "count": 1, "range": [1, 0]}, [0]),
+    ({"type": "float", "count": 1, "range": [False, 1]}, [0]),
+    ({"type": "float", "count": 1, "range": [0, float("inf")]}, [0]),
+    ({"type": "int", "count": 1, "range": [0, 1.0]}, [0]),
+    ({"type": "bool", "count": 1, "range": [0, 1]}, [False]),
+])
+def test_encode_array_initializer_errors_are_component_diagnostics(parameter, value):
+    with pytest.raises(ComponentDefinitionError) as error:
+        encode_array_initializer(parameter, value, location="nodes.bank.params.weights")
+    assert error.value.diagnostic["location"].startswith("nodes.bank.params.weights")
+    assert error.value.diagnostic["message"]
+
+
+def test_array_initializer_diagnostic_identifies_bad_element():
+    with pytest.raises(ComponentDefinitionError) as error:
+        encode_array_initializer({"id": "weights", "type": "float", "count": 2}, [1, True])
+    assert error.value.diagnostic["location"] == "parameters.weights[1]"
+
+
+@pytest.mark.parametrize("kind,default,override,bad", [
+    ("float", 0.5, 1.25, "nan"), ("int", 1, 2, "1.5"), ("bool", True, False, "2"),
+])
+@pytest.mark.parametrize("count", [1, 2])
+def test_explicit_numeric_count_including_one_uses_shared_csv_and_native_array_state(
+        package, raw, kind, default, override, bad, count):
+    import jsonschema
+    parameter = {"type": kind, "count": count, "default": [default] * count,
+                 "update_policy": "restart_required"}
+    if kind != "bool":
+        parameter["range"] = [0, 2]
+    raw["interfaces"] = {"values": parameter}
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    normalized = normalize_component_definition(raw)
+    assert normalized["bulk_slots"][0]["count"] == count
+    path = save(package, raw)
+    generate_component(path)
+    default_csv = encode_array_initializer(parameter, parameter["default"])
+    override_csv = encode_array_initializer(parameter, [override] * count)
+    header = (package / "generated" / "component_state.h").read_text(encoding="utf-8")
+    assert f"values[{count}];" in header
+    shell = (package / "generated" / "component_shell.c").read_text(encoding="utf-8")
+    assert f".value.str={json.dumps(default_csv)}" in shell
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+static unsigned registrations;
+static OrpheusSlotId add(void* user,const OrpheusSlotInfo* slot) {
+    (void)user;++registrations;
+    assert(slot->kind==ORPHEUS_SLOT_BULK && slot->count==COUNT);
+    assert(slot->offset==offsetof(test_pilot_State,values));
+    assert(strcmp(slot->key,"values")==0);
+    return 0;
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    assert(api->get_descriptor()->params[0].default_value.type==ORPHEUS_VALUE_STRING);
+    assert(strcmp(api->get_descriptor()->params[0].default_value.value.str,DEFAULT_CSV)==0);
+    test_pilot_State state;void* instance=NULL;
+    OrpheusConfig config={.state_block=&state};
+    assert(api->create(&instance,&config)==ORPHEUS_OK);
+    for (unsigned i=0;i<COUNT;i++) assert(state.values[i]==DEFAULT_VALUE);
+    const char* keys[]={"values"};
+    OrpheusValue value={.type=ORPHEUS_VALUE_STRING,.value.str=OVERRIDE_CSV};
+    config.param_ids=keys;config.param_values=&value;config.param_count=1;
+    assert(api->prepare(instance,&config)==ORPHEUS_OK);
+    for (unsigned i=0;i<COUNT;i++) assert(state.values[i]==OVERRIDE_VALUE);
+    OrpheusRegistry reg={.add=add};
+    assert(api->register_slots(instance,&reg)==ORPHEUS_OK && registrations==1);
+    value.value.str=BAD_CSV;
+    assert(api->prepare(instance,&config)==ORPHEUS_ERR_INVALID_ARG);
+    for (unsigned i=0;i<COUNT;i++) assert(state.values[i]==OVERRIDE_VALUE);
+    assert(api->destroy(instance)==ORPHEUS_OK);
+    return 0;
+}
+'''.replace("COUNT", str(count)).replace("DEFAULT_CSV", json.dumps(default_csv)).replace(
+        "OVERRIDE_CSV", json.dumps(override_csv)).replace("BAD_CSV", json.dumps(",".join([bad] * count))).replace(
+        "DEFAULT_VALUE", str(int(default)) if kind == "bool" else str(default)).replace(
+        "OVERRIDE_VALUE", str(int(override)) if kind == "bool" else str(override)),
+        encoding="utf-8", newline="\n")
+    _compile_component_harness(package)
+
+
+@pytest.mark.parametrize("kind", ["float", "int", "bool"])
+def test_explicit_count_one_rejects_scalar_default_without_writes(package, raw, kind):
+    raw["interfaces"] = {"values": {"type": kind, "count": 1, "default": False if kind == "bool" else 0}}
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before

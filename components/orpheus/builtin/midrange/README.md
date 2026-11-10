@@ -2,6 +2,15 @@
 
 ## 功能
 
+`component.yaml.interfaces` 是 ABI7 端口、参数与资源槽的唯一事实源。
+用 `scripts\generate_component.py components\orpheus\builtin\midrange\component.yaml`
+生成 `generated/`；算法与私有历史在 `user/algorithm.c/h`，仅通过 `emit_out` 交付。
+create 只初始化宿主提供的 State，宿主明确 prepare 一次。
+壳严格拒绝声明外类型（含 int 隐式转 float）、越界与非有限数值。
+运行时仅 `gain_db` 可更新，读回当前平滑增益，注册槽保存目标。
+reset 仅清两个滤波历史，不跳变当前增益或目标；prepare 重算系数并加载初始增益。
+无新增探针或动态资源，不保留旧 DLL/descriptor 适配。
+
 二阶带通搁架音调控制：只提升或衰减弱某一频段（中心频率 `fc`、品质因数 `q`）的声音，中高频和低频保持原样。与 `bass`（低频搁架）和 `treble`（高频搁架）组合，构成经典三段音调控制。
 
 ## 参数

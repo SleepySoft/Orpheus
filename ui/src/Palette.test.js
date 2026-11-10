@@ -32,6 +32,17 @@ const render = (props = {}) => act(() => root.render(
   <Palette components={components} subsMeta={subsMeta} {...props} />
 ));
 
+test('组件库提供源码组件创建入口，只读时禁用', () => {
+  const onCreateSource = jest.fn();
+  render({ onCreateSource });
+  const create = container.querySelector('.palette > button');
+  expect(create.textContent).toContain('新建源码组件');
+  act(() => create.click());
+  expect(onCreateSource).toHaveBeenCalledTimes(1);
+  render({ onCreateSource, readOnly: true });
+  expect(container.querySelector('.palette > button').disabled).toBe(true);
+});
+
 test('工程分组置顶且默认收起，展开去重并保留只读和全局管理规则', () => {
   const onDeleteSub = jest.fn();
   const onPromoteComponent = jest.fn();

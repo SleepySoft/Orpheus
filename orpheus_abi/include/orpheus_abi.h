@@ -73,7 +73,8 @@ typedef enum {
     ORPHEUS_PORT_AUDIO = 0,
     ORPHEUS_PORT_CONTROL = 1,
     ORPHEUS_PORT_BULK = 2,
-    ORPHEUS_PORT_DEBUG = 3
+    ORPHEUS_PORT_DEBUG = 3,
+    ORPHEUS_PORT_TRIGGER = 4
 } OrpheusPortType;
 
 /* 采样格式 */
@@ -222,8 +223,16 @@ typedef enum {
     ORPHEUS_EVENT_TUNE_READ = 3,
     ORPHEUS_EVENT_PROBE_READ = 4,
     ORPHEUS_EVENT_STATE_READ = 5,
-    ORPHEUS_EVENT_CUSTOM = 6
+    ORPHEUS_EVENT_CUSTOM = 6,
+    ORPHEUS_EVENT_BRIDGE_STATS = 7
 } OrpheusEvent;
+
+/* 宿主向异步桥交付内部水位快照，不经过外部只读探针的 setter。 */
+typedef struct {
+    int32_t level_frames;
+    int32_t underruns;
+    int32_t overruns;
+} OrpheusTaskBridgeStats;
 
 #define ORPHEUS_HOOK_CONTINUE 0   /* 未处理，继续默认语义 */
 #define ORPHEUS_HOOK_HANDLED 1    /* 已处理，跳过默认语义 */

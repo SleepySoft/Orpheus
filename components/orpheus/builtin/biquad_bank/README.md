@@ -4,7 +4,18 @@
 
 两段 peaking（峰值 EQ）biquad 的串联滤波器组：`x → 第 1 段 → 第 2 段 → out`。两段参数独立（fc/q/gain_db），合成一个 4 阶 EQ。
 
-它是 Orpheus **v2 聚合注册的试点组件**：内部物理内嵌 2 个 `BiquadState` 子块（通过 manifest `deps: orpheus.builtin.biquad` 复用其头文件），由父组件的 `register_slots` 代理注册子块的参数字段（`fc0`、`q0` 等层级键），并把每段的 5 个系数（b0, b1, b2, a1, a2，内存中连续）暴露为 **BULK 槽**（`bq0.coefs` / `bq1.coefs`），支持 Runtime 在运行中直写系数。
+ABI7 迁移后，`component.yaml.interfaces` 是端口、参数与资源槽的唯一事实源。
+`generated/` 由 `scripts\generate_component.py components\orpheus\builtin\biquad_bank\component.yaml`
+生成，算法与两段私有历史位于 `user/algorithm.c/h`。两段不再嵌入另一个组件的
+ABI State，也不再依赖已删除的 `orpheus_biquad.h`；每段仍使用同样的 RBJ 系数与 DF-I/DF-II 转置公式。
+私有 `algorithm.stage0.coefs[5]` / `algorithm.stage1.coefs[5]` 分别通过声明中的
+`bulk.storage` 绑定真实算法存储，并用 `bulk.slot_key` 保留原外部 **BULK 槽**
+`bq0.coefs` / `bq1.coefs`，不会改变部署控制键。
+接口 `bq0_coefs` / `bq1_coefs` 为初始化字符串：缺省空字符串时根据各段 fc/q/gain
+计算系数；非空时须为恰好五个有限浮点数的 CSV，作为该段初始系数。运行时仍走 BULK。
+create 只初始化宿主提供的 State，宿主明确 prepare 一次；算法通过 `emit_out` 实际交付输出，
+无旧 descriptor 或 next 包装。壳严格拒绝声明外类型、越界与非有限设置值；
+未知 `form` 在 prepare 拒绝，不再隐式回退。reset 仅清历史，不改变已写入的 active 系数。
 
 ## 端口
 
@@ -49,7 +60,7 @@
 - 直写系数时注意：差分方程中的递推项是 `-a1·y₁ - a2·y₂`（v1.1.0 起与 biquad 组件同为标准 DF-I/DF-II 转置结构，可选 `form`），写入的 a1/a2 符号应与 RBJ 归一化约定一致（分母 `1 + a1·z⁻¹ + a2·z⁻²`）。
 - 换系数不会清零滤波器历史（z1/z2），若新旧系数差异很大，提交瞬间可能有轻微过渡痕迹；通常块边界提交已足够平滑。
 - 越界写入会被 Runtime 拒绝（槽声明了 `count: 5`）。
-- 段数固定为 2（`BIQUAD_BANK_STAGES = 2`），是聚合注册的试点而非通用 N 段实现；更多段数请用多个 biquad/biquad_bank 串联。
+- 段数固定为 2，而非通用 N 段实现；更多段数请用多个 biquad/biquad_bank 串联。
 
 ## 典型用法
 

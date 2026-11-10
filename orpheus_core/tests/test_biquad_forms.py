@@ -59,14 +59,25 @@ class OrpheusProcessContext(ctypes.Structure):
                 ("timestamp", ctypes.c_double),
                 ("frame_index", ctypes.c_uint64), ("epoch", ctypes.c_uint64),
                 ("valid_frames", ctypes.c_uint32), ("timeline_flags", ctypes.c_uint32),
-                ("continuation", ctypes.c_void_p)]
+                ("continuation", ctypes.c_void_p),
+                ("trigger_input", ctypes.c_uint32), ("delivery", ctypes.c_void_p)]
 
 
 CB = ctypes.CFUNCTYPE
 
 
+class Descriptor(ctypes.Structure):
+    _fields_ = [("id", ctypes.c_char_p), ("version", ctypes.c_char_p),
+                ("abi_version", ctypes.c_uint32), ("ports", ctypes.c_void_p),
+                ("port_count", ctypes.c_uint32), ("params", ctypes.c_void_p),
+                ("param_count", ctypes.c_uint32), ("state_size", ctypes.c_size_t),
+                ("scratch_size", ctypes.c_size_t), ("alignment", ctypes.c_size_t),
+                ("latency_samples", ctypes.c_uint32), ("realtime_safe", ctypes.c_bool),
+                ("supports_inplace", ctypes.c_bool)]
+
+
 class Iface(ctypes.Structure):
-    _fields_ = [("get_descriptor", ctypes.c_void_p),
+    _fields_ = [("get_descriptor", CB(ctypes.POINTER(Descriptor))),
                 ("create", CB(ctypes.c_int, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(OrpheusConfig))),
                 ("destroy", CB(ctypes.c_int, ctypes.c_void_p)),
                 ("prepare", CB(ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(OrpheusConfig))),
@@ -104,6 +115,10 @@ def _config(params: dict, channels: int):
 
 def _run(iface: Iface, params: dict, sig: list[float], channels: int = 1) -> list[float]:
     cfg, ids, vals = _config(params, channels)
+    descriptor = iface.get_descriptor().contents
+    memory = ctypes.create_string_buffer(descriptor.state_size + descriptor.alignment)
+    address = ctypes.addressof(memory)
+    cfg.state_block = address + (-address) % descriptor.alignment
     st = ctypes.c_void_p()
     assert iface.create(ctypes.byref(st), ctypes.byref(cfg)) == 0
     assert iface.prepare(st, ctypes.byref(cfg)) == 0

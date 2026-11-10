@@ -87,6 +87,10 @@ Plan Plan::load_from_file(const std::string& path) {
         cfg.task = it.value().value("task", "default");
         cfg.output_drive_ports = it.value().value(
             "output_drive_ports", std::map<std::string, uint32_t>{});
+        cfg.trigger_output_ports = it.value().value(
+            "trigger_output_ports", std::vector<std::string>{});
+        cfg.array_parameters = it.value().value(
+            "array_parameters", std::vector<std::string>{});
         cfg.resource_access = it.value().value("resource_access", std::map<std::string, std::string>{});
         json params_json = it.value().value("params", json::object());
         for (auto pit = params_json.begin(); pit != params_json.end(); ++pit) {

@@ -5,7 +5,7 @@ import ParamPanel from './ParamPanel';
 import OrpheusNode from './OrpheusNode';
 import SubPortsPanel from './SubPortsPanel';
 import ParamBrowser from './ParamBrowser';
-import { interfaceState, portSignature, bindingStatus, canEditParameter, canEditDesignParameter, isInitializationParameter } from './interfaceModel';
+import { interfaceState, portSignature, bindingStatus, canEditParameter, canEditDesignParameter, isInitializationParameter, validateTriggerConnection } from './interfaceModel';
 import { docToViews, docToViewsAsync, viewsToDoc, subCatalogEntry, copyFlowSelection, pasteFlowSelection } from './graphUtils';
 
 jest.mock('./nodeWidgets', () => ({ NODE_WIDGETS: {} }));
@@ -45,6 +45,34 @@ beforeEach(() => {
   root = createRoot(container);
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); });
+
+test('纯触发接口显示触发与驱动编号，不显示PCM规格、不使用虚拟执行引脚', () => {
+  const triggerPorts = [
+    { id: 'tick', direction: 'input', type: 'trigger', process: true },
+    { id: 'next', direction: 'output', type: 'trigger', drive_port_no: 2 },
+  ];
+  const data = { component: 'test.trigger', ports: triggerPorts, parameters: [], declaredInterfaces: true,
+    interfaceUi: { exposedPorts: ['tick', 'next'] }, flowMode: 'task_sequence' };
+  act(() => root.render(<OrpheusNode id="trigger" data={data} />));
+  expect(container.querySelectorAll('.ch-badge')[0].textContent).toBe('触发（无 PCM）');
+  expect(container.textContent).toContain('驱动 2');
+  expect(container.textContent).not.toMatch(/ch|Hz|格式解析中|通道解析中/);
+  expect(container.querySelector('[data-handle="tick"]')).not.toBeNull();
+  expect(container.querySelector('[data-handle="next"]')).not.toBeNull();
+  expect(container.querySelector('[data-handle="drv:out"]')).toBeNull();
+  expect(portSignature(triggerPorts[0], { portResolution: { status: 'error' } })).toBe('触发（无 PCM） · 解析失败');
+});
+
+test('普通触发连接只接受同类型，跨到audio不伪造音频连接', () => {
+  const nodes = [
+    { id: 'a', data: { ports: [{ id: 'next', type: 'trigger' }] } },
+    { id: 'b', data: { ports: [{ id: 'tick', type: 'trigger' }, { id: 'audio', type: 'audio' }] } },
+  ];
+  const connection = { source: 'a', sourceHandle: 'next', target: 'b', targetHandle: 'tick' };
+  expect(validateTriggerConnection(nodes, connection)).toBeNull();
+  expect(validateTriggerConnection(nodes, { ...connection, targetHandle: 'audio' })).toContain('只支持触发 → 触发');
+  expect(validateTriggerConnection(nodes, { ...connection, targetHandle: 'audio' })).toContain('不传输 PCM');
+});
 
 test('完整声明参数包含 readback/未知旧权限，读权限只读而非隐藏', () => {
   act(() => root.render(<ParamPanel node={node} viewKey="main" onParamChange={jest.fn()} />));

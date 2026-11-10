@@ -4,28 +4,28 @@ category: "滤波与均衡"
 description: "单段二阶IIR滤波，支持低通、高通、带通、陷波、峰值及搁架响应；频率、Q和增益确定系数，可选DF1或DF2T结构。Biquad表示分子与分母均为二次式，不是两段二阶滤波。"
 order: 1
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: BiquadState
-sources:
-  - src/biquad.c
-headers:
-  - include/orpheus_biquad.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [prepare, reset, set_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: type
+    drive_port_no: 1
+    drive_divide: 1
+  type:
     name: 滤波器类型
     type: string
+    capacity: 16
     default: lowpass
     widget: select
     options:
@@ -37,36 +37,37 @@ parameters:
       - {value: lowshelf, label: 低频搁架}
       - {value: highshelf, label: 高频搁架}
     update_policy: restart_required
-  - id: fc
+  fc:
     name: 截止频率
     type: float
     default: 1000.0
     range: [20.0, 20000.0]
     unit: Hz
     update_policy: restart_required
-  - id: q
+  q:
     name: Q
     type: float
     default: 0.707
     range: [0.1, 10.0]
     update_policy: restart_required
-  - id: gain_db
+  gain_db:
     name: 增益
     type: float
     default: 0.0
     range: [-24.0, 24.0]
     unit: dB
     update_policy: restart_required
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: form
+  form:
     name: 滤波结构
     type: string
+    capacity: 8
     default: df2t
     widget: select
     options:

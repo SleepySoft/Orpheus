@@ -454,6 +454,8 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
         for (auto& kv : instances_) {
             const NodeConfig& cfg = plan_.node_configs[kv.second->node_id];
             for (size_t i = 0; i < cfg.output_ports.size(); ++i) {
+                if (std::find(cfg.trigger_output_ports.begin(), cfg.trigger_output_ports.end(),
+                              cfg.output_ports[i]) != cfg.trigger_output_ports.end()) continue;
                 if (kv.second->outputs[i] != nullptr) continue;
                 size_t bs = cfg.block_size > 0 ? cfg.block_size
                           : (cfg.frames > 0 ? cfg.frames : plan_.block_size);
@@ -495,6 +497,8 @@ int Runtime::load_plan(const Plan& plan, const std::string& component_dir) {
             const NodeConfig& cfg = plan_.node_configs[inst.node_id];
             const OrpheusComponentDescriptor* desc = inst.interface_->get_descriptor();
             for (size_t i = 0; i < cfg.output_ports.size(); ++i) {
+                if (std::find(cfg.trigger_output_ports.begin(), cfg.trigger_output_ports.end(),
+                              cfg.output_ports[i]) != cfg.trigger_output_ports.end()) continue;
                 if (inst.outputs[i] != nullptr) continue;
                 const std::string& port_id = cfg.output_ports[i];
                 uint32_t block_size = cfg.block_size > 0 ? cfg.block_size : (cfg.frames > 0 ? cfg.frames : plan_.block_size);
@@ -708,7 +712,9 @@ int Runtime::prepare_instance(Instance& inst, const NodeConfig& cfg) {
             }
         }
         // 数字形式的路由、文件名等仍须遵循组件声明的字符串类型。
-        if (declared && declared->type == ORPHEUS_VALUE_STRING) {
+        const bool array_parameter = std::find(cfg.array_parameters.begin(),
+            cfg.array_parameters.end(), kv.first) != cfg.array_parameters.end();
+        if (array_parameter || (declared && declared->type == ORPHEUS_VALUE_STRING)) {
             v.type = ORPHEUS_VALUE_STRING;
             v.value.str = kv.second.c_str();
         } else if ((declared && declared->type == ORPHEUS_VALUE_INT) ||
@@ -1431,8 +1437,9 @@ void Runtime::commit_bulk(const std::string* task_id) {
     }
 }
 
-void Runtime::task_bridge_push(TaskBridge& bridge) {
-    const uint32_t frames = bridge.staging->frame_count;
+void Runtime::task_bridge_push(TaskBridge& bridge, const OrpheusBuffer* delivered) {
+    const OrpheusBuffer* source = delivered ? delivered : bridge.staging;
+    const uint32_t frames = source->frame_count;
     const uint64_t read = bridge.read_pos.load(std::memory_order_acquire);
     const uint64_t write = bridge.write_pos.load(std::memory_order_relaxed);
     if (frames > bridge.capacity_frames || write - read + frames > bridge.capacity_frames) {
@@ -1442,7 +1449,7 @@ void Runtime::task_bridge_push(TaskBridge& bridge) {
     for (uint32_t frame = 0; frame < frames; ++frame) {
         const uint32_t slot = static_cast<uint32_t>((write + frame) % bridge.capacity_frames);
         std::memcpy(bridge.ring.get() + static_cast<size_t>(slot) * bridge.channels,
-                    static_cast<const float*>(bridge.staging->data)
+                    static_cast<const float*>(source->data)
                         + static_cast<size_t>(frame) * bridge.channels,
                     bridge.channels * sizeof(float));
     }
@@ -1471,19 +1478,23 @@ void Runtime::task_bridge_pop(TaskBridge& bridge) {
     bridge.read_pos.store(read + copied, std::memory_order_release);
 }
 
-void Runtime::update_task_bridge_probes(TaskBridge& bridge) {
+int Runtime::update_task_bridge_probes(TaskBridge& bridge) {
     auto instance_it = instances_.find(bridge.consumer_node);
-    if (instance_it == instances_.end() || instance_it->second->interface_->set_parameter == nullptr) return;
-    OrpheusValue value;
-    value.type = ORPHEUS_VALUE_INT;
-    value.value.i32 = static_cast<int32_t>(
-        bridge.write_pos.load(std::memory_order_acquire)
-        - bridge.read_pos.load(std::memory_order_acquire));
-    instance_it->second->interface_->set_parameter(instance_it->second->state, "level_frames", &value);
-    value.value.i32 = static_cast<int32_t>(bridge.underruns.load(std::memory_order_relaxed));
-    instance_it->second->interface_->set_parameter(instance_it->second->state, "underruns", &value);
-    value.value.i32 = static_cast<int32_t>(bridge.overruns.load(std::memory_order_relaxed));
-    instance_it->second->interface_->set_parameter(instance_it->second->state, "overruns", &value);
+    if (instance_it == instances_.end()) return ORPHEUS_ERR_INVALID_ARG;
+    Instance& instance = *instance_it->second;
+    if (std::strcmp(instance.interface_->get_descriptor()->id, "orpheus.builtin.async_bridge"))
+        return ORPHEUS_OK;
+    if (!instance.interface_->hook) return ORPHEUS_ERR_UNSUPPORTED;
+    const OrpheusTaskBridgeStats stats = {
+        static_cast<int32_t>(bridge.write_pos.load(std::memory_order_acquire)
+            - bridge.read_pos.load(std::memory_order_acquire)),
+        static_cast<int32_t>(bridge.underruns.load(std::memory_order_relaxed)),
+        static_cast<int32_t>(bridge.overruns.load(std::memory_order_relaxed))
+    };
+    const OrpheusBlob request{&stats, sizeof(stats)};
+    const int result = instance.interface_->hook(instance.state, 0,
+        ORPHEUS_EVENT_BRIDGE_STATS, &request, nullptr);
+    return result == ORPHEUS_HOOK_HANDLED ? ORPHEUS_OK : ORPHEUS_ERR_PROCESSING;
 }
 
 int Runtime::build_chain(ChainScope& scope, const std::vector<std::string>& nodes,
@@ -1557,7 +1568,12 @@ int Runtime::invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
         for (TaskBridge* bridge : reads->second) {
             if (run->task_mode || !bridge->legacy_rate_bridge) {
                 runtime.task_bridge_pop(*bridge);
-                runtime.update_task_bridge_probes(*bridge);
+                const int result = runtime.update_task_bridge_probes(*bridge);
+                if (result != ORPHEUS_OK) {
+                    std::cerr << "[Runtime] 任务桥统计更新失败：" << node_id
+                              << "，错误码=" << result << std::endl;
+                    return result;
+                }
             }
         }
     }
@@ -1648,9 +1664,12 @@ int Runtime::publish_outlet(OrpheusChainNode* node, const OrpheusChainRun* run,
     auto& binding = *static_cast<ChainBinding*>(node->user);
     Runtime& runtime = *binding.runtime;
     const OrpheusBuffer* source = nullptr;
+    bool found = false;
     for (const auto& outlet : binding.delivery_outputs)
-        if (outlet.first == output_port) source = outlet.second;
-    if (!source || !delivery || !delivery->buffer) return ORPHEUS_ERR_INVALID_ARG;
+        if (outlet.first == output_port) { source = outlet.second; found = true; break; }
+    if (!found || !delivery) return ORPHEUS_ERR_INVALID_ARG;
+    if (!source) return delivery->buffer ? ORPHEUS_ERR_INVALID_ARG : ORPHEUS_OK;
+    if (!delivery->buffer) return ORPHEUS_ERR_INVALID_ARG;
     const OrpheusBuffer* buffer = delivery->buffer;
     if (buffer->format != source->format || buffer->channels != source->channels
         || buffer->interleaved != source->interleaved
@@ -1661,13 +1680,18 @@ int Runtime::publish_outlet(OrpheusChainNode* node, const OrpheusChainRun* run,
     if (!run->task_mode && copies != runtime.bridge_copies_.end()) {
         for (auto& copy : copies->second) {
             if (copy.staging != source) continue;
-            if (buffer != source || buffer->frame_count != copy.frames)
-                return ORPHEUS_ERR_UNSUPPORTED;
-            float* dst = static_cast<float*>(copy.bridge->data)
-                + static_cast<size_t>(copy.cursor) * copy.channels;
-            std::memcpy(dst, buffer->data,
-                        static_cast<size_t>(copy.frames) * copy.channels * sizeof(float));
-            copy.cursor = (copy.cursor + copy.frames) % copy.bridge->frame_capacity;
+            uint32_t offset = 0;
+            while (offset < buffer->frame_count) {
+                const uint32_t frames = std::min(buffer->frame_count - offset,
+                                                copy.bridge->frame_capacity - copy.cursor);
+                float* dst = static_cast<float*>(copy.bridge->data)
+                    + static_cast<size_t>(copy.cursor) * copy.channels;
+                const float* src = static_cast<const float*>(buffer->data)
+                    + static_cast<size_t>(offset) * copy.channels;
+                std::memcpy(dst, src, static_cast<size_t>(frames) * copy.channels * sizeof(float));
+                offset += frames;
+                copy.cursor = (copy.cursor + frames) % copy.bridge->frame_capacity;
+            }
         }
     }
     auto writes = runtime.task_bridge_writes_.find(node_id);
@@ -1675,9 +1699,7 @@ int Runtime::publish_outlet(OrpheusChainNode* node, const OrpheusChainRun* run,
         for (TaskBridge* bridge : writes->second) {
             if (bridge->staging != source || (!run->task_mode && bridge->legacy_rate_bridge))
                 continue;
-            if (buffer != source || buffer->frame_count != source->frame_capacity)
-                return ORPHEUS_ERR_UNSUPPORTED;
-            runtime.task_bridge_push(*bridge);
+            runtime.task_bridge_push(*bridge, buffer);
         }
     }
     return ORPHEUS_OK;

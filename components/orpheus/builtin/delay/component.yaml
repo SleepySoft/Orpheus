@@ -3,39 +3,38 @@ name: "音频延迟与干湿混合"
 category: "驱动与缓冲"
 description: "以毫秒设置音频延迟，所有通道采用同一延迟量；mix控制干声与延迟声的混合。与逐通道独立延迟及共享池延迟的存储模型不同。"
 version: 1.0.1
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: DelayState
-sources:
-  - src/delay.c
-headers:
-  - include/orpheus_delay.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [prepare, reset, destroy, set_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: delay_ms
+    drive_port_no: 1
+    drive_divide: 1
+  delay_ms:
     name: 延迟时间
     type: float
     default: 100.0
     range: [0.0, 5000.0]
     unit: ms
     update_policy: restart_required
-  - id: mix
+  mix:
     name: 混合比
     type: float
     default: 0.5
     range: [0.0, 1.0]
     update_policy: smoothed
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2

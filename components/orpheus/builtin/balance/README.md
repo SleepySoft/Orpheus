@@ -10,7 +10,7 @@
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| `balance` | float | 0.0 | 平衡位置。`-1.0` 全左/前组静音，`0.0` 居中，`+1.0` 全右/后组静音。 |
+| `balance` | float | 0.0 | 平衡位置。`-1.0` 全左（右组静音），`0.0` 居中，`+1.0` 全右（左组静音）。 |
 | `channels` | int | 2 | 通道数，必须 ≥2。改变后需重新编译。 |
 | `ramp_ms` | float | 50.0 ms | 增益变化斜坡时间，避免切换时产生咔哒声。 |
 
@@ -41,3 +41,14 @@ signal_gen (2ch sine) ──► balance ──► wav_out
 ```
 
 把 `balance` 从 `0.0` 改成 `-1.0`，声音会从右声道慢慢移到左声道；再改回 `0.0` 又会平滑回到中间。配合 `channels: 22` 可用于多扬声器阵列的左右声场微调。
+
+## 配置驱动接口（ABI v7）
+
+`component.yaml` 的 `interfaces` 是端口、参数与探针的唯一事实源。修改配置后运行
+`python scripts\generate_component.py components\orpheus\builtin\balance\component.yaml`。
+`generated/` 仅由脚本生成元数据与 ABI 壳；`user/algorithm.c/.h` 保留手写算法与私有斜坡状态。
+`in` 是唯一驱动输入；每帧同时更新左右组包络，整块就绪后在算法原位置调用
+`emit_out`（稳定出口编号 `1`），通过 delivery 交付，不等待会合、不去重。
+
+参数按声明严格校验；越界、非有限值或错误类型返回 `ORPHEUS_ERR_INVALID_ARG`，
+不再隐式 clamp/类型转换。prepare 直接对齐目标；reset 对齐当前左右增益到现有目标。

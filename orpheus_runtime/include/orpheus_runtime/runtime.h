@@ -234,9 +234,9 @@ private:
     static int publish_outlet(OrpheusChainNode* node, const OrpheusChainRun* run,
                               uint32_t output_port, const OrpheusDelivery* delivery);
     int process_chain(ChainScope& scope, const OrpheusChainRun& run);
-    void task_bridge_push(TaskBridge& bridge);
+    void task_bridge_push(TaskBridge& bridge, const OrpheusBuffer* delivered = nullptr);
     void task_bridge_pop(TaskBridge& bridge);
-    void update_task_bridge_probes(TaskBridge& bridge);
+    int update_task_bridge_probes(TaskBridge& bridge);
 };
 
 } // namespace orpheus

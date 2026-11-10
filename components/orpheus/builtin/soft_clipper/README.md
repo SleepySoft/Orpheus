@@ -46,3 +46,15 @@ source ──► gain(gain_db=-3) ──► soft_clipper(drive_db=6) ──► w
 ```
 
 给音乐信号轻微过载，增加中频密度，同时保持输出峰值可控。
+
+## 配置驱动接口（ABI v7）
+
+`component.yaml` 的 `interfaces` 是唯一接口事实源；修改后运行
+`python scripts\generate_component.py components\orpheus\builtin\soft_clipper\component.yaml`。
+`generated/` 的元数据和 ABI 壳由脚本管理；`user/algorithm.c/.h` 保留手写 tanh
+归一化算法与私有缓存，每次调用仍按当前 `drive_db` 重新计算，不自动添加斜坡。
+`in` 为唯一驱动输入；整块输出就绪后在算法原位置显式 `emit_out`，
+稳定出口编号 `1`，通过 delivery 交付，不会合、不去重。reset 恢复 `drive_db=0`。
+
+参数按声明严格校验；越界、非有限值或错误类型返回 `ORPHEUS_ERR_INVALID_ARG`，
+不再隐式 clamp/类型转换。

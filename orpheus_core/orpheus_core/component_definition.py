@@ -42,16 +42,62 @@ _KEYWORDS = set(("auto break case char const continue default do double else enu
                  "typedef union unsigned void volatile while bool true false class namespace template "
                  "private public protected new delete operator NULL").split())
 _POLICIES = {"immediate", "block_boundary", "smoothed", "transactional", "restart_required"}
+LIFECYCLE_HOOKS = ("prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
-        "category", "description", "interfaces", "algorithm"}
+        "category", "description", "interfaces", "algorithm", "order", "execution", "memory",
+        "platforms", "ui_hidden", "user_owned", "scheduling"}
 _PORT = {"name", "direction", "type", "sample_format", "channels", "block_size", "sample_rate",
-         "process", "drive_port_no", "drive_divide", "count"}
+         "process", "drive_port_no", "drive_divide", "count", "description", "layout", "frame_size",
+         "timing", "optional"}
 _PARAM = {"name", "type", "default", "range", "update_policy", "affects_signature", "readback",
-          "persistent", "unit", "count", "shape"}
+          "persistent", "unit", "count", "shape", "capacity", "bindable", "control_source",
+          "kind", "description", "widget", "options", "options_source", "readonly", "file_ext",
+          "access", "bulk_slot", "bulk"}
 
 
 def _fail(message, location="$", code="invalid_definition"):
     raise ComponentDefinitionError(message, location, code)
+
+
+def is_array_parameter(parameter: dict) -> bool:
+    """新接口中显式 count 的数值参数都是固定数组，包括 count=1。"""
+    return parameter.get("type") in ("float", "int", "bool") and "count" in parameter
+
+
+def _valid_numeric_element(kind, value):
+    if kind == "bool":
+        return type(value) is bool
+    if kind == "int":
+        return type(value) is int and -2147483648 <= value <= 2147483647
+    return type(value) in (float, int) and -3.402823466e38 <= value <= 3.402823466e38
+
+
+def encode_array_initializer(parameter: dict, value: object, *, location: str | None = None) -> str:
+    """严格校验公开列表值并编码 ABI STRING CSV；不接受预编码字符串，也不修改输入。"""
+    if not isinstance(parameter, dict):
+        _fail("数组参数声明必须是映射", location or "$")
+    location = location or f"parameters.{parameter.get('id', 'array')}"
+    if not is_array_parameter(parameter):
+        _fail("仅支持显式声明 count 的 float/int/bool 固定数组", location)
+    count, kind = parameter["count"], parameter["type"]
+    if type(count) is not int or not 1 <= count <= 65536:
+        _fail("数组 count 必须是 1..65536 的固定整数", location + ".count")
+    bounds = parameter.get("range")
+    if "range" in parameter and (
+            kind == "bool" or not isinstance(bounds, list) or len(bounds) != 2 or
+            not all(_valid_numeric_element(kind, v) for v in bounds) or bounds[0] > bounds[1]):
+        _fail("数组 range 必须是元素类型范围内的有序有限数值区间", location + ".range")
+    if not isinstance(value, list) or len(value) != count:
+        _fail("数组初始值必须是恰好 count 个同类型元素的列表", location)
+    encoded = []
+    for index, element in enumerate(value):
+        if not _valid_numeric_element(kind, element):
+            _fail("数组元素类型或数值范围非法（float/int 不接受 bool）", f"{location}[{index}]")
+        if bounds is not None and not bounds[0] <= element <= bounds[1]:
+            _fail("数组元素不在声明的 range 中", f"{location}[{index}]")
+        encoded.append(("1" if element else "0") if kind == "bool" else
+                       str(float(element)) if kind == "float" else str(element))
+    return ",".join(encoded)
 
 
 def _identifier(value, location):
@@ -67,8 +113,90 @@ def component_symbols(raw: dict) -> dict:
     result = {"prefix": prefix, "state_type": f"{prefix}_State",
               "io_type": f"{prefix}_IO", "private_type": f"{prefix}_AlgorithmState",
               "function": f"{prefix}_algorithm"}
-    result.update(raw.get("algorithm", {}))
+    result.update({k: v for k, v in algorithm.items() if k != "lifecycle"})
     return result
+
+
+def _string(value, location, nonempty=False):
+    if not isinstance(value, str) or "\0" in value or (nonempty and not value):
+        _fail("必须是有效字符串且不能含 NUL", location)
+    try:
+        value.encode("utf-8")
+    except UnicodeError:
+        _fail("字符串必须能编码为 UTF-8", location)
+
+
+def _metadata(raw):
+    for key in ("clock_source", "ui_hidden", "user_owned"):
+        if key in raw and type(raw[key]) is not bool:
+            _fail("必须是布尔值", key)
+    if "order" in raw and type(raw["order"]) is not int:
+        _fail("排序必须是整数", "order")
+    if "platforms" in raw:
+        if not isinstance(raw["platforms"], list):
+            _fail("平台限制必须是字符串数组", "platforms")
+        for value in raw["platforms"]:
+            _string(value, "platforms", True)
+    for section, allowed in (
+        ("execution", {"none", "sample_rate_independent", "latency_samples", "supports_inplace", "realtime_safe"}),
+        ("memory", {"state_size", "scratch_size", "alignment"}),
+    ):
+        data = raw.get(section, {})
+        if not isinstance(data, dict) or set(data) - allowed:
+            _fail("存在未知字段或不是映射", section)
+        for key, value in data.items():
+            if section == "execution" and key != "latency_samples":
+                if type(value) is not bool:
+                    _fail("必须是布尔值", f"{section}.{key}")
+            elif type(value) is not int or not 0 <= value <= 4294967294:
+                _fail("必须是非负 32 位整数", f"{section}.{key}")
+        if section == "memory" and "alignment" in data:
+            alignment = data["alignment"]
+            if not alignment or alignment & (alignment - 1):
+                _fail("alignment 必须是正的 2 次幂", "memory.alignment")
+    scheduling = raw.get("scheduling", {})
+    if not isinstance(scheduling, dict) or set(scheduling) - {"history", "split", "merge", "async_bridge", "divisor", "input_block_size"}:
+        _fail("scheduling 只能声明已知的调度字段", "scheduling")
+    for key, value in scheduling.items():
+        if key in {"history", "split", "merge", "async_bridge"}:
+            if type(value) is not bool:
+                _fail("必须是布尔值", f"scheduling.{key}")
+        elif type(value) is not int or value < 1:
+            if not isinstance(value, str) or not re.fullmatch(
+                    r"(?:[1-9][0-9]*|param:[A-Za-z][A-Za-z0-9_]*)(?:\s*\*\s*(?:[1-9][0-9]*|param:[A-Za-z][A-Za-z0-9_]*))*", value):
+                _fail("调度量只能是正整数、param 引用或它们的乘积", f"scheduling.{key}")
+
+
+def component_bulk_resources(interfaces: dict) -> list[dict]:
+    """派生 BULK 绑定；id 是 C 接口名，slot_key 是外部资源键，默认同名。"""
+    resources = []
+    for key, item in interfaces.items():
+        if "direction" in item:
+            continue
+        is_array = is_array_parameter(item)
+        binding = item.get("bulk")
+        if binding is None and not is_array:
+            continue
+        binding = binding or {}
+        resource_type = {"f32": "float", "i32": "int", "bool": "bool"}.get(
+            binding.get("sample_format"), item["type"])
+        count = item["count"] if is_array else binding["capacity"]
+        resource = {
+            "id": key, "name": item.get("name", key), "type": resource_type, "count": count,
+            "slot_key": binding.get("slot_key", key),
+            "shape": copy.deepcopy(item.get("shape", [count])),
+            "double_bank": binding.get("double_bank", False),
+            "auto_register": binding.get("auto_register", True),
+            "access": item.get("access", "read" if item.get("kind") in {"probe", "state"} or item.get("readonly") else "read_write"),
+            "storage": key if is_array else binding["storage"],
+        }
+        if "unit" in item:
+            resource["unit"] = item["unit"]
+        bounds = binding.get("range", item.get("range"))
+        if bounds is not None:
+            resource["range"] = copy.deepcopy(bounds)
+        resources.append(resource)
+    return resources
 
 
 def _validate(raw):
@@ -85,17 +213,19 @@ def _validate(raw):
     for key in ("name", "version", "category", "description", "clock_domain"):
         if key not in raw:
             continue
-        if not isinstance(raw[key], str) or not raw[key] or "\0" in raw[key]:
-            _fail("必须是非空字符串", key)
+        _string(raw[key], key, True)
     if "abi_version" in raw and (type(raw["abi_version"]) is not int or raw["abi_version"] != 7):
         _fail("此工具仅支持 ABI v7", "abi_version")
     if raw.get("package_type", "source") != "source":
         _fail("此工具仅支持 source 组件包", "package_type")
-    if "clock_source" in raw and type(raw["clock_source"]) is not bool:
-        _fail("必须是布尔值", "clock_source")
+    _metadata(raw)
     algorithm = raw.get("algorithm", {})
-    if not isinstance(algorithm, dict) or set(algorithm) - {"prefix", "state_type", "io_type", "private_type", "function"}:
-        _fail("算法配置只允许 prefix/state_type/io_type/private_type/function", "algorithm")
+    if not isinstance(algorithm, dict) or set(algorithm) - {"prefix", "state_type", "io_type", "private_type", "function", "lifecycle"}:
+        _fail("算法配置只允许符号覆盖及显式 lifecycle 列表", "algorithm")
+    lifecycle = algorithm.get("lifecycle", [])
+    if (not isinstance(lifecycle, list) or any(not isinstance(h, str) or h not in LIFECYCLE_HOOKS for h in lifecycle)
+            or len(set(lifecycle)) != len(lifecycle)):
+        _fail("lifecycle 必须是无重复的已知生命周期名称列表", "algorithm.lifecycle")
     for key, value in component_symbols(raw).items():
         _identifier(value, f"algorithm.{key}")
     symbols = component_symbols(raw)
@@ -104,8 +234,15 @@ def _validate(raw):
     reserved_symbols = {
         "create", "destroy", "prepare", "reset", "process", "set_parameter", "get_parameter",
         "register_slots", "get_descriptor", "valid_buffer", "interface", "descriptor", "ports", "params",
+        "cleanup", "snapshot_parameters", "commit_parameters", "default_parameters", "update_parameter",
+        "parameter_value", "configure_parameters", "validate_resource_counts", "valid_utf8_string",
         "orpheus_get_interface", "orpheus_emit", "orpheus_process_next", "orpheus_process_branch",
         f"{symbols['prefix']}_InputF32", f"{symbols['prefix']}_OutputF32",
+        f"{symbols['prefix']}_InputI32", f"{symbols['prefix']}_OutputI32",
+        f"{symbols['prefix']}_InputI16", f"{symbols['prefix']}_OutputI16",
+        f"{symbols['prefix']}_InputTrigger", f"{symbols['prefix']}_OutputTrigger",
+        f"{symbols['prefix']}_Parameters",
+        *(f"{symbols['prefix']}_{hook}" for hook in lifecycle),
     }
     if any(value in reserved_symbols or value.startswith("Orpheus") or value.startswith("ORPHEUS_")
            for key, value in symbols.items() if key != "prefix"):
@@ -123,17 +260,18 @@ def _validate(raw):
         if not isinstance(item, dict):
             _fail("接口声明必须是映射", loc)
         kind = item.get("type")
-        port = kind in {"audio", "control", "bulk", "debug"}
-        if kind not in {"audio", "control", "bulk", "debug", "float", "int", "bool", "string"}:
+        port = kind in {"audio", "control", "bulk", "debug", "trigger"}
+        if kind not in {"audio", "control", "bulk", "debug", "trigger", "float", "int", "bool", "string"}:
             _fail("未知接口类型", loc + ".type")
         if set(item) - (_PORT if port else _PARAM):
             _fail("存在不适用于此接口类型的字段", loc)
-        for field in ("process", "affects_signature", "readback", "persistent"):
+        for field in ("process", "affects_signature", "readback", "persistent", "bindable", "control_source",
+                      "readonly", "optional"):
             if field in item and type(item[field]) is not bool:
                 _fail("必须是布尔值", loc + "." + field)
-        for field in ("name", "unit"):
-            if field in item and (not isinstance(item[field], str) or "\0" in item[field]):
-                _fail("必须是字符串且不能含 NUL", loc + "." + field)
+        for field in ("name", "unit", "description", "file_ext", "bulk_slot", "layout"):
+            if field in item:
+                _string(item[field], loc + "." + field)
         if port:
             if item.get("direction") not in {"input", "output"}:
                 _fail("数据端口必须声明 input/output 方向", loc + ".direction")
@@ -141,6 +279,19 @@ def _validate(raw):
                 _fail("未知采样格式", loc + ".sample_format")
             if item.get("process") and item["direction"] != "input":
                 _fail("process 只能用于输入端口", loc)
+            if kind == "trigger":
+                pcm_fields = {"sample_format", "channels", "sample_rate", "block_size", "count", "layout",
+                              "frame_size", "timing", "optional"}
+                if pcm_fields.intersection(item):
+                    _fail("纯 trigger 不允许 PCM 签名、布局或可变引脚字段", loc)
+                if item["direction"] == "output" and "drive_port_no" not in item:
+                    _fail("trigger 输出必须声明 drive_port_no", loc)
+            if item.get("timing", "sync") not in {"sync", "latest"}:
+                _fail("timing 必须是 sync/latest", loc)
+            if item.get("timing") == "latest" and (kind == "audio" or item["direction"] != "input" or item.get("process")):
+                _fail("latest 仅允许不驱动的非音频输入", loc)
+            if kind == "audio" and ("layout" in item or "frame_size" in item):
+                _fail("layout/frame_size 仅用于非音频端口", loc)
             for field in ("channels", "block_size", "sample_rate", "count"):
                 if field not in item:
                     continue
@@ -151,6 +302,8 @@ def _validate(raw):
                     references[(key, field)] = value
                 elif type(value) is not int or not 1 <= value <= 4294967294:
                     _fail("必须是正整数或签名引用", loc + "." + field)
+            if "frame_size" in item and (type(item["frame_size"]) is not int or item["frame_size"] < 0):
+                _fail("首版 frame_size 仅允许非负整数", loc)
             if "drive_port_no" in item:
                 value = item["drive_port_no"]
                 if item["direction"] != "output" or type(value) is not int or not 1 <= value <= 4294967294:
@@ -166,17 +319,33 @@ def _validate(raw):
             if "default" not in item:
                 _fail("标量参数必须声明 default", loc)
             value = item["default"]
-            valid = ((kind == "float" and type(value) in (float, int) and math.isfinite(value) and abs(value) <= 3.402823466e38)
-                     or (kind == "int" and type(value) is int and -2147483648 <= value <= 2147483647)
-                     or (kind == "bool" and type(value) is bool)
-                     or (kind == "string" and isinstance(value, str) and "\0" not in value))
-            if not valid:
-                _fail("默认值类型或范围非法", loc + ".default")
+            count = item.get("count", 1)
+            if type(count) is not int or not 1 <= count <= 65536:
+                _fail("参数 count 必须是 1..65536 的固定整数", loc)
+            is_array = is_array_parameter(item)
+            if count > 1 and kind == "string":
+                _fail("不支持固定字符串数组", loc + ".default")
+            if is_array:
+                encode_array_initializer(item, value, location=loc + ".default")
+            else:
+                valid = (isinstance(value, str) and "\0" not in value if kind == "string" else
+                         _valid_numeric_element(kind, value))
+                if not valid:
+                    _fail("默认值类型或范围非法", loc + ".default")
+            if kind == "string":
+                _string(value, loc + ".default")
+                capacity = item.get("capacity", 256)
+                if type(capacity) is not int or not 1 <= capacity <= 65536:
+                    _fail("字符串 capacity 必须是 1..65536 字节（包含 NUL）", loc + ".capacity")
+                if len(value.encode("utf-8")) >= capacity:
+                    _fail("默认字符串 UTF-8 字节数超过 capacity（需预留 NUL）", loc + ".default")
+            elif "capacity" in item:
+                _fail("capacity 只能用于 string 参数", loc)
             if item.get("update_policy", "block_boundary") not in _POLICIES:
                 _fail("未知更新策略", loc + ".update_policy")
             if item.get("affects_signature") and item.get("update_policy") != "restart_required":
                 _fail("影响签名的参数必须 restart_required", loc)
-            if "range" in item:
+            if "range" in item and not is_array:
                 bounds = item["range"]
                 if (kind not in {"float", "int"} or not isinstance(bounds, list) or len(bounds) != 2
                         or any(type(v) not in ((int,) if kind == "int" else (int, float))
@@ -184,12 +353,97 @@ def _validate(raw):
                     _fail("range 必须是同类型的有限数值二元数组", loc)
                 limit = 2147483647 if kind == "int" else 3.402823466e38
                 lower = -2147483648 if kind == "int" else -limit
-                if not lower <= bounds[0] <= value <= bounds[1] <= limit:
+                if not lower <= bounds[0] <= bounds[1] <= limit or not bounds[0] <= value <= bounds[1]:
                     _fail("默认值不在 range 中或 range 越界/倒置", loc)
-            if "count" in item and (type(item["count"]) is not int or item["count"] < 1):
-                _fail("参数 count 必须是正整数", loc)
+            if is_array and item.get("affects_signature"):
+                _fail("数组不能作为签名标量参数", loc)
+            if "bulk" in item:
+                bulk = item["bulk"]
+                if not isinstance(bulk, dict) or set(bulk) - {"sample_format", "capacity", "storage", "double_bank", "range", "auto_register", "slot_key"}:
+                    _fail("bulk 只能声明资源键/格式/容量/存储/范围及双 bank、自动注册标志", loc + ".bulk")
+                if "slot_key" in bulk and (not isinstance(bulk["slot_key"], str) or not re.fullmatch(
+                        r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*", bulk["slot_key"])):
+                    _fail("slot_key 必须是由字母开头标识符组成的点分资源键", loc + ".bulk.slot_key")
+                for flag in ("double_bank", "auto_register"):
+                    if flag in bulk and type(bulk[flag]) is not bool:
+                        _fail(f"{flag} 必须是布尔值", loc + ".bulk")
+                if is_array:
+                    if "storage" in bulk or "capacity" in bulk:
+                        _fail("自动数组的存储与容量由接口 count 决定，不能重复指定", loc + ".bulk")
+                    expected = {"float": "f32", "int": "i32", "bool": "bool"}[kind]
+                    if bulk.get("sample_format", expected) != expected:
+                        _fail("BULK 格式必须与数组元素类型相同", loc + ".bulk")
+                else:
+                    if kind != "string":
+                        _fail("私有 BULK 绑定仅用于 string 初始化参数或固定数值数组", loc + ".bulk")
+                    if bulk.get("sample_format") not in {"f32", "i32", "bool"}:
+                        _fail("BULK sample_format 仅支持 f32/i32/bool", loc + ".bulk")
+                    capacity = bulk.get("capacity")
+                    if type(capacity) is not int or not 1 <= capacity <= 65536:
+                        _fail("BULK capacity 必须是 1..65536 的物理元素容量", loc + ".bulk")
+                    storage = bulk.get("storage")
+                    if not isinstance(storage, str) or not re.fullmatch(r"algorithm(?:\.[A-Za-z][A-Za-z0-9_]*)+", storage):
+                        _fail("storage 必须是 algorithm.<字段链>，不能是指针/下标/C 表达式", loc + ".bulk.storage")
+                    for field in storage.split("."):
+                        _identifier(field, loc + ".bulk.storage")
+                if "range" in bulk:
+                    if is_array:
+                        _fail("自动数组范围仅由外层 range 声明，bulk 内不能重复指定", loc + ".bulk.range")
+                    resource_kind = {"f32": "float", "i32": "int", "bool": "bool"}.get(bulk.get("sample_format"), kind)
+                    bounds = bulk["range"]
+                    if (resource_kind == "bool" or not isinstance(bounds, list) or len(bounds) != 2 or
+                            any(type(v) not in ((int,) if resource_kind == "int" else (int, float))
+                                or not math.isfinite(v) for v in bounds) or bounds[0] > bounds[1]):
+                        _fail("BULK range 必须是同类型的有序有限数值区间", loc + ".bulk.range")
+                    lower, upper = (-2147483648, 2147483647) if resource_kind == "int" else (-3.402823466e38, 3.402823466e38)
+                    if not lower <= bounds[0] <= bounds[1] <= upper:
+                        _fail("BULK range 超出元素类型范围", loc + ".bulk.range")
+            if is_array or "bulk" in item:
+                if item.get("kind", "bulk") not in ({"bulk", "probe", "state"} if is_array else {"bulk"}):
+                    _fail("资源接口 kind 必须是 bulk（数组可为 probe/state）", loc)
+                if "bulk_slot" in item and item["bulk_slot"] != key:
+                    _fail("资源必须与本接口同名，不能另写 bulk_slot 映射", loc)
+            if item.get("kind", "setting") not in {"setting", "command", "bulk", "probe", "state"}:
+                _fail("未知参数资源类别", loc + ".kind")
+            if item.get("access", "read_write") not in {"read", "write", "read_write"}:
+                _fail("未知访问权限", loc + ".access")
+            if item.get("widget", "number") not in {"number", "text", "slider", "select", "checkbox", "file", "placeholder_ports"}:
+                _fail("未知参数控件", loc + ".widget")
+            if item.get("options_source", "devices") != "devices":
+                _fail("未知选项来源", loc + ".options_source")
+            if "options" in item:
+                if not isinstance(item["options"], list):
+                    _fail("options 必须是数组", loc)
+                for option in item["options"]:
+                    values = [option]
+                    if isinstance(option, dict):
+                        if set(option) != {"value", "label"}:
+                            _fail("选项映射必须是 value/label", loc)
+                        _string(option["label"], loc + ".options.label")
+                        values = [option["value"]]
+                    if any(type(v) not in (str, int, float, bool) or
+                           (isinstance(v, float) and not math.isfinite(v)) for v in values):
+                        _fail("选项值必须是有限标量", loc)
+                    for v in values:
+                        if isinstance(v, str):
+                            _string(v, loc + ".options")
+            if item.get("bindable") and (item.get("affects_signature") or
+                    item.get("update_policy", "block_boundary") not in {"immediate", "block_boundary", "smoothed"}
+                    or item.get("readonly") or item.get("access") == "read"
+                    or item.get("kind") in {"probe", "state"}):
+                _fail("bindable 参数不能影响签名且须支持运行期更新", loc)
+            if item.get("control_source") and (item.get("access") == "write" or
+                    not item.get("readback", True) and item.get("kind") not in {"probe", "state"}):
+                _fail("control_source 参数必须可读", loc)
             if "shape" in item:
-                _fail("首版不支持参数 shape", loc, "unsupported_feature")
+                if not isinstance(item["shape"], list):
+                    _fail("shape 必须是维度数组", loc)
+                for dimension in item["shape"]:
+                    if type(dimension) is int and dimension > 0:
+                        continue
+                    if not isinstance(dimension, str) or not re.fullmatch(r"param:[A-Za-z][A-Za-z0-9_]*", dimension):
+                        _fail("shape 维度必须是正整数或 param 引用", loc)
+                    references[(key, f"shape{len(references)}")] = dimension
     visiting, done = set(), set()
 
     def check_ref(node):
@@ -199,15 +453,18 @@ def _validate(raw):
             return
         visiting.add(node)
         target, field = references[node].split(":")
-        if target == "param":
+        if target == "task":
+            if field not in {"block_size", "sample_rate"}:
+                _fail("Task 仅支持 task:block_size/task:sample_rate 引用", f"interfaces.{node[0]}.{node[1]}")
+        elif target == "param":
             parameter = interfaces.get(field, {})
-            if parameter.get("type") != "int" or not parameter.get("affects_signature"):
+            if parameter.get("type") != "int" or is_array_parameter(parameter) or not parameter.get("affects_signature"):
                 _fail("签名参数引用必须指向 affects_signature 的 int 参数", f"interfaces.{node[0]}.{node[1]}")
             if parameter["default"] < 1 or ("range" in parameter and parameter["range"][0] < 1):
                 _fail("签名参数必须保持正数", f"interfaces.{target}.{field}")
         else:
             other = interfaces.get(target, {})
-            if other.get("direction") not in {"input", "output"} or field not in other:
+            if other.get("direction") not in {"input", "output"} or other.get("type") == "trigger":
                 _fail("签名引用不存在", f"interfaces.{node[0]}.{node[1]}")
             check_ref((target, field))
         visiting.remove(node)
@@ -215,6 +472,41 @@ def _validate(raw):
 
     for node in references:
         check_ref(node)
+    slot_keys = set()
+    for key, item in interfaces.items():
+        if "direction" in item:
+            continue
+        slot_key = item.get("bulk", {}).get("slot_key", key)
+        if slot_key in slot_keys:
+            _fail("资源键与其他参数或资源注册键重复", f"interfaces.{key}.bulk.slot_key")
+        slot_keys.add(slot_key)
+    storages = []
+    for resource in component_bulk_resources(interfaces):
+        size = 1
+        for dimension in resource["shape"]:
+            value = interfaces[dimension.split(":")[1]]["default"] if isinstance(dimension, str) else dimension
+            size *= value
+        if size < 1 or size > resource["count"]:
+            _fail("资源默认 shape 的元素数必须在物理容量内", f"interfaces.{resource['id']}.shape")
+        if (is_array_parameter(interfaces[resource["id"]]) and
+                not any(isinstance(dimension, str) for dimension in resource["shape"]) and size != resource["count"]):
+            _fail("固定数组的常量 shape 必须与 count 完全相等", f"interfaces.{resource['id']}.shape")
+        if any(resource["storage"] == other or resource["storage"].startswith(other + ".") or
+               other.startswith(resource["storage"] + ".") for other in storages):
+            _fail("不同资源不能绑定同一存储字段或父子重叠字段", f"interfaces.{resource['id']}.bulk.storage")
+        storages.append(resource["storage"])
+        if f"resource_count_{resource['id']}" in symbols.values():
+            _fail("算法符号与生成的资源计数函数冲突", "algorithm")
+        if f"{symbols['prefix']}_register_{resource['id']}" in symbols.values():
+            _fail("算法符号与生成的资源注册 helper 冲突", "algorithm")
+        if f"register_{resource['id']}" in LIFECYCLE_HOOKS:
+            _fail("资源名与生命周期注册 hook 冲突", f"interfaces.{resource['id']}")
+    for key, value in raw.get("scheduling", {}).items():
+        if isinstance(value, str):
+            for name in re.findall(r"param:([A-Za-z][A-Za-z0-9_]*)", value):
+                parameter = interfaces.get(name, {})
+                if parameter.get("type") != "int" or is_array_parameter(parameter) or parameter.get("default", 0) < 1:
+                    _fail("调度引用必须指向正整数标量参数", f"scheduling.{key}")
 
 
 def load_component_definition(path: Path) -> dict:
@@ -231,7 +523,7 @@ def load_component_definition(path: Path) -> dict:
 
 
 def normalize_component_definition(raw: dict) -> dict:
-    """深拷贝新声明，派生 Registry/构建共用的 ports、parameters 和源码元数据。"""
+    """深拷贝并派生内部视图；bulk_slots.id 使用外部键，bulk_bindings.id 保留 C 接口名。"""
     try:
         _validate(raw)
     except (TypeError, RecursionError, OverflowError) as exc:
@@ -242,8 +534,9 @@ def normalize_component_definition(raw: dict) -> dict:
     for key, value in raw["interfaces"].items():
         item = {"id": key, **copy.deepcopy(value)}
         if "direction" in value:
-            item.setdefault("sample_format", "f32")
-            item.setdefault("channels", 1)
+            if value["type"] != "trigger":
+                item.setdefault("sample_format", "f32")
+                item.setdefault("channels", 1)
             item["process"] = value.get("process", False)
             item["propagate_drive"] = (
                 "drive_port_no" in value if value["direction"] == "output" else item["process"]
@@ -251,12 +544,23 @@ def normalize_component_definition(raw: dict) -> dict:
             result["ports"].append(item)
         else:
             item.setdefault("update_policy", "block_boundary")
+            if value["type"] == "string":
+                item.setdefault("capacity", 256)
+            if is_array_parameter(value) or "bulk" in value:
+                item.setdefault("kind", "bulk")
             result["parameters"].append(item)
     symbols = component_symbols(raw)
     result.update({"sources": ["generated/component_shell.c", "user/algorithm.c"],
                    "headers": ["generated/component_api.h", "generated/component_state.h", "user/algorithm.h"],
                    "include_dirs": [".", "generated", "user"], "state_type": symbols["state_type"],
                    "algorithm_symbols": symbols, "abi_version": 7, "package_type": "source"})
+    resources = component_bulk_resources(raw["interfaces"])
+    if resources:
+        result["bulk_slots"] = [
+            {**{k: v for k, v in resource.items() if k not in {"storage", "auto_register", "slot_key"}},
+             "id": resource["slot_key"]}
+            for resource in resources]
+        result["bulk_bindings"] = resources
     return result
 
 

@@ -11,6 +11,9 @@ from pathlib import Path
 
 from .component_definition import (
     ComponentDefinitionError,
+    LIFECYCLE_HOOKS,
+    encode_array_initializer,
+    is_array_parameter,
     load_component_definition,
     normalize_component_definition,
 )
@@ -18,7 +21,8 @@ from .component_definition import (
 TOOL_ID = "orpheus.component_codegen.v1"
 MANIFEST = "component_codegen.json"
 _TYPES = {"float": ("float", "FLOAT", "f32"), "int": ("int32_t", "INT", "i32"),
-          "bool": ("bool", "BOOL", "b")}
+          "bool": ("bool", "BOOL", "b"), "string": ("char", "STRING", "str")}
+_FORMATS = {"f32": ("float", "F32"), "i32": ("int32_t", "I32"), "i16": ("int16_t", "I16")}
 
 
 def _error(message, code="generation_error"):
@@ -37,10 +41,14 @@ def _read_configuration(path: Path) -> bytes:
 
 
 def _quote(value) -> str:
-    return json.dumps(str(value), ensure_ascii=False)
+    escapes = {"\\": "\\\\", '"': '\\"', "?": "\\?"}
+    return '"' + "".join(escapes.get(c, f"\\{ord(c):03o}" if ord(c) < 32 or ord(c) == 127 else c)
+                         for c in str(value)) + '"'
 
 
 def _number(value, kind):
+    if kind == "string":
+        return _quote(value)
     if kind == "bool":
         return "true" if value else "false"
     if kind == "int":
@@ -50,19 +58,429 @@ def _number(value, kind):
 
 def _check_features(definition):
     for port in definition["ports"]:
-        if port["type"] != "audio" or port["sample_format"] != "f32":
-            _error(f"首版仅生成 audio f32 端口：{port['id']}", "unsupported_feature")
+        if port["type"] == "trigger":
+            continue
+        if port["sample_format"] not in _FORMATS:
+            _error(f"尚不生成压缩 i24 视图：{port['id']}", "unsupported_feature")
         if "count" in port:
             _error(f"首版不生成 count 可变引脚：{port['id']}", "unsupported_feature")
     for param in definition["parameters"]:
-        if param["type"] not in _TYPES or param.get("count", 1) != 1:
-            _error(f"首版仅生成 float/int/bool 标量参数：{param['id']}", "unsupported_feature")
-        if param["update_policy"] not in {"immediate", "block_boundary", "restart_required"}:
-            _error(f"首版不生成需要额外状态协议的更新策略：{param['id']}", "unsupported_feature")
+        if param["type"] not in _TYPES:
+            _error(f"不支持的参数元素类型：{param['id']}", "unsupported_feature")
+        if param["type"] != "string" and not _is_array(param) and param.get("shape"):
+            _error(f"数值数组必须显式声明固定 count：{param['id']}", "unsupported_feature")
+    if definition.get("execution", {}).get("none"):
+        _error("声明式 execution.none 节点不适用可执行组件壳", "unsupported_feature")
+    if definition.get("memory", {}).get("state_size", 0):
+        _error("state_size 必须由生成的 State 类型确定，不能另行手写", "unsupported_feature")
     # 大小写不同的端口会产生相同枚举常量。
     names = [p["id"].upper() for p in definition["ports"]]
     if len(set(names)) != len(names):
         _error("端口名称大写后冲突", "symbol_collision")
+
+
+def _parameter_declaration(param):
+    if param["type"] == "string":
+        return f"char {param['id']}[{param.get('capacity', 256)}];"
+    count = f"[{param['count']}]" if _is_array(param) else ""
+    return f"{_TYPES[param['type']][0]} {param['id']}{count};"
+
+
+def _is_array(param):
+    return is_array_parameter(param)
+
+
+def _csv_default(param):
+    return encode_array_initializer(param, param["default"])
+
+
+def _private_resource_fields(definition):
+    tree = {}
+    for resource in definition.get("bulk_bindings", []):
+        if not resource["storage"].startswith("algorithm."):
+            continue
+        node = tree
+        fields = resource["storage"].split(".")[1:]
+        for field in fields[:-1]:
+            node = node.setdefault(field, {})
+        node[fields[-1]] = resource
+
+    def render(node, indent):
+        lines = []
+        for name, value in node.items():
+            if "storage" in value and isinstance(value["storage"], str):
+                lines.append(f"{indent}{_TYPES[value['type']][0]} {name}[{value['count']}];")
+            else:
+                lines.append(f"{indent}struct {{")
+                lines.extend(render(value, indent + "    "))
+                lines.append(f"{indent}}} {name};")
+        return lines
+
+    return render(tree, "    ") or ["    unsigned char reserved;"]
+
+def _render_resource_counts(definition, values):
+    resources = definition.get("bulk_bindings", [])
+    lines = []
+    for resource in resources:
+        key, capacity = resource["id"], resource["count"]
+        lines += [f"static int resource_count_{key}(const {values}* p, uint32_t* count) {{",
+                  "    (void)p; uint32_t product=1;"]
+        for i, dimension in enumerate(resource["shape"]):
+            term = f"p->{dimension.split(':')[1]}" if isinstance(dimension, str) else str(dimension)
+            lines += [f"    int64_t dimension{i}={term};",
+                      f"    if (dimension{i}<1 || (uint64_t)dimension{i}>{capacity}u/product) return ORPHEUS_ERR_INVALID_ARG;",
+                      f"    product*=(uint32_t)dimension{i};"]
+        lines += ["    *count=product; return ORPHEUS_OK;", "}"]
+    if resources:
+        lines += [f"static int validate_resource_counts(const {values}* p) {{",
+                  "    uint32_t count; int result;"]
+        for resource in resources:
+            lines += [f"    result=resource_count_{resource['id']}(p, &count);",
+                      "    if (result!=ORPHEUS_OK) return result;"]
+        lines += ["    return ORPHEUS_OK;", "}"]
+    return lines
+
+
+def _port_suffix(port):
+    return "Trigger" if port["type"] == "trigger" else _FORMATS[port["sample_format"]][1]
+
+
+def _lifecycle_signatures(state):
+    return {
+        "prepare": f"{state}* state, const OrpheusConfig* config",
+        "reset": f"{state}* state", "destroy": f"{state}* state",
+        "set_parameter": f"{state}* state, const char* key, const OrpheusValue* value",
+        "get_parameter": f"{state}* state, const char* key, OrpheusValue* value",
+        "register_slots": f"{state}* state, const OrpheusRegistry* reg",
+        "hook": f"{state}* state, uint32_t id, uint32_t event, const OrpheusBlob* req, OrpheusBlob* resp",
+    }
+
+
+def _render_parameter_shell(definition):
+    """生成参数事务和生命周期适配；绝不复制含用户资源指针的 AlgorithmState。"""
+    symbols = definition["algorithm_symbols"]
+    prefix, state = symbols["prefix"], symbols["state_type"]
+    params = definition["parameters"]
+    hooks = set(definition.get("algorithm", {}).get("lifecycle", []))
+    values = f"{prefix}_Parameters"
+    lines = [f"typedef struct {values} {{"]
+    lines += [f"    {_parameter_declaration(p)}" for p in params] or ["    unsigned char reserved;"]
+    lines += [f"}} {values};",
+              f"static void snapshot_parameters(const {state}* s, {values}* p) {{",
+              "    (void)s; memset(p, 0, sizeof(*p));"]
+    for p in params:
+        key = p["id"]
+        lines.append(f"    memcpy(p->{key}, s->{key}, sizeof(p->{key}));" if p["type"] == "string" or _is_array(p)
+                     else f"    p->{key}=s->{key};")
+    lines += ["}", f"static void commit_parameters({state}* s, const {values}* p) {{",
+              "    (void)s; (void)p;"]
+    for p in params:
+        key = p["id"]
+        lines.append(f"    memcpy(s->{key}, p->{key}, sizeof(s->{key}));" if p["type"] == "string" or _is_array(p)
+                     else f"    s->{key}=p->{key};")
+    lines += ["}", f"static void default_parameters({values}* p) {{", "    memset(p, 0, sizeof(*p));"]
+    for p in params:
+        key = p["id"]
+        if _is_array(p):
+            lines += [f"    const {_TYPES[p['type']][0]} initial_{key}[{p['count']}]={{" +
+                      ", ".join(_number(v, p["type"]) for v in p["default"]) + "};",
+                      f"    memcpy(p->{key}, initial_{key}, sizeof(p->{key}));"]
+        else:
+            lines.append(f"    memcpy(p->{key}, {_quote(p['default'])}, {len(p['default'].encode('utf-8')) + 1});"
+                         if p["type"] == "string" else f"    p->{key}={_number(p['default'], p['type'])};")
+    lines += ["}"]
+    lines += _render_resource_counts(definition, values)
+    if any(p["type"] == "string" for p in params):
+        lines += [
+            "static int valid_utf8_string(const char* text, size_t capacity, size_t* length) {",
+            "    if (!text) return ORPHEUS_ERR_INVALID_ARG;",
+            "    size_t i=0;",
+            "    while (i<capacity) {",
+            "        unsigned char c=(unsigned char)text[i];",
+            "        if (!c) { *length=i; return ORPHEUS_OK; }",
+            "        if (c<0x80) { ++i; continue; }",
+            "        size_t n=(c>=0xC2 && c<=0xDF) ? 2 : (c>=0xE0 && c<=0xEF) ? 3 :",
+            "                 (c>=0xF0 && c<=0xF4) ? 4 : 0;",
+            "        if (!n || n>capacity-i) return ORPHEUS_ERR_INVALID_ARG;",
+            "        for (size_t j=1; j<n; ++j)",
+            "            if (((unsigned char)text[i+j] & 0xC0)!=0x80) return ORPHEUS_ERR_INVALID_ARG;",
+            "        unsigned char second=(unsigned char)text[i+1];",
+            "        if ((c==0xE0 && second<0xA0) || (c==0xED && second>=0xA0) ||",
+            "            (c==0xF0 && second<0x90) || (c==0xF4 && second>=0x90))",
+            "            return ORPHEUS_ERR_INVALID_ARG;",
+            "        i+=n;", "    }", "    return ORPHEUS_ERR_INVALID_ARG;", "}",
+        ]
+    lines += [
+        f"static int update_parameter({values}* p, const char* key, const OrpheusValue* value) {{",
+        "    if (!p || !key || !value) return ORPHEUS_ERR_INVALID_ARG;",
+    ]
+    for p in params:
+        key, kind = p["id"], p["type"]
+        _, enum, field = _TYPES[kind]
+        lines += [f"    if (strcmp(key, {_quote(key)}) == 0) {{"]
+        if _is_array(p):
+            lines += [
+                "        if (value->type!=ORPHEUS_VALUE_STRING || !value->value.str) return ORPHEUS_ERR_INVALID_ARG;",
+                "        const char* cursor=value->value.str;",
+                f"        for (uint32_t i=0; i<{p['count']}; ++i) {{",
+                "            while (*cursor && isspace((unsigned char)*cursor)) ++cursor;",
+                "            const char* start=cursor;",
+            ]
+            if kind == "bool":
+                lines += [
+                    "            bool element;",
+                    '            if (strncmp(cursor,"true",4)==0) { element=true; cursor+=4; }',
+                    '            else if (strncmp(cursor,"false",5)==0) { element=false; cursor+=5; }',
+                    "            else if (*cursor=='1' || *cursor=='0') { element=(*cursor=='1'); ++cursor; }",
+                    "            else return ORPHEUS_ERR_INVALID_ARG;",
+                ]
+            else:
+                c_type = _TYPES[kind][0]
+                lines += ["            char* end; errno=0;"]
+                if kind == "float":
+                    lines += ["            double number=strtod(cursor, &end);",
+                              "            if (end==cursor || errno==ERANGE || !isfinite(number) ||",
+                              "                number < -3.402823466e38 || number > 3.402823466e38) return ORPHEUS_ERR_INVALID_ARG;"]
+                else:
+                    lines += ["            long long number=strtoll(cursor, &end, 10);",
+                              "            if (end==cursor || errno==ERANGE || number<INT32_MIN || number>INT32_MAX)",
+                              "                return ORPHEUS_ERR_INVALID_ARG;"]
+                lines += [f"            {c_type} element=({c_type})number;", "            cursor=end;"]
+                if "range" in p:
+                    lo, hi = (_number(v, kind) for v in p["range"])
+                    lines += [f"            if (element<{lo} || element>{hi}) return ORPHEUS_ERR_INVALID_ARG;"]
+            lines += [
+                "            (void)start;",
+                "            while (*cursor && isspace((unsigned char)*cursor)) ++cursor;",
+                f"            if (i+1<{p['count']}) {{ if (*cursor!=',') return ORPHEUS_ERR_INVALID_ARG; ++cursor; }}",
+                "            else if (*cursor) return ORPHEUS_ERR_INVALID_ARG;",
+                f"            p->{key}[i]=element;", "        }",
+                "        return ORPHEUS_OK;", "    }",
+            ]
+            continue
+        lines += [f"        if (value->type!=ORPHEUS_VALUE_{enum}) return ORPHEUS_ERR_INVALID_ARG;"]
+        if kind == "string":
+            lines += [
+                "        size_t length;",
+                f"        if (valid_utf8_string(value->value.str, sizeof(p->{key}), &length)!=ORPHEUS_OK)",
+                "            return ORPHEUS_ERR_INVALID_ARG;",
+                f"        char text[sizeof(p->{key})]; memset(text, 0, sizeof(text));",
+                "        memcpy(text, value->value.str, length+1);",
+                f"        memcpy(p->{key}, text, sizeof(text));",
+            ]
+        else:
+            if kind == "float":
+                lines.append("        if (!isfinite(value->value.f32)) return ORPHEUS_ERR_INVALID_ARG;")
+            if "range" in p:
+                lo, hi = (_number(v, kind) for v in p["range"])
+                lines.append(f"        if (value->value.{field}<{lo} || value->value.{field}>{hi}) return ORPHEUS_ERR_INVALID_ARG;")
+            if p.get("affects_signature") and "range" not in p:
+                lines.append(f"        if (value->value.{field}<1) return ORPHEUS_ERR_INVALID_ARG;")
+            lines.append(f"        p->{key}=value->value.{field};")
+        lines += ["        return ORPHEUS_OK;", "    }"]
+    lines += ["    return ORPHEUS_ERR_NOT_FOUND;", "}"]
+    if "set_parameter" in hooks or "get_parameter" in hooks:
+        lines += [f"static int parameter_value(const {values}* p, const char* key, OrpheusValue* value) {{",
+                  "    (void)p; (void)key; (void)value;"]
+        for p in params:
+            if _is_array(p):
+                continue
+            _, enum, field = _TYPES[p["type"]]
+            lines += [f"    if (strcmp(key, {_quote(p['id'])})==0) {{",
+                      f"        value->type=ORPHEUS_VALUE_{enum}; value->value.{field}=p->{p['id']}; return ORPHEUS_OK;", "    }"]
+        lines += ["    return ORPHEUS_ERR_NOT_FOUND;", "}"]
+    lines += [
+        "static int set_parameter(void* state, const char* key, const OrpheusValue* value) {",
+        f"    {state}* s=({state}*)state;",
+        "    if (!s || !s->_orpheus_alive || !key || !value) return ORPHEUS_ERR_INVALID_ARG;",
+    ]
+    for p in params:
+        if _is_array(p) or p.get("kind") in {"probe", "state"} or p.get("readonly") or p.get("access") == "read":
+            lines.append(f"    if (strcmp(key, {_quote(p['id'])})==0) return ORPHEUS_ERR_UNSUPPORTED;")
+    lines += [
+        f"    {values} before, candidate; snapshot_parameters(s, &before); candidate=before;",
+        "    int result=update_parameter(&candidate, key, value);",
+        "    if (result!=ORPHEUS_OK) return result;",
+    ]
+    if definition.get("bulk_bindings"):
+        lines += ["    result=validate_resource_counts(&candidate); if (result!=ORPHEUS_OK) return result;"]
+    if "set_parameter" in hooks:
+        lines += ["    OrpheusValue checked; result=parameter_value(&candidate, key, &checked);",
+                  "    if (result!=ORPHEUS_OK) return result;",
+                  f"    result={prefix}_set_parameter(s, key, &checked);",
+                  "    if (result!=ORPHEUS_OK) { commit_parameters(s, &before); return result; }",
+                  f"    {values} after; snapshot_parameters(s, &after);",
+                  "    result=update_parameter(&after, key, &checked);",
+                  "    if (result!=ORPHEUS_OK) { commit_parameters(s, &before); return result; }",
+                  "    candidate=after;",
+                  "    s->_orpheus_cleanup_pending=true;"]
+    lines += ["    commit_parameters(s, &candidate); return ORPHEUS_OK;", "}",
+              "static int get_parameter(void* state, const char* key, OrpheusValue* value) {",
+              f"    {state}* s=({state}*)state;",
+              "    if (!s || !s->_orpheus_alive || !key || !value) return ORPHEUS_ERR_INVALID_ARG;"]
+    if "get_parameter" in hooks:
+        lines += [
+            f"    {values} before, checked; snapshot_parameters(s, &before); checked=before;",
+            "    OrpheusValue candidate={0};",
+            f"    int result={prefix}_get_parameter(s, key, &candidate);",
+            "    if (result==ORPHEUS_OK) result=update_parameter(&checked, key, &candidate);",
+            "    commit_parameters(s, &before);",
+            "    if (result!=ORPHEUS_ERR_NOT_FOUND) {",
+            "        if (result!=ORPHEUS_OK) return result;",
+            "        result=parameter_value(&checked, key, value);",
+            "        if (result!=ORPHEUS_OK) return result;",
+        ]
+        for p in params:
+            if _is_array(p):
+                continue
+            if p["type"] == "string":
+                key = p["id"]
+                lines += [f"        if (strcmp(key, {_quote(key)})==0) {{",
+                          f"            memcpy(s->_orpheus_readback_{key}, checked.{key}, sizeof(checked.{key}));",
+                          f"            value->value.str=s->_orpheus_readback_{key};", "        }"]
+        lines += ["        return ORPHEUS_OK;", "    }"]
+    for p in params:
+        if _is_array(p):
+            lines += [f"    if (strcmp(key, {_quote(p['id'])})==0) return ORPHEUS_ERR_UNSUPPORTED;"]
+            continue
+        _, enum, field = _TYPES[p["type"]]
+        lines += [f"    if (strcmp(key, {_quote(p['id'])})==0) {{",
+                  f"        value->type=ORPHEUS_VALUE_{enum}; value->value.{field}=s->{p['id']}; return ORPHEUS_OK;", "    }"]
+    lines += ["    return ORPHEUS_ERR_NOT_FOUND;", "}"]
+    lines += [
+        f"static int configure_parameters({values}* p, const OrpheusConfig* config) {{",
+        "    if (!config || (config->param_count && (!config->param_ids || !config->param_values)))",
+        "        return ORPHEUS_ERR_INVALID_ARG;",
+        "    default_parameters(p);",
+    ]
+    if any(p["id"] == "channels" and p["type"] == "int" and not _is_array(p) for p in params):
+        lines += [
+            "    bool explicit_channels=false;",
+            "    for (uint32_t i=0; i<config->param_count; ++i)",
+            '        if (config->param_ids[i] && strcmp(config->param_ids[i], "channels")==0) explicit_channels=true;',
+            "    if (!explicit_channels && config->channels) {",
+            "        if (config->channels>INT32_MAX) return ORPHEUS_ERR_INVALID_ARG;",
+            "        OrpheusValue channels={.type=ORPHEUS_VALUE_INT,.value.i32=(int32_t)config->channels};",
+            '        int result=update_parameter(p, "channels", &channels);',
+            "        if (result!=ORPHEUS_OK) return result;", "    }",
+        ]
+    lines += [
+        "    for (uint32_t i=0; i<config->param_count; ++i) {",
+        "        int result=update_parameter(p, config->param_ids[i], &config->param_values[i]);",
+        "        if (result!=ORPHEUS_OK) return result;", "    }",
+        "    return validate_resource_counts(p);" if definition.get("bulk_bindings") else "    return ORPHEUS_OK;", "}",
+        f"static int cleanup({state}* s) {{",
+        "    int result=ORPHEUS_OK;",
+        "    if (s->_orpheus_cleanup_pending) {",
+        "        s->_orpheus_cleanup_pending=false;",
+    ]
+    if "destroy" in hooks:
+        lines.append(f"        result={prefix}_destroy(s);")
+    lines += ["        memset(&s->algorithm, 0, sizeof(s->algorithm));", "    }", "    return result;", "}",
+              "static int prepare(void* state, const OrpheusConfig* config) {",
+              f"    {state}* s=({state}*)state;",
+              "    if (!s || !s->_orpheus_alive) return ORPHEUS_ERR_INVALID_ARG;",
+              f"    {values} candidate; int result=configure_parameters(&candidate, config);",
+              "    if (result!=ORPHEUS_OK) return result;",
+              "    result=cleanup(s); if (result!=ORPHEUS_OK) return result;",
+              "    commit_parameters(s, &candidate);",
+              "    s->_orpheus_cleanup_pending=true;"]
+    if "prepare" in hooks:
+        lines += [f"    result={prefix}_prepare(s, config);",
+                  "    if (result!=ORPHEUS_OK) { (void)cleanup(s); return result; }"]
+    lines += ["    return ORPHEUS_OK;", "}",
+              "static int create(void** state, const OrpheusConfig* config) {",
+              "    if (!state) return ORPHEUS_ERR_INVALID_ARG;",
+              "    *state=NULL;",
+              "    if (!config || !config->state_block) return ORPHEUS_ERR_INVALID_ARG;",
+              "    if ((uintptr_t)config->state_block % descriptor.alignment) return ORPHEUS_ERR_INVALID_ARG;",
+              f"    {values} candidate; int result=configure_parameters(&candidate, config);",
+              "    if (result!=ORPHEUS_OK) return result;",
+              f"    {state}* s=({state}*)config->state_block;",
+              "    memset(s, 0, sizeof(*s)); commit_parameters(s, &candidate);",
+              "    s->_orpheus_alive=true; *state=s; return ORPHEUS_OK;", "}",
+              "static int destroy(void* state) {",
+              f"    {state}* s=({state}*)state;",
+              "    if (!s) return ORPHEUS_ERR_INVALID_ARG;",
+              "    if (!s->_orpheus_alive) return ORPHEUS_OK;",
+              "    int result=cleanup(s); s->_orpheus_alive=false; return result;", "}",
+              "static int reset(void* state) {",
+              f"    {state}* s=({state}*)state;",
+              "    if (!s || !s->_orpheus_alive) return ORPHEUS_ERR_INVALID_ARG;"]
+    if "reset" in hooks:
+        lines += [f"    return {prefix}_reset(s);"]
+    else:
+        if "destroy" in hooks:
+            lines += ["    int result=cleanup(s);",
+                      "    memset(&s->algorithm, 0, sizeof(s->algorithm)); return result;"]
+        else:
+            lines += ["    memset(&s->algorithm, 0, sizeof(s->algorithm)); return ORPHEUS_OK;"]
+    lines += ["}", "static int register_slots(void* state, const OrpheusRegistry* reg) {",
+              f"    {state}* s=({state}*)state;",
+              "    if (!s || !s->_orpheus_alive || !reg || !reg->add) return ORPHEUS_ERR_INVALID_ARG;"]
+    resources = {resource["id"]: resource for resource in definition.get("bulk_bindings", [])}
+    registration_helpers = []
+    for p in params:
+        _, enum, _ = _TYPES[p["type"]]
+        resource = resources.get(p["id"])
+        if resource:
+            enum = _TYPES[resource["type"]][1]
+        flags = []
+        if p.get("readback", True):
+            flags.append("ORPHEUS_SLOT_READBACK")
+        if p.get("persistent", True):
+            flags.append("ORPHEUS_SLOT_PERSISTENT")
+        if p.get("affects_signature"):
+            flags.append("ORPHEUS_SLOT_AFFECTS_SIGNATURE")
+        if resource and resource["double_bank"]:
+            flags.append("ORPHEUS_SLOT_DOUBLE_BUFFERED")
+        extra = ""
+        bounds = resource.get("range") if resource else p.get("range")
+        if bounds:
+            kind = resource["type"] if resource else p["type"]
+            suffix = "i32" if kind == "int" else "f32"
+            extra = "".join(f", .{label}_{suffix}={_number(v, kind)}"
+                            for label, v in zip(("min", "max"), bounds))
+        if resource:
+            key = p["id"]
+            slot_kind = p.get("kind", "bulk") if _is_array(p) else "bulk"
+            body = [
+                f"int {prefix}_register_{key}({state}* s, const OrpheusRegistry* reg) {{",
+                "    if (!s || !s->_orpheus_alive || !reg || !reg->add) return ORPHEUS_ERR_INVALID_ARG;",
+                f"    {values} current; snapshot_parameters(s, &current);",
+                f"    uint32_t count_{key};",
+                f"    if (resource_count_{key}(&current, &count_{key})!=ORPHEUS_OK) return ORPHEUS_ERR_INVALID_ARG;",
+            ]
+            registration = f"ORPHEUS_REG_ARRAY(reg, s, {resource['storage']}, count_{key}, ORPHEUS_SLOT_{slot_kind.upper()}, "
+        else:
+            body = []
+            registration = f"ORPHEUS_REG_SLOT(reg, s, {p['id']}, ORPHEUS_SLOT_{p.get('kind', 'setting').upper()}, "
+        body += [
+            f"    if ({registration}"
+            f"{_quote(resource['slot_key'] if resource else p['id'])}, {_quote(p.get('name', p['id']))}, ORPHEUS_VALUE_{enum}, "
+            f".update_policy=ORPHEUS_UPDATE_{p['update_policy'].upper()}, .unit={_quote(p.get('unit', ''))}, "
+            f".flags={' | '.join(flags) or '0'}{extra})==ORPHEUS_SLOT_ID_INVALID)",
+            "        return ORPHEUS_ERR_PROCESSING;",
+        ]
+        if resource:
+            registration_helpers += body + ["    return ORPHEUS_OK;", "}"]
+            if resource["auto_register"]:
+                lines += [f"    int result_{p['id']}={prefix}_register_{p['id']}(s, reg);",
+                          f"    if (result_{p['id']}!=ORPHEUS_OK) return result_{p['id']};"]
+        else:
+            lines += body
+    lines += [f"    return {prefix}_register_slots(s, reg);" if "register_slots" in hooks
+              else "    return ORPHEUS_OK;", "}"]
+    helper_index = lines.index("static int register_slots(void* state, const OrpheusRegistry* reg) {")
+    lines[helper_index:helper_index] = registration_helpers
+    if "hook" in hooks:
+        lines += [
+            "static int hook(void* state, uint32_t id, uint32_t event, const OrpheusBlob* req, OrpheusBlob* resp) {",
+            f"    {state}* s=({state}*)state;",
+            "    if (!s || !s->_orpheus_alive) return ORPHEUS_ERR_INVALID_ARG;",
+            f"    return {prefix}_hook(s, id, event, req, resp);", "}",
+        ]
+    return lines
 
 
 def _render(definition):
@@ -71,17 +489,26 @@ def _render(definition):
         symbols[k] for k in ("prefix", "state_type", "io_type", "private_type", "function"))
     upper = prefix.upper()
     ports, params = definition["ports"], definition["parameters"]
+    hooks = set(definition.get("algorithm", {}).get("lifecycle", []))
     inputs = [p for p in ports if p["direction"] == "input"]
     outputs = [p for p in ports if p["direction"] == "output"]
-    api = [
-        "#pragma once", '#include "orpheus_abi.h"', "",
-        f"typedef struct {prefix}_InputF32 {{",
-        "    const OrpheusBuffer* buffer;", "    const float* samples;",
-        f"}} {prefix}_InputF32;",
-        f"typedef struct {prefix}_OutputF32 {{",
-        "    OrpheusBuffer* buffer;", "    float* samples;", "    OrpheusDelivery delivery;",
-        f"}} {prefix}_OutputF32;", "",
-    ]
+    api = ["#pragma once", '#include "orpheus_abi.h"', ""]
+    for c_type, suffix in _FORMATS.values():
+        api += [
+            f"typedef struct {prefix}_Input{suffix} {{",
+            "    const OrpheusBuffer* buffer;", f"    const {c_type}* samples;",
+            f"}} {prefix}_Input{suffix};",
+            f"typedef struct {prefix}_Output{suffix} {{",
+            "    OrpheusBuffer* buffer;", f"    {c_type}* samples;", "    OrpheusDelivery delivery;",
+            f"}} {prefix}_Output{suffix};", "",
+        ]
+    if any(p["type"] == "trigger" for p in ports):
+        api += [
+            f"typedef struct {prefix}_InputTrigger {{",
+            "    const OrpheusDelivery* delivery;", f"}} {prefix}_InputTrigger;",
+            f"typedef struct {prefix}_OutputTrigger {{",
+            "    OrpheusDelivery delivery;", f"}} {prefix}_OutputTrigger;", "",
+        ]
     if inputs:
         api.append("enum {")
         api.extend(f"    {upper}_INPUT_{p['id'].upper()} = {i}," for i, p in enumerate(inputs))
@@ -90,7 +517,7 @@ def _render(definition):
     # UINT32_MAX-1 超过 C11 enum 的 int 范围，使用强类型常量宏。
     api.extend(f"#define {upper}_DRIVE_{p['id'].upper()} UINT32_C({p['drive_port_no']})" for p in driven)
     api += [f"typedef struct {io} {{"]
-    api.extend(f"    {prefix}_{'Input' if p['direction'] == 'input' else 'Output'}F32 {p['id']};" for p in ports)
+    api.extend(f"    {prefix}_{'Input' if p['direction'] == 'input' else 'Output'}{_port_suffix(p)} {p['id']};" for p in ports)
     if not ports:
         api.append("    unsigned char reserved;")
     api += [f"}} {io};", ""]
@@ -98,8 +525,8 @@ def _render(definition):
         name = port["id"]
         api += [
             f"static inline int {prefix}_emit_{name}(const OrpheusProcessContext* ctx,",
-            f"        const {prefix}_OutputF32* output) {{",
-            "    if (!output || output->delivery.buffer != output->buffer)",
+            f"        const {prefix}_Output{_port_suffix(port)}* output) {{",
+            "    if (!output || output->delivery.buffer != " + ("NULL)" if port["type"] == "trigger" else "output->buffer)"),
             "        return ORPHEUS_ERR_INVALID_ARG;",
             f"    return orpheus_emit(ctx, {upper}_DRIVE_{name.upper()}, &output->delivery);", "}",
         ]
@@ -107,12 +534,34 @@ def _render(definition):
         "#pragma once", '#include "component_api.h"', '#include "../user/algorithm.h"', "",
         f"typedef struct {state} {{",
     ]
-    state_header.extend(f"    {_TYPES[p['type']][0]} {p['id']};" for p in params)
-    state_header += [f"    {private} algorithm;", f"}} {state};", "",
+    state_header.extend(f"    {_parameter_declaration(p)}" for p in params)
+    if "get_parameter" in hooks:
+        state_header.extend(f"    char _orpheus_readback_{p['id']}[{p.get('capacity', 256)}];"
+                            for p in params if p["type"] == "string")
+    state_alignment = definition.get("memory", {}).get("alignment", 1)
+    # 对齐布尔成员，避免声明值低于 AlgorithmState 自然对齐时 C/C++ 拒绝降级。
+    state_header += ["#if defined(__cplusplus)",
+                     f"    alignas({state_alignment}) bool _orpheus_alive;",
+                     "#else", f"    _Alignas({state_alignment}) bool _orpheus_alive;", "#endif",
+                     "    bool _orpheus_cleanup_pending;",
+                     f"    {private} algorithm;", f"}} {state};", "",
                      f"int {function}({state}* state, {io}* io, const OrpheusProcessContext* ctx);"]
+    signatures = _lifecycle_signatures(state)
+    if hooks:
+        state_header += [
+            "/* create 不调用用户 prepare；prepare 应用配置后调用用户入口，失败自动 destroy 收尾。",
+            "   set 先校验，再以旧 State 调用户 hook，成功提交当前字段，失败恢复生成参数。",
+            "   get 先调用户 hook，仅 NOT_FOUND 回退字段读取；用户必须填写返回值的 type。",
+            "   reset 入口可更新运行状态；未声明时清空 algorithm（有 destroy 时先收尾）。 */",
+        ]
+    state_header.extend(f"int {prefix}_{hook}({signatures[hook]});" for hook in LIFECYCLE_HOOKS if hook in hooks)
+    state_header.extend(
+        f"int {prefix}_register_{resource['id']}({state}* state, const OrpheusRegistry* reg);"
+        for resource in definition.get("bulk_bindings", []))
     user_header = [
-        "#pragma once", "", "/* 用户私有状态可在此扩展；实时处理不分配内存。 */",
-        f"typedef struct {private} {{", "    unsigned char reserved;", f"}} {private};",
+        "#pragma once", "#include <stdint.h>", "#include <stdbool.h>", "",
+        "/* 用户私有状态可在此扩展；实时处理不分配内存。 */",
+        f"typedef struct {private} {{", *_private_resource_fields(definition), f"}} {private};",
     ]
     user_source = [
         '#include "component_state.h"', '#include "component_api.h"', "",
@@ -121,9 +570,30 @@ def _render(definition):
         "    /* 请实现算法，并在数据就绪后显式调用对应 emit 函数。 */",
         "    return ORPHEUS_ERR_UNSUPPORTED;", "}",
     ]
+    hook_arguments = {
+        "prepare": ("state", "config"), "reset": ("state",), "destroy": ("state",),
+        "set_parameter": ("state", "key", "value"), "get_parameter": ("state", "key", "value"),
+        "register_slots": ("state", "reg"), "hook": ("state", "id", "event", "req", "resp"),
+    }
+    for hook in LIFECYCLE_HOOKS:
+        if hook in hooks:
+            user_source += ["", f"int {prefix}_{hook}({signatures[hook]}) {{"]
+            user_source += [f"    (void){arg};" for arg in hook_arguments[hook]]
+            result = ("ORPHEUS_HOOK_CONTINUE" if hook == "hook" else
+                      "ORPHEUS_ERR_NOT_FOUND" if hook == "get_parameter" else "ORPHEUS_OK")
+            user_source += [f"    return {result};", "}"]
     shell = [
         '#include "component_state.h"', "#include <string.h>", "#include <math.h>", "",
     ]
+    if any(_is_array(p) for p in params):
+        shell += ["#include <stdlib.h>", "#include <errno.h>", "#include <ctype.h>", ""]
+    for resource in definition.get("bulk_bindings", []):
+        c_type = _TYPES[resource["type"]][0]
+        member = f"(({state}*)0)->{resource['storage']}"
+        shell += [
+            f'_Static_assert(_Generic(&({member}), {c_type} (*)[{resource["count"]}]: 1, default: 0),',
+            f'    "BULK {resource["id"]}: storage 类型或固定容量不匹配");',
+        ]
     by_id = {p["id"]: p for p in ports}
 
     def expression(port, field, context=False):
@@ -133,16 +603,18 @@ def _render(definition):
         target, attr = value.split(":")
         if target == "param":
             return f"s->{attr}" if context else "0"
+        if target == "task":
+            return f"ctx->{'frame_count' if attr == 'block_size' else 'sample_rate'}" if context else "0"
         return expression(by_id[target], attr, context)
 
     if ports:
         shell.append("static const OrpheusPort ports[] = {")
         for port in ports:
-            variable = isinstance(port["channels"], str)
+            variable = isinstance(port.get("channels"), str)
             channel_param = port["channels"].split(":")[1] if variable and port["channels"].startswith("param:") else None
             shell.append(
                 f"    {{.id={_quote(port['id'])}, .direction=ORPHEUS_PORT_{port['direction'].upper()}, "
-                f".type=ORPHEUS_PORT_AUDIO, .sample_format=ORPHEUS_FORMAT_F32, "
+                f".type=ORPHEUS_PORT_{port['type'].upper()}, .sample_format=ORPHEUS_FORMAT_{port.get('sample_format', 'f32').upper()}, "
                 f".channels={expression(port, 'channels')}, .sample_rate={expression(port, 'sample_rate')}, "
                 f".block_size={expression(port, 'block_size')}, .is_variable={'true' if variable else 'false'}, "
                 f".channels_param={_quote(channel_param) if channel_param else 'NULL'}}},")
@@ -151,6 +623,9 @@ def _render(definition):
         shell.append("static const OrpheusParameter params[] = {")
         for param in params:
             _, enum, field = _TYPES[param["type"]]
+            default_enum = "STRING" if _is_array(param) else enum
+            default_field = "str" if _is_array(param) else field
+            default_value = _quote(_csv_default(param)) if _is_array(param) else _number(param["default"], param["type"])
             bounds = param.get("range")
             bounds_code = ""
             if bounds:
@@ -158,116 +633,65 @@ def _render(definition):
                 bounds_code = f", .min_{suffix}={_number(bounds[0], param['type'])}, .max_{suffix}={_number(bounds[1], param['type'])}"
             shell.append(
                 f"    {{.id={_quote(param['id'])}, .name={_quote(param.get('name', param['id']))}, "
-                f".type=ORPHEUS_VALUE_{enum}, .default_value={{.type=ORPHEUS_VALUE_{enum}, "
-                f".value.{field}={_number(param['default'], param['type'])}}}, "
+                f".type=ORPHEUS_VALUE_{enum}, .default_value={{.type=ORPHEUS_VALUE_{default_enum}, "
+                f".value.{default_field}={default_value}}}, "
                 f".update_policy=ORPHEUS_UPDATE_{param['update_policy'].upper()}, "
                 f".unit={_quote(param.get('unit', ''))}, "
                 f".readback={str(param.get('readback', True)).lower()}, "
                 f".persistent={str(param.get('persistent', True)).lower()}, "
                 f".affects_signature={str(param.get('affects_signature', False)).lower()}{bounds_code}}},")
         shell += ["};", ""]
+    execution, memory = definition.get("execution", {}), definition.get("memory", {})
     shell += [
         "static const OrpheusComponentDescriptor descriptor = {",
         f"    .id={_quote(definition['id'])}, .version={_quote(definition['version'])}, .abi_version=7,",
         f"    .ports={'ports' if ports else 'NULL'}, .port_count={len(ports)},",
         f"    .params={'params' if params else 'NULL'}, .param_count={len(params)},",
-        f"    .state_size=sizeof({state}), .alignment=_Alignof({state}), .realtime_safe=true",
+        f"    .state_size=sizeof({state}), .alignment=_Alignof({state}),",
+        f"    .scratch_size={memory.get('scratch_size', 0)}, .latency_samples={execution.get('latency_samples', 0)},",
+        f"    .realtime_safe={str(execution.get('realtime_safe', True)).lower()}, "
+        f".supports_inplace={str(execution.get('supports_inplace', False)).lower()}",
         "};",
         "static const OrpheusComponentDescriptor* get_descriptor(void) { return &descriptor; }", "",
-        "static int set_parameter(void* state, const char* key, const OrpheusValue* value) {",
-        f"    {state}* s = ({state}*)state;",
-        "    if (!s || !key || !value) return ORPHEUS_ERR_INVALID_ARG;",
     ]
-    for param in params:
-        _, enum, field = _TYPES[param["type"]]
-        shell += [f"    if (strcmp(key, {_quote(param['id'])}) == 0) {{",
-                  f"        if (value->type != ORPHEUS_VALUE_{enum}) return ORPHEUS_ERR_INVALID_ARG;"]
-        if param["type"] == "float":
-            shell.append(f"        if (!isfinite(value->value.{field})) return ORPHEUS_ERR_INVALID_ARG;")
-        if "range" in param:
-            lower, high = (_number(v, param["type"]) for v in param["range"])
-            shell.append(f"        if (value->value.{field} < {lower} || value->value.{field} > {high}) return ORPHEUS_ERR_INVALID_ARG;")
-        if param.get("affects_signature") and "range" not in param:
-            shell.append(f"        if (value->value.{field} < 1) return ORPHEUS_ERR_INVALID_ARG;")
-        shell += [f"        s->{param['id']} = value->value.{field}; return ORPHEUS_OK;", "    }"]
-    shell += ["    return ORPHEUS_ERR_NOT_FOUND;", "}",
-              "static int get_parameter(void* state, const char* key, OrpheusValue* value) {",
-              f"    {state}* s = ({state}*)state;",
-              "    if (!s || !key || !value) return ORPHEUS_ERR_INVALID_ARG;"]
-    for param in params:
-        _, enum, field = _TYPES[param["type"]]
-        shell += [f"    if (strcmp(key, {_quote(param['id'])}) == 0) {{",
-                  f"        value->type=ORPHEUS_VALUE_{enum}; value->value.{field}=s->{param['id']}; return ORPHEUS_OK;", "    }"]
-    shell += [
-        "    return ORPHEUS_ERR_NOT_FOUND;", "}",
-        "static int prepare(void* state, const OrpheusConfig* config) {",
-        f"    {state}* s = ({state}*)state;",
-        "    if (!s || !config || (config->param_count && (!config->param_ids || !config->param_values)))",
-        "        return ORPHEUS_ERR_INVALID_ARG;",
-        f"    {state} candidate = *s;",
-        "    for (uint32_t i=0; i<config->param_count; ++i) {",
-        "        int result=set_parameter(&candidate, config->param_ids[i], &config->param_values[i]);",
-        "        if (result != ORPHEUS_OK) return result;", "    }",
-        "    *s=candidate; return ORPHEUS_OK;", "}",
-        "static int create(void** state, const OrpheusConfig* config) {",
-        "    if (!state || !config || !config->state_block) return ORPHEUS_ERR_INVALID_ARG;",
-        "    *state=NULL;",
-        f"    if ((uintptr_t)config->state_block % _Alignof({state})) return ORPHEUS_ERR_INVALID_ARG;",
-        f"    {state}* s=({state}*)config->state_block;", "    memset(s, 0, sizeof(*s));",
-    ]
-    shell.extend(f"    s->{p['id']}={_number(p['default'], p['type'])};" for p in params)
-    shell += [
-        "    int result=prepare(s, config);",
-        "    if (result == ORPHEUS_OK) *state=s;", "    return result;", "}",
-        "static int destroy(void* state) { return state ? ORPHEUS_OK : ORPHEUS_ERR_INVALID_ARG; }",
-        "static int reset(void* state) {",
-        f"    {state}* s=({state}*)state;", "    if (!s) return ORPHEUS_ERR_INVALID_ARG;",
-        "    memset(&s->algorithm, 0, sizeof(s->algorithm)); return ORPHEUS_OK;", "}",
-        "static int register_slots(void* state, const OrpheusRegistry* reg) {",
-        f"    {state}* s=({state}*)state;",
-        "    if (!s || !reg || !reg->add) return ORPHEUS_ERR_INVALID_ARG;",
-    ]
-    for param in params:
-        _, enum, _ = _TYPES[param["type"]]
-        flags = []
-        if param.get("readback", True):
-            flags.append("ORPHEUS_SLOT_READBACK")
-        if param.get("persistent", True):
-            flags.append("ORPHEUS_SLOT_PERSISTENT")
-        if param.get("affects_signature"):
-            flags.append("ORPHEUS_SLOT_AFFECTS_SIGNATURE")
-        # 通过回调校验范围，不允许 Runtime 绕过参数校验直接写入。
-        extra = ""
-        if "range" in param:
-            suffix = "i32" if param["type"] == "int" else "f32"
-            extra = "".join(f", .{label}_{suffix}={_number(value, param['type'])}"
-                            for label, value in zip(("min", "max"), param["range"]))
-        shell += [
-            f"    if (ORPHEUS_REG_SLOT(reg, s, {param['id']}, ORPHEUS_SLOT_SETTING, "
-            f"{_quote(param['id'])}, {_quote(param.get('name', param['id']))}, ORPHEUS_VALUE_{enum}, "
-            f".update_policy=ORPHEUS_UPDATE_{param['update_policy'].upper()}, "
-            f".flags={' | '.join(flags) or '0'}{extra}) == ORPHEUS_SLOT_ID_INVALID)",
-            "        return ORPHEUS_ERR_PROCESSING;",
-        ]
-    shell += ["    return ORPHEUS_OK;", "}",
-              "static int valid_buffer(const OrpheusBuffer* buffer, uint32_t channels) {",
-              "    return !buffer || (buffer->format == ORPHEUS_FORMAT_F32 && buffer->interleaved",
+    shell += _render_parameter_shell(definition)
+    shell += ["static int valid_buffer(const OrpheusBuffer* buffer, uint32_t channels,",
+              "        OrpheusSampleFormat format, size_t sample_size, size_t alignment) {",
+              "    return !buffer || (buffer->format == format && buffer->interleaved",
               "        && buffer->channels == channels && channels > 0",
               "        && buffer->frame_count <= buffer->frame_capacity",
               "        && (!buffer->frame_capacity || buffer->data)",
-              "        && (!buffer->data || (uintptr_t)buffer->data % _Alignof(float) == 0)",
-              "        && (size_t)buffer->frame_capacity <= SIZE_MAX / sizeof(float) / channels);", "}",
+              "        && (!buffer->data || (uintptr_t)buffer->data % alignment == 0)",
+              "        && (size_t)buffer->frame_capacity <= SIZE_MAX / sample_size / channels);", "}",
               "static int process(void* state, const OrpheusProcessContext* ctx) {",
               f"    {state}* s=({state}*)state;", f"    {io} io={{0}};",
-              "    if (!s || !ctx) return ORPHEUS_ERR_INVALID_ARG;"]
+              "    if (!s || !s->_orpheus_alive || !ctx) return ORPHEUS_ERR_INVALID_ARG;"]
     for group, direction in ((inputs, "input"), (outputs, "output")):
         for index, port in enumerate(group):
             name = port["id"]
+            if port["type"] == "trigger":
+                shell += [
+                    f"    if (ctx->{direction}s && ctx->{direction}_count>{index} && ctx->{direction}s[{index}])",
+                    "        return ORPHEUS_ERR_INVALID_ARG;",
+                ]
+                if direction == "input":
+                    shell += [
+                        f"    io.{name}.delivery=ctx->trigger_input=={index} ? ctx->delivery : NULL;",
+                        f"    if (io.{name}.delivery && io.{name}.delivery->buffer) return ORPHEUS_ERR_INVALID_ARG;",
+                    ]
+                else:
+                    shell += [
+                        f"    io.{name}.delivery=(OrpheusDelivery){{.buffer=NULL,.frame_index=ctx->frame_index,",
+                        "        .epoch=ctx->epoch,.timeline_flags=ctx->timeline_flags};",
+                    ]
+                continue
+            c_type, _ = _FORMATS[port["sample_format"]]
             shell += [
                 f"    io.{name}.buffer=(ctx->{direction}s && ctx->{direction}_count > {index}) ? ctx->{direction}s[{index}] : NULL;",
-                f"    if (!valid_buffer(io.{name}.buffer, (uint32_t)({expression(port, 'channels', True)})))",
+                f"    if (!valid_buffer(io.{name}.buffer, (uint32_t)({expression(port, 'channels', True)}),",
+                f"        ORPHEUS_FORMAT_{port['sample_format'].upper()}, sizeof({c_type}), _Alignof({c_type})))",
                 "        return ORPHEUS_ERR_INVALID_ARG;",
-                f"    io.{name}.samples=io.{name}.buffer ? ({'const ' if direction == 'input' else ''}float*)io.{name}.buffer->data : NULL;",
+                f"    io.{name}.samples=io.{name}.buffer ? ({'const ' if direction == 'input' else ''}{c_type}*)io.{name}.buffer->data : NULL;",
             ]
             if direction == "output":
                 shell += [
@@ -281,11 +705,12 @@ def _render(definition):
               "static const OrpheusComponentInterface interface = {",
               "    .get_descriptor=get_descriptor, .create=create, .destroy=destroy,",
               "    .prepare=prepare, .reset=reset, .process=process,",
-              "    .set_parameter=set_parameter, .get_parameter=get_parameter, .register_slots=register_slots",
+              "    .set_parameter=set_parameter, .get_parameter=get_parameter, .register_slots=register_slots,",
+              f"    .hook={'hook' if 'hook' in hooks else 'NULL'}",
               "};", "#ifndef ORPHEUS_ENTRY_NAME", "#define ORPHEUS_ENTRY_NAME orpheus_get_interface",
               "#endif", "ORPHEUS_API const OrpheusComponentInterface* ORPHEUS_ENTRY_NAME(void) { return &interface; }"]
-    if not ports:
-        start = shell.index("static int valid_buffer(const OrpheusBuffer* buffer, uint32_t channels) {")
+    if not any(p["type"] != "trigger" for p in ports):
+        start = shell.index("static int valid_buffer(const OrpheusBuffer* buffer, uint32_t channels,")
         end = shell.index("static int process(void* state, const OrpheusProcessContext* ctx) {")
         del shell[start:end]
     cmake_sources = [

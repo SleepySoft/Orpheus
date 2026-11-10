@@ -56,6 +56,11 @@ function configuredPortValue(port, field, data) {
 }
 
 export function portSignature(port, data) {
+  if (port.type === 'trigger') {
+    const error = data.portResolution?.status === 'error' ? ' · 解析失败'
+      : port.resolution?.status === 'conflict' ? ' · 约束冲突' : '';
+    return `触发（无 PCM）${error}`;
+  }
   if (data.portResolution?.status === 'error') return `解析失败：${data.portResolution.message}`;
   if (data.portResolution?.status === 'pending'
     || !['resolved', 'conflict'].includes(port.resolution?.status)) {
@@ -72,6 +77,18 @@ export function portSignature(port, data) {
   const actual = `${port.type} · ${port.sample_format} · ${port.channels}ch · `
     + `${port.frames}帧 · ${port.sample_rate}Hz`;
   return port.resolution.status === 'conflict' ? `${actual} · 约束冲突` : actual;
+}
+
+export function validateTriggerConnection(nodes, connection) {
+  const source = nodes.find((node) => node.id === connection.source)?.data.ports
+    ?.find((port) => port.id === connection.sourceHandle);
+  const target = nodes.find((node) => node.id === connection.target)?.data.ports
+    ?.find((port) => port.id === connection.targetHandle);
+  if ((source?.type === 'trigger' || target?.type === 'trigger')
+    && (source?.type !== 'trigger' || target?.type !== 'trigger')) {
+    return '纯触发接口不传输 PCM，当前只支持触发 → 触发连接；不能直接连到音频或其它类型接口，也不是旧的虚拟执行引脚';
+  }
+  return null;
 }
 
 export function portOrigin(port) {

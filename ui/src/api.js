@@ -51,6 +51,17 @@ export const projectPath = (name) => `/projects/${encodeURIComponent(name.replac
 export const listComponents = (config) => unwrap(api.get('/components', config));
 export const listProjectComponents = (name, config) =>
   unwrap(api.get(`${projectPath(name)}/components`, config));
+const sourceComponentPath = (name, pkg) =>
+  `${projectPath(name)}/source-components/${encodeURIComponent(pkg)}`;
+export const readSourceComponent = (name, pkg) =>
+  unwrap(api.get(sourceComponentPath(name, pkg)));
+export const saveSourceComponent = (name, pkg, configuration, expectedSha256, token = getEditToken()) =>
+  unwrap(api.put(sourceComponentPath(name, pkg), {
+    configuration, expected_sha256: expectedSha256,
+  }, { editToken: token }));
+export const runSourceComponent = (name, pkg, operation, sha256, token = getEditToken()) =>
+  unwrap(api.post(`${sourceComponentPath(name, pkg)}/${operation}`,
+    { expected_sha256: sha256 }, { editToken: token }));
 export const rescanComponents = () => unwrap(api.post('/components/rescan'));
 export const getComponentReadme = (id, project = null) =>
   api

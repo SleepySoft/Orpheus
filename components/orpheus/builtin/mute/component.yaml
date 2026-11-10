@@ -4,40 +4,39 @@ category: "增益与动态"
 order: 3
 description: 增益斜坡静音（0=正常 1=静音），平滑过渡消除咔哒声
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: MuteState
-sources:
-  - src/mute.c
-headers:
-  - include/orpheus_mute.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [prepare, reset, set_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: mute
+    drive_port_no: 1
+    drive_divide: 1
+  mute:
     name: 静音
     type: float
     default: 0.0
     range: [0.0, 1.0]
     update_policy: smoothed
     widget: slider
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: ramp_ms
+  ramp_ms:
     name: 斜坡时间
     type: float
     default: 20.0

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -50,6 +52,16 @@ from orpheus_core.todos import collect_todos
 RUN_TIMEOUT_SECONDS = 60
 DEVICES_CACHE_SECONDS = 30
 DEVICE_COMPONENTS = {"orpheus.builtin.device_in", "orpheus.builtin.device_out"}
+COMPONENT_SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
+
+
+class SourceComponentRequest(BaseModel):
+    configuration: str
+    expected_sha256: str | None = None
+
+
+class SourceComponentRunRequest(BaseModel):
+    expected_sha256: str
 
 
 class ProjectNameConvertor(Convertor[str]):
@@ -378,6 +390,121 @@ def create_app(project_root: Path, *,
         return {"status": "ok", "project_root": str(root)}
 
     # ---- components (global read-only library)
+
+    def source_component_path(name: str, package: str) -> Path:
+        if (not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", package)
+                or re.match(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])$", package)):
+            raise HTTPException(400, "包名须为小写英文字母开头，仅含字母、数字、下划线，且非系统保留名")
+        try:
+            directory = manager.project_dir(name)
+        except ProjectError as exc:
+            raise HTTPException(exc.status_code, exc.message) from exc
+        if not (directory / "project.yaml").is_file() or (directory / "project.yaml").is_symlink():
+            raise HTTPException(404, "工程文件不存在或不安全")
+        path = directory / "components" / package / "component.yaml"
+        # 不允许目录联接、符号链接绕过工程私有边界（包括 Windows junction）。
+        for candidate in (directory / "components", path.parent, path):
+            if candidate.is_symlink() or candidate.resolve() != candidate:
+                raise HTTPException(400, "组件路径不可经过符号链接或目录联接")
+        return path
+
+    def component_revision(path: Path) -> str | None:
+        return sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+    @app.get("/api/projects/{name:project_name}/source-components/{package}")
+    def read_source_component(name: str, package: str) -> dict[str, Any]:
+        path = source_component_path(name, package)
+        if not path.is_file():
+            raise HTTPException(404, "组件配置尚未保存")
+        try:
+            return {"configuration": path.read_text(encoding="utf-8"),
+                    "sha256": component_revision(path)}
+        except (OSError, UnicodeError) as exc:
+            raise HTTPException(400, f"配置载入失败：{exc}") from exc
+
+    @app.put("/api/projects/{name:project_name}/source-components/{package}")
+    def save_source_component(name: str, package: str, req: SourceComponentRequest) -> dict[str, Any]:
+        path = source_component_path(name, package)
+        staging = path.with_name(f".component_configuration_{uuid.uuid4().hex}")
+        try:
+            revision = component_revision(path)
+            if revision != req.expected_sha256:
+                raise HTTPException(409, "组件配置已存在或被修改，请先载入配置再修订")
+            if revision is None and path.parent.exists() and any(path.parent.iterdir()):
+                raise HTTPException(409, "目录已有文件，拒绝覆盖已有组件")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # 配置允许暂时不合法；先落盘，后续校验/生成只能读取此文件。
+            with (staging if revision else path).open("x", encoding="utf-8", newline="\n") as stream:
+                stream.write(req.configuration)
+            if revision:
+                if component_revision(path) != revision:
+                    raise HTTPException(409, "组件配置在保存期间被修改，请重新载入")
+                staging.replace(path)
+        except (OSError, UnicodeError) as exc:
+            raise HTTPException(400, f"配置保存失败：{exc}") from exc
+        finally:
+            staging.unlink(missing_ok=True)
+        return {"saved": True, "registered": False,
+                "path": path.relative_to(path.parents[2]).as_posix(),
+                "sha256": component_revision(path)}
+
+    @app.post("/api/projects/{name:project_name}/source-components/{package}/{operation}")
+    def run_source_component(name: str, package: str, operation: str,
+                             req: SourceComponentRunRequest) -> dict[str, Any]:
+        if operation not in {"validate", "generate"}:
+            raise HTTPException(404, "未知组件操作")
+        path = source_component_path(name, package)
+        if not path.is_file():
+            raise HTTPException(409, "请先保存配置，再校验或生成")
+        if component_revision(path) != req.expected_sha256:
+            raise HTTPException(409, "已保存配置发生变化，请重新载入")
+        for relative in ("generated", "user", "user/algorithm.c", "user/algorithm.h", "CMakeLists.txt"):
+            candidate_path = path.parent / relative
+            if candidate_path.is_symlink() or candidate_path.resolve() != candidate_path:
+                raise HTTPException(400, "生成路径不可经过符号链接或目录联接")
+        result: dict[str, Any] = {"saved": True, "registered": False,
+                                  "phase": "validation", "path": str(path)}
+        scripts = ["validate_component.py"]
+        if operation == "generate":
+            scripts.append("generate_component.py")
+        for script in scripts:
+            result["phase"] = "generation" if script.startswith("generate") else "validation"
+            try:
+                completed = subprocess.run(
+                    [sys.executable, str(COMPONENT_SCRIPTS / script), str(path), "--format", "json"],
+                    cwd=path.parent, capture_output=True, text=True, encoding="utf-8", timeout=60,
+                )
+                report = json.loads(completed.stdout)
+                if not isinstance(report, dict) or not isinstance(report.get("ok"), bool):
+                    raise ValueError("校验/生成脚本返回了无效诊断")
+                result.update(report)
+                if completed.returncode != 0 or not report["ok"]:
+                    result["ok"] = False
+                    return result
+            except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                return {**result, "ok": False, "detail": f"脚本执行失败，配置已保留：{exc}"}
+        if operation == "validate":
+            return result
+        result["phase"] = "registration"
+        try:
+            project_path = path.parents[2] / "project.yaml"
+            document = yaml.safe_load(project_path.read_text(encoding="utf-8"))
+            imported = path.relative_to(project_path.parent).as_posix()
+            imports = list(document.get("imports", []) or [])
+            if imported not in imports:
+                imports.append(imported)
+            candidate = {**document, "imports": imports}
+            # 先通过私有 Registry 完整加载，再更新工程 imports；失败不冒充注册成功。
+            loaded = ProjectLoader(registry).load_document(candidate, project_path)
+            info = next(i for i in loaded.registry.list_components()
+                        if i.manifest_path.resolve() == path)
+            manager.put(name, candidate)
+            result.update({"registered": True, "imports": imports,
+                           "component": _component_to_dict(info), "phase": "complete"})
+        except (ProjectError, ValueError, OSError, yaml.YAMLError, jsonschema.ValidationError,
+                StopIteration) as exc:
+            result.update({"ok": False, "detail": f"生成后注册失败，配置及文件已保留：{exc}"})
+        return result
 
     @app.get("/api/components")
     def list_components() -> list[dict[str, Any]]:

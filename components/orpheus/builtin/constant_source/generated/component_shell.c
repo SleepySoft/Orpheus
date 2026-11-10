@@ -15,88 +15,150 @@ static const OrpheusComponentDescriptor descriptor = {
     .id="orpheus.builtin.constant_source", .version="1.0.0", .abi_version=7,
     .ports=ports, .port_count=1,
     .params=params, .param_count=2,
-    .state_size=sizeof(orpheus_builtin_constant_source_State), .alignment=_Alignof(orpheus_builtin_constant_source_State), .realtime_safe=true
+    .state_size=sizeof(orpheus_builtin_constant_source_State), .alignment=_Alignof(orpheus_builtin_constant_source_State),
+    .scratch_size=0, .latency_samples=0,
+    .realtime_safe=true, .supports_inplace=false
 };
 static const OrpheusComponentDescriptor* get_descriptor(void) { return &descriptor; }
 
-static int set_parameter(void* state, const char* key, const OrpheusValue* value) {
-    orpheus_builtin_constant_source_State* s = (orpheus_builtin_constant_source_State*)state;
-    if (!s || !key || !value) return ORPHEUS_ERR_INVALID_ARG;
+typedef struct orpheus_builtin_constant_source_Parameters {
+    float value;
+    int32_t channels;
+} orpheus_builtin_constant_source_Parameters;
+static void snapshot_parameters(const orpheus_builtin_constant_source_State* s, orpheus_builtin_constant_source_Parameters* p) {
+    (void)s; memset(p, 0, sizeof(*p));
+    p->value=s->value;
+    p->channels=s->channels;
+}
+static void commit_parameters(orpheus_builtin_constant_source_State* s, const orpheus_builtin_constant_source_Parameters* p) {
+    (void)s; (void)p;
+    s->value=p->value;
+    s->channels=p->channels;
+}
+static void default_parameters(orpheus_builtin_constant_source_Parameters* p) {
+    memset(p, 0, sizeof(*p));
+    p->value=1.000000000e+00f;
+    p->channels=2;
+}
+static int update_parameter(orpheus_builtin_constant_source_Parameters* p, const char* key, const OrpheusValue* value) {
+    if (!p || !key || !value) return ORPHEUS_ERR_INVALID_ARG;
     if (strcmp(key, "value") == 0) {
-        if (value->type != ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
+        if (value->type!=ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
         if (!isfinite(value->value.f32)) return ORPHEUS_ERR_INVALID_ARG;
-        s->value = value->value.f32; return ORPHEUS_OK;
+        p->value=value->value.f32;
+        return ORPHEUS_OK;
     }
     if (strcmp(key, "channels") == 0) {
-        if (value->type != ORPHEUS_VALUE_INT) return ORPHEUS_ERR_INVALID_ARG;
-        if (value->value.i32 < 1 || value->value.i32 > 32) return ORPHEUS_ERR_INVALID_ARG;
-        s->channels = value->value.i32; return ORPHEUS_OK;
+        if (value->type!=ORPHEUS_VALUE_INT) return ORPHEUS_ERR_INVALID_ARG;
+        if (value->value.i32<1 || value->value.i32>32) return ORPHEUS_ERR_INVALID_ARG;
+        p->channels=value->value.i32;
+        return ORPHEUS_OK;
     }
     return ORPHEUS_ERR_NOT_FOUND;
 }
+static int set_parameter(void* state, const char* key, const OrpheusValue* value) {
+    orpheus_builtin_constant_source_State* s=(orpheus_builtin_constant_source_State*)state;
+    if (!s || !s->_orpheus_alive || !key || !value) return ORPHEUS_ERR_INVALID_ARG;
+    orpheus_builtin_constant_source_Parameters before, candidate; snapshot_parameters(s, &before); candidate=before;
+    int result=update_parameter(&candidate, key, value);
+    if (result!=ORPHEUS_OK) return result;
+    commit_parameters(s, &candidate); return ORPHEUS_OK;
+}
 static int get_parameter(void* state, const char* key, OrpheusValue* value) {
-    orpheus_builtin_constant_source_State* s = (orpheus_builtin_constant_source_State*)state;
-    if (!s || !key || !value) return ORPHEUS_ERR_INVALID_ARG;
-    if (strcmp(key, "value") == 0) {
+    orpheus_builtin_constant_source_State* s=(orpheus_builtin_constant_source_State*)state;
+    if (!s || !s->_orpheus_alive || !key || !value) return ORPHEUS_ERR_INVALID_ARG;
+    if (strcmp(key, "value")==0) {
         value->type=ORPHEUS_VALUE_FLOAT; value->value.f32=s->value; return ORPHEUS_OK;
     }
-    if (strcmp(key, "channels") == 0) {
+    if (strcmp(key, "channels")==0) {
         value->type=ORPHEUS_VALUE_INT; value->value.i32=s->channels; return ORPHEUS_OK;
     }
     return ORPHEUS_ERR_NOT_FOUND;
 }
-static int prepare(void* state, const OrpheusConfig* config) {
-    orpheus_builtin_constant_source_State* s = (orpheus_builtin_constant_source_State*)state;
-    if (!s || !config || (config->param_count && (!config->param_ids || !config->param_values)))
+static int configure_parameters(orpheus_builtin_constant_source_Parameters* p, const OrpheusConfig* config) {
+    if (!config || (config->param_count && (!config->param_ids || !config->param_values)))
         return ORPHEUS_ERR_INVALID_ARG;
-    orpheus_builtin_constant_source_State candidate = *s;
-    for (uint32_t i=0; i<config->param_count; ++i) {
-        int result=set_parameter(&candidate, config->param_ids[i], &config->param_values[i]);
-        if (result != ORPHEUS_OK) return result;
+    default_parameters(p);
+    bool explicit_channels=false;
+    for (uint32_t i=0; i<config->param_count; ++i)
+        if (config->param_ids[i] && strcmp(config->param_ids[i], "channels")==0) explicit_channels=true;
+    if (!explicit_channels && config->channels) {
+        if (config->channels>INT32_MAX) return ORPHEUS_ERR_INVALID_ARG;
+        OrpheusValue channels={.type=ORPHEUS_VALUE_INT,.value.i32=(int32_t)config->channels};
+        int result=update_parameter(p, "channels", &channels);
+        if (result!=ORPHEUS_OK) return result;
     }
-    *s=candidate; return ORPHEUS_OK;
+    for (uint32_t i=0; i<config->param_count; ++i) {
+        int result=update_parameter(p, config->param_ids[i], &config->param_values[i]);
+        if (result!=ORPHEUS_OK) return result;
+    }
+    return ORPHEUS_OK;
 }
-static int create(void** state, const OrpheusConfig* config) {
-    if (!state || !config || !config->state_block) return ORPHEUS_ERR_INVALID_ARG;
-    *state=NULL;
-    if ((uintptr_t)config->state_block % _Alignof(orpheus_builtin_constant_source_State)) return ORPHEUS_ERR_INVALID_ARG;
-    orpheus_builtin_constant_source_State* s=(orpheus_builtin_constant_source_State*)config->state_block;
-    memset(s, 0, sizeof(*s));
-    s->value=1.000000000e+00f;
-    s->channels=2;
-    int result=prepare(s, config);
-    if (result == ORPHEUS_OK) *state=s;
+static int cleanup(orpheus_builtin_constant_source_State* s) {
+    int result=ORPHEUS_OK;
+    if (s->_orpheus_cleanup_pending) {
+        s->_orpheus_cleanup_pending=false;
+        memset(&s->algorithm, 0, sizeof(s->algorithm));
+    }
     return result;
 }
-static int destroy(void* state) { return state ? ORPHEUS_OK : ORPHEUS_ERR_INVALID_ARG; }
-static int reset(void* state) {
+static int prepare(void* state, const OrpheusConfig* config) {
+    orpheus_builtin_constant_source_State* s=(orpheus_builtin_constant_source_State*)state;
+    if (!s || !s->_orpheus_alive) return ORPHEUS_ERR_INVALID_ARG;
+    orpheus_builtin_constant_source_Parameters candidate; int result=configure_parameters(&candidate, config);
+    if (result!=ORPHEUS_OK) return result;
+    result=cleanup(s); if (result!=ORPHEUS_OK) return result;
+    commit_parameters(s, &candidate);
+    s->_orpheus_cleanup_pending=true;
+    return ORPHEUS_OK;
+}
+static int create(void** state, const OrpheusConfig* config) {
+    if (!state) return ORPHEUS_ERR_INVALID_ARG;
+    *state=NULL;
+    if (!config || !config->state_block) return ORPHEUS_ERR_INVALID_ARG;
+    if ((uintptr_t)config->state_block % descriptor.alignment) return ORPHEUS_ERR_INVALID_ARG;
+    orpheus_builtin_constant_source_Parameters candidate; int result=configure_parameters(&candidate, config);
+    if (result!=ORPHEUS_OK) return result;
+    orpheus_builtin_constant_source_State* s=(orpheus_builtin_constant_source_State*)config->state_block;
+    memset(s, 0, sizeof(*s)); commit_parameters(s, &candidate);
+    s->_orpheus_alive=true; *state=s; return ORPHEUS_OK;
+}
+static int destroy(void* state) {
     orpheus_builtin_constant_source_State* s=(orpheus_builtin_constant_source_State*)state;
     if (!s) return ORPHEUS_ERR_INVALID_ARG;
+    if (!s->_orpheus_alive) return ORPHEUS_OK;
+    int result=cleanup(s); s->_orpheus_alive=false; return result;
+}
+static int reset(void* state) {
+    orpheus_builtin_constant_source_State* s=(orpheus_builtin_constant_source_State*)state;
+    if (!s || !s->_orpheus_alive) return ORPHEUS_ERR_INVALID_ARG;
     memset(&s->algorithm, 0, sizeof(s->algorithm)); return ORPHEUS_OK;
 }
 static int register_slots(void* state, const OrpheusRegistry* reg) {
     orpheus_builtin_constant_source_State* s=(orpheus_builtin_constant_source_State*)state;
-    if (!s || !reg || !reg->add) return ORPHEUS_ERR_INVALID_ARG;
-    if (ORPHEUS_REG_SLOT(reg, s, value, ORPHEUS_SLOT_SETTING, "value", "常量值", ORPHEUS_VALUE_FLOAT, .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY, .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT) == ORPHEUS_SLOT_ID_INVALID)
+    if (!s || !s->_orpheus_alive || !reg || !reg->add) return ORPHEUS_ERR_INVALID_ARG;
+    if (ORPHEUS_REG_SLOT(reg, s, value, ORPHEUS_SLOT_SETTING, "value", "常量值", ORPHEUS_VALUE_FLOAT, .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY, .unit="", .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT)==ORPHEUS_SLOT_ID_INVALID)
         return ORPHEUS_ERR_PROCESSING;
-    if (ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数", ORPHEUS_VALUE_INT, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_AFFECTS_SIGNATURE, .min_i32=1, .max_i32=32) == ORPHEUS_SLOT_ID_INVALID)
+    if (ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数", ORPHEUS_VALUE_INT, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_AFFECTS_SIGNATURE, .min_i32=1, .max_i32=32)==ORPHEUS_SLOT_ID_INVALID)
         return ORPHEUS_ERR_PROCESSING;
     return ORPHEUS_OK;
 }
-static int valid_buffer(const OrpheusBuffer* buffer, uint32_t channels) {
-    return !buffer || (buffer->format == ORPHEUS_FORMAT_F32 && buffer->interleaved
+static int valid_buffer(const OrpheusBuffer* buffer, uint32_t channels,
+        OrpheusSampleFormat format, size_t sample_size, size_t alignment) {
+    return !buffer || (buffer->format == format && buffer->interleaved
         && buffer->channels == channels && channels > 0
         && buffer->frame_count <= buffer->frame_capacity
         && (!buffer->frame_capacity || buffer->data)
-        && (!buffer->data || (uintptr_t)buffer->data % _Alignof(float) == 0)
-        && (size_t)buffer->frame_capacity <= SIZE_MAX / sizeof(float) / channels);
+        && (!buffer->data || (uintptr_t)buffer->data % alignment == 0)
+        && (size_t)buffer->frame_capacity <= SIZE_MAX / sample_size / channels);
 }
 static int process(void* state, const OrpheusProcessContext* ctx) {
     orpheus_builtin_constant_source_State* s=(orpheus_builtin_constant_source_State*)state;
     orpheus_builtin_constant_source_IO io={0};
-    if (!s || !ctx) return ORPHEUS_ERR_INVALID_ARG;
+    if (!s || !s->_orpheus_alive || !ctx) return ORPHEUS_ERR_INVALID_ARG;
     io.out.buffer=(ctx->outputs && ctx->output_count > 0) ? ctx->outputs[0] : NULL;
-    if (!valid_buffer(io.out.buffer, (uint32_t)(s->channels)))
+    if (!valid_buffer(io.out.buffer, (uint32_t)(s->channels),
+        ORPHEUS_FORMAT_F32, sizeof(float), _Alignof(float)))
         return ORPHEUS_ERR_INVALID_ARG;
     io.out.samples=io.out.buffer ? (float*)io.out.buffer->data : NULL;
     if (io.out.buffer) {
@@ -110,7 +172,8 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
 static const OrpheusComponentInterface interface = {
     .get_descriptor=get_descriptor, .create=create, .destroy=destroy,
     .prepare=prepare, .reset=reset, .process=process,
-    .set_parameter=set_parameter, .get_parameter=get_parameter, .register_slots=register_slots
+    .set_parameter=set_parameter, .get_parameter=get_parameter, .register_slots=register_slots,
+    .hook=NULL
 };
 #ifndef ORPHEUS_ENTRY_NAME
 #define ORPHEUS_ENTRY_NAME orpheus_get_interface

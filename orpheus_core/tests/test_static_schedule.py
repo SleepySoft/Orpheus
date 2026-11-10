@@ -133,7 +133,7 @@ def test_generated_task_entries(compiler, tmp_path):
         signature = f"int orpheus_generated_process_task_{task_id}(uint32_t frame_count)"
         assert signature + ";" in header
         assert signature + " {" in source
-    assert "{&g_chain_task_tidA_sync, 4u, 3u, 0}" in source
+    assert "{&g_chain_task_tidA_sync, 4u, 3u, 0, 0u, 0u}" in source
     assert "g_task_counter_tidB++;" in source
     assert "void orpheus_generated_teardown(void)" in header
 

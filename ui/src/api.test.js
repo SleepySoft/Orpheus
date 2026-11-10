@@ -15,6 +15,15 @@ jest.mock('axios', () => ({
 const client = axios.create.mock.results[0].value;
 const rejectResponse = client.interceptors.response.use.mock.calls[0][1];
 
+test('源码组件保存和运行使用工程路径、磁盘摘要及发起租约，不发送表单生成参数', async () => {
+  await api.saveSourceComponent('repo/demo', 'my_effect', '# 配置', 'old', 'lease');
+  expect(client.put).toHaveBeenLastCalledWith('/projects/repo%3Ademo/source-components/my_effect',
+    { configuration: '# 配置', expected_sha256: 'old' }, { editToken: 'lease' });
+  await api.runSourceComponent('repo/demo', 'my_effect', 'generate', 'saved', 'lease');
+  expect(client.post).toHaveBeenLastCalledWith('/projects/repo%3Ademo/source-components/my_effect/generate',
+    { expected_sha256: 'saved' }, { editToken: 'lease' });
+});
+
 test('工程载入请求传递中止信号', async () => {
   const config = { signal: new AbortController().signal };
   await api.getProject('demo', config);

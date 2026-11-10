@@ -955,9 +955,25 @@ class CodeGenerator:
             lines.append(f'static OrpheusAtomicU64 g_task_overruns_{i} = 0;')
         lines.append("")
 
+        for i, cp in enumerate(bridge_copies):
+            lines.extend([
+                f'static void orpheus_rate_bridge_push_{i}(const OrpheusBuffer* source) {{',
+                '    uint32_t offset = 0;',
+                '    while (offset < source->frame_count) {',
+                '        uint32_t frames = source->frame_count - offset;',
+                f'        const uint32_t remaining = {cp["depth"]}u - g_bridge_cursor_{i};',
+                '        if (frames > remaining) frames = remaining;',
+                f'        memcpy(g_buf_{cp["buf"]} + g_bridge_cursor_{i} * {cp["channels"]},',
+                f'               (const float*)source->data + offset * {cp["channels"]},',
+                f'               frames * {cp["channels"]} * sizeof(float));',
+                '        offset += frames;',
+                f'        g_bridge_cursor_{i} = (g_bridge_cursor_{i} + frames) % {cp["depth"]};',
+                '    }',
+                '}',
+            ])
         for i, cp in enumerate(task_bridge_copies):
-            lines.append(f'static void orpheus_task_bridge_push_{i}(void) {{')
-            lines.append(f'    const uint32_t frames = g_stage_{cp["sym"]}.frame_count;')
+            lines.append(f'static void orpheus_task_bridge_push_{i}(const OrpheusBuffer* source) {{')
+            lines.append('    const uint32_t frames = source->frame_count;')
             lines.append(f'    const uint64_t read = ORPHEUS_ATOMIC_LOAD(&g_task_read_{i});')
             lines.append(f'    const uint64_t write = ORPHEUS_ATOMIC_LOAD(&g_task_write_{i});')
             lines.append(f'    if (frames > {cp["capacity"]} || write - read + frames > {cp["capacity"]}) {{')
@@ -967,12 +983,12 @@ class CodeGenerator:
             lines.append('    for (uint32_t frame = 0; frame < frames; ++frame) {')
             lines.append(f'        const uint32_t slot = (uint32_t)((write + frame) % {cp["capacity"]});')
             lines.append(f'        memcpy(g_task_ring_{i} + slot * {cp["channels"]},')
-            lines.append(f'               g_stage_buf_{cp["sym"]} + frame * {cp["channels"]},')
+            lines.append(f'               (const float*)source->data + frame * {cp["channels"]},')
             lines.append(f'               {cp["channels"]} * sizeof(float));')
             lines.append('    }')
             lines.append(f'    ORPHEUS_ATOMIC_STORE(&g_task_write_{i}, write + frames);')
             lines.append('}')
-            lines.append(f'static void orpheus_task_bridge_pop_{i}(void) {{')
+            lines.append(f'static int orpheus_task_bridge_pop_{i}(void) {{')
             lines.append(f'    const uint32_t wanted = g_buffer_{cp["buf"]}.frame_capacity;')
             lines.append(f'    const uint64_t read = ORPHEUS_ATOMIC_LOAD(&g_task_read_{i});')
             lines.append(f'    const uint64_t write = ORPHEUS_ATOMIC_LOAD(&g_task_write_{i});')
@@ -994,15 +1010,18 @@ class CodeGenerator:
             if plan.node_configs[cp["dst_node"]]["component"] == "orpheus.builtin.async_bridge":
                 dst_sym = self._sanitized_node_id(cp["dst_node"])
                 lines.append('    {')
-                lines.append('        OrpheusValue metric;')
-                lines.append('        metric.type = ORPHEUS_VALUE_INT;')
-                lines.append('        metric.value.i32 = (int32_t)(write - (read + copied));')
-                lines.append(f'        (void)g_iface_{dst_sym}->set_parameter(g_state_{dst_sym}, "level_frames", &metric);')
-                lines.append(f'        metric.value.i32 = (int32_t)ORPHEUS_ATOMIC_LOAD(&g_task_underruns_{i});')
-                lines.append(f'        (void)g_iface_{dst_sym}->set_parameter(g_state_{dst_sym}, "underruns", &metric);')
-                lines.append(f'        metric.value.i32 = (int32_t)ORPHEUS_ATOMIC_LOAD(&g_task_overruns_{i});')
-                lines.append(f'        (void)g_iface_{dst_sym}->set_parameter(g_state_{dst_sym}, "overruns", &metric);')
+                lines.append('        const OrpheusTaskBridgeStats stats = {')
+                lines.append('            (int32_t)(write - (read + copied)),')
+                lines.append(f'            (int32_t)ORPHEUS_ATOMIC_LOAD(&g_task_underruns_{i}),')
+                lines.append(f'            (int32_t)ORPHEUS_ATOMIC_LOAD(&g_task_overruns_{i})')
+                lines.append('        };')
+                lines.append('        const OrpheusBlob request = {&stats, sizeof(stats)};')
+                lines.append(f'        if (!g_iface_{dst_sym}->hook) return ORPHEUS_ERR_UNSUPPORTED;')
+                lines.append(f'        if (g_iface_{dst_sym}->hook(g_state_{dst_sym}, 0,')
+                lines.append('                ORPHEUS_EVENT_BRIDGE_STATS, &request, NULL) != ORPHEUS_HOOK_HANDLED)')
+                lines.append('            return ORPHEUS_ERR_PROCESSING;')
                 lines.append('    }')
+            lines.append('    return ORPHEUS_OK;')
             lines.append('}')
             lines.append("")
 
@@ -1011,6 +1030,8 @@ class CodeGenerator:
         for node_id in plan.execution_order:
             cfg = plan.node_configs[node_id]
             for port_id in cfg.get("output_ports", []):
+                if port_id in cfg.get("trigger_output_ports", []):
+                    continue
                 endpoint = f"{node_id}:{port_id}"
                 if endpoint in connected_outputs:
                     continue
@@ -1083,7 +1104,9 @@ class CodeGenerator:
             if info:
                 for p in info.manifest.get("parameters", []):
                     if isinstance(p, dict) and p.get("id"):
-                        ptypes[p["id"]] = p.get("type")
+                        ptypes[p["id"]] = (
+                            "string" if "interfaces" in info.manifest and "count" in p
+                            and p.get("type") in ("float", "int", "bool") else p.get("type"))
             ids = ", ".join(f'"{pid}"' for pid in params)
             lines.append(f'static const char* g_param_ids_{s}[] = {{{ids}}};')
             vals = []
@@ -1452,7 +1475,10 @@ class CodeGenerator:
             )
             for i, cp in enumerate(task_bridge_copies):
                 if cp["dst_node"] == node_id and not cp["rate_bridge"]:
-                    lines.append(f'{indent}orpheus_task_bridge_pop_{i}();')
+                    lines.append(
+                        f'{indent}{{ int rc = orpheus_task_bridge_pop_{i}(); if (rc) '
+                        f'return orpheus_graph_fail("bridge_stats", "{self._c_escape(node_id)}", '
+                        f'"{self._c_escape(cfg["component"])}", rc); }}')
             lines.append(f'{indent}ctx.state = g_state_{s};')
             node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
             lines.append(f'{indent}ctx.sample_rate = {node_sr};')
@@ -1490,16 +1516,13 @@ class CodeGenerator:
                     continue
                 drive_port = cfg.get("output_drive_ports", {}).get(cp["src"].split(":", 1)[1], "UINT32_MAX")
                 lines.append(f'{indent}if (publish_port == UINT32_MAX || publish_port == {drive_port}) {{')
-                lines.append(f'{indent}/* rate-bridge: {cp["src"]} -> {cp["to"]} */')
-                lines.append(f'{indent}memcpy(g_buf_{cp["buf"]} + g_bridge_cursor_{i} * {cp["channels"]},')
-                lines.append(f'{indent}       g_stage_buf_{cp["sym"]}, {cp["stride"] * cp["channels"]} * sizeof(float));')
-                lines.append(f'{indent}g_bridge_cursor_{i} = (g_bridge_cursor_{i} + {cp["stride"]}) % {cp["depth"]};')
+                lines.append(f'{indent}orpheus_rate_bridge_push_{i}(delivery_buffer ? delivery_buffer : &g_stage_{cp["sym"]});')
                 lines.append(f'{indent}}}')
             for i, cp in enumerate(task_bridge_copies):
                 if cp["src_node"] == node_id and not cp["rate_bridge"]:
                     drive_port = cfg.get("output_drive_ports", {}).get(cp["src"].split(":", 1)[1], "UINT32_MAX")
                     lines.append(f'{indent}if (publish_port == UINT32_MAX || publish_port == {drive_port}) '
-                                 f'orpheus_task_bridge_push_{i}();')
+                                 f'orpheus_task_bridge_push_{i}(delivery_buffer ? delivery_buffer : &g_stage_{cp["sym"]});')
             invoke = lines[block_start:publish_start]
             publish = lines[publish_start:]
             del lines[block_start:]
@@ -1611,7 +1634,10 @@ class CodeGenerator:
                 )
                 for i, cp in enumerate(task_bridge_copies):
                     if cp["dst_node"] == node_id:
-                        lines.append(f'{indent}orpheus_task_bridge_pop_{i}();')
+                        lines.append(
+                            f'{indent}{{ int rc = orpheus_task_bridge_pop_{i}(); if (rc) '
+                            f'return orpheus_graph_fail("bridge_stats", "{self._c_escape(node_id)}", '
+                            f'"{self._c_escape(cfg["component"])}", rc); }}')
                 lines.append(f'{indent}ctx.state = g_state_{s};')
                 node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
                 lines.append(f'{indent}ctx.sample_rate = {node_sr};')
@@ -1705,15 +1731,13 @@ class CodeGenerator:
                         continue
                     drive_port = cfg.get("output_drive_ports", {}).get(cp["src"].split(":", 1)[1], "UINT32_MAX")
                     lines.append(f'{indent}if (publish_port == UINT32_MAX || publish_port == {drive_port}) {{')
-                    lines.append(f'{indent}memcpy(g_buf_{cp["buf"]} + g_bridge_cursor_{i} * {cp["channels"]},')
-                    lines.append(f'{indent}       g_stage_buf_{cp["sym"]}, {cp["stride"] * cp["channels"]} * sizeof(float));')
-                    lines.append(f'{indent}g_bridge_cursor_{i} = (g_bridge_cursor_{i} + {cp["stride"]}) % {cp["depth"]};')
+                    lines.append(f'{indent}orpheus_rate_bridge_push_{i}(delivery_buffer ? delivery_buffer : &g_stage_{cp["sym"]});')
                     lines.append(f'{indent}}}')
                 for i, cp in enumerate(task_bridge_copies):
                     if cp["src_node"] == node_id:
                         drive_port = cfg.get("output_drive_ports", {}).get(cp["src"].split(":", 1)[1], "UINT32_MAX")
                         lines.append(f'{indent}if (publish_port == UINT32_MAX || publish_port == {drive_port}) '
-                                     f'orpheus_task_bridge_push_{i}();')
+                                     f'orpheus_task_bridge_push_{i}(delivery_buffer ? delivery_buffer : &g_stage_{cp["sym"]});')
                 invoke = lines[block_start:publish_start]
                 publish = lines[publish_start:]
                 del lines[block_start:]
@@ -1864,13 +1888,13 @@ class CodeGenerator:
                 definitions.append(line)
             definitions.extend(['    return ORPHEUS_OK;', '}'])
             definitions.append(
-                f'static int {symbol}_publish_selected(OrpheusChainNode* node, const OrpheusChainRun* run, uint32_t publish_port) {{'
+                f'static int {symbol}_publish_selected(OrpheusChainNode* node, const OrpheusChainRun* run, uint32_t publish_port, const OrpheusBuffer* delivery_buffer) {{'
             )
             definitions.extend(publish)
             definitions.extend(['    return ORPHEUS_OK;', '}'])
             definitions.extend([
                 f'static int {symbol}_publish(OrpheusChainNode* node, const OrpheusChainRun* run) {{',
-                f'    return {symbol}_publish_selected(node, run, UINT32_MAX);',
+                f'    return {symbol}_publish_selected(node, run, UINT32_MAX, NULL);',
                 '}',
                 f'static int {symbol}_publish_outlet(OrpheusChainNode* node, const OrpheusChainRun* run,',
                 '    uint32_t output_port, const OrpheusDelivery* delivery) {',
@@ -1878,22 +1902,16 @@ class CodeGenerator:
                 '    switch (output_port) {',
             ])
             node_sym = self._sanitized_node_id(nid)
-            bridge_ports = {
-                connection["from"].split(":", 1)[1]
-                for connection in plan.connections
-                if connection["from"].split(":", 1)[0] == nid
-                and (plan.buffers[connection["buffer"]].get("rate_bridge")
-                     or plan.buffers[connection["buffer"]].get("task_bridge"))
-            }
             for port, number in cfg.get("output_drive_ports", {}).items():
                 slot = cfg["output_ports"].index(port)
-                definitions.append(f'    case {number}u: source = g_outputs_{node_sym}[{slot}];')
-                if port in bridge_ports:
+                if port in cfg.get("trigger_output_ports", []):
                     definitions.extend([
-                        '        if (!delivery || delivery->buffer != source',
-                        '            || delivery->buffer->frame_count != source->frame_capacity)',
-                        '            return ORPHEUS_ERR_UNSUPPORTED;',
+                        f'    case {number}u:',
+                        '        if (!delivery || delivery->buffer) return ORPHEUS_ERR_INVALID_ARG;',
+                        '        return ORPHEUS_OK;',
                     ])
+                    continue
+                definitions.append(f'    case {number}u: source = g_outputs_{node_sym}[{slot}];')
                 definitions.append('        break;')
             definitions.extend([
                 '    default: return ORPHEUS_ERR_INVALID_ARG;',
@@ -1904,7 +1922,7 @@ class CodeGenerator:
                 '        || delivery->buffer->interleaved != source->interleaved',
                 '        || delivery->buffer->frame_count > source->frame_capacity)',
                 '        return ORPHEUS_ERR_INVALID_ARG;',
-                f'    return {symbol}_publish_selected(node, run, output_port);',
+                f'    return {symbol}_publish_selected(node, run, output_port, delivery->buffer);',
                 '}',
             ])
             edges = [e for e in plan.call_graph.get(nid, []) if e["node"] in symbols]
@@ -3753,7 +3771,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         lines.append("")
         # MSVC 必须按 UTF-8 读取源码（中文注释/字符串），与主构建保持一致
         lines.append('if(MSVC)')
-        lines.append('  add_compile_options(/utf-8)')
+        lines.append('  add_compile_options(/utf-8 /experimental:c11atomics)')
         lines.append('endif()')
         lines.append("")
 

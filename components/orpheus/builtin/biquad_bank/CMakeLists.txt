@@ -2,19 +2,24 @@ cmake_minimum_required(VERSION 3.16)
 
 set(COMPONENT_NAME orpheus_builtin_biquad_bank)
 
+include("${CMAKE_CURRENT_LIST_DIR}/generated/component_sources.cmake")
 add_library(${COMPONENT_NAME} SHARED)
 
 target_sources(${COMPONENT_NAME}
     PRIVATE
-        src/biquad_bank.c
+        ${ORPHEUS_COMPONENT_SOURCES}
 )
 
 target_include_directories(${COMPONENT_NAME}
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${ORPHEUS_COMPONENT_INCLUDE_DIRS}
         ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-        ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/biquad/include
 )
+if(MSVC)
+    target_compile_options(${COMPONENT_NAME} PRIVATE /utf-8)
+elseif(NOT WIN32)
+    target_link_libraries(${COMPONENT_NAME} PRIVATE m)
+endif()
 
 target_compile_definitions(${COMPONENT_NAME}
     PRIVATE

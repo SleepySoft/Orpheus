@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from orpheus_core.project import Connection, ControlConnection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import ComponentInfo, Registry
+from orpheus_core.component_definition import ComponentDefinitionError, encode_array_initializer
 from orpheus_core.parameter_catalog import id_form_of, id_kind_of, id_value
 from orpheus_core.bridge.identity import build_identity
 from orpheus_core.placeholder import COMPONENT_ID as PLACEHOLDER_ID, placeholder_ports, validate_routes
@@ -251,7 +252,8 @@ def _resolve_port_signature(
     if sample_rate is None:
         sample_rate = task.sample_rate
 
-    block_size_expr = port_manifest.get("block_size", "task:block_size" if port_type == "audio" else 1)
+    block_size_expr = port_manifest.get(
+        "block_size", "task:block_size" if port_type in ("audio", "trigger") else 1)
     block_size = _resolve_value(block_size_expr, node, task)
     block_size_explicit = port_manifest.get("block_size") is not None
     if block_size is None:
@@ -1276,9 +1278,22 @@ class GraphCompiler:
                 },
             }
             cfg = plan.node_configs[node.id]
+            cfg["array_parameters"] = []
+            if "interfaces" in comp.manifest:
+                for parameter in comp.manifest.get("parameters", []):
+                    if "count" not in parameter or parameter["type"] not in ("float", "int", "bool"):
+                        continue
+                    parameter_id = parameter["id"]
+                    cfg["array_parameters"].append(parameter_id)
+                    try:
+                        cfg["params"][parameter_id] = encode_array_initializer(
+                            parameter, cfg["params"].get(parameter_id, parameter["default"]))
+                    except ComponentDefinitionError as exc:
+                        raise CompileError(f"节点 {node.id} 参数 {parameter_id} 初始化失败：{exc}") from exc
             cfg["output_drive_ports"] = {
                 p["id"]: p["drive_port_no"] for p in out_ports if "drive_port_no" in p
             }
+            cfg["trigger_output_ports"] = [p["id"] for p in out_ports if p["type"] == "trigger"]
             cfg["host_ports"] = []
             params = {
                 p["id"]: node.params.get(p["id"], p.get("default"))
@@ -1551,6 +1566,8 @@ class GraphCompiler:
         # 分配 buffer id：每个连接一个 buffer
         buffer_id = 0
         for conn in graph.connections:
+            if resolved_ports[str(conn.from_ref)].type == "trigger":
+                continue
             key = f"buf_{buffer_id}"
             buffer_id += 1
             from_port = resolved_ports[str(conn.from_ref)]

@@ -3,39 +3,38 @@ name: 饱和限幅
 category: "增益与动态"
 description: 饱和限幅（limit 上限，soft=0 硬削波 / 1 软饱和曲线）
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: SaturationState
-sources:
-  - src/saturation.c
-headers:
-  - include/orpheus_saturation.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [prepare, reset, set_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: limit
+    drive_port_no: 1
+    drive_divide: 1
+  limit:
     name: 上限
     type: float
     default: 0.5
     range: [0.01, 1.0]
     update_policy: smoothed
-  - id: soft
+  soft:
     name: 软饱和
     type: float
     default: 0.0
     range: [0.0, 1.0]
     update_policy: smoothed
     widget: slider
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2

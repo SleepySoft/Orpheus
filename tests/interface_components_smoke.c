@@ -1,6 +1,7 @@
 #include "orpheus/builtin/constant_source/generated/component_state.h"
 #include "orpheus/builtin/linear_gain/generated/component_state.h"
 #include "orpheus/builtin/null_sink/generated/component_state.h"
+#include "orpheus/builtin/async_bridge/generated/component_state.h"
 #include <stdio.h>
 
 #define CHECK(expr) do { if (!(expr)) { fprintf(stderr, "%d: %s\n", __LINE__, #expr); return 1; } } while (0)
@@ -8,6 +9,7 @@
 const OrpheusComponentInterface* test_constant_source(void);
 const OrpheusComponentInterface* test_linear_gain(void);
 const OrpheusComponentInterface* test_null_sink(void);
+const OrpheusComponentInterface* test_async_bridge(void);
 
 int main(void) {
     const OrpheusComponentInterface* source = test_constant_source();
@@ -24,11 +26,18 @@ int main(void) {
     };
     OrpheusConfig config = {.sample_rate=48000, .block_size=8, .channels=1,
         .param_ids=source_ids, .param_values=params, .param_count=2};
+    void* created = NULL;
+    config.state_block = &source_state;
+    CHECK(source->create(&created, &config) == ORPHEUS_OK && created == &source_state);
     CHECK(source->prepare(&source_state, &config) == ORPHEUS_OK);
     config.param_ids = gain_ids;
     params[1].value.f32 = 2.0f;
+    config.state_block = &gain_state;
+    CHECK(gain->create(&created, &config) == ORPHEUS_OK && created == &gain_state);
     CHECK(gain->prepare(&gain_state, &config) == ORPHEUS_OK);
     config.param_count = 1;
+    config.state_block = &sink_state;
+    CHECK(sink->create(&created, &config) == ORPHEUS_OK && created == &sink_state);
     CHECK(sink->prepare(&sink_state, &config) == ORPHEUS_OK);
 
     float source_samples[8] = {0}, gain_samples[8] = {0};
@@ -68,5 +77,28 @@ int main(void) {
         context.output_count = 0;
         CHECK(sink->process(&sink_state, &context) == ORPHEUS_OK);
     }
+    CHECK(sink->destroy(&sink_state) == ORPHEUS_OK);
+    CHECK(gain->destroy(&gain_state) == ORPHEUS_OK);
+    CHECK(source->destroy(&source_state) == ORPHEUS_OK);
+    const OrpheusComponentInterface* bridge = test_async_bridge();
+    orpheus_builtin_async_bridge_State bridge_state = {0};
+    config.state_block = &bridge_state;
+    CHECK(bridge->create(&created, &config) == ORPHEUS_OK && created == &bridge_state);
+    CHECK(bridge->prepare(&bridge_state, &config) == ORPHEUS_OK);
+    OrpheusTaskBridgeStats stats = {2, 3, 4};
+    OrpheusBlob request = {&stats, sizeof(stats)};
+    CHECK(bridge->hook(&bridge_state, 0, ORPHEUS_EVENT_BRIDGE_STATS, &request, NULL)
+          == ORPHEUS_HOOK_HANDLED);
+    CHECK(bridge_state.level_frames == 2 && bridge_state.underruns == 3 && bridge_state.overruns == 4);
+    request.len--;
+    CHECK(bridge->hook(&bridge_state, 0, ORPHEUS_EVENT_BRIDGE_STATS, &request, NULL)
+          == ORPHEUS_HOOK_ERROR);
+    CHECK(bridge_state.level_frames == 2 && bridge_state.underruns == 3 && bridge_state.overruns == 4);
+    const char* probes[] = {"level_frames", "underruns", "overruns"};
+    for (unsigned i = 0; i < 3; ++i)
+        CHECK(bridge->set_parameter(&bridge_state, probes[i], &params[0]) != ORPHEUS_OK);
+    CHECK(bridge->reset(&bridge_state) == ORPHEUS_OK);
+    CHECK(!bridge_state.level_frames && !bridge_state.underruns && !bridge_state.overruns);
+    CHECK(bridge->destroy(&bridge_state) == ORPHEUS_OK);
     return 0;
 }

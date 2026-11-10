@@ -4,6 +4,12 @@
 
 typedef struct orpheus_builtin_null_sink_State {
     int32_t channels;
+#if defined(__cplusplus)
+    alignas(1) bool _orpheus_alive;
+#else
+    _Alignas(1) bool _orpheus_alive;
+#endif
+    bool _orpheus_cleanup_pending;
     orpheus_builtin_null_sink_AlgorithmState algorithm;
 } orpheus_builtin_null_sink_State;
 

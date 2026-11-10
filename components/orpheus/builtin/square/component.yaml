@@ -3,26 +3,25 @@ name: "逐样本平方"
 category: "数学与控制"
 description: 逐样本平方 y=x²（功率 / PSD / 相干计算用）
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: SquareState
-sources:
-  - src/square.c
-headers:
-  - include/orpheus_square.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [prepare, reset, set_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: channels
+    drive_port_no: 1
+    drive_divide: 1
+  channels:
     name: 通道数
     type: int
     default: 2

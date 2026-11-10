@@ -2895,3 +2895,19 @@ pre {
 .declared-interface small {
   color: #68727f;
 }
+.modal.source-component-dialog {
+  width: min(840px, 90vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+.source-component-dialog textarea {
+  display: block;
+  width: 100%;
+  min-height: 320px;
+  box-sizing: border-box;
+  font-family: monospace;
+}
+.source-component-dialog pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

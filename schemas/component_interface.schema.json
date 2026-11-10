@@ -16,6 +16,37 @@
     "abi_version": {"const": 7},
     "package_type": {"const": "source"},
     "clock_source": {"type": "boolean"},
+    "order": {"type": "integer"},
+    "ui_hidden": {"type": "boolean"},
+    "user_owned": {"type": "boolean"},
+    "platforms": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "scheduling": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "history": {"type": "boolean"}, "split": {"type": "boolean"}, "merge": {"type": "boolean"},
+        "async_bridge": {"type": "boolean"},
+        "divisor": {"$ref": "#/$defs/scheduling_value"},
+        "input_block_size": {"$ref": "#/$defs/scheduling_value"}
+      }
+    },
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "none": {"type": "boolean"},
+        "sample_rate_independent": {"type": "boolean"},
+        "latency_samples": {"type": "integer", "minimum": 0, "maximum": 4294967294},
+        "supports_inplace": {"type": "boolean"},
+        "realtime_safe": {"type": "boolean"}
+      }
+    },
+    "memory": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "state_size": {"type": "integer", "minimum": 0, "maximum": 4294967294},
+        "scratch_size": {"type": "integer", "minimum": 0, "maximum": 4294967294},
+        "alignment": {"type": "integer", "minimum": 1, "maximum": 4294967294}
+      }
+    },
     "algorithm": {
       "type": "object",
       "additionalProperties": false,
@@ -24,7 +55,11 @@
         "state_type": {"$ref": "#/$defs/identifier"},
         "io_type": {"$ref": "#/$defs/identifier"},
         "private_type": {"$ref": "#/$defs/identifier"},
-        "function": {"$ref": "#/$defs/identifier"}
+        "function": {"$ref": "#/$defs/identifier"},
+        "lifecycle": {
+          "type": "array", "uniqueItems": true,
+          "items": {"enum": ["prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook"]}
+        }
       }
     },
     "interfaces": {
@@ -40,12 +75,30 @@
     }
   },
   "$defs": {
+    "scheduling_value": {
+      "oneOf": [
+        {"type": "integer", "minimum": 1},
+        {"type": "string", "pattern": "^(?:[1-9][0-9]*|param:[A-Za-z][A-Za-z0-9_]*)(?:\\s*\\*\\s*(?:[1-9][0-9]*|param:[A-Za-z][A-Za-z0-9_]*))*$"}
+      ]
+    },
+    "bulk_binding": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "sample_format": {"enum": ["f32", "i32", "bool"]},
+        "slot_key": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)*$", "not": {"pattern": "\\s"}},
+        "capacity": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "storage": {"type": "string", "pattern": "^algorithm(?:\\.[A-Za-z][A-Za-z0-9_]*)+$"},
+        "double_bank": {"type": "boolean"},
+        "auto_register": {"type": "boolean", "default": true},
+        "range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}
+      }
+    },
     "identifier": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
     "positive": {"type": "integer", "minimum": 1, "maximum": 4294967294},
     "signature": {
       "oneOf": [
         {"$ref": "#/$defs/positive"},
-        {"type": "string", "pattern": "^(param:[A-Za-z][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9_]*:(channels|block_size|sample_rate))$"}
+        {"type": "string", "pattern": "^(param:[A-Za-z][A-Za-z0-9_]*|task:(block_size|sample_rate)|(?!task:)[A-Za-z][A-Za-z0-9_]*:(channels|block_size|sample_rate))$"}
       ]
     },
     "port": {
@@ -54,14 +107,19 @@
       "additionalProperties": false,
       "properties": {
         "name": {"type": "string"},
+        "description": {"type": "string"},
         "direction": {"enum": ["input", "output"]},
-        "type": {"enum": ["audio", "control", "bulk", "debug"]},
+        "type": {"enum": ["audio", "control", "bulk", "debug", "trigger"]},
         "sample_format": {"enum": ["f32", "i16", "i24", "i32"]},
         "channels": {"$ref": "#/$defs/signature"},
         "block_size": {"$ref": "#/$defs/signature"},
         "sample_rate": {"$ref": "#/$defs/signature"},
         "count": {"$ref": "#/$defs/signature"},
         "process": {"type": "boolean"},
+        "optional": {"type": "boolean"},
+        "timing": {"enum": ["sync", "latest"]},
+        "layout": {"type": "string"},
+        "frame_size": {"type": "integer", "minimum": 0},
         "drive_port_no": {"$ref": "#/$defs/positive"},
         "drive_divide": {
           "$ref": "#/$defs/positive",
@@ -71,7 +129,19 @@
       "allOf": [
         {"if": {"required": ["drive_port_no"]}, "then": {"properties": {"direction": {"const": "output"}}}},
         {"if": {"required": ["drive_divide"]}, "then": {"required": ["drive_port_no"]}},
-        {"if": {"required": ["process"], "properties": {"process": {"const": true}}}, "then": {"properties": {"direction": {"const": "input"}}}}
+        {"if": {"required": ["process"], "properties": {"process": {"const": true}}}, "then": {"properties": {"direction": {"const": "input"}}}},
+        {"if": {"properties": {"type": {"const": "audio"}}}, "then": {"not": {"anyOf": [{"required": ["layout"]}, {"required": ["frame_size"]}]}}},
+        {"if": {"required": ["timing"], "properties": {"timing": {"const": "latest"}}}, "then": {"properties": {"type": {"enum": ["control", "bulk", "debug"]}, "direction": {"const": "input"}, "process": {"const": false}}}},
+        {"if": {"properties": {"type": {"const": "trigger"}}}, "then": {
+          "not": {"anyOf": [
+            {"required": ["sample_format"]}, {"required": ["channels"]}, {"required": ["sample_rate"]},
+            {"required": ["block_size"]}, {"required": ["count"]}, {"required": ["layout"]},
+            {"required": ["frame_size"]}, {"required": ["timing"]}, {"required": ["optional"]}
+          ]},
+          "allOf": [
+            {"if": {"properties": {"direction": {"const": "output"}}}, "then": {"required": ["drive_port_no"]}}
+          ]
+        }}
       ]
     },
     "parameter": {
@@ -80,6 +150,7 @@
       "additionalProperties": false,
       "properties": {
         "name": {"type": "string"},
+        "description": {"type": "string"},
         "type": {"enum": ["float", "int", "bool", "string"]},
         "default": {},
         "range": {
@@ -91,14 +162,71 @@
         "readback": {"type": "boolean"},
         "persistent": {"type": "boolean"},
         "unit": {"type": "string"},
-        "count": {"type": "integer", "minimum": 1}
+        "count": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "bulk": {"$ref": "#/$defs/bulk_binding"},
+        "capacity": {"type": "integer", "minimum": 1, "maximum": 65536, "description": "UTF-8 字节容量，包含末尾 NUL；默认 256"},
+        "shape": {
+          "type": "array",
+          "items": {"oneOf": [
+            {"type": "integer", "minimum": 1},
+            {"type": "string", "pattern": "^param:[A-Za-z][A-Za-z0-9_]*$"}
+          ]}
+        },
+        "bindable": {"type": "boolean"},
+        "control_source": {"type": "boolean"},
+        "kind": {"enum": ["setting", "command", "bulk", "probe", "state"]},
+        "access": {"enum": ["read", "write", "read_write"]},
+        "readonly": {"type": "boolean"},
+        "widget": {"enum": ["number", "text", "slider", "select", "checkbox", "file", "placeholder_ports"]},
+        "file_ext": {"type": "string"},
+        "bulk_slot": {"type": "string"},
+        "options_source": {"const": "devices"},
+        "options": {
+          "type": "array",
+          "items": {"oneOf": [
+            {"type": ["string", "number", "boolean"]},
+            {"type": "object", "required": ["value", "label"], "additionalProperties": false,
+             "properties": {"value": {"type": ["string", "number", "boolean"]}, "label": {"type": "string"}}}
+          ]}
+        }
       },
       "allOf": [
-        {"if": {"properties": {"type": {"const": "float"}}}, "then": {"properties": {"default": {"type": "number", "minimum": -3.402823466e38, "maximum": 3.402823466e38}}}},
-        {"if": {"properties": {"type": {"const": "int"}}}, "then": {"properties": {"default": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}, "range": {"items": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}}}}},
-        {"if": {"properties": {"type": {"const": "bool"}}}, "then": {"not": {"required": ["range"]}, "properties": {"default": {"type": "boolean"}}}},
+        {"if": {"properties": {"type": {"const": "float"}}}, "then": {"properties": {"default": {"oneOf": [
+          {"type": "number", "minimum": -3.402823466e38, "maximum": 3.402823466e38},
+          {"type": "array", "items": {"type": "number", "minimum": -3.402823466e38, "maximum": 3.402823466e38}}
+        ]}}}},
+        {"if": {"properties": {"type": {"const": "int"}}}, "then": {"properties": {"default": {"oneOf": [
+          {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
+          {"type": "array", "items": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}}
+        ]}, "range": {"items": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}}}}},
+        {"if": {"properties": {"type": {"const": "bool"}}}, "then": {"not": {"required": ["range"]}, "properties": {"default": {"oneOf": [
+          {"type": "boolean"}, {"type": "array", "items": {"type": "boolean"}}
+        ]}}}},
         {"if": {"properties": {"type": {"const": "string"}}}, "then": {"not": {"required": ["range"]}, "properties": {"default": {"type": "string"}}}},
-        {"if": {"required": ["affects_signature"], "properties": {"affects_signature": {"const": true}}}, "then": {"required": ["update_policy"], "properties": {"update_policy": {"const": "restart_required"}}}}
+        {"if": {"required": ["affects_signature"], "properties": {"affects_signature": {"const": true}}}, "then": {"required": ["update_policy"], "properties": {"update_policy": {"const": "restart_required"}}}},
+        {"if": {"required": ["capacity"]}, "then": {"properties": {"type": {"const": "string"}}}},
+        {"if": {"required": ["count"], "properties": {"type": {"enum": ["float", "int", "bool"]}}}, "then": {
+          "properties": {"default": {"type": "array"}, "affects_signature": {"const": false},
+            "kind": {"enum": ["bulk", "probe", "state"]}}
+        }, "else": {"properties": {"default": {"not": {"type": "array"}}}}},
+        {"if": {"required": ["bulk"]}, "then": {
+          "allOf": [
+            {"if": {"properties": {"type": {"const": "string"}}}, "then": {
+              "properties": {"kind": {"const": "bulk"}, "bulk": {"required": ["sample_format", "capacity", "storage"]}}
+            }, "else": {
+              "required": ["count"], "properties": {"count": {"minimum": 1},
+                "bulk": {"properties": {"storage": false, "capacity": false, "range": false}}}
+            }},
+            {"if": {"properties": {"type": {"const": "float"}}}, "then": {"properties": {"bulk": {"properties": {"sample_format": {"const": "f32"}}}}}},
+            {"if": {"properties": {"type": {"const": "int"}}}, "then": {"properties": {"bulk": {"properties": {"sample_format": {"const": "i32"}}}}}},
+            {"if": {"properties": {"type": {"const": "bool"}}}, "then": {"properties": {"bulk": {"properties": {"sample_format": {"const": "bool"}, "range": false}}}}}
+          ]
+        }},
+        {"if": {"required": ["bindable"], "properties": {"bindable": {"const": true}}}, "then": {"properties": {
+          "affects_signature": {"const": false}, "update_policy": {"enum": ["immediate", "block_boundary", "smoothed"]},
+          "readonly": {"const": false}, "access": {"enum": ["write", "read_write"]},
+          "kind": {"enum": ["setting", "command", "bulk"]}
+        }}}
       ]
     }
   }

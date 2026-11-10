@@ -2,6 +2,14 @@
 
 ## 功能
 
+`component.yaml.interfaces` 是 ABI7 唯一事实源，`generated/` 由
+`scripts\generate_component.py components\orpheus\builtin\biquad\component.yaml` 生成；
+`user/algorithm.c/h` 保存 RBJ 算法与私有历史，通过 `emit_out` 实际交付。
+create 只初始化宿主提供的 State，宿主随后明确 prepare 一次；reset 只清历史。
+全部设置保留 restart_required，运行时 set_parameter 不提交变更。
+字符串固定容量为 type=16、form=8 字节（含终止符）；未知枚举在 prepare 拒绝。
+壳严格拒绝声明外类型、越界与非有限数值，无旧 DLL/descriptor 兼容适配。
+
 通用二阶 IIR 滤波器（biquad）：在 `prepare` 时按 RBJ Audio EQ Cookbook 公式，由 `type / fc / q / gain_db` 和采样率算出 5 个系数（b0, b1, b2, a1, a2），`process` 中对每个通道逐样本做二阶递归滤波。
 
 常用场景：高低切、单段参量 EQ、陷波（去电源哼声）、搁架式音色调整。多个 biquad 串联即可搭出多段 EQ；需要 2 段 peaking 且支持运行时直写系数时，可用聚合组件 `orpheus.builtin.biquad_bank`。
@@ -38,7 +46,7 @@
 | `lowshelf` | 低频搁架 | fc 以下整体抬升/压下 `gain_db`，像把低频地板整体抬高/降低。 |
 | `highshelf` | 高频搁架 | fc 以上整体抬升/压下 `gain_db`。 |
 
-系数公式为标准 RBJ Cookbook：`A = 10^(gain_db/40)`，`w0 = 2π·fc/fs`，`alpha = sin(w0)/(2q)`，各类型按对应公式生成并统一除以 a0 归一化。未知的 `type` 字符串会退化为 lowpass。
+系数公式为标准 RBJ Cookbook：`A = 10^(gain_db/40)`，`w0 = 2π·fc/fs`，`alpha = sin(w0)/(2q)`，各类型按对应公式生成并统一除以 a0 归一化。未知的 `type` 字符串不属于声明域，prepare 返回错误，不再隐式回退 lowpass。
 
 ### `q`：带宽的倒数直觉
 

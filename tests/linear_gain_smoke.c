@@ -1,7 +1,10 @@
-#include "orpheus_gain.h"
+#include "component_state.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+
+typedef orpheus_builtin_gain_State GainState;
+const OrpheusComponentInterface* orpheus_get_interface(void);
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "断言失败：%s:%d\n", __FILE__, __LINE__); return 1; } } while (0)
 
@@ -23,10 +26,14 @@ int main(void) {
         {.type=ORPHEUS_VALUE_FLOAT, .value.f32=-0.75f},
     };
     OrpheusConfig config = {.sample_rate=48000, .block_size=7, .channels=3,
-        .param_ids=ids, .param_values=values, .param_count=4};
+        .param_ids=ids, .param_values=values, .param_count=4, .state_block=&state};
+    void* created = NULL;
+    CHECK(iface->create(&created, &config) == ORPHEUS_OK && created == &state);
     float input[21], output[21], expected_state = 0.0f;
-    OrpheusBuffer in = {.data=input, .channels=3, .frame_capacity=7, .frame_count=7},
-                  out = {.data=output, .channels=3, .frame_capacity=7};
+    OrpheusBuffer in = {.data=input, .format=ORPHEUS_FORMAT_F32, .channels=3,
+                      .frame_capacity=7, .frame_count=7, .interleaved=true},
+                  out = {.data=output, .format=ORPHEUS_FORMAT_F32, .channels=3,
+                      .frame_capacity=7, .interleaved=true};
     const OrpheusBuffer* inputs[] = {&in};
     OrpheusBuffer* outputs[] = {&out};
     OrpheusProcessContext context = {.inputs=inputs, .outputs=outputs,
@@ -35,8 +42,8 @@ int main(void) {
     unsigned slot_count = 0;
     OrpheusRegistry registry = {.ctx=&slot_count, .add=capture_slot};
     CHECK(iface->register_slots(&state, &registry) == ORPHEUS_OK && slot_count == 7);
-    CHECK(strcmp(slots[0].key, "gain_db") == 0 && strcmp(slots[1].key, "smoothing_ms") == 0 &&
-          strcmp(slots[2].key, "channels") == 0);
+    CHECK(strcmp(slots[0].key, "gain_db") == 0 && strcmp(slots[1].key, "channels") == 0 &&
+          strcmp(slots[2].key, "smoothing_ms") == 0);
     CHECK(!(slots[0].flags & ORPHEUS_SLOT_DIRECT_WRITE));
     CHECK(strcmp(slots[4].key, "gain_linear") == 0 &&
           !(slots[4].flags & ORPHEUS_SLOT_DIRECT_WRITE));
@@ -106,7 +113,8 @@ int main(void) {
     CHECK(iface->register_slots(&state, &registry) == ORPHEUS_OK && slot_count == 8);
     CHECK(slots[7].kind == ORPHEUS_SLOT_BULK && slots[7].count == 3 &&
           slots[7].type == ORPHEUS_VALUE_FLOAT && slots[7].size == sizeof(float) &&
-          slots[7].offset == offsetof(GainState, per_channel_gains) &&
+          slots[7].offset == offsetof(GainState, algorithm) +
+              offsetof(orpheus_builtin_gain_AlgorithmState, per_channel_gains) &&
           (slots[7].flags & ORPHEUS_SLOT_DOUBLE_BUFFERED));
     const float gains[] = {0.0f, -0.5f, 2.0f};
     for (unsigned i = 0; i < 21; ++i) input[i] = special[i % 7];
@@ -116,7 +124,10 @@ int main(void) {
         CHECK(isnan(expected) ? isnan(output[i]) : !memcmp(&expected, &output[i], sizeof(float)));
     }
     CHECK(iface->reset(&state) == ORPHEUS_OK &&
-          !memcmp(state.per_channel_gains, gains, sizeof(gains)));
+          !memcmp(state.algorithm.per_channel_gains, gains, sizeof(gains)));
+    CHECK(iface->set_parameter(&state, "gain_linear", &actual) == ORPHEUS_ERR_INVALID_ARG);
+    actual.type = ORPHEUS_VALUE_FLOAT;
+    actual.value.f32 = 1.0f;
     CHECK(iface->set_parameter(&state, "gain_linear", &actual) == ORPHEUS_ERR_UNSUPPORTED);
     const char* invalid[] = {"1,2", "1,2,3,4", "1,2,nan", "1,2,inf", "1,2,3junk", "1,,2", "1,2,3,"};
     for (unsigned i = 0; i < sizeof(invalid)/sizeof(invalid[0]); ++i) {
@@ -125,8 +136,9 @@ int main(void) {
     }
     channel_values[1].value.str = "";
     CHECK(iface->prepare(&state, &config) == ORPHEUS_OK);
-    for (unsigned i = 0; i < 3; ++i) CHECK(state.per_channel_gains[i] == 1.0f);
+    for (unsigned i = 0; i < 3; ++i) CHECK(state.algorithm.per_channel_gains[i] == 1.0f);
     config.channels = 33;
     CHECK(iface->prepare(&state, &config) == ORPHEUS_ERR_INVALID_ARG);
+    CHECK(iface->destroy(&state) == ORPHEUS_OK);
     return 0;
 }
