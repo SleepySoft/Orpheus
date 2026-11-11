@@ -42,6 +42,15 @@ surround_index(0-255, 用户控制)
 
 输入输出通道数可独立配置（rows != cols 时实现上混/下混）。
 
+## 接口交付
+
+落盘接口配置由独立 `scripts/generate_component.py` 校验并生成类型化壳，算法在 `user/algorithm.c`。
+`in` 是唯一驱动入口，每次真实到达逐样本更新矩阵并混音，保存状态后显式交付 `out(1)`。
+同拍重复调用分别处理，不等待会合、不去重；下游失败不回滚已完成的矩阵和序列状态。
+零帧不初始化、不推进、不交付；正帧必须有完整输入与输出，禁止输入/输出及私有状态别名。
+插值位置在每次调用中与上次实际位置比较，按名称、ID、控制链写入均能在该次计算前生效；
+不依赖只有参数setter才会更新的dirty标志。
+
 ## 参数
 
 | 参数 | 类型 | 默认 | 范围 | 更新策略 | 说明 |
@@ -71,7 +80,7 @@ SET <node_id> freeze 1
 
 ### 1. N 表插值（compute_target）
 
-当 `interp_index` 变化时（`targetDirty` 标志置位），在 `process` 开头重算目标矩阵：
+当 `interp_index` 与上次实际位置不同时，在 `process` 开头重算目标矩阵：
 
 ```
 若 N=1: target = tables[0]    // 无插值
@@ -116,9 +125,9 @@ out[frame, r] = sum(active[r*cols + c] * in[frame, c])  for c in 0..cols-1
 
 ```
 process(frames, in, out):
-    if targetDirty:
+    if interp_index != last_index:
         compute_target()       // N表插值
-        targetDirty = 0
+        last_index = interp_index
 
     for f in 0..frames-1:
         if not freeze:
@@ -212,17 +221,22 @@ N=1 时无插值，target 始终等于 tables[0]，行为等价于 `matrix_mul`�
 ```
 
 总长度 = `num_tables * rows * cols`。
+保留前缀初始化：第一张表不足时设置其对角线为1，其余未提供项为0；
+超出当前形状的尾项校验但不写入。CSV必须合法且元素有限。
+`tables` 是重启时解析的配置文本，不冒充未注册的运行期BULK槽。
 
 `interp_x` 是逗号分隔的 N 个断点值，需单调递增。若提供的值不足 N 个，自动均分 [0, 1]。
+已提供完整断点时拒绝倒序、重复或溢出的区间。序列模式只解析其实际使用的目标初值，
+非空 `requested_gains` 必须恰有 `rows*cols` 个有限元素，空值为零矩阵。
 
 ## 限制
 
-1. **最大矩阵尺寸**：32x32 = 1024 元素（`SLC_MM_MAX_ELEM`）。超过会截断。
-2. **最大表数量**：8（`SLC_MM_MAX_TABLES`）。
-3. **内存占用**：state 固定分配 `8 * 1024 * 3 * sizeof(float)` ~= 96KB（tables + target + active），无论实际使用多少。
+1. **最大矩阵尺寸**：32x32 = 1024 元素。越界明确拒绝，不再静默裁剪。
+2. **最大表数量**：8。
+3. **内存占用**：固定8192项插值表、三组1024项矩阵及有界CSV配置文本；实际大小以生成descriptor的state_size为准，无process动态分配。
 4. **tables 不可运行时更新**：`restart_required` 策略。调音表内容在 `prepare` 时解析，运行时只能改 `interp_index`（在表间插值）和 `freeze`。若需运行时换表，需重新编译工程。
 5. **无 downmix 混合**：参考模型的 `targetGain = (1-downmix)*slcGain + downmix*fadeDownmixGain` 未实现。当前 target 直接来自插值，不与 fade downmix 混合。如需此功能，可在上游用 `mixer` 组件预混合，或将 downmix 逻辑加入此组件。
-6. **无 FastSequence 序列号**：参考模型用奇偶序列号控制冻结/释放，本组件用 `freeze` 布尔参数（0/1）替代，语义等价但无序列号防抖。
+6. **两种控制语义不可混用**：插值模式用`freeze`；序列模式用奇偶`sequence`、变化的偶序列接收目标及抬高当前值下界，不使用插值模式的近零系数瞬切分支。
 7. **对数线性模式**：增益值为负或零时钳位到 `5.01e-7`（-126dB），不会产生 NaN，但负增益的物理含义（反相）在此模式下丢失。
 8. **不支持 inplace**：输入输出缓冲区不能重叠（矩阵维度变化时数据布局不同）。
 
@@ -234,7 +248,7 @@ N=1 时无插值，target 始终等于 tables[0]，行为等价于 `matrix_mul`�
 | `surround_index` (0-255, RTC SET) | `interp_index`（immediate, SET 注入） |
 | `InterpolationMethod` (线性/对数线性) | `interp_method` (0/1) |
 | `activeCoeffs = 0.995842` (RampCoeff) | `ramp_coeff` |
-| `FastSequence` (奇=冻结, 偶=渐变) | `freeze` (1=冻结, 0=渐变) |
+| `FastSequence` (奇=冻结, 偶=渐变) | 序列模式的`sequence`；插值模式仅使用`freeze` |
 | `RampProcessing` 一阶 IIR (`:12681`) | process 内逐样本 IIR |
 | `AudioOut = AudioIn * activeGains'` (`:12689`) | process 内矩阵乘 |
 | PingPong 跨核共享内存 (N00S1_2_D1_1_F3) | `SET` 命令注入（图外控制） |

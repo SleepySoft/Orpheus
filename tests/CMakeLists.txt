@@ -530,10 +530,11 @@ if(NOT WIN32)
 endif()
 add_test(NAME explicit_fade_smoke COMMAND explicit_fade_smoke)
 add_executable(sequence_matrix_smoke sequence_matrix_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/slc_matrix_mul/src/slc_matrix_mul.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/slc_matrix_mul/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/slc_matrix_mul/user/algorithm.c)
 target_include_directories(sequence_matrix_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/slc_matrix_mul/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/slc_matrix_mul/generated)
 target_compile_definitions(sequence_matrix_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 if(NOT WIN32)
     target_link_libraries(sequence_matrix_smoke PRIVATE m)

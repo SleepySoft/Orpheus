@@ -186,6 +186,12 @@ nlms仅由ref实际交付驱动；err是可未接的外部误差，不触发计�
 保存状态后显式emit out(1)，下游失败不回滚，同拍重复调用分别处理。
 参考[外部误差NLMS](../../../components/orpheus/builtin/nlms/README.md)。
 
+slc_matrix_mul由in真实交付驱动，保留内部多表插值和外部奇偶序列锁存两种目标来源。
+每样本先平滑矩阵再混音，完成后显式emit out(1)，下游失败不回滚。
+序列模式不使用插值模式的近零系数瞬切；三个矩阵BULK槽保持实际rows×cols形状和双缓冲。
+插值位置按实际值变化检测，调用前控制链及槽直写均生效；
+参考[插值与序列平滑矩阵](../../../components/orpheus/builtin/slc_matrix_mul/README.md)。
+
 sequence_envelope_state以targets为驱动入口，序列、系数和latest反馈仅提供数据。
 先写完所有出口，再显式交付accepted(2)、alpha(3)、freeze(4)、start(1)；
 编号不决定顺序。所有下游成功返回后才提交反馈，不增加块末延迟；

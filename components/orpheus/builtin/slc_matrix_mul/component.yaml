@@ -1,99 +1,90 @@
 id: orpheus.builtin.slc_matrix_mul
-name: "插值与平滑矩阵混音"
-category: "路由与混音"
-description: "音频矩阵混音并逐样本一阶平滑系数；可从多张系数表插值生成目标，或按奇偶序列接收外部目标。奇序列冻结，变化的偶序列锁存目标；不是普通静态矩阵乘法。"
+name: 插值与平滑矩阵混音
+category: 路由与混音
+description: 内部多表插值或奇偶序列锁存目标，逐样本平滑矩阵并混音后显式交付
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: SlcMatrixMulState
-sources:
-  - src/slc_matrix_mul.c
-headers:
-  - include/orpheus_slc_matrix_mul.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:cols
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:rows
-parameters:
-  - id: rows
-    name: 输出行数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: cols
-    name: 输入列数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: num_tables
-    name: 插值表数量
-    type: int
-    default: 1
-    range: [1, 8]
-    update_policy: restart_required
-  - id: tables
-    name: 增益表
+algorithm: {lifecycle: [validate, prepare, reset]}
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:cols", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:rows", drive_port_no: 1}
+  rows: {name: 输出行数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  cols: {name: 输入列数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  num_tables: {name: 插值表数量, type: int, default: 1, range: [1, 8], update_policy: restart_required}
+  tables: {name: 初始增益表, type: string, default: "1, 0, 0, 1", capacity: 65536, widget: text, update_policy: restart_required}
+  interp_x: {name: 插值断点, type: string, default: "0", capacity: 1024, widget: text, update_policy: restart_required}
+  interp_index: {name: 插值位置, type: float, default: 0.0, update_policy: immediate, bindable: true, readback: true, persistent: true}
+  interp_method: {name: 插值方法（0线性，1对数线性）, type: int, default: 0, range: [0, 1], update_policy: restart_required}
+  ramp_coeff: {name: IIR斜坡系数, type: float, default: 0.0, range: [0.0, 1.0], update_policy: restart_required}
+  freeze: {name: 冻结, type: int, default: 0, range: [0, 1], update_policy: immediate, bindable: true, readback: true, persistent: true}
+  execution_mode: {name: 执行模式（0插值请求，1序列接收目标）, type: int, default: 0, range: [0, 1], update_policy: restart_required}
+  requested_gains:
+    name: 待接收目标矩阵
     type: string
-    default: "1, 0, 0, 1"
-    widget: text
+    default: ""
+    capacity: 32768
     kind: bulk
+    readback: false
     update_policy: restart_required
-  - id: interp_x
-    name: 插值断点
-    type: string
-    default: "0"
-    widget: text
-    update_policy: restart_required
-  - id: interp_index
-    name: 插值位置
+    shape: [param:rows, param:cols]
+    bulk: {sample_format: f32, capacity: 1024, storage: algorithm.requested_gains, double_bank: true}
+  active_gains:
+    name: 实际当前矩阵
     type: float
-    default: 0.0
-    update_policy: immediate
-  - id: interp_method
-    name: 插值方法
-    type: int
-    default: 0
-    range: [0, 1]
-    update_policy: restart_required
-  - id: ramp_coeff
-    name: IIR斜坡系数
+    count: 1024
+    default: &zero_matrix [
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    kind: bulk
+    shape: [param:rows, param:cols]
+    update_policy: block_boundary
+    readback: true
+    persistent: false
+    bulk: {double_bank: true}
+  accepted_targets:
+    name: 已接收目标矩阵
     type: float
-    default: 0.0
-    range: [0.0, 1.0]
-    update_policy: restart_required
-  - id: freeze
-    name: 冻结
-    type: int
-    default: 0
-    range: [0, 1]
-    update_policy: immediate
-  - {id: execution_mode, name: 执行模式（0插值请求，1序列接收目标）, type: int, default: 0, range: [0, 1], update_policy: restart_required}
-  - {id: requested_gains, name: 待接收目标矩阵, type: string, default: "", kind: bulk, shape: ["param:rows", "param:cols"], widget: text, update_policy: restart_required}
-  - {id: sequence, name: 目标请求序列（奇数冻结）, type: int, default: 0, range: [-2147483648, 2147483647], persistent: true, readback: true, update_policy: block_boundary}
-bulk_slots:
-  - {id: requested_gains, name: 待接收目标矩阵, type: float, count: 1024, shape: ["param:rows", "param:cols"], double_bank: true}
-  - {id: active_gains, name: 实际当前矩阵, type: float, count: 1024, shape: ["param:rows", "param:cols"], double_bank: true}
-  - {id: accepted_targets, name: 已接收目标矩阵, type: float, count: 1024, shape: ["param:rows", "param:cols"], double_bank: true}
-probes:
-  - {id: last_sequence, name: 已处理序列, type: int}
-  - {id: initialized, name: 包络已初始化, type: bool}
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: true
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+    count: 1024
+    default: *zero_matrix
+    kind: bulk
+    shape: [param:rows, param:cols]
+    update_policy: block_boundary
+    readback: true
+    persistent: false
+    bulk: {double_bank: true}
+  sequence: {name: 目标请求序列（奇数冻结）, type: int, default: 0, range: [-2147483648, 2147483647], update_policy: block_boundary, bindable: true, readback: true, persistent: true}
+  last_sequence: {name: 已处理序列, type: int, default: 0, kind: probe, access: read, persistent: false, readback: true}
+  initialized: {name: 包络已初始化, type: bool, default: false, kind: probe, access: read, persistent: false, readback: true}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}

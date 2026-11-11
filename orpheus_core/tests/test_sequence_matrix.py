@@ -61,7 +61,8 @@ def verify_sequence_matrices(tmp_path, cases, reference=None):
         nodes[name+"_out"] = Node(id=name+"_out", component="orpheus.builtin.wav_out", params={"channels": params["rows"], "file_path": name+".wav"})
         for left, right in (("source", name+"_route"), (name+"_route", name), (name, name+"_out")):
             edges.append(Connection(from_ref=PortRef(left, "out"), to_ref=PortRef(right, "in")))
-    project = Project(metadata={"name": "序列驱动渐变矩阵"}, tasks={"default": Task(id="default", sample_rate=48000, block_size=32)})
+    project = Project(flow_mode="task_sequence", metadata={"name": "序列驱动渐变矩阵"},
+                      tasks={"default": Task(id="default", sample_rate=48000, block_size=32)})
     project.graph = Graph(nodes=nodes, connections=edges)
     registry = Registry(); registry.add_search_path(ROOT / "components"); registry.scan()
     plan = GraphCompiler(registry).compile(project)
