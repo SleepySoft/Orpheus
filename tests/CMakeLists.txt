@@ -679,6 +679,16 @@ target_include_directories(output_router_smoke PRIVATE
 target_compile_definitions(output_router_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME output_router_smoke COMMAND output_router_smoke)
 
+add_executable(interp_lut_smoke interp_lut_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/interp_lut/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/interp_lut/user/algorithm.c)
+target_include_directories(interp_lut_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/interp_lut/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/interp_lut/user)
+target_compile_definitions(interp_lut_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME interp_lut_smoke COMMAND interp_lut_smoke)
+
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
     set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})

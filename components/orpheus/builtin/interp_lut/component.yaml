@@ -3,57 +3,65 @@ name: "参数查表插值"
 category: "数学与控制"
 description: "参数x在组件持有的x_axis/y_axis表中作一维线性插值，结果y可读回并显示历史；音频仅直通。需要通过数据端口传入查找表时使用bulk_lookup。"
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: InterpLutState
-sources:
-  - src/interp_lut.c
-headers:
-  - include/orpheus_interp_lut.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [validate, prepare, reset]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: x_axis
+    drive_port_no: 1
+  x_axis:
     name: X 轴
     type: string
     default: "0, 1"
     widget: text
-    kind: bulk
+    capacity: 8192
+    readback: false
     update_policy: restart_required
-  - id: y_axis
+  y_axis:
     name: Y 轴
     type: string
     default: "0, 1"
     widget: text
-    kind: bulk
+    capacity: 8192
+    readback: false
     update_policy: restart_required
-  - id: x
+  x:
     name: 输入值
     type: float
     default: 0.0
+    range: [-1000000000.0, 1000000000.0]
     update_policy: immediate
-  - id: y
+  y:
     name: 输出值
     type: float
     default: 0.0
+    kind: probe
+    access: read
+    persistent: false
     readback: true
     update_policy: immediate
-  - id: history
+  history:
     name: 输出历史
     type: string
     default: "[]"
+    capacity: 2048
+    kind: probe
+    access: read
+    persistent: false
     readback: true
     update_policy: immediate
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 1
