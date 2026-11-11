@@ -703,6 +703,19 @@ target_include_directories(fir_smoke PRIVATE
 target_compile_definitions(fir_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME fir_smoke COMMAND fir_smoke)
 
+add_executable(indexed_gain_smoke indexed_gain_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/indexed_gain/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/indexed_gain/user/algorithm.c)
+target_include_directories(indexed_gain_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/indexed_gain/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/indexed_gain/user)
+target_compile_definitions(indexed_gain_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(indexed_gain_smoke PRIVATE m)
+endif()
+add_test(NAME indexed_gain_smoke COMMAND indexed_gain_smoke)
+
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
     set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})
@@ -784,11 +797,13 @@ add_test(NAME rnc_mimo_nlms_smoke COMMAND rnc_mimo_nlms_smoke)
 
 add_executable(piecewise_soft_clipper_smoke
 	piecewise_soft_clipper_smoke.c
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/piecewise_soft_clipper/src/piecewise_soft_clipper.c
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/piecewise_soft_clipper/generated/component_shell.c
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/piecewise_soft_clipper/user/algorithm.c
 )
 target_include_directories(piecewise_soft_clipper_smoke PRIVATE
 	${CMAKE_SOURCE_DIR}/orpheus_abi/include
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/piecewise_soft_clipper/include
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/piecewise_soft_clipper/generated
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/piecewise_soft_clipper/user
 )
 target_compile_definitions(piecewise_soft_clipper_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME piecewise_soft_clipper_smoke COMMAND piecewise_soft_clipper_smoke)

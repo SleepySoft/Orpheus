@@ -1,0 +1,308 @@
+#include "component_state.h"
+#include <string.h>
+#include <math.h>
+
+static const OrpheusPort ports[] = {
+    {.id="in", .direction=ORPHEUS_PORT_INPUT, .type=ORPHEUS_PORT_AUDIO, .sample_format=ORPHEUS_FORMAT_F32, .channels=0, .sample_rate=0, .block_size=0, .is_variable=true, .channels_param="channels"},
+    {.id="out", .direction=ORPHEUS_PORT_OUTPUT, .type=ORPHEUS_PORT_AUDIO, .sample_format=ORPHEUS_FORMAT_F32, .channels=0, .sample_rate=0, .block_size=0, .is_variable=true, .channels_param="channels"},
+};
+
+static const OrpheusParameter params[] = {
+    {.id="xmin", .name="高档起始点", .type=ORPHEUS_VALUE_FLOAT, .default_value={.type=ORPHEUS_VALUE_FLOAT, .value.f32=6.500000000e-01f}, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .readback=true, .persistent=true, .affects_signature=false},
+    {.id="xmax", .name="高档输入上限", .type=ORPHEUS_VALUE_FLOAT, .default_value={.type=ORPHEUS_VALUE_FLOAT, .value.f32=1.350000000e+00f}, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .readback=true, .persistent=true, .affects_signature=false},
+    {.id="p2", .name="高档二次系数", .type=ORPHEUS_VALUE_FLOAT, .default_value={.type=ORPHEUS_VALUE_FLOAT, .value.f32=7.142857310e-01f}, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .readback=true, .persistent=true, .affects_signature=false},
+    {.id="xmin_low", .name="低档起始点", .type=ORPHEUS_VALUE_FLOAT, .default_value={.type=ORPHEUS_VALUE_FLOAT, .value.f32=6.500000000e-01f}, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .readback=true, .persistent=true, .affects_signature=false},
+    {.id="xmax_low", .name="低档输入上限", .type=ORPHEUS_VALUE_FLOAT, .default_value={.type=ORPHEUS_VALUE_FLOAT, .value.f32=1.350000000e+00f}, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .readback=true, .persistent=true, .affects_signature=false},
+    {.id="p2_low", .name="低档二次系数", .type=ORPHEUS_VALUE_FLOAT, .default_value={.type=ORPHEUS_VALUE_FLOAT, .value.f32=7.142857310e-01f}, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .readback=true, .persistent=true, .affects_signature=false},
+    {.id="param_set", .name="参数档位", .type=ORPHEUS_VALUE_INT, .default_value={.type=ORPHEUS_VALUE_INT, .value.i32=1}, .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY, .unit="", .readback=true, .persistent=true, .affects_signature=false, .min_i32=0, .max_i32=1},
+    {.id="disabled", .name="禁用", .type=ORPHEUS_VALUE_BOOL, .default_value={.type=ORPHEUS_VALUE_BOOL, .value.b=false}, .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY, .unit="", .readback=true, .persistent=true, .affects_signature=false},
+    {.id="channels", .name="通道数", .type=ORPHEUS_VALUE_INT, .default_value={.type=ORPHEUS_VALUE_INT, .value.i32=22}, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .readback=true, .persistent=true, .affects_signature=true, .min_i32=1, .max_i32=32},
+    {.id="active_mask", .name="激活通道位图", .type=ORPHEUS_VALUE_INT, .default_value={.type=ORPHEUS_VALUE_INT, .value.i32=0}, .update_policy=ORPHEUS_UPDATE_IMMEDIATE, .unit="", .readback=true, .persistent=false, .affects_signature=false},
+};
+
+static const OrpheusComponentDescriptor descriptor = {
+    .id="orpheus.builtin.piecewise_soft_clipper", .version="1.0.0", .abi_version=7,
+    .ports=ports, .port_count=2,
+    .params=params, .param_count=10,
+    .state_size=sizeof(orpheus_builtin_piecewise_soft_clipper_State), .alignment=_Alignof(orpheus_builtin_piecewise_soft_clipper_State),
+    .scratch_size=0, .latency_samples=0,
+    .realtime_safe=true, .supports_inplace=true
+};
+static const OrpheusComponentDescriptor* get_descriptor(void) { return &descriptor; }
+
+static void snapshot_parameters(const orpheus_builtin_piecewise_soft_clipper_State* s, orpheus_builtin_piecewise_soft_clipper_Parameters* p) {
+    (void)s; memset(p, 0, sizeof(*p));
+    p->xmin=s->xmin;
+    p->xmax=s->xmax;
+    p->p2=s->p2;
+    p->xmin_low=s->xmin_low;
+    p->xmax_low=s->xmax_low;
+    p->p2_low=s->p2_low;
+    p->param_set=s->param_set;
+    p->disabled=s->disabled;
+    p->channels=s->channels;
+    p->active_mask=s->active_mask;
+}
+static void commit_parameters(orpheus_builtin_piecewise_soft_clipper_State* s, const orpheus_builtin_piecewise_soft_clipper_Parameters* p) {
+    (void)s; (void)p;
+    s->xmin=p->xmin;
+    s->xmax=p->xmax;
+    s->p2=p->p2;
+    s->xmin_low=p->xmin_low;
+    s->xmax_low=p->xmax_low;
+    s->p2_low=p->p2_low;
+    s->param_set=p->param_set;
+    s->disabled=p->disabled;
+    s->channels=p->channels;
+    s->active_mask=p->active_mask;
+}
+static void default_parameters(orpheus_builtin_piecewise_soft_clipper_Parameters* p) {
+    memset(p, 0, sizeof(*p));
+    p->xmin=6.500000000e-01f;
+    p->xmax=1.350000000e+00f;
+    p->p2=7.142857310e-01f;
+    p->xmin_low=6.500000000e-01f;
+    p->xmax_low=1.350000000e+00f;
+    p->p2_low=7.142857310e-01f;
+    p->param_set=1;
+    p->disabled=false;
+    p->channels=22;
+    p->active_mask=0;
+}
+static int update_parameter(orpheus_builtin_piecewise_soft_clipper_Parameters* p, const char* key, const OrpheusValue* value) {
+    if (!p || !key || !value) return ORPHEUS_ERR_INVALID_ARG;
+    if (strcmp(key, "xmin") == 0) {
+        if (value->type!=ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
+        if (!isfinite(value->value.f32)) return ORPHEUS_ERR_INVALID_ARG;
+        p->xmin=value->value.f32;
+        return ORPHEUS_OK;
+    }
+    if (strcmp(key, "xmax") == 0) {
+        if (value->type!=ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
+        if (!isfinite(value->value.f32)) return ORPHEUS_ERR_INVALID_ARG;
+        p->xmax=value->value.f32;
+        return ORPHEUS_OK;
+    }
+    if (strcmp(key, "p2") == 0) {
+        if (value->type!=ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
+        if (!isfinite(value->value.f32)) return ORPHEUS_ERR_INVALID_ARG;
+        p->p2=value->value.f32;
+        return ORPHEUS_OK;
+    }
+    if (strcmp(key, "xmin_low") == 0) {
+        if (value->type!=ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
+        if (!isfinite(value->value.f32)) return ORPHEUS_ERR_INVALID_ARG;
+        p->xmin_low=value->value.f32;
+        return ORPHEUS_OK;
+    }
+    if (strcmp(key, "xmax_low") == 0) {
+        if (value->type!=ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
+        if (!isfinite(value->value.f32)) return ORPHEUS_ERR_INVALID_ARG;
+        p->xmax_low=value->value.f32;
+        return ORPHEUS_OK;
+    }
+    if (strcmp(key, "p2_low") == 0) {
+        if (value->type!=ORPHEUS_VALUE_FLOAT) return ORPHEUS_ERR_INVALID_ARG;
+        if (!isfinite(value->value.f32)) return ORPHEUS_ERR_INVALID_ARG;
+        p->p2_low=value->value.f32;
+        return ORPHEUS_OK;
+    }
+    if (strcmp(key, "param_set") == 0) {
+        if (value->type!=ORPHEUS_VALUE_INT) return ORPHEUS_ERR_INVALID_ARG;
+        if (value->value.i32<0 || value->value.i32>1) return ORPHEUS_ERR_INVALID_ARG;
+        p->param_set=value->value.i32;
+        return ORPHEUS_OK;
+    }
+    if (strcmp(key, "disabled") == 0) {
+        if (value->type!=ORPHEUS_VALUE_BOOL) return ORPHEUS_ERR_INVALID_ARG;
+        p->disabled=value->value.b;
+        return ORPHEUS_OK;
+    }
+    if (strcmp(key, "channels") == 0) {
+        if (value->type!=ORPHEUS_VALUE_INT) return ORPHEUS_ERR_INVALID_ARG;
+        if (value->value.i32<1 || value->value.i32>32) return ORPHEUS_ERR_INVALID_ARG;
+        p->channels=value->value.i32;
+        return ORPHEUS_OK;
+    }
+    if (strcmp(key, "active_mask") == 0) {
+        if (value->type!=ORPHEUS_VALUE_INT) return ORPHEUS_ERR_INVALID_ARG;
+        p->active_mask=value->value.i32;
+        return ORPHEUS_OK;
+    }
+    return ORPHEUS_ERR_NOT_FOUND;
+}
+static int set_parameter(void* state, const char* key, const OrpheusValue* value) {
+    orpheus_builtin_piecewise_soft_clipper_State* s=(orpheus_builtin_piecewise_soft_clipper_State*)state;
+    if (!s || !s->_orpheus_alive || !key || !value) return ORPHEUS_ERR_INVALID_ARG;
+    if (strcmp(key, "active_mask")==0) return ORPHEUS_ERR_UNSUPPORTED;
+    orpheus_builtin_piecewise_soft_clipper_Parameters before, candidate; snapshot_parameters(s, &before); candidate=before;
+    int result=update_parameter(&candidate, key, value);
+    if (result!=ORPHEUS_OK) return result;
+    result=orpheus_builtin_piecewise_soft_clipper_validate(&candidate); if (result!=ORPHEUS_OK) return result;
+    commit_parameters(s, &candidate); return ORPHEUS_OK;
+}
+static int get_parameter(void* state, const char* key, OrpheusValue* value) {
+    orpheus_builtin_piecewise_soft_clipper_State* s=(orpheus_builtin_piecewise_soft_clipper_State*)state;
+    if (!s || !s->_orpheus_alive || !key || !value) return ORPHEUS_ERR_INVALID_ARG;
+    if (strcmp(key, "xmin")==0) {
+        value->type=ORPHEUS_VALUE_FLOAT; value->value.f32=s->xmin; return ORPHEUS_OK;
+    }
+    if (strcmp(key, "xmax")==0) {
+        value->type=ORPHEUS_VALUE_FLOAT; value->value.f32=s->xmax; return ORPHEUS_OK;
+    }
+    if (strcmp(key, "p2")==0) {
+        value->type=ORPHEUS_VALUE_FLOAT; value->value.f32=s->p2; return ORPHEUS_OK;
+    }
+    if (strcmp(key, "xmin_low")==0) {
+        value->type=ORPHEUS_VALUE_FLOAT; value->value.f32=s->xmin_low; return ORPHEUS_OK;
+    }
+    if (strcmp(key, "xmax_low")==0) {
+        value->type=ORPHEUS_VALUE_FLOAT; value->value.f32=s->xmax_low; return ORPHEUS_OK;
+    }
+    if (strcmp(key, "p2_low")==0) {
+        value->type=ORPHEUS_VALUE_FLOAT; value->value.f32=s->p2_low; return ORPHEUS_OK;
+    }
+    if (strcmp(key, "param_set")==0) {
+        value->type=ORPHEUS_VALUE_INT; value->value.i32=s->param_set; return ORPHEUS_OK;
+    }
+    if (strcmp(key, "disabled")==0) {
+        value->type=ORPHEUS_VALUE_BOOL; value->value.b=s->disabled; return ORPHEUS_OK;
+    }
+    if (strcmp(key, "channels")==0) {
+        value->type=ORPHEUS_VALUE_INT; value->value.i32=s->channels; return ORPHEUS_OK;
+    }
+    if (strcmp(key, "active_mask")==0) {
+        value->type=ORPHEUS_VALUE_INT; value->value.i32=s->active_mask; return ORPHEUS_OK;
+    }
+    return ORPHEUS_ERR_NOT_FOUND;
+}
+static int configure_parameters(orpheus_builtin_piecewise_soft_clipper_Parameters* p, const OrpheusConfig* config) {
+    if (!config || (config->param_count && (!config->param_ids || !config->param_values)))
+        return ORPHEUS_ERR_INVALID_ARG;
+    default_parameters(p);
+    bool explicit_channels=false;
+    for (uint32_t i=0; i<config->param_count; ++i)
+        if (config->param_ids[i] && strcmp(config->param_ids[i], "channels")==0) explicit_channels=true;
+    if (!explicit_channels && config->channels) {
+        if (config->channels>INT32_MAX) return ORPHEUS_ERR_INVALID_ARG;
+        OrpheusValue channels={.type=ORPHEUS_VALUE_INT,.value.i32=(int32_t)config->channels};
+        int result=update_parameter(p, "channels", &channels);
+        if (result!=ORPHEUS_OK) return result;
+    }
+    for (uint32_t i=0; i<config->param_count; ++i) {
+        int result=update_parameter(p, config->param_ids[i], &config->param_values[i]);
+        if (result!=ORPHEUS_OK) return result;
+    }
+    return orpheus_builtin_piecewise_soft_clipper_validate(p);
+}
+static int cleanup(orpheus_builtin_piecewise_soft_clipper_State* s) {
+    int result=ORPHEUS_OK;
+    if (s->_orpheus_cleanup_pending) {
+        s->_orpheus_cleanup_pending=false;
+        memset(&s->algorithm, 0, sizeof(s->algorithm));
+    }
+    return result;
+}
+static int prepare(void* state, const OrpheusConfig* config) {
+    orpheus_builtin_piecewise_soft_clipper_State* s=(orpheus_builtin_piecewise_soft_clipper_State*)state;
+    if (!s || !s->_orpheus_alive) return ORPHEUS_ERR_INVALID_ARG;
+    orpheus_builtin_piecewise_soft_clipper_Parameters candidate; int result=configure_parameters(&candidate, config);
+    if (result!=ORPHEUS_OK) return result;
+    result=cleanup(s); if (result!=ORPHEUS_OK) return result;
+    commit_parameters(s, &candidate);
+    s->_orpheus_cleanup_pending=true;
+    result=orpheus_builtin_piecewise_soft_clipper_prepare(s, config);
+    if (result!=ORPHEUS_OK) { (void)cleanup(s); return result; }
+    return ORPHEUS_OK;
+}
+static int create(void** state, const OrpheusConfig* config) {
+    if (!state) return ORPHEUS_ERR_INVALID_ARG;
+    *state=NULL;
+    if (!config || !config->state_block) return ORPHEUS_ERR_INVALID_ARG;
+    if ((uintptr_t)config->state_block % descriptor.alignment) return ORPHEUS_ERR_INVALID_ARG;
+    orpheus_builtin_piecewise_soft_clipper_Parameters candidate; int result=configure_parameters(&candidate, config);
+    if (result!=ORPHEUS_OK) return result;
+    orpheus_builtin_piecewise_soft_clipper_State* s=(orpheus_builtin_piecewise_soft_clipper_State*)config->state_block;
+    memset(s, 0, sizeof(*s)); commit_parameters(s, &candidate);
+    s->_orpheus_alive=true; *state=s; return ORPHEUS_OK;
+}
+static int destroy(void* state) {
+    orpheus_builtin_piecewise_soft_clipper_State* s=(orpheus_builtin_piecewise_soft_clipper_State*)state;
+    if (!s) return ORPHEUS_ERR_INVALID_ARG;
+    if (!s->_orpheus_alive) return ORPHEUS_OK;
+    int result=cleanup(s); s->_orpheus_alive=false; return result;
+}
+static int reset(void* state) {
+    orpheus_builtin_piecewise_soft_clipper_State* s=(orpheus_builtin_piecewise_soft_clipper_State*)state;
+    if (!s || !s->_orpheus_alive) return ORPHEUS_ERR_INVALID_ARG;
+    return orpheus_builtin_piecewise_soft_clipper_reset(s);
+}
+static int register_slots(void* state, const OrpheusRegistry* reg) {
+    orpheus_builtin_piecewise_soft_clipper_State* s=(orpheus_builtin_piecewise_soft_clipper_State*)state;
+    if (!s || !s->_orpheus_alive || !reg || !reg->add) return ORPHEUS_ERR_INVALID_ARG;
+    if (ORPHEUS_REG_SLOT(reg, s, xmin, ORPHEUS_SLOT_SETTING, "xmin", "高档起始点", ORPHEUS_VALUE_FLOAT, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT)==ORPHEUS_SLOT_ID_INVALID)
+        return ORPHEUS_ERR_PROCESSING;
+    if (ORPHEUS_REG_SLOT(reg, s, xmax, ORPHEUS_SLOT_SETTING, "xmax", "高档输入上限", ORPHEUS_VALUE_FLOAT, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT)==ORPHEUS_SLOT_ID_INVALID)
+        return ORPHEUS_ERR_PROCESSING;
+    if (ORPHEUS_REG_SLOT(reg, s, p2, ORPHEUS_SLOT_SETTING, "p2", "高档二次系数", ORPHEUS_VALUE_FLOAT, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT)==ORPHEUS_SLOT_ID_INVALID)
+        return ORPHEUS_ERR_PROCESSING;
+    if (ORPHEUS_REG_SLOT(reg, s, xmin_low, ORPHEUS_SLOT_SETTING, "xmin_low", "低档起始点", ORPHEUS_VALUE_FLOAT, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT)==ORPHEUS_SLOT_ID_INVALID)
+        return ORPHEUS_ERR_PROCESSING;
+    if (ORPHEUS_REG_SLOT(reg, s, xmax_low, ORPHEUS_SLOT_SETTING, "xmax_low", "低档输入上限", ORPHEUS_VALUE_FLOAT, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT)==ORPHEUS_SLOT_ID_INVALID)
+        return ORPHEUS_ERR_PROCESSING;
+    if (ORPHEUS_REG_SLOT(reg, s, p2_low, ORPHEUS_SLOT_SETTING, "p2_low", "低档二次系数", ORPHEUS_VALUE_FLOAT, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT)==ORPHEUS_SLOT_ID_INVALID)
+        return ORPHEUS_ERR_PROCESSING;
+    if (ORPHEUS_REG_SLOT(reg, s, param_set, ORPHEUS_SLOT_SETTING, "param_set", "参数档位", ORPHEUS_VALUE_INT, .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY, .unit="", .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT, .min_i32=0, .max_i32=1)==ORPHEUS_SLOT_ID_INVALID)
+        return ORPHEUS_ERR_PROCESSING;
+    if (ORPHEUS_REG_SLOT(reg, s, disabled, ORPHEUS_SLOT_SETTING, "disabled", "禁用", ORPHEUS_VALUE_BOOL, .update_policy=ORPHEUS_UPDATE_BLOCK_BOUNDARY, .unit="", .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT)==ORPHEUS_SLOT_ID_INVALID)
+        return ORPHEUS_ERR_PROCESSING;
+    if (ORPHEUS_REG_SLOT(reg, s, channels, ORPHEUS_SLOT_SETTING, "channels", "通道数", ORPHEUS_VALUE_INT, .update_policy=ORPHEUS_UPDATE_RESTART_REQUIRED, .unit="", .flags=ORPHEUS_SLOT_READBACK | ORPHEUS_SLOT_PERSISTENT | ORPHEUS_SLOT_AFFECTS_SIGNATURE, .min_i32=1, .max_i32=32)==ORPHEUS_SLOT_ID_INVALID)
+        return ORPHEUS_ERR_PROCESSING;
+    if (ORPHEUS_REG_SLOT(reg, s, active_mask, ORPHEUS_SLOT_PROBE, "active_mask", "激活通道位图", ORPHEUS_VALUE_INT, .update_policy=ORPHEUS_UPDATE_IMMEDIATE, .unit="", .flags=ORPHEUS_SLOT_READBACK)==ORPHEUS_SLOT_ID_INVALID)
+        return ORPHEUS_ERR_PROCESSING;
+    return ORPHEUS_OK;
+}
+static int valid_buffer(const OrpheusBuffer* buffer, uint32_t channels,
+        OrpheusSampleFormat format, size_t sample_size, size_t alignment) {
+    return !buffer || (buffer->format == format && buffer->interleaved
+        && buffer->channels == channels && channels > 0
+        && buffer->frame_count <= buffer->frame_capacity
+        && (!buffer->frame_capacity || buffer->data)
+        && (!buffer->data || (uintptr_t)buffer->data % alignment == 0)
+        && (size_t)buffer->frame_capacity <= SIZE_MAX / sample_size / channels);
+}
+static int process(void* state, const OrpheusProcessContext* ctx) {
+    orpheus_builtin_piecewise_soft_clipper_State* s=(orpheus_builtin_piecewise_soft_clipper_State*)state;
+    orpheus_builtin_piecewise_soft_clipper_IO io={0};
+    if (!s || !s->_orpheus_alive || !ctx) return ORPHEUS_ERR_INVALID_ARG;
+    io.in.input_index=0;
+    io.in.buffer=(ctx->inputs && ctx->input_count > (0)) ? ctx->inputs[0] : NULL;
+    if (!valid_buffer(io.in.buffer, (uint32_t)(s->channels),
+        ORPHEUS_FORMAT_F32, sizeof(float), _Alignof(float)))
+        return ORPHEUS_ERR_INVALID_ARG;
+    io.in.samples=io.in.buffer ? (const float*)io.in.buffer->data : NULL;
+    io.out.active=true;
+    io.out.drive_port_no=1u;
+    io.out.buffer=(ctx->outputs && ctx->output_count > (0)) ? ctx->outputs[0] : NULL;
+    if (!valid_buffer(io.out.buffer, (uint32_t)(s->channels),
+        ORPHEUS_FORMAT_F32, sizeof(float), _Alignof(float)))
+        return ORPHEUS_ERR_INVALID_ARG;
+    io.out.samples=io.out.buffer ? (float*)io.out.buffer->data : NULL;
+    if (io.out.buffer) {
+        if (ctx->frame_count > io.out.buffer->frame_capacity) return ORPHEUS_ERR_INVALID_ARG;
+        io.out.buffer->frame_count=ctx->frame_count;
+    }
+    io.out.delivery=(OrpheusDelivery){.buffer=io.out.buffer, .frame_index=ctx->frame_index,
+        .epoch=ctx->epoch, .timeline_flags=ctx->timeline_flags};
+    return orpheus_builtin_piecewise_soft_clipper_algorithm(s, &io, ctx);
+}
+static const OrpheusComponentInterface interface = {
+    .get_descriptor=get_descriptor, .create=create, .destroy=destroy,
+    .prepare=prepare, .reset=reset, .process=process,
+    .set_parameter=set_parameter, .get_parameter=get_parameter, .register_slots=register_slots,
+    .hook=NULL
+};
+#ifndef ORPHEUS_ENTRY_NAME
+#define ORPHEUS_ENTRY_NAME orpheus_get_interface
+#endif
+ORPHEUS_API const OrpheusComponentInterface* ORPHEUS_ENTRY_NAME(void) { return &interface; }

@@ -1,4 +1,4 @@
-#include "orpheus_piecewise_soft_clipper.h"
+#include "component_state.h"
 
 #include <math.h>
 #include <string.h>
@@ -8,7 +8,7 @@ static int close_to(float actual, float expected) {
 }
 
 int main(void) {
-    PiecewiseSoftClipperState state;
+    orpheus_builtin_piecewise_soft_clipper_State state;
     const char* ids[] = {"channels", "xmin", "xmax", "p2"};
     OrpheusValue values[] = {
         {.type=ORPHEUS_VALUE_INT, .value.i32=2},
@@ -73,5 +73,14 @@ int main(void) {
         if (interface->process(state_ptr, &context) != ORPHEUS_OK) return 22;
         if (memcmp(input_data, output_data, sizeof(input_data)) != 0) return 23;
     }
+    OrpheusValue read_only={.type=ORPHEUS_VALUE_INT,.value.i32=3};
+    if(interface->set_parameter(state_ptr,"active_mask",&read_only)!=ORPHEUS_ERR_UNSUPPORTED) return 24;
+    input.frame_count=1;
+    if(interface->process(state_ptr,&context)!=ORPHEUS_ERR_INVALID_ARG) return 25;
+    input.frame_count=2;output.data=input_data+1;
+    if(interface->process(state_ptr,&context)!=ORPHEUS_ERR_INVALID_ARG) return 26;
+    output.data=input_data;
+    if(interface->process(state_ptr,&context)!=ORPHEUS_OK) return 27;
+    if(interface->destroy(state_ptr)!=ORPHEUS_OK) return 28;
     return 0;
 }
