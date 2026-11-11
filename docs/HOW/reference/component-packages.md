@@ -180,6 +180,15 @@ IFFT的音频/BULK输入视图互斥，有效输入驱动一次并交付out(1)�
 参考[FFT](../../../components/orpheus/builtin/rfft/README.md)与
 [IFFT](../../../components/orpheus/builtin/ifft/README.md)。
 
+circular_buffer与overlap_add也通过显式载荷表达窗口/帧移：
+前者每次接收hop_size×num_frames，展开frame_size×num_frames；
+后者相反，并按原float32顺序累加历史。两者保存历史后由算法实际emit，
+不以Task量子替代载荷，不生成静态分频，也不在下游失败后回滚历史。
+窗口展开是批次数据，保留输入Delivery时间锚点，不能当连续音频槽位反推时间。
+参考[重叠分帧](../../../components/orpheus/builtin/circular_buffer/README.md)、
+[重叠相加](../../../components/orpheus/builtin/overlap_add/README.md)与
+[实际频域往返工程](../../../examples/spectral_roundtrip.yaml)。
+
 ## 接口化通道选择与索引资源
 
 indexed_tone 的in唯一驱动，每次到达自主处理并交付1号out。

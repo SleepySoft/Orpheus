@@ -1,5 +1,4 @@
 #include "component_state.h"
-#include "orpheus_circular_buffer.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -23,6 +22,10 @@ static bool split_fail_allocate;
 void* block_split_test_calloc(size_t count,size_t size) {
     return split_fail_allocate ? NULL : calloc(count,size);
 }
+static unsigned window_allocation, window_fail_allocation;
+void* circular_buffer_test_calloc(size_t count,size_t size) {
+    return ++window_allocation==window_fail_allocation ? NULL : calloc(count,size);
+}
 static uint64_t split_frame;
 static uint32_t split_flags;
 static int split_error;
@@ -32,6 +35,13 @@ static int split_delivery(void* user,uint32_t port,const OrpheusDelivery* delive
        delivery->frame_index!=split_frame || delivery->epoch!=9 || delivery->timeline_flags!=split_flags)
         return ORPHEUS_ERR_INVALID_ARG;
     return split_error;
+}
+static int window_delivery(void* user,uint32_t port,const OrpheusDelivery* delivery) {
+    (void)user;
+    if(port!=1 || !delivery || !delivery->buffer || delivery->buffer->frame_count!=512 ||
+       delivery->frame_index!=17 || delivery->epoch!=7 || delivery->timeline_flags!=ORPHEUS_TIMELINE_EOS)
+        return ORPHEUS_ERR_INVALID_ARG;
+    return -77;
 }
 static int test_split(void) {
     const OrpheusComponentInterface* api = test_block_split();
@@ -127,11 +137,12 @@ static int test_split(void) {
 
 static int test_window(void) {
     const OrpheusComponentInterface* api = test_circular_buffer();
-    CircularBufferState state = {0};
+    void* state = calloc(1,api->get_descriptor()->state_size);
+    CHECK(state);
     const char* ids[] = {"frame_size", "hop_size", "num_frames"};
     OrpheusValue values[] = {integer(256), integer(128), integer(1)};
-    OrpheusConfig cfg = {.sample_rate=3000, .block_size=128, .channels=2,
-        .param_ids=ids, .param_values=values, .param_count=3, .state_block=&state};
+    OrpheusConfig cfg = {.sample_rate=3000, .block_size=7, .channels=2,
+        .param_ids=ids, .param_values=values, .param_count=3, .state_block=state};
     void* handle = NULL;
     CHECK(api->create(&handle, &cfg) == ORPHEUS_OK);
     CHECK(api->prepare(handle, &cfg) == ORPHEUS_OK);
@@ -143,7 +154,7 @@ static int test_window(void) {
     const OrpheusBuffer* inputs[] = {&in};
     OrpheusBuffer* outputs[] = {&out};
     OrpheusProcessContext ctx = {.inputs=inputs, .outputs=outputs, .input_count=1,
-        .output_count=1, .frame_count=128, .sample_rate=3000};
+        .output_count=1, .frame_count=7, .sample_rate=3000};
     for (uint32_t round = 0; round < 2; ++round) {
         for (uint32_t block = 0; block < 3; ++block) {
             for (uint32_t f = 0; f < 128; ++f) {
@@ -161,12 +172,9 @@ static int test_window(void) {
     }
     out.frame_capacity = 128;
     CHECK(api->process(handle, &ctx) == ORPHEUS_ERR_INVALID_ARG);
-    CHECK(api->destroy(handle) == ORPHEUS_OK);
     values[2] = integer(2);
-    cfg.block_size = 256;
     in.frame_capacity = in.frame_count = 256;
     out.frame_capacity = 512;
-    ctx.frame_count = 256;
     CHECK(api->prepare(handle, &cfg) == ORPHEUS_OK);
     for (uint32_t f = 0; f < 256; ++f) {
         input[2*f] = (float)(f+1);
@@ -177,9 +185,34 @@ static int test_window(void) {
         const float expected = f < 128 ? 0.0f : (float)(f < 256 ? f-127 : f-255);
         CHECK(output[2*f] == expected && output[2*f+1] == -expected);
     }
-    CHECK(api->destroy(handle) == ORPHEUS_OK);
-    cfg.block_size = 127;
+    values[1] = integer(257);
     CHECK(api->prepare(handle, &cfg) == ORPHEUS_ERR_INVALID_ARG);
+    values[1] = integer(128);
+    for (unsigned failure=1;failure<=2;failure++) {
+        window_allocation=0;window_fail_allocation=failure;
+        CHECK(api->prepare(handle,&cfg)==ORPHEUS_ERR_OUT_OF_MEMORY);
+        CHECK(api->process(handle,&ctx)==ORPHEUS_ERR_PROCESSING);
+        window_fail_allocation=0;
+        CHECK(api->prepare(handle,&cfg)==ORPHEUS_OK);
+    }
+    out.data=input;
+    CHECK(api->process(handle,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    out.data=output;
+    for(unsigned f=0;f<256;f++) {input[2*f]=1000.0f+f;input[2*f+1]=-input[2*f];}
+    OrpheusContinuation continuation={.emit=window_delivery};
+    ctx.continuation=&continuation;ctx.frame_index=17;ctx.epoch=7;ctx.timeline_flags=ORPHEUS_TIMELINE_EOS;
+    CHECK(api->process(handle,&ctx)==-77);
+    ctx.continuation=NULL;memset(input,0,sizeof(input));
+    CHECK(api->process(handle,&ctx)==ORPHEUS_OK);
+    for(unsigned f=0;f<128;f++) CHECK(output[2*f]==1128.0f+f && output[2*f+1]==-output[2*f]);
+    for(unsigned f=0;f<512;f++) input[f]=999.0f;
+    ctx.frame_count=0;
+    CHECK(api->process(handle,&ctx)==ORPHEUS_OK);
+    ctx.frame_count=7;memset(input,0,sizeof(input));
+    CHECK(api->process(handle,&ctx)==ORPHEUS_OK);
+    for(unsigned f=0;f<1024;f++) CHECK(output[f]==0);
+    CHECK(api->destroy(handle) == ORPHEUS_OK);
+    free(state);
     return 0;
 }
 

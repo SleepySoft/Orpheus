@@ -204,7 +204,10 @@ foreach(adapter block_split circular_buffer)
         target_compile_definitions(audio_test_${adapter} PRIVATE calloc=block_split_test_calloc)
         target_include_directories(audio_adapters_smoke PRIVATE ${adapter_dir}/generated)
     else()
-        add_library(audio_test_${adapter} OBJECT ${adapter_dir}/src/${adapter}.c)
+        add_library(audio_test_${adapter} OBJECT
+            ${adapter_dir}/generated/component_shell.c ${adapter_dir}/user/algorithm.c)
+        target_include_directories(audio_test_${adapter} PRIVATE ${adapter_dir}/generated ${adapter_dir}/user)
+        target_compile_definitions(audio_test_${adapter} PRIVATE calloc=circular_buffer_test_calloc)
     endif()
     target_include_directories(audio_test_${adapter} PRIVATE
         ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${adapter_dir}/include)
@@ -828,13 +831,13 @@ add_test(NAME indexed_gain_smoke COMMAND indexed_gain_smoke)
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
     set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})
+    add_library(spectral_test_${component} OBJECT
+        ${component_dir}/generated/component_shell.c ${component_dir}/user/algorithm.c)
+    target_include_directories(spectral_test_${component} PRIVATE
+        ${component_dir}/generated ${component_dir}/user)
     if(component STREQUAL "overlap_add")
-        add_library(spectral_test_${component} OBJECT ${component_dir}/src/${component}.c)
-    else()
-        add_library(spectral_test_${component} OBJECT
-            ${component_dir}/generated/component_shell.c ${component_dir}/user/algorithm.c)
-        target_include_directories(spectral_test_${component} PRIVATE
-            ${component_dir}/generated ${component_dir}/user)
+        target_include_directories(spectral_pipeline_smoke PRIVATE ${component_dir}/generated)
+        target_compile_definitions(spectral_test_${component} PRIVATE calloc=overlap_add_test_calloc)
     endif()
     target_include_directories(spectral_test_${component} PRIVATE
         ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${component_dir}/include)

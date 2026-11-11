@@ -1,4 +1,4 @@
-#include "orpheus_overlap_add.h"
+#include "component_state.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -20,6 +20,10 @@ static OrpheusBuffer buffer(float* data, uint32_t frames, uint32_t channels) {
 }
 
 static unsigned fft_calls, fail_fft_port;
+static bool ola_fail_allocate;
+void* overlap_add_test_calloc(size_t count,size_t size) {
+    return ola_fail_allocate ? NULL : calloc(count,size);
+}
 static OrpheusBuffer* fft_outputs[2];
 static int fft_delivery(void* user,uint32_t port,const OrpheusDelivery* delivery) {
     (void)user;
@@ -29,6 +33,11 @@ static int fft_delivery(void* user,uint32_t port,const OrpheusDelivery* delivery
         fft_outputs[0]->frame_count!=768 || fft_outputs[1]->frame_count!=768)
         return ORPHEUS_ERR_PROCESSING;
     return port==fail_fft_port ? -77 : ORPHEUS_OK;
+}
+static int ola_delivery(void* user,uint32_t port,const OrpheusDelivery* delivery) {
+    (void)user;
+    return port==1 && delivery && delivery->buffer && delivery->buffer->frame_count==6
+        ? -77 : ORPHEUS_ERR_INVALID_ARG;
 }
 
 static int fft_batches(void) {
@@ -171,9 +180,9 @@ static int overlap_history(void) {
         {.type=ORPHEUS_VALUE_INT, .value.i32=2},
         {.type=ORPHEUS_VALUE_INT, .value.i32=3}
     };
-    OverlapAddState storage;
+    orpheus_builtin_overlap_add_State storage;
     void* state = NULL;
-    OrpheusConfig config = {.channels=2, .block_size=12, .sample_rate=48000,
+    OrpheusConfig config = {.channels=2, .block_size=7, .sample_rate=48000,
         .state_block=&storage, .param_count=3, .param_ids=ids, .param_values=values};
     CHECK(ola->create(&state, &config) == ORPHEUS_OK);
     CHECK(ola->prepare(state, &config) == ORPHEUS_OK);
@@ -187,7 +196,7 @@ static int overlap_history(void) {
     const OrpheusBuffer* inputs[] = {&in};
     OrpheusBuffer* outputs[] = {&out};
     OrpheusProcessContext ctx = {.inputs=inputs, .input_count=1,
-        .outputs=outputs, .output_count=1, .frame_count=12};
+        .outputs=outputs, .output_count=1, .frame_count=7};
     CHECK(ola->process(state, &ctx) == ORPHEUS_OK);
     const float expected[] = {1, 2, 13, 24, 130, 240};
     for (uint32_t i = 0; i < 6; ++i) {
@@ -208,26 +217,38 @@ static int overlap_history(void) {
         input[2 * i + 1] = -frames[i];
     }
     CHECK(ola->process(state, &ctx) == ORPHEUS_OK);
-    CHECK(storage.history[0] == 300 && storage.history[2] == 400);
+    CHECK(storage.algorithm.history[0] == 300 && storage.algorithm.history[2] == 400);
+    OrpheusContinuation continuation={.emit=ola_delivery};
+    ctx.continuation=&continuation;memset(input,0,sizeof(input));
+    CHECK(ola->process(state,&ctx)==-77 && storage.algorithm.history[0]==0);
+    ctx.continuation=NULL;
+    CHECK(ola->process(state,&ctx)==ORPHEUS_OK);
+    for(unsigned i=0;i<12;i++) CHECK(output[i]==0);
     CHECK(ola->reset(state) == ORPHEUS_OK);
     memset(input, 0, sizeof(input));
     CHECK(ola->process(state, &ctx) == ORPHEUS_OK);
     for (uint32_t i = 0; i < 12; ++i) CHECK(output[i] == 0);
     values[1].value.i32 = 5;
+    float* previous=storage.algorithm.history;
     CHECK(ola->prepare(state, &config) == ORPHEUS_ERR_INVALID_ARG);
+    CHECK(storage.algorithm.history==previous);
     CHECK(ola->destroy(state) == ORPHEUS_OK);
     values[1].value.i32 = 4;
     values[2].value.i32 = 1;
-    config.block_size = 4;
-    config.state_block = NULL;
     CHECK(ola->create(&state, &config) == ORPHEUS_OK);
     CHECK(ola->prepare(state, &config) == ORPHEUS_OK);
     in.frame_count = 4;
-    ctx.frame_count = 4;
     for (uint32_t i = 0; i < 8; ++i) input[i] = (float)i;
     CHECK(ola->process(state, &ctx) == ORPHEUS_OK);
     CHECK(out.frame_count == 4);
     for (uint32_t i = 0; i < 8; ++i) CHECK(output[i] == input[i]);
+    out.data=input;
+    CHECK(ola->process(state,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    out.data=output;ola_fail_allocate=true;
+    CHECK(ola->prepare(state,&config)==ORPHEUS_ERR_OUT_OF_MEMORY && !storage.algorithm.history);
+    CHECK(ola->process(state,&ctx)==ORPHEUS_ERR_PROCESSING);
+    ola_fail_allocate=false;
+    CHECK(ola->prepare(state,&config)==ORPHEUS_OK);
     CHECK(ola->destroy(state) == ORPHEUS_OK);
     return 0;
 }

@@ -1,64 +1,19 @@
 id: orpheus.builtin.overlap_add
 name: 重叠相加
 category: "频域与分析"
-description: 将num_frames个时域帧按hop_size重叠累加，输出hop_size*num_frames个连续样本，保留跨调用尾部。只做相加，窗口及归一化必须显式外置；reset清除历史。
-version: 1.0.0
-abi_version: 6
+description: >-
+  in驱动num_frames个完整时域帧，按hop_size重叠累加并保存跨调用尾部，
+  显式交付1号out的hop_size*num_frames帧。只相加，窗口和归一化须显式外置。
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: OverlapAddState
-scheduling:
-  input_block_size: param:frame_size*param:num_frames
-sources:
-  - src/overlap_add.c
-headers:
-  - include/orpheus_overlap_add.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-    block_size: param:hop_size*param:num_frames
-parameters:
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 64]
-    update_policy: restart_required
-    affects_signature: true
-  - id: frame_size
-    name: 帧长
-    type: int
-    default: 128
-    range: [2, 4096]
-    update_policy: restart_required
-    affects_signature: true
-  - id: hop_size
-    name: 帧移
-    type: int
-    default: 64
-    range: [1, 4096]
-    update_policy: restart_required
-    affects_signature: true
-  - id: num_frames
-    name: 每块输入帧数
-    type: int
-    default: 12
-    range: [1, 256]
-    update_policy: restart_required
-    affects_signature: true
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: true
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+algorithm: {lifecycle: [normalize, prepare, reset, destroy]}
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:frame_size*param:num_frames", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:hop_size*param:num_frames", drive_port_no: 1}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  frame_size: {name: 帧长, type: int, default: 128, range: [2, 4096], update_policy: restart_required, affects_signature: true}
+  hop_size: {name: 帧移, type: int, default: 64, range: [1, 4096], update_policy: restart_required, affects_signature: true}
+  num_frames: {name: 每次输入帧数, type: int, default: 12, range: [1, 256], update_policy: restart_required, affects_signature: true}
+memory: {alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}

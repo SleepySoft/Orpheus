@@ -4,6 +4,7 @@ metadata:
   description: 3×256点FFT与IFFT经非音频半复数谱端口连接，再以128帧移重叠相加。矩形分析窗显式归一化0.5，输出相对输入延迟128帧；不是外部模型的算法对拍。
 sample_rate: 48000
 block_size: 384
+flow_mode: task_sequence
 tasks:
   - id: default
     name: 频域批次
@@ -25,11 +26,11 @@ graph:
       position: {x: 240, y: 120}
     - id: fft
       component: orpheus.builtin.rfft
-      params: {channels: 2, fft_size: 256, output_mode: halfcomplex}
+      params: {channels: 2, fft_size: 256, batches: 3, output_mode: halfcomplex}
       position: {x: 480, y: 120}
     - id: inverse
       component: orpheus.builtin.ifft
-      params: {channels: 2, fft_size: 256}
+      params: {channels: 2, fft_size: 256, batches: 3}
       position: {x: 720, y: 120}
     - id: ola
       component: orpheus.builtin.overlap_add

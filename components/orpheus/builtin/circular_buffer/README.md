@@ -15,8 +15,8 @@ out = [ 帧0 (frame_size) | 帧1 (frame_size) | ... | 帧N-1 (frame_size) ]
 
 | id | 方向 | 类型 | 说明 |
 |---|---|---|---|
-| in | input | audio | 输入音频，`channels` 通道 |
-| out | output | audio | 展开帧流，块长 = `num_frames × frame_size`，通道数与输入相同 |
+| in | input，process=true | audio | 每次完整接收 `num_frames × hop_size` 帧，`channels` 通道 |
+| out | output，drive_port_no=1 | audio | 展开帧流，块长 = `num_frames × frame_size`，通道数与输入相同 |
 
 ## 参数
 
@@ -32,12 +32,14 @@ out = [ 帧0 (frame_size) | 帧1 (frame_size) | ... | 帧N-1 (frame_size) ]
 ### `frame_size` / `hop_size`：重叠率
 
 - 重叠样本数 = `frame_size − hop_size`。典型 50% 重叠：frame=128, hop=64（TID5 配置）；或 frame=256, hop=128（TID6 配置）。
-- 历史缓冲只保留 `frame_size − hop_size` 个样本（hop > frame 时历史长为 0，帧间有间隙）。
+- 必须满足 `hop_size <= frame_size`；相等时不保留历史，大于帧长明确拒绝。
 - 帧长通常等于下游 `rfft` 的 `fft_size`；hop 决定时间分辨率与块率。
 
-### `num_frames`：输入块长的隐式约定
+### `num_frames`：显式载荷
 
-每个输入块应恰好推进 `num_frames × hop_size` 个新样本，即**上游块长应等于 `num_frames × hop_size`**（例：hop=64 × 24 帧 = 1536 样本/块）。组件内部 `max_input_frames` 取自配置的块长，超长输入会被截断；不足则由历史+现有样本拼帧，帧内容会包含旧数据。下游组件（如 `spectral_reduce`）用同样的 `num_frames` 参数来反解这个展开布局——三者参数必须配套。
+每个输入块恰好推进 `num_frames × hop_size` 个新样本（例：hop=64 × 24帧 = 1536样本/调用）。
+输入长度是接口声明，不取自Task/ctx处理量子；超长或不足明确报错，不截断、不补调。
+下游必须声明 `num_frames × frame_size` 载荷，并使用相同帧结构解读展开布局。
 
 ## 注意事项
 
@@ -45,7 +47,10 @@ out = [ 帧0 (frame_size) | 帧1 (frame_size) | ... | 帧N-1 (frame_size) ]
 - 输出布局是"帧首尾相接"的展平流，通道仍按样本交错（`out[(f·frame+n)·ch + c]`）；下游 `window`（repeat 模式）和 `rfft`（fft_size=帧长）都按此约定解释。
 - 启动时历史为全零：第一块输出的头部帧包含零填充的前缀，属正常预热。
 - 4 个参数全部 restart_required + affects_signature；不支持运行时改帧结构。
-- 输入块长超过 `max_input_frames` 时会被静默截断，帧流仍然按 num_frames 输出。
+- 保存历史后由算法显式交付1号out；写满、水位或声明规格不产生额外调用。
+- 展开载荷不是连续时间样本流；Delivery保留本次新输入批次的时间锚点和标志，
+  不能用展开槽位数推断真实采样推进。DISCONTINUITY不自动reset算法历史。
+- 零处理量子不改变历史、不交付；下游失败不回滚已保存历史。
 
 ## 典型用法
 
@@ -54,18 +59,20 @@ out = [ 帧0 (frame_size) | 帧1 (frame_size) | ... | 帧N-1 (frame_size) ]
 - id: cb
   component: orpheus.builtin.circular_buffer
   params: { channels: 12, frame_size: 128, hop_size: 64, num_frames: 24 }
-- id: win
-  component: orpheus.builtin.window
-  params: { channels: 12, window_size: 128, mode: repeat, coefficients: "..." }
 - id: fft
   component: orpheus.builtin.rfft
-  params: { channels: 12, fft_size: 128, output_mode: power }
+  params: { channels: 12, fft_size: 128, batches: 24, output_mode: power }
 ```
 
-（完整工程见 `examples/external_model_asm.yaml` 的 tid5/tid6 任务。）
+这里未包含分析窗；加入窗函数时，其输入/输出也必须声明相同展开载荷。
+历史外部模型的tid5/tid6工程仍待整体迁移，不能据此宣称已完成模型对齐。
 
 ## 实时安全
 
 - `process` 无内存分配、无锁、无 IO；历史与拼接 scratch 在 prepare 一次性分配。
 - 不支持就地处理（supports_inplace=false，输入输出尺寸不同）。
 - `reset` 只清零历史缓冲，等价于重新预热。
+- 拒绝输入/输出及与State、历史、scratch的重叠；prepare分配失败清理并可重试，
+  非法参数候选保留现有资源。
+- [component.yaml](component.yaml) 为接口事实源，算法在 [user/algorithm.c](user/algorithm.c)，
+  由独立 `scripts\generate_component.py` 生成壳，不再编译旧生产入口。

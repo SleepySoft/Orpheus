@@ -34,15 +34,15 @@ def edge(source: str, target: str) -> Connection:
     return Connection(PortRef.parse(source), PortRef.parse(target))
 
 
-def spectral_project(batch: int = 1, *, legacy: bool = False, channels: int = 2) -> Project:
-    project = Project(metadata={"name": "频域闭环"})
+def spectral_project(batch: int = 1, *, audio_view: bool = False, channels: int = 2) -> Project:
+    project = Project(flow_mode="task_sequence", metadata={"name": "频域闭环"})
     project.tasks = {"default": Task(id="default", sample_rate=48000, block_size=128 * batch)}
     nodes = [
         Node(id="source", component="orpheus.builtin.signal_gen", params={"channels": 2}),
         Node(id="frames", component="orpheus.builtin.circular_buffer",
              params={"channels": 2, "frame_size": 256, "hop_size": 128, "num_frames": batch}),
-        Node(id="fft", component="orpheus.builtin.rfft", params={"channels": 2, "fft_size": 256}),
-        Node(id="inverse", component="orpheus.builtin.ifft", params={"channels": 2, "fft_size": 256}),
+        Node(id="fft", component="orpheus.builtin.rfft", params={"channels": 2, "fft_size": 256, "batches": batch}),
+        Node(id="inverse", component="orpheus.builtin.ifft", params={"channels": 2, "fft_size": 256, "batches": batch}),
         Node(id="ola", component="orpheus.builtin.overlap_add",
              params={"channels": 2, "frame_size": 256, "hop_size": 128, "num_frames": batch}),
         Node(id="output", component="orpheus.builtin.gain",
@@ -50,7 +50,7 @@ def spectral_project(batch: int = 1, *, legacy: bool = False, channels: int = 2)
     ]
     connections = [edge("source:out", "frames:in"), edge("frames:out", "fft:in"),
                    edge("inverse:out", "ola:in"), edge("ola:out", "output:in")]
-    connections.append(edge("fft:out", "inverse:in") if legacy
+    connections.append(edge("fft:out", "inverse:in") if audio_view
                        else edge("fft:spectrum", "inverse:spectrum"))
     for node in nodes:
         node.params["channels"] = channels
@@ -75,10 +75,11 @@ def add_spectral_gate(project: Project, batch: int, channels: int) -> None:
 def test_spectral_data_shapes_preserve_hop_timeline(compiler, batch):
     plan = compiler.compile(spectral_project(batch))
     assert plan.schedule["tick"] == 128 * batch
-    assert set(plan.schedule["periods"].values()) == {1}
+    assert plan.entry_nodes == ["source"]
     for node in ("fft", "inverse", "ola"):
-        assert plan.node_configs[node]["frames"] == 256 * batch
-        assert plan.node_configs[node]["frame_step"] == 128 * batch
+        assert plan.node_configs[node]["frames"] == 128 * batch
+        assert plan.node_configs[node]["timeline_from_delivery"]
+        assert "frame_step" not in plan.node_configs[node]
     assert plan.node_configs["output"]["frames"] == 128 * batch
     spectrum = next(buf for buf in plan.buffers.values() if buf["to"] == "inverse:spectrum")
     assert spectrum["type"] == "bulk"
@@ -97,13 +98,15 @@ def test_ifft_input_alternatives_are_explicit(compiler):
 def test_mismatched_fft_frame_sizes_are_rejected(compiler):
     project = spectral_project(3)
     project.graph.nodes["inverse"].params["fft_size"] = 128
+    project.graph.nodes["inverse"].params["batches"] = 6
     with pytest.raises(CompileError, match="帧结构"):
         compiler.compile(project)
 
 
-def test_legacy_fft_ports_still_compile(compiler):
-    plan = compiler.compile(spectral_project(3, legacy=True))
-    assert plan.node_configs["inverse"]["frames"] == 768
+def test_audio_spectrum_view_uses_the_same_explicit_payload(compiler):
+    plan = compiler.compile(spectral_project(3, audio_view=True))
+    assert plan.node_configs["inverse"]["frames"] == 384
+    assert plan.node_configs["inverse"]["output_port_block_sizes"] == {"out": 768}
     assert plan.node_configs["output"]["frames"] == 384
 
 
@@ -111,7 +114,7 @@ def test_ifft_requires_one_input(compiler):
     project = spectral_project()
     project.graph.connections = [conn for conn in project.graph.connections
                                  if conn.to_ref.node_id != "inverse"]
-    with pytest.raises(CompileError, match="输入互斥"):
+    with pytest.raises(CompileError, match="inverse.*没有驱动来源"):
         compiler.compile(project)
 
 
@@ -144,7 +147,7 @@ def test_invalid_frame_structure_reports_compile_error(compiler, monkeypatch, ex
 def test_non_integral_spectral_batch_is_rejected(compiler):
     project = spectral_project(3)
     project.graph.nodes["inverse"].params["fft_size"] = 512
-    with pytest.raises(CompileError, match="帧结构.*整除"):
+    with pytest.raises(CompileError):
         compiler.compile(project)
 
 
@@ -157,14 +160,12 @@ def test_spectral_shape_does_not_depend_on_node_declaration_order(compiler):
     assert actual.schedule == expected.schedule
 
 
-def test_single_frame_auto_size_still_works(compiler):
+def test_fft_size_zero_is_not_an_implicit_task_quantum(compiler):
     project = spectral_project()
     for node in ("fft", "inverse"):
         project.graph.nodes[node].params["fft_size"] = 0
-    plan = compiler.compile(project)
-    spectrum = next(buf for buf in plan.buffers.values() if buf["to"] == "inverse:spectrum")
-    assert spectrum["frame_size"] == 256
-    assert plan.node_configs["output"]["frames"] == 128
+    with pytest.raises(CompileError):
+        compiler.compile(project)
 
 
 def test_spectral_example_uses_declared_parameters(compiler):
@@ -180,26 +181,23 @@ def test_spectral_example_uses_declared_parameters(compiler):
 def test_data_payload_can_differ_from_processing_quantum(compiler):
     project = spectral_project()
     add_spectral_gate(project, 1, 2)
-    project.graph.nodes["inverse"].params["fft_size"] = 0
     plan = compiler.compile(project)
     assert plan.node_configs["inverse"]["frames"] == 128
     assert plan.node_configs["inverse"]["output_port_block_sizes"] == {"out": 256}
-    assert plan.node_configs["ola"]["frames"] == 256
-    assert plan.node_configs["ola"]["frame_step"] == 128
+    assert plan.node_configs["ola"]["frames"] == 128
+    assert plan.node_configs["ola"]["timeline_from_delivery"]
     assert plan.node_configs["output"]["frames"] == 128
-    assert set(plan.schedule["periods"].values()) == {1}
 
 
-@pytest.mark.parametrize("batch,legacy,channels", [
+@pytest.mark.parametrize("batch,audio_view,channels", [
     (1, False, 6), (3, False, 8), (3, True, 2), (1, True, 2),
 ])
 def test_spectral_roundtrip_dynamic_generated_global_and_task(
-    compiler, tmp_path, batch, legacy, channels,
+    compiler, tmp_path, batch, audio_view, channels,
 ):
-    from array_graph_runner import use_linear_call_chain
     from test_generated_double_bank import _build
 
-    project = spectral_project(batch, legacy=legacy, channels=channels)
+    project = spectral_project(batch, audio_view=audio_view, channels=channels)
     project.graph.nodes["source"] = Node(
         id="source", component="orpheus.builtin.wav_in",
         params={"channels": channels, "file_path": "input.wav"},
@@ -210,12 +208,9 @@ def test_spectral_roundtrip_dynamic_generated_global_and_task(
         params={"channels": channels, "file_path": "out.wav"},
     )
     project.graph.connections.append(edge("output:out", "sink:in"))
-    if not legacy:
+    if not audio_view:
         project.graph.nodes["fft"].params["output_mode"] = "power"
         add_spectral_gate(project, batch, channels)
-    elif batch == 1:
-        for node in ("fft", "inverse"):
-            project.graph.nodes[node].params.pop("fft_size")
     signal = [
         tuple(int(10000 * math.sin(2 * math.pi * (777 + 311 * channel) * index / 48000))
               + 300 * channel for channel in range(channels))
@@ -230,17 +225,18 @@ def test_spectral_roundtrip_dynamic_generated_global_and_task(
         stream.writeframes(b"".join(struct.pack(f"<{channels}h", *sample) for sample in samples))
     project.graph.nodes = dict(reversed(list(project.graph.nodes.items())))
     plan = compiler.compile(project)
-    use_linear_call_chain(plan)
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
     generated = tmp_path / "generated"
     CodeGenerator(compiler.registry, ROOT).generate(plan, generated)
-    if not legacy:
+    if not audio_view:
         cmake = generated / "CMakeLists.txt"
         cmake.write_text(
             cmake.read_text(encoding="utf-8") + "\n"
-            + f'add_library(spectral_gate_dynamic SHARED "{(FIXTURE / "src" / "spectral_gate.c").as_posix()}")\n'
-            + f'target_include_directories(spectral_gate_dynamic PRIVATE "{(FIXTURE / "include").as_posix()}" '
+            + f'add_library(spectral_gate_dynamic SHARED "{(FIXTURE / "generated" / "component_shell.c").as_posix()}" '
+            + f'"{(FIXTURE / "user" / "algorithm.c").as_posix()}")\n'
+            + f'target_include_directories(spectral_gate_dynamic PRIVATE "{(FIXTURE / "generated").as_posix()}" '
+            + f'"{(FIXTURE / "user").as_posix()}" '
             + f'"{(ROOT / "orpheus_abi" / "include").as_posix()}")\n'
             + 'target_compile_definitions(spectral_gate_dynamic PRIVATE ORPHEUS_BUILDING_COMPONENT)\n'
             + 'set_target_properties(spectral_gate_dynamic PROPERTIES PREFIX "lib" '
@@ -256,7 +252,7 @@ def test_spectral_roundtrip_dynamic_generated_global_and_task(
     executable = _build(generated, tmp_path)
     dynamic_executable = ROOT / "build" / "orpheus_runtime.exe"
     components = ROOT / "build" / "components"
-    if not legacy:
+    if not audio_view:
         private_components = generated / "build" / "components"
         for config in plan.node_configs.values():
             if config["component"] == "orpheus.test.spectral_gate":
@@ -270,8 +266,8 @@ def test_spectral_roundtrip_dynamic_generated_global_and_task(
     commands = [
         [str(dynamic_executable), str(plan_path), str(components)],
         [str(executable), "9"],
-        [str(dynamic_executable), str(plan_path), str(components), "--task", "default", "9"],
-        [str(executable), "0", "--task", "default", "9"],
+        [str(dynamic_executable), str(plan_path), str(components), "--task", "task_source", "9"],
+        [str(executable), "0", "--task", "task_source", "9"],
     ]
     expected = [silence] * 128 + signal + [silence] * (128 * batch - 128)
     reference = None

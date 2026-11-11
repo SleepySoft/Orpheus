@@ -400,15 +400,17 @@ DC/Nyquist只保存实部，其输入虚部不参与实频谱打包；一般复�
 `orpheus_core/tests/test_halfcomplex_encode.py`以6/8通道、单/三批次逐位对比
 原HC与decode→encode后的旧/具名输出，动态/生成全局与Task四入口一致。
 
-- 扩展`rfft`：保留旧音频`out`和halfcomplex/magnitude/power模式；新增
-  `spectrum`数据输出，始终为未归一化halfcomplex。非法批次不再静默退化为单帧。
-- 扩展`ifft`：`fft_size=0`保留自动单帧；显式设置4～1024的二次幂即可逐帧处理
-  完整批次，例如768槽明确表示3×256而非768点FFT。新增`spectrum`输入与旧`in`
-  互斥，输出含1/N归一化。遍历依据buffer实际长度，不使用ctx.frame_count。
-- 新增`overlap_add`：接收`frame_size*num_frames`的时域展开帧，按`hop_size`
+- `rfft`的音频视图`out`支持halfcomplex/magnitude/power模式；
+  `spectrum`始终为未归一化halfcomplex。显式fft_size×batches确定完整载荷，
+  两出口写完后依次emit，不把频点或批次数当作静态调度规则。
+- `ifft`同样显式设置fft_size（4～1024的2次幂）和batches，
+  例如768槽声明3×256而非768点FFT；不再支持fft_size=0自动推断。
+  `spectrum`与音频视图`in`互斥，输出含1/N归一化。
+  载荷独立于ctx.frame_count，实际Delivery驱动一次转换。
+- `overlap_add`接收`frame_size*num_frames`的时域展开帧，按`hop_size`
   顺序累加，输出`hop_size*num_frames`的连续样本，跨批次保留尾部；reset清零。
   帧移须不大于帧长。不使用`scheduling.split`，不改变上游交付周期，也不隐藏
-  分析/合成窗及归一化。`window`的repeat系数乘法可显式放在分析端或合成端。
+  分析/合成窗及归一化。插入窗函数时，其接口必须匹配完整展开载荷。
 - 频谱数据端口声明`layout: halfcomplex`与`frame_size`，编译器同时校验payload
   长度、布局和分帧；输入尺寸继承不再依赖处理量子。声明规则见
   [组件模型](../03-component-model.md#数据布局分帧与互斥输入)。
@@ -424,10 +426,10 @@ OLA本身只将输入帧原点的首hop样本输出，没有另加一帧延迟�
 - `tests/spectral_pipeline_smoke.c`以独立DFT核对DC、Nyquist、虚部符号和各批次/通道
   的打包位置；验证3×256逆变换、与处理量子不同长的实际buffer、非法批次/容量拒绝、
   OLA跨调用尾部及reset。prepare预计算/分配，process无分配及IO。
-- `orpheus_core/tests/test_spectral_pipeline.py`验证1帧6通道、3帧8通道、旧音频接口和
-  旧自动点数配置；动态/生成的全局与Task四入口WAV逐字节一致。重建误差不超过
+- `orpheus_core/tests/test_spectral_pipeline.py`验证1帧6通道、3帧8通道、音频/BULK视图、
+  显式批次与零点数拒绝；动态/生成的全局与Task四入口WAV逐字节一致。重建误差不超过
   2个int16量化单位，覆盖非零独立通道、128帧启动延迟和补零尾部；时间线步长
-  分别为128/384，不按频点数量推进。
+  由WAV源实际交付每128/384帧推进，下游不再保存静态frame_step，也不按频点数量推进。
   测试私有的spectral_gate以128/384音频帧为处理量子，传递256/768槽频谱并检查
   绝对帧索引；因此也实测了IFFT输入payload与config/ctx量子不等长的完整执行链，
   不仅是编译shape断言或一次孤立的组件调用。

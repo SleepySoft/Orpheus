@@ -1,65 +1,19 @@
 id: orpheus.builtin.circular_buffer
 name: "重叠音频分帧"
 category: "频域与分析"
-description: 带历史重叠的循环缓冲分帧组件。输入一块新样本，输出 num_frames 个展开帧（每帧 frame_size），帧移 hop_size。用于拼接 STFT 帧流。
-version: 1.1.0
-abi_version: 6
+description: >-
+  in每次接收hop_size*num_frames帧新样本，连同历史展开num_frames个frame_size帧窗口，
+  保存末尾历史后显式交付1号out。零初始历史，不以水位或静态调度触发下游。
+version: 1.2.0
+abi_version: 7
 package_type: source
-state_type: CircularBufferState
-scheduling:
-  history: true
-  input_block_size: param:hop_size*param:num_frames
-sources:
-  - src/circular_buffer.c
-headers:
-  - include/orpheus_circular_buffer.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-    block_size: param:frame_size*param:num_frames
-parameters:
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 64]
-    update_policy: restart_required
-    affects_signature: true
-  - id: frame_size
-    name: 帧长
-    type: int
-    default: 128
-    range: [2, 4096]
-    update_policy: restart_required
-    affects_signature: true
-  - id: hop_size
-    name: 帧移
-    type: int
-    default: 64
-    range: [1, 4096]
-    update_policy: restart_required
-    affects_signature: true
-  - id: num_frames
-    name: 每块输出帧数
-    type: int
-    default: 12
-    range: [1, 256]
-    update_policy: restart_required
-    affects_signature: true
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: true
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+algorithm: {lifecycle: [normalize, prepare, reset, destroy]}
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:hop_size*param:num_frames", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:frame_size*param:num_frames", drive_port_no: 1}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  frame_size: {name: 帧长, type: int, default: 128, range: [2, 4096], update_policy: restart_required, affects_signature: true}
+  hop_size: {name: 帧移, type: int, default: 64, range: [1, 4096], update_policy: restart_required, affects_signature: true}
+  num_frames: {name: 每次输出帧数, type: int, default: 12, range: [1, 256], update_policy: restart_required, affects_signature: true}
+memory: {alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}
