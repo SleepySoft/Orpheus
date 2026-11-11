@@ -266,6 +266,14 @@ add_executable(task_flow_runner task_flow_runner.cpp)
 target_link_libraries(task_flow_runner PRIVATE orpheus_runtime_lib)
 add_executable(host_audio_runner host_audio_runner.cpp)
 target_link_libraries(host_audio_runner PRIVATE orpheus_runtime_lib)
+add_executable(host_audio_smoke host_audio_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/host_audio/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/host_audio/user/algorithm.c)
+target_include_directories(host_audio_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/host_audio/generated)
+target_compile_definitions(host_audio_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME host_audio_smoke COMMAND host_audio_smoke)
 add_executable(message_bounds_runner message_bounds_runner.cpp)
 target_link_libraries(message_bounds_runner PRIVATE orpheus_runtime_lib)
 

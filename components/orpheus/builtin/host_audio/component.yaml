@@ -2,38 +2,49 @@ id: orpheus.builtin.host_audio
 name: 宿主音频缓冲接口
 category: "输入与输出"
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: HostAudioState
 description: >-
   mode=0的in端口无上游时由宿主交付完整块并置ready，有上游时从该输入读取；
   同一输入禁止宿主和上游同时供数。数据复制到out并续调，不因交付数据自动触发。
   缺少新块明确报错，不用静音冒充设备数据。mode=1将输入复制到samples供宿主读取。
   非时钟源，调用完全由所属Task决定；交错f32、不做路由/变采样或设备IO。
   宿主须在同一Task的两次调用之间完成数据提交，不能并发写处理中的状态。
-  NULL图输出仍消费输入并续调，零处理量不续调；reset清除ready/valid和缓冲。
-sources: [src/host_audio.c]
-headers: [include/orpheus_host_audio.h]
-ports:
-  - id: in
+  NULL图输出仍消费输入并交付，零处理量不交付；reset清除ready/valid和缓冲。
+algorithm:
+  lifecycle: [normalize, prepare, reset, set_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: "param:channels"
     optional: true
+    process: true
     host_binding: {slot: samples, access: write, status: ready, when: {mode: 0}}
-  - id: out
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: "param:channels"
+    drive_port_no: 1
     host_binding: {slot: samples, access: read, status: valid, when: {mode: 1}}
-parameters:
-  - {id: mode, name: "方向(0宿主输入/1宿主输出)", type: int, default: 0, range: [0, 1], update_policy: restart_required}
-  - {id: channels, name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
-  - {id: ready, name: 宿主已提交完整新块, type: bool, kind: setting, access: read_write, default: false, update_policy: immediate, readback: true}
-  - {id: valid, name: 已捕获输出块, type: bool, kind: probe, access: read, default: false, update_policy: immediate, readback: true}
-  - {id: missing_blocks, name: 缺失输入块次数, type: int, kind: probe, access: read, default: 0, update_policy: immediate, readback: true}
-bulk_slots:
-  - {id: samples, name: 音频端口存储, type: float, count: 8192, shape: ["config:frames", "param:channels"], access: read_write, double_bank: true}
+  tick:
+    name: 处理触发
+    direction: input
+    type: trigger
+    process: true
+  mode: {name: "方向(0宿主输入/1宿主输出)", type: int, default: 0, range: [0, 1], update_policy: restart_required}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  ready: {name: 宿主已提交完整新块, type: bool, kind: setting, access: read_write, default: false, update_policy: immediate, readback: true, persistent: false}
+  valid: {name: 已捕获输出块, type: bool, kind: probe, access: read, default: false, update_policy: immediate, readback: true, persistent: false}
+  missing_blocks: {name: 缺失输入块次数, type: int, kind: probe, access: read, default: 0, update_policy: immediate, readback: true, persistent: false}
+  audio_storage:
+    name: 音频端口存储
+    type: string
+    default: ""
+    capacity: 1
+    persistent: false
+    shape: ["config:frames", "param:channels"]
+    bulk: {sample_format: f32, capacity: 8192, storage: algorithm.data, slot_key: samples, double_bank: true}
 execution: {realtime_safe: true, supports_inplace: false}
