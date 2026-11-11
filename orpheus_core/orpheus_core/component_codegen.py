@@ -152,6 +152,7 @@ def _port_suffix(port):
 
 def _lifecycle_signatures(state, parameters):
     return {
+        "normalize": f"{parameters}* parameters, const char* key",
         "validate": f"const {parameters}* parameters",
         "prepare": f"{state}* state, const OrpheusConfig* config",
         "reset": f"{state}* state", "destroy": f"{state}* state",
@@ -188,7 +189,7 @@ def _render_parameter_shell(definition):
     hooks = set(definition.get("algorithm", {}).get("lifecycle", []))
     task_fields = _audio_payload_tasks(definition)
     values = f"{prefix}_Parameters"
-    lines = [] if "validate" in hooks else _parameter_struct(definition)
+    lines = [] if hooks & {"normalize", "validate"} else _parameter_struct(definition)
     lines += [f"static void snapshot_parameters(const {state}* s, {values}* p) {{",
               "    (void)s; memset(p, 0, sizeof(*p));"]
     for p in params:
@@ -302,6 +303,29 @@ def _render_parameter_shell(definition):
             lines.append(f"        p->{key}=value->value.{field};")
         lines += ["        return ORPHEUS_OK;", "    }"]
     lines += ["    return ORPHEUS_ERR_NOT_FOUND;", "}"]
+    if "normalize" in hooks:
+        lines += [f"static int normalize_parameters({values}* p, const char* key) {{",
+                  f"    int result={prefix}_normalize(p, key);",
+                  "    if (result!=ORPHEUS_OK) return result;"]
+        for p in params:
+            name, kind = p["id"], p["type"]
+            if _is_array(p):
+                checks = []
+                if kind == "float":
+                    checks.append(f"!isfinite(p->{name}[i])")
+                if "range" in p:
+                    lo, hi = (_number(v, kind) for v in p["range"])
+                    checks += [f"p->{name}[i]<{lo}", f"p->{name}[i]>{hi}"]
+                if checks:
+                    lines += [f"    for (uint32_t i=0; i<{p['count']}; ++i)",
+                              f"        if ({' || '.join(checks)}) return ORPHEUS_ERR_INVALID_ARG;"]
+            else:
+                _, enum, field = _TYPES[kind]
+                lines += ["    {",
+                          f"        OrpheusValue value={{.type=ORPHEUS_VALUE_{enum},.value.{field}=p->{name}}};",
+                          f"        result=update_parameter(p, {_quote(name)}, &value);",
+                          "        if (result!=ORPHEUS_OK) return result;", "    }"]
+        lines += ["    return ORPHEUS_OK;", "}"]
     if "set_parameter" in hooks or "get_parameter" in hooks:
         lines += [f"static int parameter_value(const {values}* p, const char* key, OrpheusValue* value) {{",
                   "    (void)p; (void)key; (void)value;"]
@@ -325,6 +349,8 @@ def _render_parameter_shell(definition):
         "    int result=update_parameter(&candidate, key, value);",
         "    if (result!=ORPHEUS_OK) return result;",
     ]
+    if "normalize" in hooks:
+        lines += ["    result=normalize_parameters(&candidate, key); if (result!=ORPHEUS_OK) return result;"]
     if definition.get("bulk_bindings"):
         lines += ["    result=validate_resource_counts(&candidate); if (result!=ORPHEUS_OK) return result;"]
     if "validate" in hooks:
@@ -334,8 +360,13 @@ def _render_parameter_shell(definition):
                   "    if (result!=ORPHEUS_OK) return result;",
                   f"    result={prefix}_set_parameter(s, key, &checked);",
                   "    if (result!=ORPHEUS_OK) { commit_parameters(s, &before); return result; }",
-                  f"    {values} after; snapshot_parameters(s, &after);",
-                  "    result=update_parameter(&after, key, &checked);",
+                  f"    {values} after; snapshot_parameters(s, &after);"]
+        if "normalize" in hooks:
+            for p in params:
+                name = p["id"]
+                lines += [f"    if (memcmp(&candidate.{name}, &before.{name}, sizeof(candidate.{name}))!=0)",
+                          f"        memcpy(&after.{name}, &candidate.{name}, sizeof(after.{name}));"]
+        lines += ["    result=update_parameter(&after, key, &checked);",
                   "    if (result!=ORPHEUS_OK) { commit_parameters(s, &before); return result; }",
                   "    candidate=after;",
                   "    s->_orpheus_cleanup_pending=true;"]
@@ -398,6 +429,8 @@ def _render_parameter_shell(definition):
         "        int result=update_parameter(p, config->param_ids[i], &config->param_values[i]);",
         "        if (result!=ORPHEUS_OK) return result;", "    }",
     ]
+    if "normalize" in hooks:
+        lines += ["    int normalized=normalize_parameters(p, NULL); if (normalized!=ORPHEUS_OK) return normalized;"]
     if "validate" in hooks:
         if definition.get("bulk_bindings"):
             lines += ["    int result=validate_resource_counts(p); if (result!=ORPHEUS_OK) return result;"]
@@ -590,8 +623,14 @@ def _render(definition):
     state_header = [
         "#pragma once", '#include "component_api.h"', '#include "../user/algorithm.h"', "",
     ]
+    if hooks & {"normalize", "validate"}:
+        state_header += _parameter_struct(definition) + [""]
+    if "normalize" in hooks:
+        state_header += [
+            "/* normalize 只规范化候选参数；key 为 NULL 表示完整配置，否则为本次设置字段。",
+            "   不得访问既有状态或保留候选指针；随后重新检查声明约束，再调用 validate。 */", ""]
     if "validate" in hooks:
-        state_header += _parameter_struct(definition) + ["",
+        state_header += [
             "/* validate 为非实时纯校验：候选参数有效后、任何既有 State 改动前调用。",
             "   不得改写外部状态或保留候选指针；错误原样返回，不调用可变生命周期入口。 */", ""]
     state_header.append(f"typedef struct {state} {{")
@@ -636,6 +675,7 @@ def _render(definition):
         "    return ORPHEUS_ERR_UNSUPPORTED;", "}",
     ]
     hook_arguments = {
+        "normalize": ("parameters", "key"),
         "validate": ("parameters",),
         "prepare": ("state", "config"), "reset": ("state",), "destroy": ("state",),
         "set_parameter": ("state", "key", "value"), "get_parameter": ("state", "key", "value"),

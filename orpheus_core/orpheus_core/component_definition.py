@@ -45,7 +45,7 @@ _POLICIES = {"immediate", "block_boundary", "smoothed", "transactional", "restar
 F32_MAX = float.fromhex("0x1.fffffep+127")
 _SIGNATURE_PRODUCT = re.compile(
     r"(?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*)(?:\*(?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+")
-LIFECYCLE_HOOKS = ("validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
+LIFECYCLE_HOOKS = ("normalize", "validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
         "category", "description", "interfaces", "algorithm", "order", "execution", "memory",
         "platforms", "ui_hidden", "user_owned", "scheduling", "input_alternatives"}
@@ -343,7 +343,7 @@ def _validate(raw):
         "create", "destroy", "prepare", "reset", "process", "set_parameter", "get_parameter",
         "register_slots", "get_descriptor", "valid_buffer", "interface", "descriptor", "ports", "params",
         "cleanup", "snapshot_parameters", "commit_parameters", "default_parameters", "update_parameter",
-        "parameter_value", "configure_parameters", "validate_resource_counts", "valid_utf8_string",
+        "parameter_value", "configure_parameters", "normalize_parameters", "validate_resource_counts", "valid_utf8_string",
         "orpheus_get_interface", "orpheus_emit", "orpheus_process_next", "orpheus_process_branch",
         f"{symbols['prefix']}_InputF32", f"{symbols['prefix']}_OutputF32",
         f"{symbols['prefix']}_InputI32", f"{symbols['prefix']}_OutputI32",
