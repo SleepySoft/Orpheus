@@ -1,46 +1,33 @@
 id: orpheus.builtin.embed_out
-name: "嵌入式音频输出"
-category: "输入与输出"
-description: "嵌入式平台输出边界：将图内交错音频交给生成宿主或platform_io适配层；不在组件内实现硬件输出。"
+name: 嵌入式音频输出
+category: 输入与输出
+description: >-
+  嵌入式平台完整块出口；in为唯一驱动入口，每次真实到达复制到samples并置valid。
+  宿主通过in的read绑定读取最新完整块；多次到达保留最后一块，不等待消费或自动排队。
+  不再依赖宿主私有State布局，不静默丢弃非法输入；无硬件IO。
 platforms: [dsp]
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: EmbedOutState
-sources:
-  - src/embed_out.c
-headers:
-  - include/orpheus_embed_out.h
-ports:
-  - id: in
+algorithm: {lifecycle: [normalize, prepare, reset]}
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
-    channels: param:channels
-    sample_rate: param:sample_rate
-parameters:
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: sample_rate
-    name: 采样率
-    description: 嵌入 I/O 的采样率（Hz），连接校验要求与时钟源一致。
-    type: int
-    default: 48000
-    range: [1000, 192000]
-    unit: Hz
-    update_policy: restart_required
-    affects_signature: true
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: false
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+    channels: "param:channels"
+    sample_rate: "param:sample_rate"
+    process: true
+    host_binding: {slot: samples, access: read, status: valid}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  sample_rate: {name: 采样率, type: int, default: 48000, range: [1000, 192000], unit: Hz, update_policy: restart_required, affects_signature: true}
+  valid: {name: 已捕获输出块, type: bool, default: false, kind: probe, access: read, update_policy: immediate, readback: true, persistent: false}
+  audio_storage:
+    name: 平台输出存储
+    type: string
+    default: ""
+    capacity: 1
+    persistent: false
+    shape: ["config:frames", "param:channels"]
+    bulk: {sample_format: f32, capacity: 65536, storage: algorithm.data, slot_key: samples, double_bank: true}
+execution: {sample_rate_independent: false, supports_inplace: false, realtime_safe: true}

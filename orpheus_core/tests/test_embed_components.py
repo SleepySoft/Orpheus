@@ -1,8 +1,8 @@
-"""嵌入 I/O 占位组件（embed_in / embed_out）与生成代码 platform_io 适配测试。
+"""嵌入 I/O 接口（embed_in / embed_out）与生成代码 platform_io 适配测试。
 
 覆盖：
-- embed 图编译（embed 时钟域）、动态离线运行（静音）；
-- 生成工程含 platform_io.c 模板并可构建运行；
+- embed 图编译（embed 时钟域）、动态离线未提交输入明确失败；
+- 生成工程含 platform_io.c 模板，未填充输入不冒充成功运行；
 - 用户在 USER CODE 段填充输入后，生成工程输出数值正确（易于填充的验证）。
 """
 
@@ -125,19 +125,14 @@ def test_embed_catalog_kinds(client) -> None:
     or not (ROOT / "build" / "components").exists(),
     reason="runtime and components not built",
 )
-def test_embed_dynamic_run_silence(client) -> None:
-    """动态离线运行：未填充的 embed_in 输出静音（并计欠载），wav 全零。"""
+def test_embed_dynamic_run_requires_input(client) -> None:
+    """动态离线运行不伪造平台采集数据。"""
     name = _create_embed_project(client, with_wav_out=True)
     resp = client.post(f"/api/projects/{name}/run")
     assert resp.status_code == 200, resp.text
     result = resp.json()
-    assert result["status"] == "ok", result["stderr"]
-    out = ROOT / "workspace" / name / "outputs" / "out.wav"
-    with wave.open(str(out), "rb") as w:
-        data = w.readframes(w.getnframes())
-    vals = struct.unpack(f"<{len(data) // 4}f", data)
-    assert len(vals) > 0 and all(abs(v) < 1e-9 for v in vals)
-    assert any(p["node"] == "in" and p["param"] == "underruns" and p["value"] > 0 for p in result["probes"])
+    assert result["status"] == "error", result
+    assert result["stderr"]
 
 
 @pytest.mark.skipif(
@@ -146,17 +141,19 @@ def test_embed_dynamic_run_silence(client) -> None:
     reason="runtime and components not built",
 )
 def test_embed_generated_project_builds_and_runs(client) -> None:
-    """生成工程含 platform_io.c 模板，默认（未填充）可构建运行、退出码 0。"""
+    """未填充的模板可以构建，但不生成成功形状的静音结果。"""
     name = _create_embed_project(client, with_wav_out=False)
     resp = client.post(f"/api/projects/{name}/run_generated")
     assert resp.status_code == 200, resp.text
     result = resp.json()
-    assert result["status"] == "ok", result["stderr"]
+    assert result["status"] == "error", result
+    assert result["stderr"]
     gen = ROOT / "workspace" / name / "generated"
     text = (gen / "src" / "platform_io.c").read_text(encoding="utf-8")
     assert "orpheus_platform_io_pre_block" in text
     assert "/* USER CODE BEGIN */" in text
-    assert "orpheus_embed_in_state_in" in text
+    assert 'orpheus_audio_submit("in", "out"' in text
+    assert "orpheus_embed_in_state_in" not in text
 
 
 @pytest.mark.skipif(
@@ -174,13 +171,17 @@ def test_embed_fill_numerics(client) -> None:
     # 在 pre_block 的 USER CODE 段填入 ramp（L=+0.25, R=-0.25）
     platform = gen_dir / "src" / "platform_io.c"
     text = platform.read_text(encoding="utf-8")
-    marker = "void orpheus_platform_io_pre_block(void) {"
+    marker = "int orpheus_platform_io_pre_block(const char* task) {"
     start = text.index(marker)
     begin = text.index("/* USER CODE BEGIN */", start) + len("/* USER CODE BEGIN */")
     end = text.index("/* USER CODE END */", start)
     body = (
-        '    for (int i = 0; i < 128 * 2; ++i) g_embed_in_in[i] = (i % 2 == 0) ? 0.25f : -0.25f;\n'
-        '    in->src_frames = 128;\n'
+        '    static float input[ORPHEUS_AUDIO_in_out_SAMPLES];\n'
+        '    static unsigned calls;\n'
+        '    float value = 0.25f + (float)(calls++ % 7) * 0.001f;\n'
+        '    for (unsigned i = 0; i < ORPHEUS_AUDIO_in_out_SAMPLES; ++i) input[i] = (i % 2 == 0) ? value : -value;\n'
+        '    int rc = orpheus_audio_submit("in", "out", input, ORPHEUS_AUDIO_in_out_SAMPLES);\n'
+        '    if (rc != ORPHEUS_OK) return rc;\n'
     )
     platform.write_text(text[:begin] + "\n" + body + text[end:], encoding="utf-8")
 
@@ -208,11 +209,10 @@ def test_embed_fill_numerics(client) -> None:
     assert frames == 200 * 128
     # wav_out 落盘为 16-bit PCM：int16 = sample * 32767
     vals = struct.unpack(f"<{len(data) // 2}h", data)
-    expected = int(round(0.25 * GAIN_MINUS_6 * 32767))
-    assert abs(vals[0] - expected) <= 1  # 第 0 帧左声道
-    assert abs(vals[1] + expected) <= 1  # 第 0 帧右声道
-    assert abs(vals[-2] - expected) <= 1
-    assert abs(vals[-1] + expected) <= 1
+    for block in range(200):
+        expected = int(round((0.25 + (block % 7) * .001) * GAIN_MINUS_6 * 32767))
+        for sample in range(128 * 2):
+            assert abs(vals[block * 256 + sample] - (expected if sample % 2 == 0 else -expected)) <= 1
 
 
 def test_generated_archive_download(client) -> None:

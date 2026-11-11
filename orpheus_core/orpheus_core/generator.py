@@ -97,7 +97,8 @@ class CodeGenerator:
             (nid, binding["access"] == "write")
             for nid in plan.execution_order
             if (cfg := plan.node_configs[nid])["component"] in (
-                "orpheus.builtin.host_audio", "orpheus.builtin.buffer_source"
+                "orpheus.builtin.host_audio", "orpheus.builtin.buffer_source",
+                "orpheus.builtin.embed_in", "orpheus.builtin.embed_out",
             )
             for binding in cfg.get("host_ports", [])
         ]
@@ -739,9 +740,9 @@ class CodeGenerator:
         if embed_in_nodes or embed_out_nodes:
             lines.append('')
             lines.append('/* 嵌入 I/O 适配（platform_io.c，用户按实际硬件填充） */')
-            lines.append('void orpheus_platform_io_init(void);')
-            lines.append('void orpheus_platform_io_pre_block(void);')
-            lines.append('void orpheus_platform_io_post_block(void);')
+            lines.append('int orpheus_platform_io_init(void);')
+            lines.append('int orpheus_platform_io_pre_block(const char* task);')
+            lines.append('int orpheus_platform_io_post_block(const char* task);')
         lines.append("")
 
         # State declarations
@@ -800,14 +801,6 @@ class CodeGenerator:
             lines.append('static OrpheusArena g_arena;')
             lines.append('')
 
-        # 嵌入 I/O 缓冲（用户 DMA 可直达）与状态访问器（platform_io.c 引用）
-        for nid in embed_in_nodes + embed_out_nodes:
-            s = self._sanitized_node_id(nid)
-            cfg = plan.node_configs[nid]
-            frames = cfg.get("frames") or plan.block_size
-            channels = int(float(cfg.get("params", {}).get("channels", 2)))
-            kind = "in" if nid in embed_in_nodes else "out"
-            lines.append(f'float g_embed_{kind}_{s}[{frames * channels}];')
         for nid in sport_in_nodes + sport_out_nodes:
             s = self._sanitized_node_id(nid)
             cfg = plan.node_configs[nid]
@@ -817,18 +810,6 @@ class CodeGenerator:
             lines.append(f'float g_sport_{kind}_{s}[{frames * channels}];')
         if embed_in_nodes or embed_out_nodes or sport_in_nodes or sport_out_nodes:
             lines.append('')
-        for nid in embed_in_nodes:
-            s = self._sanitized_node_id(nid)
-            lines.append(
-                f'EmbedInState* orpheus_embed_in_state_{s}(void) '
-                f'{{ return {self._state_ref(nid, plan)}; }}'
-            )
-        for nid in embed_out_nodes:
-            s = self._sanitized_node_id(nid)
-            lines.append(
-                f'EmbedOutState* orpheus_embed_out_state_{s}(void) '
-                f'{{ return {self._state_ref(nid, plan)}; }}'
-            )
         for nid in sport_in_nodes:
             s = self._sanitized_node_id(nid)
             lines.append(
@@ -1395,20 +1376,6 @@ class CodeGenerator:
                     f'    if (rc != ORPHEUS_OK) return orpheus_graph_init_fail("host_ports", '
                     f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);',
                 ])
-        for nid in embed_in_nodes:
-            s = self._sanitized_node_id(nid)
-            cfg = plan.node_configs[nid]
-            frames = cfg.get("frames") or plan.block_size
-            ref = self._state_ref(nid, plan)
-            lines.append(f'    ({ref})->src = g_embed_in_{s};')
-            lines.append(f'    ({ref})->src_frames = 0;')
-        for nid in embed_out_nodes:
-            s = self._sanitized_node_id(nid)
-            cfg = plan.node_configs[nid]
-            frames = cfg.get("frames") or plan.block_size
-            ref = self._state_ref(nid, plan)
-            lines.append(f'    ({ref})->dst = g_embed_out_{s};')
-            lines.append(f'    ({ref})->dst_capacity = {frames};')
         for nid in sport_in_nodes:
             s = self._sanitized_node_id(nid)
             ref = self._state_ref(nid, plan)
@@ -1422,7 +1389,8 @@ class CodeGenerator:
             lines.append(f'    ({ref})->dst = g_sport_out_{s};')
             lines.append(f'    ({ref})->dst_capacity = {frames};')
         if embed_in_nodes or embed_out_nodes:
-            lines.append('    orpheus_platform_io_init();')
+            lines.append('    rc = orpheus_platform_io_init();')
+            lines.append('    if (rc != ORPHEUS_OK) return orpheus_graph_init_fail("platform_io:init", "", "", rc);')
         lines.append('    orpheus_generated_bridge_init();')
         for d in link_nodes:
             lines.append(f'    orpheus_link_{self._uart_link_sym(d)}_init();')
@@ -1447,11 +1415,12 @@ class CodeGenerator:
         lines.append('    ctx.scratch_size = 0;')
         lines.append('    const uint32_t advance = frame_count > 0 ? frame_count : ORPHEUS_GRAPH_TICK;')
         lines.append("")
+        if embed_in_nodes or embed_out_nodes:
+            lines.append('    rc = orpheus_platform_io_pre_block(NULL);')
+            lines.append('    if (rc != ORPHEUS_OK) return orpheus_graph_fail("platform_io:pre", "", "", rc);')
+            lines.append('')
         lines.append('    orpheus_control_commit_bulk();')
         lines.append('')
-        if embed_in_nodes or embed_out_nodes:
-            lines.append('    orpheus_platform_io_pre_block();')
-            lines.append('')
         for node_id in plan.execution_order:
             block_start = len(lines)
             cfg = plan.node_configs[node_id]
@@ -1538,7 +1507,8 @@ class CodeGenerator:
         chain_resets.extend(resets)
         if embed_in_nodes or embed_out_nodes:
             lines.append('')
-            lines.append('    orpheus_platform_io_post_block();')
+            lines.append('    rc = orpheus_platform_io_post_block(NULL);')
+            lines.append('    if (rc != ORPHEUS_OK) return orpheus_graph_fail("platform_io:post", "", "", rc);')
         if ctl_links:
             lines.append('')
             lines.append('    rc = control_tick(NULL, NULL);' if task_sequence
@@ -1602,12 +1572,13 @@ class CodeGenerator:
                 lines.append(f'        g_trigger_last_sequence_{task_sym} = trigger->sequence;')
                 lines.append(f'        g_trigger_next_frame_{task_sym} = trigger->frame_index + trigger->frames;')
                 lines.append('    }')
+            if task_has_platform_io:
+                lines.append(f'    rc = orpheus_platform_io_pre_block("{self._c_escape(task_id)}");')
+                lines.append('    if (rc != ORPHEUS_OK) return orpheus_graph_fail("platform_io:pre", "", "", rc);')
             if task_sequence:
                 lines.append(f'    orpheus_control_commit_bulk_task("{self._c_escape(task_id)}");')
             else:
                 lines.append('    orpheus_control_commit_bulk();')
-            if task_has_platform_io:
-                lines.append('    orpheus_platform_io_pre_block();')
             for node_id in task_nodes:
                 block_start = len(lines)
                 cfg = plan.node_configs[node_id]
@@ -1753,7 +1724,8 @@ class CodeGenerator:
             lines.extend(calls)
             chain_resets.extend(resets)
             if task_has_platform_io:
-                lines.append('    orpheus_platform_io_post_block();')
+                lines.append(f'    rc = orpheus_platform_io_post_block("{self._c_escape(task_id)}");')
+                lines.append('    if (rc != ORPHEUS_OK) return orpheus_graph_fail("platform_io:post", "", "", rc);')
             if task_ctl_links:
                 lines.append(
                     f'    rc = control_tick("{self._c_escape(task_id)}", NULL);'
@@ -2407,7 +2379,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         lines.append('}')
 
     def _generate_platform_io(self, plan: ExecutionPlan, path: Path) -> None:
-        """生成嵌入 I/O 适配模板：三个 USER CODE 函数，用户按实际硬件填充。"""
+        """通过公开宿主端口适配硬件，不依赖组件 State 布局。"""
         in_nodes = [
             nid for nid in plan.execution_order
             if plan.node_configs[nid]["component"] == "orpheus.builtin.embed_in"
@@ -2420,59 +2392,55 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             '/* platform_io.c —— 嵌入 I/O 适配模板（自动生成，可按实际硬件修改）。',
             ' * 用户只需实现三个函数：',
             ' *   orpheus_platform_io_init()      ：一次性初始化（配置 DMA/编解码器）；',
-            ' *   orpheus_platform_io_pre_block() ：每块处理前，把采集数据写入 g_embed_in_* 并设置 src_frames；',
-            ' *   orpheus_platform_io_post_block()：每块处理后，把 g_embed_out_* 交给 DAC。',
+            ' *   orpheus_platform_io_pre_block(task) ：通过 orpheus_audio_submit 提交真实采集块；',
+            ' *   orpheus_platform_io_post_block(task)：通过 orpheus_audio_read 读取完整输出并交给 DAC。',
+            ' * task 为本次推进的 Task ID；NULL 表示全图入口。所有错误须返回，不可忽略。',
+            ' * 默认不供数、不消费；未提交输入时组件明确报欠载，不用静音冒充硬件数据。',
             ' * 重新生成工程会覆盖本文件，请另存副本或生成后手工合并。',
             ' */',
             '#include <string.h>',
-            '#include "orpheus_abi.h"',
+            '#include "orpheus_graph.h"',
         ]
-        if in_nodes:
-            lines.append('#include "orpheus_embed_in.h"')
-        if out_nodes:
-            lines.append('#include "orpheus_embed_out.h"')
         lines.append('')
-        for nid in in_nodes:
-            s = self._sanitized_node_id(nid)
-            lines.append(f'extern float g_embed_in_{s}[];')
-            lines.append(f'extern EmbedInState* orpheus_embed_in_state_{s}(void);')
-        for nid in out_nodes:
-            s = self._sanitized_node_id(nid)
-            lines.append(f'extern float g_embed_out_{s}[];')
-            lines.append(f'extern EmbedOutState* orpheus_embed_out_state_{s}(void);')
-        lines.append('')
-        lines.append('void orpheus_platform_io_init(void) {')
+        lines.append('int orpheus_platform_io_init(void) {')
         lines.append('    /* USER CODE BEGIN */')
-        lines.append('    /* 例：配置 DMA/编解码器，挂中断。输入数据也可在中断里直接写 g_embed_in_* */')
+        lines.append('    /* 配置 DMA/编解码器；不能与 Task 并发读写宿主端口。 */')
         lines.append('    /* USER CODE END */')
+        lines.append('    return ORPHEUS_OK;')
         lines.append('}')
         lines.append('')
-        lines.append('void orpheus_platform_io_pre_block(void) {')
-        for nid in in_nodes:
-            s = self._sanitized_node_id(nid)
-            cfg = plan.node_configs[nid]
-            frames = cfg.get("frames") or plan.block_size
-            lines.append(f'    EmbedInState* in = orpheus_embed_in_state_{s}();')
-            lines.append(
-                f'    /* 例：memcpy(g_embed_in_{s}, dma_rx, {frames} * in->channels * sizeof(float)); */'
-            )
-            lines.append(f'    /*      in->src_frames = {frames}; 不足一帧会补零并累计欠载 */')
-            lines.append('    (void)in;')
-        lines.append('    /* USER CODE BEGIN */')
-        lines.append('    /* USER CODE END */')
-        lines.append('}')
-        lines.append('')
-        lines.append('void orpheus_platform_io_post_block(void) {')
-        for nid in out_nodes:
-            s = self._sanitized_node_id(nid)
-            cfg = plan.node_configs[nid]
-            frames = cfg.get("frames") or plan.block_size
-            lines.append(f'    EmbedOutState* out = orpheus_embed_out_state_{s}();')
-            lines.append(f'    /* 例：dac_write(out->dst, {frames} * out->channels); */')
-            lines.append('    (void)out;')
-        lines.append('    /* USER CODE BEGIN */')
-        lines.append('    /* USER CODE END */')
-        lines.append('}')
+        for phase, nodes, port, operation in (
+            ("pre", in_nodes, "out", "submit"), ("post", out_nodes, "in", "read")
+        ):
+            lines.append(f'int orpheus_platform_io_{phase}_block(const char* task) {{')
+            lines.append('    (void)task;')
+            for nid in nodes:
+                task_ids = [task["id"] for task in plan.tasks if nid in task["execution_order"]]
+                condition = " || ".join(
+                    f'!strcmp(task, "{self._c_escape(task_id)}")' for task_id in task_ids
+                )
+                lines.append(f'    if (!task || {condition or "0"}) {{')
+                macro = f'ORPHEUS_AUDIO_{self._sanitized_node_id(nid)}_{port}_SAMPLES'
+                lines.append('        /* USER CODE BEGIN */')
+                lines.append(f'        /* {self._c_escape(nid)}：交错f32，共 {macro} 个样本。')
+                if operation == "submit":
+                    lines.append('         * const float* samples = dma_rx_complete_block();')
+                else:
+                    lines.append(f'         * static float samples[{macro}];')
+                lines.append(
+                    f'         * int rc = orpheus_audio_{operation}("{self._c_escape(nid)}", '
+                    f'"{port}", samples, {macro});'
+                )
+                lines.append('         * if (rc != ORPHEUS_OK) return rc;')
+                if operation == "read":
+                    lines.append('         * rc = dma_write_complete_block(samples);')
+                    lines.append('         * if (rc != ORPHEUS_OK) return rc;')
+                lines.append('         */')
+                lines.append('        /* USER CODE END */')
+                lines.append('    }')
+            lines.append('    return ORPHEUS_OK;')
+            lines.append('}')
+            lines.append('')
         with open(path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
 

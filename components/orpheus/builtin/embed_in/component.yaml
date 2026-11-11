@@ -1,54 +1,36 @@
 id: orpheus.builtin.embed_in
-name: "嵌入式音频输入"
-category: "输入与输出"
-description: "嵌入式平台输入边界：由生成宿主或platform_io适配层提供交错音频；不是声卡采集实现，实际硬件读入须由平台集成。"
+name: 嵌入式音频输入
+category: 输入与输出
+description: >-
+  嵌入式平台完整块入口；宿主通过out的samples绑定提交交错f32并置ready，
+  再推进所属Task。消费一次后清ready并真实交付out；不重复旧块、不补零冒充采集。
+  缺块累计underruns并报错。平台适配与Task串行，无硬件IO或内部定时器。
 platforms: [dsp]
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: EmbedInState
 clock_source: true
 clock_domain: embed
-sources:
-  - src/embed_in.c
-headers:
-  - include/orpheus_embed_in.h
-ports:
-  - id: out
+algorithm: {lifecycle: [normalize, prepare, reset, set_parameter]}
+interfaces:
+  out:
     direction: output
     type: audio
     sample_format: f32
-    channels: param:channels
-    sample_rate: param:sample_rate
-parameters:
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: sample_rate
-    name: 采样率
-    description: 嵌入 I/O 的采样率（Hz），同时成为图的时钟源采样率。
-    type: int
-    default: 48000
-    range: [1000, 192000]
-    unit: Hz
-    update_policy: restart_required
-    affects_signature: true
-  - id: underruns
-    name: 欠载次数
-    type: int
-    default: 0
-    readback: true
-    update_policy: immediate
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: false
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+    channels: "param:channels"
+    sample_rate: "param:sample_rate"
+    drive_port_no: 1
+    host_binding: {slot: samples, access: write, status: ready}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  sample_rate: {name: 采样率, type: int, default: 48000, range: [1000, 192000], unit: Hz, update_policy: restart_required, affects_signature: true}
+  ready: {name: 宿主已提交完整新块, type: bool, default: false, kind: setting, access: read_write, update_policy: immediate, readback: true, persistent: false}
+  underruns: {name: 欠载次数, type: int, default: 0, kind: probe, access: read, update_policy: immediate, readback: true, persistent: false}
+  audio_storage:
+    name: 平台输入存储
+    type: string
+    default: ""
+    capacity: 1
+    persistent: false
+    shape: ["config:frames", "param:channels"]
+    bulk: {sample_format: f32, capacity: 65536, storage: algorithm.data, slot_key: samples, double_bank: true}
+execution: {sample_rate_independent: false, supports_inplace: false, realtime_safe: true}

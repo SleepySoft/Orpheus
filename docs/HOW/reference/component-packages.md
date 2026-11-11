@@ -240,6 +240,14 @@ weights/step_sizes的BULK数量由shape决定、物理容量12000/8；
 状态提交后emit out(1)，错误不回滚；reset恢复初始基线、清历史/游标，保留运行期步长。
 参考[多参考多输出NLMS的调用、资源与基线](../../../components/orpheus/builtin/rnc_mimo_nlms/README.md)。
 
+embed_in/out使用公开host_binding连接平台音频，不再让宿主依赖State布局或注入src/dst。
+输入由宿主提交完整块、置ready，再推进Task；每次消费一次，emit out(1)，缺块报错并计underruns。
+输出in为唯一驱动，每次捕获最新完整块、置valid，宿主读取后清标志；不等待、不排队。
+有效数量由config:frames×channels决定，物理容量65536个f32样本，超限明确拒绝。
+platform_io钩子返回错误并按Task分区，pre供数后才提交BULK，本次采集用于本次Task。
+参考[输入边界](../../../components/orpheus/builtin/embed_in/README.md)与
+[输出边界](../../../components/orpheus/builtin/embed_out/README.md)。
+
 sweep_record以in驱动，按实际调用首声道能量/本地时间分箱，保留原f32累计与RMS次序。
 先提交统计再emit out(1)，失败不回滚；完成后继续直通，完整原地允许、部分重叠拒绝。
 512项只读曲线的频率/幅度使用固定256项跨度；reset保留频率轴、清采集状态。
