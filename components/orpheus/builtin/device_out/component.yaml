@@ -1,52 +1,18 @@
 id: orpheus.builtin.device_out
-name: "声卡音频输出"
-category: "输入与输出"
-description: "将图内音频交给PC宿主的声卡播放端；通道数和采样率须匹配设备配置，实际设备IO由宿主完成。"
+name: 声卡音频输出
+category: 输入与输出
+description: >-
+  in为唯一驱动入口，校验本次真实交付；PC宿主在链返回后读取该输入缓冲交给播放设备。
+  不做设备IO、不额外复制或自动续调。支持设备周期尾部短块，错误显式返回。
 order: 2
 platforms: [win]
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: DeviceOutState
-sources:
-  - src/device_out.c
-headers:
-  - include/orpheus_device_out.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: device
-    name: 播放设备
-    type: string
-    default: ""
-    widget: select
-    options_source: devices
-    update_policy: restart_required
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: sample_rate
-    name: 采样率
-    description: 设备请求采样率（Hz）；0 表示继承工程全局采样率。运行时按设备实际能力校验，不支持则报错，需转换则告警。
-    type: int
-    default: 0
-    range: [0, 192000]
-    update_policy: restart_required
-    affects_signature: true
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: false
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+algorithm: {lifecycle: [prepare]}
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  device: {name: 播放设备, type: string, default: "", capacity: 1024, widget: select, options_source: devices, update_policy: restart_required}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  sample_rate: {name: 采样率, type: int, default: 0, range: [0, 192000], description: "0继承图速率，非0须与实际图速率一致；设备能力由宿主校验。", update_policy: restart_required, affects_signature: true}
+execution: {sample_rate_independent: false, supports_inplace: false, realtime_safe: true}

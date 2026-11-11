@@ -1,63 +1,29 @@
 id: orpheus.builtin.device_in
-name: "声卡音频输入"
-category: "输入与输出"
-description: "由PC宿主提供声卡采集或回环音频，作为设备时钟输入边界；设备名称、通道数和采样率由参数配置，组件自身不执行设备IO。"
+name: 声卡音频输入
+category: 输入与输出
+description: >-
+  PC宿主在推进前将真实采集块填入out缓冲；组件不做设备IO，校验后真实交付out(1)。
+  使用宿主本次帧数，允许设备周期尾部短块；交付时间按实际采集帧累计。
+  设备选择/环回和硬件时钟由宿主负责，不伪造采集、不自动补齐或等待。
 order: 1
 platforms: [win]
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: DeviceInState
 clock_source: true
 clock_domain: device
-sources:
-  - src/device_in.c
-headers:
-  - include/orpheus_device_in.h
-ports:
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: device
-    name: 采集设备
-    type: string
-    default: ""
-    widget: select
-    options_source: devices
-    update_policy: restart_required
-  - id: source
+algorithm: {lifecycle: [normalize, prepare, reset]}
+interfaces:
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1}
+  device: {name: 采集设备, type: string, default: "", capacity: 1024, widget: select, options_source: devices, update_policy: restart_required}
+  source:
     name: 采集源
     type: string
     default: microphone
+    capacity: 16
     widget: select
-    options:
-      - {value: microphone, label: 麦克风/线路输入}
-      - {value: loopback, label: 系统声音（Loopback）}
+    options: [{value: microphone, label: 麦克风/线路输入}, {value: loopback, label: 系统声音（Loopback）}]
     update_policy: restart_required
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: sample_rate
-    name: 采样率
-    description: 设备请求采样率（Hz）；0 表示继承工程全局采样率。运行时按设备实际能力校验，不支持则报错，需转换则告警。
-    type: int
-    default: 0
-    range: [0, 192000]
-    update_policy: restart_required
-    affects_signature: true
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: false
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  sample_rate: {name: 采样率, type: int, default: 0, range: [0, 192000], description: "0继承图采样率，非0驱动图速率；设备能力由宿主校验。", update_policy: restart_required, affects_signature: true}
+execution: {sample_rate_independent: false, supports_inplace: false, realtime_safe: true}

@@ -5,8 +5,8 @@
  * src/host_win.c 作为程序入口。图相关参数全部由 orpheus_host_config.h 宏注入；
  * 图本体（组件实例/连线/参数表）在 main.c，经 orpheus_generated.h 接口调用。
  *
- * 与动态路径 rt_host 同一职责划分：组件 device_in/device_out 只是占位（process 空操作），
- * 宿主在 process 前填充 device_in 输出 buffer、process 后取走 device_out 输入 buffer。
+ * 与动态路径 rt_host 同一职责划分：宿主在推进前填充 device_in 输出缓冲；
+ * device_in按真实帧数交付下游，device_out校验输入，宿主在链返回后取走播放数据。
  *
  * 外部控制统一使用 stdin/stdout LengthPrefix Bridge；stdout 只承载二进制帧，
  * HELLO/IDENTITY/MAP/STOP 与数据点 CALL 由共享 Endpoint 处理，诊断写 stderr。

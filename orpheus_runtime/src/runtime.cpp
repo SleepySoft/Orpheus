@@ -1577,7 +1577,9 @@ int Runtime::invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
     }
     Instance& inst = *binding.instance;
     ctx.state = inst.state;
-    ctx.frame_count = cfg.frames > 0 ? cfg.frames : run->frame_count;
+    // 设备周期尾块使用宿主真实帧数，不把配置量子误当成有效采集量。
+    ctx.frame_count = cfg.component == "orpheus.builtin.device_in"
+        ? run->frame_count : (cfg.frames > 0 ? cfg.frames : run->frame_count);
     ctx.inputs = inst.inputs.empty() ? nullptr : const_cast<const OrpheusBuffer**>(inst.inputs.data());
     ctx.outputs = inst.outputs.empty() ? nullptr : inst.outputs.data();
     ctx.input_count = static_cast<uint32_t>(inst.inputs.size());

@@ -1451,7 +1451,8 @@ class CodeGenerator:
             lines.append(f'{indent}ctx.state = g_state_{s};')
             node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
             lines.append(f'{indent}ctx.sample_rate = {node_sr};')
-            lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
+            count_expr = "frame_count" if cfg["component"] == "orpheus.builtin.device_in" else f"{frames} > 0 ? {frames} : frame_count"
+            lines.append(f'{indent}ctx.frame_count = {count_expr};')
             frame_step = int(cfg.get("frame_step", 0))
             step_expr = str(frame_step) if frame_step else "ctx.frame_count"
             origin_expr = f' + UINT64_C({int(cfg.get("frame_origin", 0))})' if task_sequence else ''
@@ -1612,7 +1613,8 @@ class CodeGenerator:
                 lines.append(f'{indent}ctx.state = g_state_{s};')
                 node_sr = cfg.get("sample_rate", 0) or plan.sample_rate
                 lines.append(f'{indent}ctx.sample_rate = {node_sr};')
-                lines.append(f'{indent}ctx.frame_count = {frames} > 0 ? {frames} : frame_count;')
+                count_expr = "frame_count" if cfg["component"] == "orpheus.builtin.device_in" else f"{frames} > 0 ? {frames} : frame_count"
+                lines.append(f'{indent}ctx.frame_count = {count_expr};')
                 frame_step = int(cfg.get("frame_step", 0))
                 step_expr = str(frame_step) if frame_step else "ctx.frame_count"
                 origin_expr = f' + UINT64_C({int(cfg.get("frame_origin", 0))})' if task_sequence else ''

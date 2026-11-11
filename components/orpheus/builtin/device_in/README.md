@@ -4,7 +4,18 @@
 
 从声卡采集音频（麦克风/线路输入，或系统声音环回）并注入图。它是 `clock_source`（`clock_domain: device`）：整条实时链路以设备回调为节拍推进。
 
-**重要：这个组件的 C 代码是个"占位"**。`process` 什么都不做——真正打开设备、采集、填数据的是实时宿主 `rt_host`（基于 miniaudio）：宿主在每次图调度**之前**，把刚采集到的一块样本直接写进本组件的输出 buffer。所以你看到的 `device` / `source` / `sample_rate` 参数只存在于工程 YAML 里（C ABI 描述符只有 `channels`），由 rt_host 从 plan 读取并消费。这类"yaml-only 参数"改的是宿主行为，不是组件行为。
+组件只负责校验并真实 `emit out(1)`，不打开设备或执行采集 IO。
+动态 `rt_host` 与生成的 `host_win`（miniaudio）在推进前填充输出缓冲；
+链返回后读取播放端输入。配置唯一事实源是 [component.yaml](component.yaml)，
+独立脚本生成 ABI v7 壳，`device/source/channels/sample_rate` 均进入 ABI 描述符和参数目录，
+不再保留 yaml-only 参数或节点级自动续调。
+
+宿主须在每次推进前填入真实采集量；组件不重复填充、不猜测数据是否新鲜。
+设备回调尾部不足一图块时，Runtime/生成代码将宿主本次帧数传给源，
+组件交付实际短块；下游音频入口以真实 Delivery 帧数执行，不处理未采集的尾部。
+交付的绝对帧位置按实际采集帧累计，不使用固定量子乘调用次数。
+先提交帧游标再交付，下游错误不回滚；零帧不推进，reset 清游标。
+超过准备块长、容量不足、私有状态别名、速率不匹配或64位位置溢出均明确拒绝。
 
 ## 端口
 
@@ -28,7 +39,7 @@ Loopback（环回）采集的是"声卡正在播放的声音"而不是麦克风�
 ### `sample_rate`：0 = 继承，非 0 = 源驱动
 
 - `0`：跟随工程全局采样率，最省心的选择。
-- 非 0：作为时钟源参数**驱动整张图的编译期采样率**（多个时钟源必须一致）。
+- 非 0：作为源参数驱动所属链/Task 的编译期采样率，同一链的端口速率必须一致。
 - 启动时 rt_host 会校验设备能力并在日志中报告三档结果：
   - `native`：设备原生支持该通道数/采样率；
   - `WARN ... will convert`：设备不原生支持，由 miniaudio 自动做格式/采样率转换（能用，但有额外延迟与音质代价）；
@@ -47,6 +58,10 @@ Loopback（环回）采集的是"声卡正在播放的声音"而不是麦克风�
   - 只有 `device_in` → 采集/环回设备就是时钟（如系统声音 → wav_out 录制）。
 - 设备回调周期（≥10ms）与图块长解耦：宿主会把较大的设备周期切成 `block_size` 小块逐块调度。
 - 修改任何参数都要重启运行（全部 restart_required）。
+- `device` 为最多1023字节的UTF-8名称；`source` 只接受 microphone/loopback。
+- 这些是借用的图端口缓冲，不是 host_audio/embed 边界的 BULK 提交接口；
+  动态使用 `Runtime::get_output_buffer`，生成代码使用 `orpheus_host_device_in_buffer`，
+  宿主填充与推进必须串行。数据未填充不能被当成合法采集。
 
 ## 典型用法
 
@@ -66,4 +81,5 @@ device_in(source=loopback) ──► wav_out           # 录系统声音到文�
 
 ## 实时安全
 
-manifest 标记 `realtime_safe: true`：组件本身不做任何工作（数据由宿主预填），`process` 无分配、无锁、无 IO。
+manifest 标记 `realtime_safe: true`：process 只校验、提交64位游标与同步交付，
+不搬移或更改采集样本，保留 NaN/Inf/负零位型，无分配、锁或 IO。

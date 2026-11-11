@@ -2,7 +2,11 @@
 
 ## 功能
 
-把图处理后的音频送到声卡播放。与 `device_in` 一样，**组件 C 代码是占位**：`process` 什么都不做，实时宿主 `rt_host` 在图调度**之后**把本组件的输入 buffer 拷贝给播放设备。`device` / `sample_rate` 是 yaml-only 参数，由 rt_host 消费。
+把图处理后的音频交给宿主播放。`in` 是唯一驱动入口（`process: true`），
+组件校验本次真实交付后结束调用，不自动续调、不执行设备 IO 或额外复制。
+动态 `rt_host` 与生成 `host_win` 在链返回后读取输入缓冲，交给 miniaudio。
+唯一配置源为 [component.yaml](component.yaml)，独立脚本生成 ABI v7 壳，
+`device/channels/sample_rate` 均进入 ABI 参数描述符，不再只是 yaml-only 参数。
 
 图里只有 `device_out`（没有 `device_in`）时，播放设备本身就是整条链路的时钟（如 `wav_in` → `device_out` 的边解码边听场景）。
 
@@ -10,7 +14,7 @@
 
 | id | 方向 | 类型 | 说明 |
 |---|---|---|---|
-| in | input | audio | 待播放的音频（interleaved f32），`channels` 通道。未连接时设备输出静音 |
+| in | input | audio | 待播放的音频（interleaved f32），`channels` 通道；缺失输入明确报错 |
 
 ## 参数
 
@@ -30,10 +34,15 @@
 
 ## 注意事项
 
-- **平台限制**：`platforms: [win]`，仅 Windows 实时路径可用；代码生成（嵌入式）路径请用 `embed_out`。
+- **平台限制**：`platforms: [win]`，动态与生成 win 宿主均可使用；DSP 部署请用 `embed_out`。
 - 设备拓扑同 `device_in` 的说明：双默认设备走 duplex（最低延迟）；指定设备或 loopback 组合走异步桥（环形缓冲解耦两台设备的时钟）。
 - 设备周期 ≥10ms 且与图块长解耦，宿主负责切块调度。
 - 全部参数 restart_required，运行时修改无效。
+- 支持真实短块（不超过准备块长），输入有效帧数必须等于本次上下文帧数。
+  错误入口、缺失/短输入、格式/通道/采样率不匹配和私有状态别名均显式拒绝。
+  零帧不消费。宿主借用图输入缓冲，动态使用 `Runtime::get_input_buffer`，
+  生成使用 `orpheus_host_device_out_buffer`；读取与推进须串行，不增加等待或排队。
+- `device` 为最多1023字节的UTF-8名称；实际设备能力仍由宿主校验。
 
 ## 典型用法
 
@@ -52,4 +61,5 @@ wav_in ──► gain ──► device_out             # 文件试听到声卡
 
 ## 实时安全
 
-manifest 标记 `realtime_safe: true`：`process` 无分配、无锁、无 IO（它甚至不读输入数据，搬运由宿主完成）。
+manifest 标记 `realtime_safe: true`：process 只校验，不修改音频位型，
+无分配、锁或 IO；实际设备搬运由宿主负责。

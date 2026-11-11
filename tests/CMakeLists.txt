@@ -358,6 +358,20 @@ foreach(component embed_in embed_out)
     target_compile_definitions(${component}_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
     add_test(NAME ${component}_smoke COMMAND ${component}_smoke)
 endforeach()
+foreach(component device_in device_out)
+    set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})
+    add_executable(${component}_smoke device_boundary_smoke.c
+        ${component_dir}/generated/component_shell.c ${component_dir}/user/algorithm.c)
+    target_include_directories(${component}_smoke PRIVATE
+        ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${component_dir}/generated)
+    if(component STREQUAL "device_in")
+        target_compile_definitions(${component}_smoke PRIVATE DEVICE_INPUT=1)
+    else()
+        target_compile_definitions(${component}_smoke PRIVATE DEVICE_INPUT=0)
+    endif()
+    target_compile_definitions(${component}_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+    add_test(NAME ${component}_smoke COMMAND ${component}_smoke)
+endforeach()
 add_executable(downrate_smoke downrate_smoke.c)
 add_library(downrate_test_component OBJECT
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/downrate/generated/component_shell.c

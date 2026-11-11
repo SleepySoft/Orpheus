@@ -248,6 +248,13 @@ platform_io钩子返回错误并按Task分区，pre供数后才提交BULK，本�
 参考[输入边界](../../../components/orpheus/builtin/embed_in/README.md)与
 [输出边界](../../../components/orpheus/builtin/embed_out/README.md)。
 
+device_in/out沿用宿主借用图端口缓冲的硬件数据面，不另建BULK副本。
+输入源校验后emit out(1)，输出端in为唯一驱动，校验后结束调用；设备参数进入生成ABI/目录。
+设备源上下文使用宿主本次帧数，周期尾块按真实Delivery执行，位置按实际采集帧累计。
+先提交游标再交付，错误不回滚；零帧不推进，reset清游标，溢出/非法缓冲/速率明确拒绝。
+参考[声卡采集边界](../../../components/orpheus/builtin/device_in/README.md)与
+[声卡播放边界](../../../components/orpheus/builtin/device_out/README.md)。
+
 sweep_record以in驱动，按实际调用首声道能量/本地时间分箱，保留原f32累计与RMS次序。
 先提交统计再emit out(1)，失败不回滚；完成后继续直通，完整原地允许、部分重叠拒绝。
 512项只读曲线的频率/幅度使用固定256项跨度；reset保留频率轴、清采集状态。
