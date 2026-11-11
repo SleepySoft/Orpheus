@@ -212,6 +212,13 @@ noise_detector以in驱动，输入/输出为显式fft_size*batches载荷；
 int32突刺探针饱和、JSON保留64位完整计数；JSON不在实时process格式化。
 参考[单端噪声检测的统计与载荷契约](../../../components/orpheus/builtin/noise_detector/README.md)。
 
+noise_detector_ab以in驱动，ref只供数据；显式fft_size*batches载荷，
+保留原Hann/f32互谱EMA、跨窗加权THD及分带相干。
+噪声数/总数统一按实际窗口统计，不再将一次调用与多窗分母混用。
+先提交统计再emit out(1)，无输出连接时仍观测，失败不回滚；
+int32计数探针饱和、JSON保留64位完整数值，reset清全部探针与残差峰值。
+参考[双端噪声估计的逐窗口与纯观测契约](../../../components/orpheus/builtin/noise_detector_ab/README.md)。
+
 slc_matrix_mul由in真实交付驱动，保留内部多表插值和外部奇偶序列锁存两种目标来源。
 每样本先平滑矩阵再混音，完成后显式emit out(1)，下游失败不回滚。
 序列模式不使用插值模式的近零系数瞬切；三个矩阵BULK槽保持实际rows×cols形状和双缓冲。

@@ -1,101 +1,27 @@
 id: orpheus.builtin.noise_detector_ab
-name: "双端噪声与失真估计"
-category: "频域与分析"
-description: 双端口(ref=干净/参考输入, in=被测/处理后信号)互功率谱+相干检测链路引入的失真与噪声；直通输出，readback 上报 thd_n/noise_frames/noise_ratio/clicks 及各频带相干
+name: 双端噪声与失真估计
+category: 频域与分析
+description: ref仅供数据，in驱动显式FFT批次的互功率谱与相干估计；逐窗统计噪声占比，直通后交付，JSON仅非实时生成
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: NoiseDetectorAbState
-sources:
-  - src/noise_detector_ab.c
-headers:
-  - include/orpheus_noise_detector_ab.h
-ports:
-  - id: ref
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: smoothing
-    name: 平滑块数
-    type: int
-    default: 16
-    range: [1, 128]
-    update_policy: restart_required
-  - id: threshold_db
-    name: 失真噪声阈值
-    type: float
-    default: -40.0
-    range: [-120.0, 0.0]
-    unit: dB
-    update_policy: restart_required
-  - id: time_thres
-    name: 时域残差阈值
-    type: float
-    default: 0.02
-    range: [0.0, 1.0]
-    update_policy: restart_required
-  - id: thd_n_db
-    name: 失真+噪声
-    type: float
-    default: 0.0
-    readback: true
-    update_policy: immediate
-  - id: noise_frames
-    name: 噪声帧数
-    type: int
-    default: 0
-    readback: true
-    update_policy: immediate
-  - id: noise_ratio
-    name: 噪声占比
-    type: float
-    default: 0.0
-    readback: true
-    update_policy: immediate
-  - id: clicks
-    name: 突刺计数
-    type: int
-    default: 0
-    readback: true
-    update_policy: immediate
-  - id: residue_pk
-    name: 残差峰值
-    type: float
-    default: 0.0
-    readback: true
-    update_policy: immediate
-  - id: detail
-    name: 频带明细
-    type: string
-    default: "{}"
-    readback: true
-    update_policy: immediate
-bulk_slots: []
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: false
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+algorithm:
+  lifecycle: [normalize, prepare, reset, destroy, get_parameter]
+interfaces:
+  ref: {direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", process: false}
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", drive_port_no: 1}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  fft_size: {name: FFT窗口点数, type: int, default: 128, range: [4, 4096], update_policy: restart_required, affects_signature: true}
+  batches: {name: 顺序窗口数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  smoothing: {name: 平滑窗口数, type: int, default: 16, range: [1, 128], update_policy: restart_required}
+  threshold_db: {name: 失真噪声阈值, type: float, default: -40.0, range: [-120.0, 0.0], unit: dB, update_policy: restart_required}
+  time_thres: {name: 时域残差阈值, type: float, default: 0.02, range: [0.0, 1.0], update_policy: restart_required}
+  thd_n_db: {name: 失真+噪声, type: float, default: 0.0, kind: probe, access: read, readback: true}
+  noise_frames: {name: 噪声窗口数, type: int, default: 0, kind: probe, access: read, readback: true}
+  noise_ratio: {name: 噪声占比, type: float, default: 0.0, kind: probe, access: read, readback: true}
+  clicks: {name: 突刺计数, type: int, default: 0, kind: probe, access: read, readback: true}
+  residue_pk: {name: 残差峰值, type: float, default: 0.0, kind: probe, access: read, readback: true}
+  detail: {name: 频带明细, type: string, default: "{}", capacity: 1024, kind: probe, access: read, readback: true}
+memory: {alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}
