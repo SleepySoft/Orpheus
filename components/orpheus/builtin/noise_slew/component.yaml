@@ -1,54 +1,20 @@
 id: orpheus.builtin.noise_slew
 name: "音频变化率限幅"
 category: "增益与动态"
-description: 逐样本变化率限幅（rise/fall 速率，抑制突变噪声）
-version: 1.0.1
-abi_version: 6
+description: >-
+  逐样本变化率限幅；每通道保存上次输出，按rise/fall速率限制本次增量。
+  速率除以prepare采样率得到每样本限幅，运行期改速率同步更新实际限幅，不清历史。
+  保留逐次float32运算与NaN传播，不作噪声检测。支持精确原地，拒绝部分重叠。
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: NoiseSlewState
-sources:
-  - src/noise_slew.c
-headers:
-  - include/orpheus_noise_slew.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: rise_rate
-    name: 上升速率
-    type: float
-    default: 1.0
-    range: [0.0001, 100.0]
-    unit: "/s"
-    update_policy: smoothed
-  - id: fall_rate
-    name: 下降速率
-    type: float
-    default: 1.0
-    range: [0.0001, 100.0]
-    unit: "/s"
-    update_policy: smoothed
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: false
-  latency_samples: 0
-  supports_inplace: true
-  realtime_safe: true
+algorithm:
+  lifecycle: [prepare, reset, set_parameter]
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1, drive_divide: 1}
+  rise_rate: {name: 上升速率, type: float, default: 1.0, range: [0.0001, 100.0], unit: "/s", update_policy: smoothed}
+  fall_rate: {name: 下降速率, type: float, default: 1.0, range: [0.0001, 100.0], unit: "/s", update_policy: smoothed}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {sample_rate_independent: false, latency_samples: 0, supports_inplace: true, realtime_safe: true}

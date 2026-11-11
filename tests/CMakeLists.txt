@@ -89,6 +89,16 @@ if(UNIX)
 endif()
 add_test(NAME observation_probes_smoke COMMAND observation_probes_smoke)
 
+add_executable(noise_slew_smoke noise_slew_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_slew/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_slew/user/algorithm.c)
+target_include_directories(noise_slew_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_slew/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_slew/user)
+target_compile_definitions(noise_slew_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME noise_slew_smoke COMMAND noise_slew_smoke)
+
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
 foreach(adapter rational_resample block_split circular_buffer resample)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})

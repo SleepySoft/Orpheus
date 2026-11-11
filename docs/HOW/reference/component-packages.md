@@ -237,6 +237,15 @@ reset 清历史及探针，prepare 重建私有资源，destroy 释放。
 只读 PROBE 的整组读取使用 form=BULK，Runtime 与生成代码均支持名称和数据 ID，
 不能因 kind=PROBE 而拒绝读取；整组写入与普通参数写入仍拒绝。
 
+noise_slew 的 in 每次到达均按通道推进逐样本历史并交付 1 号 out，
+保留原来的减法、正负增量选择、上下限比较和加法顺序及 NaN 传播。
+prepare 按采样率计算每样本限幅，reset 只清历史；
+修复运行期 rise_rate/fall_rate 仅修改回读值却不更新实际限幅的旧问题，
+两条执行路径均通过参数 hook 更新派生缓存，不清历史。
+未提供采样率时仍沿用每样本 0.0001 的原规则。
+精确原地合法，部分重叠、缺失输入/输出及不足交付明确拒绝；
+零量子不续调，下游失败不回滚已递推状态，无隐式堆状态或 process 分配。
+
 complex_power 的 in 驱动逐批功率及能量计算；按实际算法调用点依次交付
 1 号 power、2 号 energy。complex_gain_split 的 in 驱动，
 gain 是不触发运算的 latest 数组；依次交付 1 号 impulse、2 号 reverb。
