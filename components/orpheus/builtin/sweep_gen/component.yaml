@@ -4,75 +4,79 @@ category: "输入与输出"
 description: "产生线性或对数扫频正弦音频，报告进度和当前频率；起止频率、时长、幅度和采样率可配置。"
 order: 2
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: SweepGenState
 clock_source: true
 clock_domain: synthetic
-sources:
-  - src/sweep_gen.c
-headers:
-  - include/orpheus_sweep_gen.h
-ports:
-  - id: out
+algorithm:
+  lifecycle: [prepare, reset, set_parameter]
+interfaces:
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
     sample_rate: param:sample_rate
-parameters:
-  - id: progress
+    drive_port_no: 1
+  progress:
     name: 扫频进度
     type: float
     default: 0.0
+    kind: probe
+    access: read
+    persistent: false
     readback: true
     update_policy: immediate
-  - id: current_freq
+  current_freq:
     name: 当前频率
     type: float
     default: 0.0
+    kind: probe
+    access: read
+    persistent: false
     readback: true
     update_policy: immediate
-  - id: sample_rate
+  sample_rate:
     name: 采样率
     type: int
     default: 48000
     range: [8000, 192000]
     unit: Hz
     update_policy: restart_required
-  - id: start_freq
+    affects_signature: true
+  start_freq:
     name: 起始频率
     type: float
     default: 20.0
     range: [1.0, 20000.0]
     unit: Hz
     update_policy: restart_required
-  - id: end_freq
+  end_freq:
     name: 结束频率
     type: float
     default: 20000.0
     range: [1.0, 20000.0]
     unit: Hz
     update_policy: restart_required
-  - id: duration_s
+  duration_s:
     name: 扫频时长
     type: float
     default: 5.0
     range: [0.1, 300.0]
     unit: s
     update_policy: restart_required
-  - id: amplitude
+  amplitude:
     name: 幅度
     type: float
     default: 0.7
     range: [0.0, 1.0]
     update_policy: smoothed
-  - id: log_scale
+  log_scale:
     name: 对数扫频
     type: bool
     default: true
     update_policy: restart_required
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2

@@ -42,6 +42,17 @@
 |---|---|---|
 | `out` | 输出 | 扫频正弦，`channels` 通道 × `sample_rate` 采样率。 |
 
+## 接口化执行
+
+接口配置经独立 CLI 生成类型化壳；Task 只调用源，源生成本次样本后显式交付
+1 号 `out`。保留双精度时间/相位、线性/对数公式与超过 64 个周期时
+仅减一次的原相位运算顺序，跨调用不重置时间。
+两个探针明确只读，运行期仅 amplitude 可写。
+reset 仅清时间和相位，探针在下一次处理后更新；
+零帧事件不推进时间，按原行为将 current_freq 更新为 0 并交付。
+下游失败不回滚已推进的时间/相位；输出容量不足、缺失缓冲或 State 别名明确拒绝。
+定向回归：`orpheus_core/tests/test_sweep_gen_interfaces.py`。
+
 ## UI 行为
 
 UI 节点本体（`nodeWidgets.js` 的 `SweepGenWidget`）显示一条进度条和当前频率（如 `1.25 kHz`），扫完显示"完成/已结束"，方便确认此刻是谁在发声。
@@ -50,7 +61,8 @@ UI 节点本体（`nodeWidgets.js` 的 `SweepGenWidget`）显示一条进度条�
 
 - 除 `amplitude` 外所有参数都是 `restart_required`：改起止频率、时长、对数开关、通道数都需要重新编译/重启。
 - `end_freq` 可以小于 `start_freq`（向下扫），公式同样成立。
-- `amplitude` 为 smoothed，运行时调整不会爆音；上限 1.0，测量时建议留余量（默认 0.7）。
+- `amplitude` 标记为 smoothed，但原算法只是立即赋值，不内置斜坡；
+  需要无突变调幅时应显式接入包络。上限 1.0，测量时建议留余量（默认 0.7）。
 - 实时安全：`process` 内仅 `sin`/浮点累加，无分配、无 IO。
 
 ## 典型用法
