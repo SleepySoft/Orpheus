@@ -1,95 +1,92 @@
-"""input_select 基础路由与运行期 override 表测试。"""
-from __future__ import annotations
-
-import array
-import ctypes
-from pathlib import Path
+"""通道覆盖映射的真实四入口交付、运行期更新与位型验收。"""
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-DLL = ROOT / "build" / "components" / "liborpheus_builtin_input_select.dll"
+from orpheus_core.project import Connection, Graph, Node, PortRef, Project
+from orpheus_core.registry import Registry
+from test_channel_router_interfaces import SOURCE
+from test_interface_delivery import ROOT, audio, compile_delivery_backends, create_component, scalar
+from test_table_interfaces import check_four_entries, four_entry_harness
 
 
-class Value(ctypes.Structure):
-    class Union(ctypes.Union):
-        _fields_ = [("f32", ctypes.c_float), ("i32", ctypes.c_int32), ("b", ctypes.c_bool), ("s", ctypes.c_char_p)]
-    _anonymous_ = ("value",)
-    _fields_ = [("type", ctypes.c_int), ("value", Union)]
+CAPTURE = r'''
+#include "component_state.h"
+#include <string.h>
+int orpheus_test_selection_capture_algorithm(orpheus_test_selection_capture_State* s,
+    orpheus_test_selection_capture_IO* io,const OrpheusProcessContext* ctx) {
+    static const uint32_t bits[]={0x7fa12345,0x80000000,0x7fc76543,1,0x7f800000,0xff800000,0x3f800000};
+    static const int32_t map[2][@COUNT@]={{@BASE@},{@UPDATED@}};
+    if(ctx->frame_count!=8 || ctx->valid_frames!=8 || ctx->epoch!=1 ||
+        ctx->frame_index!=(uint64_t)(s->calls/2*8)) return ORPHEUS_ERR_INVALID_ARG;
+    for(unsigned n=0;n<8;n++) for(unsigned c=0;c<@COUNT@;c++) {
+        int32_t index=map[s->calls/2][c];
+        uint32_t expected=index<0 ? 0 : bits[(n+index+s->calls%2+s->calls/2)%7],actual;
+        memcpy(&actual,io->in.samples+n*@COUNT@+c,4);
+        if(actual!=expected) return ORPHEUS_ERR_PROCESSING;
+    }
+    s->calls++;s->frame=(int32_t)ctx->frame_index;
+    return ORPHEUS_OK;
+}
+'''
 
 
-class Buffer(ctypes.Structure):
-    _fields_ = [("data", ctypes.c_void_p), ("format", ctypes.c_int), ("channels", ctypes.c_uint32),
-                ("frame_capacity", ctypes.c_uint32), ("frame_count", ctypes.c_uint32), ("interleaved", ctypes.c_bool)]
-
-
-class Config(ctypes.Structure):
-    _fields_ = [("sample_rate", ctypes.c_double), ("block_size", ctypes.c_uint32), ("channels", ctypes.c_uint32),
-                ("param_ids", ctypes.POINTER(ctypes.c_char_p)), ("param_values", ctypes.POINTER(Value)),
-                ("param_count", ctypes.c_uint32), ("state_block", ctypes.c_void_p)]
-
-
-class Context(ctypes.Structure):
-    _fields_ = [("state", ctypes.c_void_p), ("inputs", ctypes.POINTER(ctypes.POINTER(Buffer))),
-                ("outputs", ctypes.POINTER(ctypes.POINTER(Buffer))), ("input_count", ctypes.c_uint32),
-                ("output_count", ctypes.c_uint32), ("frame_count", ctypes.c_uint32),
-                ("sample_rate", ctypes.c_double), ("scratch", ctypes.c_void_p), ("scratch_size", ctypes.c_size_t),
-                ("timestamp", ctypes.c_double), ("frame_index", ctypes.c_uint64), ("epoch", ctypes.c_uint64),
-                ("valid_frames", ctypes.c_uint32), ("timeline_flags", ctypes.c_uint32),
-                ("continuation", ctypes.c_void_p)]
-
-
-CREATE = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(Config))
-STATE = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p)
-PREPARE = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(Config))
-PROCESS = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(Context))
-SET = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(Value))
-
-
-class Interface(ctypes.Structure):
-    _fields_ = [("get_descriptor", ctypes.c_void_p), ("create", CREATE), ("destroy", STATE),
-                ("prepare", PREPARE), ("reset", STATE), ("process", PROCESS),
-                ("set_parameter", SET), ("get_parameter", ctypes.c_void_p),
-                ("get_state_value", ctypes.c_void_p), ("register_slots", ctypes.c_void_p), ("hook", ctypes.c_void_p)]
-
-
-def _instance():
-    dll = ctypes.CDLL(str(DLL))
-    dll.orpheus_get_interface.restype = ctypes.POINTER(Interface)
-    interface = dll.orpheus_get_interface().contents
-    names = (ctypes.c_char_p * 4)(b"channels_in", b"channels_out", b"select", b"override_select")
-    values = (Value * 4)()
-    values[0].type, values[0].i32 = 1, 4
-    values[1].type, values[1].i32 = 1, 4
-    values[2].type, values[2].s = 3, b"1,2,3,4"
-    values[3].type, values[3].s = 3, b"0,0,0,0"
-    config = Config(48000, 1, 4, names, values, 4, None)
-    state = ctypes.c_void_p()
-    assert interface.create(ctypes.byref(state), ctypes.byref(config)) == 0
-    assert interface.prepare(state, ctypes.byref(config)) == 0
-    return dll, interface, state, (names, values, config)
-
-
-def _process(interface, state):
-    source = array.array("f", [1.0, 2.0, 3.0, 4.0])
-    target = array.array("f", [0.0] * 4)
-    input_buffer = Buffer(source.buffer_info()[0], 0, 4, 1, 1, True)
-    output_buffer = Buffer(target.buffer_info()[0], 0, 4, 1, 1, True)
-    inputs = (ctypes.POINTER(Buffer) * 1)(ctypes.pointer(input_buffer))
-    outputs = (ctypes.POINTER(Buffer) * 1)(ctypes.pointer(output_buffer))
-    context = Context(None, inputs, outputs, 1, 1, 1, 48000, None, 0, 0.0, 0, 1, 1, 1)
-    assert interface.process(state, ctypes.byref(context)) == 0
-    return target.tolist()
-
-
-@pytest.mark.skipif(not DLL.exists(), reason="input_select not built")
-def test_override_zero_keeps_base_and_invalid_mutes() -> None:
-    _, interface, state, keepalive = _instance()
-    assert _process(interface, state) == [1.0, 2.0, 3.0, 4.0]
-    override = Value()
-    override.type = 3
-    override.s = b"0,4,99,-1"
-    assert interface.set_parameter(state, b"override_select", ctypes.byref(override)) == 0
-    assert _process(interface, state) == [1.0, 4.0, 0.0, 0.0]
-    interface.destroy(state)
-    assert keepalive
+@pytest.mark.parametrize("channels,count,base,override,base_map,updated_map", [
+    (1, 7, "", "0,1,2,0,-1", [0, -1, -1, -1, -1, -1, -1], [0, 0, -1, -1, -1, -1, -1]),
+    (4, 4, "1,2,3,4", "0,4,99,-1", [0, 1, 2, 3], [0, 3, -1, -1]),
+    (3, 8, "3,1", "0,2,0,3", [2, 0, 2, -1, -1, -1, -1, -1], [2, 1, 2, 2, -1, -1, -1, -1]),
+    (32, 32, ",".join(str(i) for i in range(32, 0, -1)),
+     ",".join(str(i) for i in [0, 32, 1, 33, -1, 2147483647, -2147483648, 0] * 4),
+     list(range(31, -1, -1)),
+     [v for i in range(4) for v in [31 - i * 8, 31, 0, -1, -1, -1, -1, 24 - i * 8]]),
+])
+def test_override_zero_keeps_base_and_invalid_mutes_four_entries(
+    tmp_path, channels, count, base, override, base_map, updated_map,
+):
+    source = create_component(tmp_path, "router_source", {
+        "out": audio("output", channels=channels, drive_port_no=1), "ticks": scalar("int", 0),
+    }, SOURCE, source=True)
+    capture = create_component(tmp_path, "selection_capture", {
+        "in": audio("input", channels=count, process=True),
+        "calls": scalar("int", 0), "last": scalar("float", 0.0), "frame": scalar("int", 0),
+    }, CAPTURE.replace("@COUNT@", str(count)).replace("@BASE@", ",".join(map(str, base_map)))
+        .replace("@UPDATED@", ",".join(map(str, updated_map))))
+    selector = ROOT / "components" / "orpheus" / "builtin" / "input_select" / "component.yaml"
+    manifests = [source, selector, capture]
+    registry = Registry()
+    for manifest in manifests:
+        registry.add_manifest(manifest)
+    project = Project(flow_mode="task_sequence", block_size=8, graph=Graph(nodes={
+        "source": Node("source", "orpheus.test.router_source"),
+        "selector": Node("selector", "orpheus.builtin.input_select", params={
+            "channels_in": channels, "channels_out": count, "select": base,
+        }),
+        "capture": Node("capture", "orpheus.test.selection_capture"),
+    }, connections=[
+        Connection(PortRef("source", "out"), PortRef("selector", "in")),
+        Connection(PortRef("selector", "out"), PortRef("capture", "in")),
+    ]))
+    update = r'''
+        if(tick) {
+            OrpheusValue value={ORPHEUS_VALUE_STRING};value.value.str="@OVERRIDE@";
+#ifdef DYNAMIC
+            if(runtime.set_parameter("selector","override_select",value)) return 10;
+#else
+            if(orpheus_control_set_value("selector","override_select",value)) return 10;
+#endif
+        }
+'''
+    readback = r'''
+        OrpheusValue actual={ORPHEUS_VALUE_STRING};
+#ifdef DYNAMIC
+        if(runtime.get_parameter("selector","override_select",&actual)) return 11;
+#else
+        if(orpheus_control_get_value("selector","override_select",&actual)) return 11;
+#endif
+        if(actual.type!=ORPHEUS_VALUE_STRING || strcmp(actual.value.str,tick ? "@OVERRIDE@" : "")) return 12;
+'''
+    harness = ("#include <string.h>\n" + four_entry_harness()).replace(
+        "for(int tick=0;tick<2;tick++) {",
+        "for(int tick=0;tick<2;tick++) {" + update.replace("@OVERRIDE@", override),
+    ).replace('        printf(', readback.replace("@OVERRIDE@", override) + '        printf(')
+    case = compile_delivery_backends(tmp_path, registry, project, manifests, harness)
+    check_four_entries(case, [[0, 2, 0, 0], [1, 4, 0, 8]])

@@ -649,6 +649,16 @@ target_include_directories(bulk_subtract_smoke PRIVATE
 target_compile_definitions(bulk_subtract_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME bulk_subtract_smoke COMMAND bulk_subtract_smoke)
 
+add_executable(input_select_smoke input_select_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/input_select/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/input_select/user/algorithm.c)
+target_include_directories(input_select_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/input_select/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/input_select/user)
+target_compile_definitions(input_select_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME input_select_smoke COMMAND input_select_smoke)
+
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
     set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})

@@ -1,51 +1,51 @@
 id: orpheus.builtin.input_select
 name: "固定索引通道选择"
 category: "路由与混音"
-description: 通道选择/解复用，每路输出选取一路输入（select 为逗号分隔 1 起索引，0=静音）
+description: 1起点通道映射，非正值和越界静音；空或短基础映射保留其余顺序通道，覆盖映射的0沿用基础值。每次实际到达交付，非法CSV明确拒绝。
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: InputSelectState
-sources:
-  - src/input_select.c
-headers:
-  - include/orpheus_input_select.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [validate, prepare, reset, set_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels_in
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels_out
-parameters:
-  - id: channels_in
+    drive_port_no: 1
+  channels_in:
     name: 输入通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: channels_out
+  channels_out:
     name: 输出通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: select
+  select:
     name: 选择映射
     type: string
-    default: "1,2"
+    default: ""
+    capacity: 256
     update_policy: restart_required
     widget: text
-  - id: override_select
+  override_select:
     name: 运行期覆盖映射(0=沿用基础映射)
     type: string
     default: ""
+    capacity: 256
     update_policy: block_boundary
     widget: text
 memory:
