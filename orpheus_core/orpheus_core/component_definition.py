@@ -103,6 +103,13 @@ def encode_array_initializer(parameter: dict, value: object, *, location: str | 
     return ",".join(encoded)
 
 
+def _parameter_default(parameter):
+    if "default" in parameter:
+        return parameter["default"]
+    zero = {"float": 0.0, "int": 0, "bool": False, "string": ""}[parameter["type"]]
+    return [zero] * parameter["count"] if is_array_parameter(parameter) else zero
+
+
 def _identifier(value, location):
     if not isinstance(value, str) or not _IDENTIFIER.fullmatch(value) or value in _KEYWORDS:
         _fail("必须是非保留的 C 标识符（字母开头）", location)
@@ -222,7 +229,7 @@ def _port_count_bounds(key, port, interfaces):
             any(type(v) is not int for v in bounds) or
             not lower <= bounds[0] <= bounds[1] <= 2147483647):
         _fail("count 参数须有有限整数 range，非 optional 组的下界至少为 1", location)
-    default = parameter.get("default")
+    default = _parameter_default(parameter)
     if type(default) is not int or not bounds[0] <= default <= bounds[1]:
         _fail("count 参数默认值必须是 range 内的整数", location)
     return bounds[0], bounds[1], default
@@ -422,12 +429,12 @@ def _validate(raw):
                 if "drive_port_no" not in item or type(value) is not int or not 1 <= value <= 4294967294:
                     _fail("drive_divide 必须是驱动出口上的正整数（仅显示用途）", loc)
         else:
-            if "default" not in item:
+            if "default" not in item and not (item.get("kind") == "probe" and item.get("access") == "read"):
                 _fail("标量参数必须声明 default", loc)
-            value = item["default"]
             count = item.get("count", 1)
             if type(count) is not int or not 1 <= count <= 65536:
                 _fail("参数 count 必须是 1..65536 的固定整数", loc)
+            value = _parameter_default(item)
             is_array = is_array_parameter(item)
             if count > 1 and kind == "string":
                 _fail("不支持固定字符串数组", loc + ".default")
@@ -584,7 +591,7 @@ def _validate(raw):
                 if (parameter.get("type") != "int" or is_array_parameter(parameter) or
                         not (parameter.get("affects_signature") or field in count_parameters)):
                     _fail("签名参数引用必须指向 affects_signature 的 int 参数", f"interfaces.{node[0]}.{node[1]}")
-                if parameter["default"] < 1 or ("range" in parameter and parameter["range"][0] < 1):
+                if _parameter_default(parameter) < 1 or ("range" in parameter and parameter["range"][0] < 1):
                     _fail("签名参数必须保持正数", f"interfaces.{target}.{field}")
                 maximum *= parameter.get("range", [1, 2147483647])[1]
             else:
@@ -615,7 +622,7 @@ def _validate(raw):
                 factor = int(atom)
             else:
                 target, attr = atom.split(":")
-                factor = (interfaces[attr]["default"] if target == "param" else
+                factor = (_parameter_default(interfaces[attr]) if target == "param" else
                           None if target == "task" else default_signature(target, attr))
             if factor is None:
                 return None
@@ -640,7 +647,7 @@ def _validate(raw):
     for resource in component_bulk_resources(interfaces):
         size = 1
         for dimension in resource["shape"]:
-            value = interfaces[dimension.split(":")[1]]["default"] if isinstance(dimension, str) else dimension
+            value = _parameter_default(interfaces[dimension.split(":")[1]]) if isinstance(dimension, str) else dimension
             size *= value
         if size < 1 or size > resource["count"]:
             _fail("资源默认 shape 的元素数必须在物理容量内", f"interfaces.{resource['id']}.shape")
@@ -710,6 +717,8 @@ def normalize_component_definition(raw: dict) -> dict:
                     item["count_param"] = value["count"].split(":")[1]
             result["ports"].append(item)
         else:
+            if "default" not in item:
+                item["default"] = _parameter_default(item)
             item.setdefault("update_policy", "block_boundary")
             if key in count_parameters:
                 item["affects_signature"] = True

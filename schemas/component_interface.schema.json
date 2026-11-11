@@ -196,13 +196,13 @@
     },
     "parameter": {
       "type": "object",
-      "required": ["type", "default"],
+      "required": ["type"],
       "additionalProperties": false,
       "properties": {
         "name": {"type": "string"},
         "description": {"type": "string"},
         "type": {"enum": ["float", "int", "bool", "string"]},
-        "default": {},
+        "default": {"description": "仅显式 kind:probe 且 access:read 可省略：按类型初始化零值，定长数值数组展开为 count 个零；显式值仍须完整声明。"},
         "range": {
           "type": "array", "minItems": 2, "maxItems": 2,
           "items": {"type": "number"}
@@ -241,6 +241,9 @@
         }
       },
       "allOf": [
+        {"if": {"required": ["kind", "access"], "properties": {
+          "kind": {"const": "probe"}, "access": {"const": "read"}
+        }}, "else": {"required": ["default"]}},
         {"if": {"properties": {"type": {"const": "float"}}}, "then": {"properties": {"default": {"oneOf": [
           {"type": "number", "minimum": -3.4028234663852886e38, "maximum": 3.4028234663852886e38},
           {"type": "array", "items": {"type": "number", "minimum": -3.4028234663852886e38, "maximum": 3.4028234663852886e38}}

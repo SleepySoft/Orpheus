@@ -193,6 +193,18 @@ NULL 输出仍推进并交付，零量子不推进，下游失败不回滚游标
 
 ## 复数运算与频谱载荷
 
+psd 的普通 audio in 按实际交付量子处理，分析后原样交付 1 号 out，
+不把 PCM 块声明为固定频谱载荷。保留原 radix-2 FFT、幅度 EMA 和通道 0
+到 1023 点 spectrum 的线性映射，不新增窗或改为平方功率。
+仅实际块长为 2 的幂且匹配 prepare 尺寸时更新分析历史；
+其它块和短交付只旁通，不更新探针。精确原地和部分重叠均先分析后复制，
+下游失败不回滚已更新的历史；reset 清历史及探针，destroy 释放私有 FFT 缓冲。
+
+接口参数仅在 `kind: probe` 且 `access: read` 时允许省略 default，
+独立校验/生成工具按类型及 count 派生零值，用于只读分析结果而非可写设置。
+显式提供 default 时仍严格检查类型及完整数组长度，不接受标量广播；
+其它参数仍必须声明 default。
+
 complex_power 的 in 驱动逐批功率及能量计算；按实际算法调用点依次交付
 1 号 power、2 号 energy。complex_gain_split 的 in 驱动，
 gain 是不触发运算的 latest 数组；依次交付 1 号 impulse、2 号 reverb。

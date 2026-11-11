@@ -2,46 +2,44 @@ id: orpheus.builtin.psd
 name: "平滑功率谱估计"
 category: "频域与分析"
 description: 自功率谱估计（逐块 FFT + 指数平滑），spectrum readback 供 UI 频谱曲线；音频直通
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: PsdState
-sources:
-  - src/psd.c
-headers:
-  - include/orpheus_psd.h
-ports:
-  - id: in
+algorithm: {lifecycle: [prepare, reset, destroy]}
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: channels
+    drive_port_no: 1
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: smoothing
+  smoothing:
     name: 平滑块数
     type: int
     default: 8
     range: [1, 128]
     update_policy: restart_required
-  - id: spectrum
+  spectrum:
     name: 功率谱
     type: float
     count: 1023
-    default: 0.0
     kind: probe
     readback: true
+    access: read
+    persistent: false
     update_policy: immediate
 memory:
   state_size: 0

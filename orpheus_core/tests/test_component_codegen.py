@@ -4119,3 +4119,190 @@ int main(void) {
 }
 '''.replace("EXPECTED", str(expected)), encoding="utf-8", newline="\n")
     (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)
+
+
+@pytest.mark.parametrize("kind,zero,count", [
+    (kind, zero, count)
+    for kind, zero in [("float", 0.0), ("int", 0), ("bool", False), ("string", "")]
+    for count in [None, 1, 7, 1023] if kind != "string" or count is None
+])
+def test_readonly_probe_omitted_default_is_typed_normalized_zero_without_mutating_source(
+        package, raw, kind, zero, count):
+    import jsonschema
+    parameter = {"type": kind, "kind": "probe", "access": "read", "readback": True, "persistent": False}
+    if count is not None:
+        parameter["count"] = count
+    raw["interfaces"] = {"observed": parameter}
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    before = snapshot(package)
+    loaded = load_component_definition(path)
+    assert "default" not in loaded["interfaces"]["observed"]
+    normalized = normalize_component_definition(loaded)
+    expected = zero if count is None else [zero] * count
+    actual = normalized["parameters"][0]["default"]
+    assert actual == expected
+    assert type(actual if count is None else actual[0]) is type(zero)
+    assert "default" not in normalized["interfaces"]["observed"]
+    assert "default" not in raw["interfaces"]["observed"]
+    assert snapshot(package) == before
+    for script in ("validate_component.py", "generate_component.py"):
+        result = subprocess.run([str(PYTHON), str(ROOT / "scripts" / script), str(path), "--format", "json"],
+                                cwd=package, capture_output=True, encoding="utf-8")
+        assert result.returncode == 0, result.stderr + result.stdout
+        assert json.loads(result.stdout)["ok"] is True
+        if script == "validate_component.py":
+            assert snapshot(package) == before
+    check_generated(path)
+
+
+@pytest.mark.parametrize("parameter", [
+    {"kind": "probe"}, {"kind": "probe", "readonly": True},
+    {"kind": "probe", "access": "write"}, {"kind": "probe", "access": "read_write"},
+    {"kind": "setting", "access": "read"}, {"kind": "state", "access": "read"},
+    {"kind": "bulk", "access": "read"}, {"access": "read", "readonly": True}, {},
+])
+@pytest.mark.parametrize("array", [False, True])
+def test_readonly_probe_default_omission_is_not_inferred_for_other_access_or_kinds(package, raw, parameter, array):
+    import jsonschema
+    item = {"type": "float", **parameter}
+    if array:
+        item["count"] = 3
+    raw["interfaces"] = {"observed": item}
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(raw, schema)
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("parameter", [
+    {"type": "float", "count": 3, "default": 0.0},
+    {"type": "float", "count": 3, "default": [0.0, 0.0]},
+    {"type": "float", "count": 1, "default": [False]},
+    {"type": "int", "count": 2, "default": [0, 0.0]},
+    {"type": "bool", "count": 2, "default": [False, 0]},
+    {"type": "float", "default": None},
+    {"type": "float", "default": False},
+    {"type": "float", "count": 2, "default": [0.0, float("nan")]},
+    {"type": "float", "range": [1, 8]},
+    {"type": "int", "count": 2, "range": [1, 8]},
+    {"type": "float", "count": 0},
+    {"type": "float", "count": 65537},
+    {"type": "float", "count": True},
+])
+def test_readonly_probe_zero_inference_never_broadcasts_or_bypasses_default_validation(package, raw, parameter):
+    raw["interfaces"] = {"observed": {"kind": "probe", "access": "read", **parameter}}
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError):
+        generate_component(path)
+    result = subprocess.run(
+        [str(PYTHON), str(ROOT / "scripts" / "generate_component.py"), str(path), "--format", "json"],
+        cwd=package, capture_output=True, encoding="utf-8")
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["ok"] is False
+    assert snapshot(package) == before
+
+
+def test_readonly_probe_explicit_defaults_and_signature_reference_validation_remain_strict(package, raw):
+    import jsonschema
+    raw["interfaces"] = {
+        "observed": {"type": "float", "count": 2, "kind": "probe", "access": "read", "default": [1.5, 2.5]},
+    }
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    assert normalize_component_definition(raw)["parameters"][0]["default"] == [1.5, 2.5]
+    del raw["interfaces"]["observed"]["default"]
+    generated = normalize_component_definition(raw)
+    generated["parameters"][0]["default"][0] = 9
+    assert normalize_component_definition(raw)["parameters"][0]["default"] == [0.0, 0.0]
+    raw["interfaces"] = {
+        "in": {"type": "bulk", "direction": "input", "channels": "param:observed"},
+        "observed": {"type": "int", "kind": "probe", "access": "read",
+                     "affects_signature": True, "update_policy": "restart_required"},
+    }
+    with pytest.raises(ComponentDefinitionError, match="正数"):
+        generate_component(save(package, raw))
+
+
+@pytest.mark.parametrize("cpp", [False, True])
+@pytest.mark.parametrize("count", [1, 1023])
+def test_real_readonly_probe_inferred_defaults_register_typed_arrays_and_reject_setters(package, raw, cpp, count):
+    raw["interfaces"] = {
+        name: {"type": kind, "kind": "probe", "access": "read", "readback": True, "persistent": False,
+               **({"count": size} if size is not None else {})}
+        for name, kind, size in [
+            ("values", "float", count), ("integers", "int", 2), ("switches", "bool", 2),
+            ("level", "float", None), ("position", "int", None), ("ready", "bool", None), ("text", "string", None)]
+    }
+    generate_component(save(package, raw))
+    (package / "user" / "algorithm.c").write_text(r'''
+#include "component_state.h"
+#include <string.h>
+int test_pilot_algorithm(test_pilot_State* s,test_pilot_IO* io,const OrpheusProcessContext* ctx) {
+    (void)io;(void)ctx;
+    for(unsigned i=0;i<COUNT;i++) s->values[i]=(float)i+1;
+    s->integers[0]=-3;s->switches[1]=true;
+    s->level=2.5f;s->position=17;s->ready=true;strcpy(s->text,"ready");
+    return ORPHEUS_OK;
+}
+'''.replace("COUNT", str(count)), encoding="utf-8", newline="\n")
+    (package / "harness.c").write_text(r'''
+#include "component_state.h"
+#include <assert.h>
+#include <string.h>
+static test_pilot_State* current;
+static unsigned registrations;
+static OrpheusSlotId add(void* user,const OrpheusSlotInfo* slot) {
+    (void)user;++registrations;
+    assert(slot->kind==ORPHEUS_SLOT_PROBE);
+    assert((slot->flags&ORPHEUS_SLOT_READBACK) && !(slot->flags&ORPHEUS_SLOT_PERSISTENT));
+    if(strcmp(slot->key,"values")==0) {
+        assert(slot->count==COUNT && slot->type==ORPHEUS_VALUE_FLOAT);
+        assert((char*)current+slot->offset==(char*)current->values);
+    } else if(strcmp(slot->key,"integers")==0) {
+        assert(slot->count==2 && slot->type==ORPHEUS_VALUE_INT);
+        assert((char*)current+slot->offset==(char*)current->integers);
+    } else if(strcmp(slot->key,"switches")==0) {
+        assert(slot->count==2 && slot->type==ORPHEUS_VALUE_BOOL);
+        assert((char*)current+slot->offset==(char*)current->switches);
+    }
+    return registrations;
+}
+static void check_zero(test_pilot_State* state) {
+    for(unsigned i=0;i<COUNT;i++) assert(state->values[i]==0.0f);
+    assert(state->integers[0]==0 && state->integers[1]==0);
+    assert(!state->switches[0] && !state->switches[1]);
+    assert(state->level==0.0f && state->position==0 && !state->ready && state->text[0]==0);
+}
+int main(void) {
+    const OrpheusComponentInterface* api=orpheus_get_interface();
+    test_pilot_State state;void* instance=NULL;OrpheusConfig config={.state_block=&state};
+    assert(api->create(&instance,&config)==ORPHEUS_OK);check_zero(&state);
+    assert(api->prepare(instance,&config)==ORPHEUS_OK);check_zero(&state);
+    current=&state;OrpheusRegistry registry={.add=add};
+    assert(api->register_slots(instance,&registry)==ORPHEUS_OK && registrations==7);
+    OrpheusProcessContext ctx={.frame_count=8,.trigger_input=UINT32_MAX};
+    assert(api->process(instance,&ctx)==ORPHEUS_OK);
+    assert(state.values[COUNT-1]==(float)COUNT && state.integers[0]==-3 && state.switches[1]);
+    OrpheusValue readback;
+    assert(api->get_parameter(instance,"level",&readback)==ORPHEUS_OK && readback.value.f32==2.5f);
+    assert(api->get_parameter(instance,"position",&readback)==ORPHEUS_OK && readback.value.i32==17);
+    assert(api->get_parameter(instance,"ready",&readback)==ORPHEUS_OK && readback.value.b);
+    assert(api->get_parameter(instance,"text",&readback)==ORPHEUS_OK && strcmp(readback.value.str,"ready")==0);
+    unsigned char before[sizeof(state)];memcpy(before,&state,sizeof(state));
+    const char* keys[]={"values","integers","switches","level","position","ready","text"};
+    for(unsigned i=0;i<7;i++) {
+        assert(api->set_parameter(instance,keys[i],&readback)==ORPHEUS_ERR_UNSUPPORTED);
+        assert(memcmp(before,&state,sizeof(state))==0);
+    }
+    assert(api->prepare(instance,&config)==ORPHEUS_OK);check_zero(&state);
+    assert(api->destroy(instance)==ORPHEUS_OK);return 0;
+}
+'''.replace("COUNT", str(count)), encoding="utf-8", newline="\n")
+    (_compile_cpp_component_algorithm_harness if cpp else _compile_component_harness)(package)

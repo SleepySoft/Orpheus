@@ -38,6 +38,19 @@ target_include_directories(interface_components_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${CMAKE_SOURCE_DIR}/components)
 add_test(NAME interface_components_smoke COMMAND interface_components_smoke)
 
+add_executable(psd_smoke psd_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/psd/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/psd/user/algorithm.c)
+target_include_directories(psd_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/psd/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/psd/user)
+target_compile_definitions(psd_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(UNIX)
+    target_link_libraries(psd_smoke PRIVATE m)
+endif()
+add_test(NAME psd_smoke COMMAND psd_smoke)
+
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
 foreach(adapter rational_resample block_split circular_buffer resample)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})
