@@ -12,7 +12,6 @@ from orpheus_core.compiler import GraphCompiler
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import Registry
-from array_graph_runner import use_linear_call_chain
 from test_phased_tone import f32
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,28 +54,34 @@ def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_r
                                (name+"_gain", "out", name+"_gain_out", "in"),
                                (name+"_gain", "gain0", name+"_track", "volume_gain"),
                                (name+"_gain", "gain0", name+"_observed", "scalar")):
-                edges.append(Connection(from_ref=PortRef(a, x), to_ref=PortRef(b, y)))
+                connection = Connection(from_ref=PortRef(a, x), to_ref=PortRef(b, y))
+                if a == name+"_route":
+                    edges.insert(0, connection)
+                else:
+                    edges.append(connection)
     project = Project(metadata={"name": "块级双dB非音频统计"}, tasks={"default": Task(id="default", sample_rate=48000, block_size=32)})
     project.graph = Graph(nodes=nodes, connections=edges)
     registry = Registry(); registry.add_search_path(ROOT / "components"); registry.scan()
     registry.add_manifest(FIXTURE / "component.yaml")
     plan = GraphCompiler(registry).compile(project)
     assert not plan.warnings
-    if trackers is None and volume_gains is None:
-        plan.entry_nodes = ["source"]
-        plan.call_graph = {node: [] for node in plan.node_configs}
-        for connection in edges:
-            source, target = connection.from_ref, connection.to_ref
-            config = plan.node_configs[source.node_id]
-            plan.call_graph[source.node_id].append({
-                "node": target.node_id, "every": 1, "phase": 0,
-                "output_port": config.get("output_drive_ports", {}).get(source.port_id, 0),
-                "input_port": plan.node_configs[target.node_id]["input_ports"].index(target.port_id),
-            })
-        for task in plan.tasks:
-            task["entry_nodes"] = ["source"]
-    else:
-        use_linear_call_chain(plan)
+    plan.entry_nodes = ["source"]
+    plan.call_graph = {node: [] for node in plan.node_configs}
+    for connection in edges:
+        source, target = connection.from_ref, connection.to_ref
+        component = registry.get(nodes[target.node_id].component)
+        if "interfaces" in component.manifest:
+            port = next(p for p in component.manifest["ports"] if p["id"] == target.port_id)
+            if port.get("process") is not True:
+                continue
+        config = plan.node_configs[source.node_id]
+        plan.call_graph[source.node_id].append({
+            "node": target.node_id, "every": 1, "phase": 0,
+            "output_port": config.get("output_drive_ports", {}).get(source.port_id, 0),
+            "input_port": plan.node_configs[target.node_id]["input_ports"].index(target.port_id),
+        })
+    for task in plan.tasks:
+        task["entry_nodes"] = ["source"]
     assert plan.schedule["tick"] == 32
     for name in cases:
         for port in ("rms", "peak"):
