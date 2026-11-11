@@ -1,64 +1,56 @@
 id: orpheus.builtin.sine_mod
 name: "正弦与周期表调制"
 category: "增益与动态"
-description: 默认AM/颤音；可选逐帧同步的周期表纯乘法，支持有符号载波
-version: 1.1.0
-abi_version: 6
+description: >-
+  AM按交错样本推进相位，周期表纯乘法按音频帧推进同通道游标；
+  每次in到达计算后显式交付1号out。表模式支持有符号有限float32，
+  严格校验完整CSV；精确原地合法，部分重叠拒绝。
+version: 1.2.0
+abi_version: 7
 package_type: source
-state_type: SineModState
-sources:
-  - src/sine_mod.c
-headers:
-  - include/orpheus_sine_mod.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: freq_hz
+algorithm:
+  lifecycle: [validate, prepare, reset, set_parameter]
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1, drive_divide: 1}
+  freq_hz:
     name: 调制频率
     type: float
     default: 1.0
     range: [0.01, 20000.0]
     unit: Hz
     update_policy: smoothed
-  - id: depth
+  depth:
     name: 调制深度
     type: float
     default: 1.0
     range: [0.0, 1.0]
     update_policy: smoothed
     widget: slider
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: modulation_mode
-    name: 调制方式（0兼容AM，1周期表乘法）
+  modulation_mode:
+    name: 调制方式（0为AM，1为周期表乘法）
     type: int
     default: 0
     range: [0, 1]
     update_policy: restart_required
     description: 模式1每帧取同一个有符号表值乘全部通道，不叠加1，不使用freq_hz或depth
-  - id: table_length
+  table_length:
     name: 周期表长度（样本）
     type: int
     default: 1
     range: [1, 1024]
     update_policy: restart_required
-  - id: carrier_table
+  carrier_table:
     name: 周期载波表
     type: string
+    capacity: 65536
     default: "1"
     widget: text
     update_policy: restart_required

@@ -233,10 +233,12 @@ add_executable(message_bounds_runner message_bounds_runner.cpp)
 target_link_libraries(message_bounds_runner PRIVATE orpheus_runtime_lib)
 
 add_executable(sine_table_smoke sine_table_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sine_mod/src/sine_mod.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sine_mod/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sine_mod/user/algorithm.c)
 target_include_directories(sine_table_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sine_mod/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sine_mod/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sine_mod/user)
 target_compile_definitions(sine_table_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 if(NOT WIN32)
     target_link_libraries(sine_table_smoke PRIVATE m)
