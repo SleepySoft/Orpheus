@@ -1,58 +1,81 @@
 # orpheus.builtin.resample — 整数倍降采样
 
-## 功能
+## 两个独立入口
 
-**整数倍降采样（N:1）**：每N个输入样本输出一个样本，输出采样率为输入采样率除以N。
-`mode=0`对每组N个样本取平均；`mode=1`只保留组内`phase`指定的样本，不作抗混叠滤波。
+每 `factor` 个输入样本生成一个输出样本，输出采样率为输入采样率除以 `factor`。
+`mode=0` 分组平均；`mode=1` 逐位保留组内 `phase` 指定的样本，不作抗混叠滤波。
+分组累加器/选点相位跨写入调用连续，不能按输入块边界重新分组。
 
-平均模式每通道维护累加器`acc[c]`，每N帧写入`acc[c]/N`并清零；选点模式保存组内指定相位的值。
-计数和输出写游标跨调用连续，输出缓冲填满后发布完整块。
-分组平均相当于盒式低通后抽取，阻带抑制有限；高要求场合应使用更陡的外置低通或有理倍FIR转换。
+- `in`：`process: true`，每次处理 `input_frames` 帧，结果写入私有存储。
+  **写满不交付、不调用下游**。
+- `tick`：纯触发、`process: true`，独立读取完整 `output_frames` 帧，
+  消费水位后显式交付 1 号 `out`。
+- `out`：`output_frames` 帧，采样率 `in:sample_rate/param:factor`，
+  `drive_port_no: 1`。
 
-### 与 `downrate` 的区别
-
-| | resample（本组件） | downrate |
-|---|---|---|
-| 本质 | N个样本平均或选点成1个 | 音频组块：样本原样拼接 |
-| 输出采样率 | 输入采样率 / factor | 不变 |
-| 输出块长 | 与输入块长相同 | 输入块长 × factor |
-| 数据内容 | 样本数减为1/N；平均模式有盒式滤波，选点模式没有 | 逐样本无损保留 |
-| 适用 | 真正降低采样率的信号链 | 分析/控制侧链降频执行 |
-
-采样率、块长和驱动周期是不同概念。调用入口须按工程的供需节拍配置，
-不能把`downrate`的拼块或缓冲写满理解为它创建定时器、自动分频或自动启动消费者。
-
-## 端口
-
-| id | 方向 | 说明 |
-|---|---|---|
-| `in` | input | 音频输入，`channels` 通道，task 采样率 |
-| `out` | output | 音频输出，`channels` 通道，采样率 = `task:sample_rate / factor` |
+调用顺序与读取频率由上游及真实触发链安排，`factor` 不再声明调度 divisor。
+探针水位不是驱动事件，框架不补调、等待、匹配频率或按 Task 去重。
 
 ## 参数
 
-| 参数 | 类型 | 默认值 | 范围 | update_policy | 说明 |
-|---|---|---|---|---|---|
-| `factor` | int | 2 | 2~64 | restart_required（影响签名） | 抽取比：N 个输入样本 → 1 个输出样本 |
-| `channels` | int | 2 | 1~32 | restart_required（影响签名） | 通道数（内部累加器上限 `RESAMPLE_MAX_CHANNELS = 32`） |
-| `mode` | int | 0 | 0~1 | restart_required | 0分组平均，1纯选点 |
-| `phase` | int | 0 | 0~63，且小于factor | restart_required | 纯选点模式的0基组内位置 |
+| 接口 | 默认值 | 范围 | 说明 |
+|---|---|---|---|
+| `factor` | 2 | 2～64 | 输入样本数与输出样本数之比 |
+| `channels` | 2 | 1～32 | 交错 f32 通道数 |
+| `input_frames` | 32 | 1～65536 | 每次写入的完整载荷长度 |
+| `output_frames` | 32 | 1～65536 | 每次读取的完整载荷长度 |
+| `mode` | 0 | 0～1 | 0平均，1纯选点 |
+| `phase` | 0 | 0～63且小于factor | 纯选点的0基组内位置 |
 
-## 注意事项
+以上均为 `restart_required` 参数，不能运行期修改。
+必须满足 `output_frames * factor` 可被 `input_frames` 整除，
+保证若干次完整写入能恰好形成一个完整读取批次；
+不要求 `input_frames` 本身能被 `factor` 整除。
+例如每次写7帧、factor=3、读取14帧，需要6次写入，分组状态跨调用保留。
 
-- `factor` 最小为 2；`factor = 1`（不降采样）的场景直接用直通。
-- 平均模式的盒式低通阻带抑制有限；选点模式完全不作抗混叠，高要求场合请在前面串`biquad`/`fir`低通。
-- 累加器跨块连续（reset 清零），块边界不会断相；输出帧在输出缓冲内按 `write_pos` 顺序排布，下游按 `frame_count` 消费即可。
-- `sample_rate_independent: false`：签名里的采样率换算依赖 task 采样率，换 task 采样率需重新编译。
+只读探针 `available_frames` 表示已形成的可读输出帧数；
+`underflows/overflows` 为欠载/未读覆盖饱和计数。
+探针初值必须为零，不能通过 setter 修改。
 
-## 典型用法
+## 时间与错误
 
-48 kHz 采集 → 2:1 降采样 → 24 kHz 写文件（见 `examples/wav_resample.yaml`）：
+- 第一小块的输入帧位置必须对齐 `factor`，输出绝对帧位置为输入起点除以 `factor`，
+  epoch保留，质量标志聚合本批输入；读取tick的时间不能冒充数据时间。
+- 批次内要求输入时间连续、epoch一致；中途 `DISCONTINUITY`、
+  不完整批次的 `EOS` 及时间加法溢出均在改变状态前拒绝。
+- 欠载及未读覆盖明确报错，保留已有数据，不补零；
+  载荷不匹配及与State/私有存储重叠也明确拒绝。
+- 消费先于下游调用推进，下游失败不重放；零帧调用不推进、不交付。
+  `reset` 清除分组状态、水位、探针与时间。
+- 显式载荷不覆盖 `ctx.frame_count` 处理量子；
+  下游应声明 `output_frames` 载荷，用实际Delivery的局部时间处理数据，
+  不从Task拍数推断低速域的调用时间。
 
+## 与组块的区别
+
+`downrate` 原样拼接音频，采样率不变；
+本组件将N个样本平均或选点成1个，真正改变采样率。
+平均模式只是盒式低通，阻带抑制有限；选点模式完全不抗混叠，
+高要求场合应在上游使用更陡的低通，或采用有理倍FIR转换。
+
+## 实际工程
+
+[WAV降采样示例](../../../../examples/wav_resample.yaml)：
+
+```text
+wav_in.out ───────────────► resample.in
+wav_in.tick ─► trigger_divider（2倍、相位1）─► resample.tick
+resample.out ─────────────► wav_out（24kHz）
 ```
-wav_in(48k) ──► resample(factor=2) ──► wav_out(24k, sample_rate=24000)
-```
 
-## 实时安全
+WAV源先完成音频发布子树，再发出纯触发；
+第二次发布后读取128帧低速音频。这里的分频由触发分频器算法实际执行，
+不是由采样率声明、水位或绘图注记自动产生。
 
-process 内仅逐样本累加/除法，无堆分配、无锁、无 IO；`realtime_safe: true`。
+## 生成与资源
+
+[component.yaml](component.yaml) 是接口事实源，独立生成脚本生成 `generated/`，
+手写算法位于 [user/algorithm.c](user/algorithm.c)。
+私有输出存储只在 `prepare` 分配、`destroy` 释放；
+非法候选保留资源，分配失败清理后可重试。
+实时入口只有有界累加/选点、拷贝、时间检查与计数器更新，无分配、锁或 IO。

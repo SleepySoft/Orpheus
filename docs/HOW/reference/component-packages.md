@@ -151,6 +151,14 @@ tick独立读取factor倍完整大块并交付；factor不是调度分频，写�
 显式端口载荷不覆盖节点处理量子，大块消费者须声明对应的载荷形状。
 具体契约见[组块器](../../../components/orpheus/builtin/downrate/README.md)。
 
+resample同样分离写入和读取：in跨调用保留平均/选点分组状态，只写私有存储；
+tick读取完整output_frames并显式交付低速音频，写满不自动续调。
+input_frames须整除output_frames×factor，批次输入起点须对齐factor；
+输出绝对帧位置除以factor，保留epoch并聚合质量标志。
+WAV源在音频out子树成功后发出2号纯触发tick，可经触发分频器驱动读取。
+参考[整数抽取契约](../../../components/orpheus/builtin/resample/README.md)及
+[WAV示例](../../../examples/wav_resample.yaml)；采样率表达式不替代真实触发。
+
 ## 接口化通道选择与索引资源
 
 indexed_tone 的in唯一驱动，每次到达自主处理并交付1号out。

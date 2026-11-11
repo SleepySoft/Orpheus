@@ -1,7 +1,8 @@
 version: "0.1.0"
 metadata:
   name: wav_resample
-  description: WAV In(48k) -> 降采样(2:1) -> WAV Out(24k)，演示速率域与分频调度
+  description: WAV In先写入小块，交付后触发二分频读取降采样大块，再写入24k WAV
+flow_mode: task_sequence
 sample_rate: 48000
 block_size: 128
 tasks:
@@ -27,9 +28,16 @@ graph:
       params:
         factor: 2
         channels: 2
+        input_frames: 128
+        output_frames: 128
       position:
         x: 350
         y: 100
+    - id: read_clock
+      component: orpheus.builtin.trigger_divider
+      task: default
+      params: {factor: 2, phase: 1}
+      position: {x: 350, y: 300}
     - id: wav_out
       component: orpheus.builtin.wav_out
       task: default
@@ -45,3 +53,7 @@ graph:
       to: rs:in
     - from: rs:out
       to: wav_out:in
+    - from: wav_in:tick
+      to: read_clock:in
+    - from: read_clock:out
+      to: rs:tick

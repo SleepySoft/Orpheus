@@ -181,7 +181,7 @@ endif()
 add_test(NAME mixer_smoke COMMAND mixer_smoke)
 
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
-foreach(adapter rational_resample block_split circular_buffer resample)
+foreach(adapter rational_resample block_split circular_buffer)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})
     if(adapter STREQUAL "block_split")
         add_library(audio_test_${adapter} OBJECT
@@ -204,6 +204,23 @@ if(NOT WIN32)
     target_link_libraries(audio_adapters_smoke PRIVATE m)
 endif()
 add_test(NAME audio_adapters_smoke COMMAND audio_adapters_smoke)
+
+set(resample_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/resample)
+add_library(resample_test_component OBJECT
+    ${resample_dir}/generated/component_shell.c ${resample_dir}/user/algorithm.c)
+target_include_directories(resample_test_component PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${resample_dir}/generated ${resample_dir}/user)
+target_compile_definitions(resample_test_component PRIVATE
+    ORPHEUS_BUILDING_COMPONENT calloc=resample_test_calloc)
+add_executable(resample_smoke resample_smoke.c $<TARGET_OBJECTS:resample_test_component>)
+target_include_directories(resample_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${resample_dir}/generated ${resample_dir}/user)
+target_compile_definitions(resample_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(MSVC)
+    target_compile_options(resample_test_component PRIVATE /utf-8)
+    target_compile_options(resample_smoke PRIVATE /utf-8)
+endif()
+add_test(NAME resample_smoke COMMAND resample_smoke)
 
 add_executable(integer_delay_smoke integer_delay_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delay_line/generated/component_shell.c

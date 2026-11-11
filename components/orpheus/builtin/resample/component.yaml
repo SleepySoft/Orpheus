@@ -1,57 +1,73 @@
 id: orpheus.builtin.resample
 name: "整数倍降采样"
 category: "驱动与缓冲"
-description: 整数倍降采样（N:1），默认每N个样本分组平均，也可按指定相位纯选点；纯选点须由上游承担抗混叠，不是仅改变块长的音频组块器
+description: >-
+  in按factor分组平均或选点并写入私有存储，写满不调用下游；
+  tick独立读取output_frames帧并交付1号out。选点须由上游承担抗混叠。
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: ResampleState
-scheduling:
-  divisor: param:factor
-sources:
-  - src/resample.c
-headers:
-  - include/orpheus_resample.h
-ports:
-  - id: in
+algorithm: {lifecycle: [normalize, prepare, reset, destroy, set_parameter]}
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    block_size: param:input_frames
+    process: true
+  tick: {name: 读取降采样块, direction: input, type: trigger, process: true}
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
     sample_rate: in:sample_rate/param:factor
-parameters:
-  - id: mode
+    block_size: param:output_frames
+    drive_port_no: 1
+  mode:
     name: 抽取方式（0=平均，1=选点）
     type: int
     default: 0
     range: [0, 1]
     update_policy: restart_required
-  - id: phase
+  phase:
     name: 选点相位
     type: int
     default: 0
     range: [0, 63]
-    description: 纯选点模式取每组中此0基位置的样本，必须小于抽取比
     update_policy: restart_required
-  - id: factor
+  factor:
     name: 抽取比
     type: int
     default: 2
     range: [2, 64]
     update_policy: restart_required
     affects_signature: true
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
+  input_frames:
+    name: 每次写入帧数
+    type: int
+    default: 32
+    range: [1, 65536]
+    update_policy: restart_required
+    affects_signature: true
+  output_frames:
+    name: 每次读取帧数
+    type: int
+    default: 32
+    range: [1, 65536]
+    update_policy: restart_required
+    affects_signature: true
+  available_frames: {name: 可读帧数, type: int, default: 0, kind: probe, access: read, persistent: false}
+  underflows: {name: 欠载次数, type: int, default: 0, kind: probe, access: read, persistent: false}
+  overflows: {name: 未读覆盖次数, type: int, default: 0, kind: probe, access: read, persistent: false}
 memory:
   state_size: 0
   scratch_size: 0

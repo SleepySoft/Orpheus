@@ -4,6 +4,7 @@
 
 static const OrpheusPort ports[] = {
     {.id="out", .direction=ORPHEUS_PORT_OUTPUT, .type=ORPHEUS_PORT_AUDIO, .sample_format=ORPHEUS_FORMAT_F32, .channels=0, .sample_rate=0, .block_size=0, .is_variable=true, .channels_param="channels"},
+    {.id="tick", .direction=ORPHEUS_PORT_OUTPUT, .type=ORPHEUS_PORT_TRIGGER, .sample_format=ORPHEUS_FORMAT_F32, .channels=0, .sample_rate=0, .block_size=0, .is_variable=false, .channels_param=NULL},
 };
 
 static const OrpheusParameter params[] = {
@@ -13,7 +14,7 @@ static const OrpheusParameter params[] = {
 
 static const OrpheusComponentDescriptor descriptor = {
     .id="orpheus.builtin.wav_in", .version="1.1.0", .abi_version=7,
-    .ports=ports, .port_count=1,
+    .ports=ports, .port_count=2,
     .params=params, .param_count=2,
     .state_size=sizeof(orpheus_builtin_wav_in_State), .alignment=_Alignof(orpheus_builtin_wav_in_State),
     .scratch_size=0, .latency_samples=0,
@@ -196,6 +197,12 @@ static int process(void* state, const OrpheusProcessContext* ctx) {
     }
     io.out.delivery=(OrpheusDelivery){.buffer=io.out.buffer, .frame_index=ctx->frame_index,
         .epoch=ctx->epoch, .timeline_flags=ctx->timeline_flags};
+    io.tick.active=true;
+    io.tick.drive_port_no=2u;
+    if (ctx->outputs && ctx->output_count>(1) && ctx->outputs[1])
+        return ORPHEUS_ERR_INVALID_ARG;
+    io.tick.delivery=(OrpheusDelivery){.buffer=NULL,.frame_index=ctx->frame_index,
+        .epoch=ctx->epoch,.timeline_flags=ctx->timeline_flags};
     return orpheus_builtin_wav_in_algorithm(s, &io, ctx);
 }
 static const OrpheusComponentInterface interface = {

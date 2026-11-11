@@ -60,8 +60,9 @@ plan.buffers 里标记 `rate_bridge: true`，深度 = merge 节点量子（输�
 天然是各源块长的公倍数）。runtime/生成代码为该边旁路一个 staging buffer：
 生产者照旧写 staging（自己的块长），触发后由骨架按写游标把小段 memcpy 进桥接
 buffer；merge 节点在同步点整块读取。约束：桥接源必须是「整写者」（每次触发完整
-交付其输出端口块 = 节点量子），downrate/resample 等部分产出组件直连接入会在
-编译期报错，提示中间加一级直通组件。
+交付其输出端口块 = 节点量子），旧部分产出组件直连接入会在编译期报错。
+这是未迁移合流路径的历史约束；已接口化的downrate/resample由独立tick读取完整载荷，
+不再靠静态divisor推断产出，rate_sync桥接链仍待迁移验证。
 
 **plan 新增字段**（旧 plan 无此字段时全部回退旧行为）：
 - `plan.schedule = {"tick": int, "periods": {node_id: int}}`
@@ -101,6 +102,7 @@ buffer；merge 节点在同步点整块读取。约束：桥接源必须是「�
 | `rational_resample` | 416帧@48kHz → 96帧@144000/13 Hz | `up=3, down=13`；输入长度乘up须能被down整除。不足先用downrate组块，不截断样本数。 |
 | `block_split` | 发布128帧，另由4次tick读取32帧，同采样率 | `factor=4, output_frames=32`；in只快照，tick显式交付，节点配置/处理量子为32；欠载和未读覆盖报错，水位不触发下游。 |
 | `downrate` | 写入4个32帧小块，另由tick读取128帧，同采样率 | `factor=4, input_frames=32`；in只追加，tick显式交付；factor仅决定形状，不再生成调度divisor，写满不触发下游。 |
+| `resample` | 写入2个32帧@48kHz小块，另由tick读取32帧@24kHz | `factor=2, input_frames=output_frames=32`；平均/选点状态跨写入连续，tick显式交付低速域绝对时间；采样率签名不决定调用节拍。 |
 | `circular_buffer` | 每128个新样本 → 256点窗 | `hop_size=128, frame_size=256, num_frames=1`；输出容量256，但下游每128点帧移触发一次。 |
 
 ### 有理采样率和ABI

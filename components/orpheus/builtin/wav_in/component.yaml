@@ -17,6 +17,11 @@ interfaces:
     sample_format: f32
     channels: param:channels
     drive_port_no: 1
+  tick:
+    name: 音频交付后触发
+    direction: output
+    type: trigger
+    drive_port_no: 2
   file_path:
     name: 文件路径
     type: string

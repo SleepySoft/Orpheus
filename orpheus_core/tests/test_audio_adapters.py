@@ -100,18 +100,25 @@ def test_integer_decimation_dynamic_generated_global_task(compiler, tmp_path):
                          **({"mode": mode, "phase": phase} if mode else {})}),
             Node(id=f"output{i}", component="orpheus.builtin.wav_out",
                  params={"channels": channels, "file_path": f"output{i}.wav"}),
+            Node(id=f"read{i}", component="orpheus.builtin.trigger_divider",
+                 params={"factor": factor, "phase": factor - 1}),
         ])
         for left, right in (("source", f"route{i}"), (f"route{i}", f"down{i}"),
                             (f"down{i}", f"output{i}")):
             edges.append(Connection(from_ref=PortRef(left, "out"), to_ref=PortRef(right, "in")))
-    project = Project(metadata={"name": "整数抽取双路径"})
+        edges.extend([
+            Connection(PortRef("source", "tick"), PortRef(f"read{i}", "in")),
+            Connection(PortRef(f"read{i}", "out"), PortRef(f"down{i}", "tick")),
+        ])
+    project = Project(metadata={"name": "整数抽取双路径"}, flow_mode="task_sequence")
     project.tasks = {"default": Task(id="default", sample_rate=48000, block_size=32)}
     project.graph = Graph(nodes={n.id: n for n in reversed(nodes)}, connections=edges)
     plan = compiler.compile(project)
     assert not plan.warnings
     for i, (factor, _, _, _) in enumerate(cases):
         assert plan.node_configs[f"output{i}"]["sample_rate"] == 48000 / factor
-        assert plan.schedule["periods"][f"output{i}"] == factor
+        assert plan.schedule["periods"][f"output{i}"] == 1
+        assert plan.node_configs[f"output{i}"]["timeline_from_delivery"] is True
     path = tmp_path / "plan.json"
     path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
     generated = tmp_path / "generated"
@@ -122,8 +129,8 @@ def test_integer_decimation_dynamic_generated_global_task(compiler, tmp_path):
     commands = [
         [str(runtime), str(path), str(components), "--run", str(frames // 32)],
         [str(executable), str(frames // 32)],
-        [str(runtime), str(path), str(components), "--task", "default", str(frames // 32)],
-        [str(executable), "0", "--task", "default", str(frames // 32)],
+        [str(runtime), str(path), str(components), "--task", "task_source", str(frames // 32)],
+        [str(executable), "0", "--task", "task_source", str(frames // 32)],
     ]
     references = {}
     for command in commands:

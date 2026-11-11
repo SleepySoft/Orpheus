@@ -13,6 +13,8 @@ python scripts\generate_component.py components\orpheus\builtin\wav_in\component
 ```
 
 Task只调用源，源填好缓冲后自主交付1号`out`并同步完成下游子树，
+随后交付2号纯触发`tick`，可经触发分频器驱动组块/重采样组件的读取入口；
+音频下游失败则不发tick，tick下游失败也不回滚已消费音频。
 不使用旧next续调。尾块仍按请求量子补正零并交付完整块，不隐式改变时间线。
 零帧交付零帧事件但不推进游标；reset只回到文件开头，不重新读盘。
 下游失败不回滚已消费的游标；输出与实例状态或缓存音频重叠时明确拒绝。
@@ -22,6 +24,7 @@ Task只调用源，源填好缓冲后自主交付1号`out`并同步完成下游�
 | id | 方向 | 类型 | 说明 |
 |---|---|---|---|
 | out | output | audio | 输出音频（interleaved f32），`channels` 通道 |
+| tick | output | trigger | out子树成功返回后交付，无PCM；与out相同的帧位置/epoch/标志 |
 
 ## 参数
 

@@ -16,6 +16,15 @@ static int write_file(const uint8_t* header,size_t length) {
     return rc;
 }
 typedef struct { unsigned calls; } Capture;
+static bool tick_fail;
+static int ordered_delivery(void* user,uint32_t port,const OrpheusDelivery* delivery) {
+    Capture* capture=(Capture*)user;
+    if(!delivery || delivery->epoch!=4 || delivery->frame_index!=93 ||
+       port!=capture->calls+1 || (port==1 ? !delivery->buffer : delivery->buffer!=NULL))
+        return ORPHEUS_ERR_INVALID_ARG;
+    ++capture->calls;
+    return port==2 && tick_fail ? -88 : ORPHEUS_OK;
+}
 static int fail_delivery(void* user,uint32_t port,const OrpheusDelivery* delivery) {
     Capture* capture=(Capture*)user;
     capture->calls++;
@@ -42,8 +51,8 @@ int main(void) {
     CHECK(api->prepare(&state,&config)==ORPHEUS_OK && state.algorithm.total_frames==3);
     float output[6];
     OrpheusBuffer buffer={.data=output,.channels=3,.frame_capacity=2,.format=ORPHEUS_FORMAT_F32,.interleaved=true};
-    OrpheusBuffer* outputs[]={&buffer};
-    OrpheusProcessContext ctx={.outputs=outputs,.output_count=1,.frame_count=2,.valid_frames=2,.epoch=4,.frame_index=93};
+    OrpheusBuffer* outputs[]={&buffer,NULL};
+    OrpheusProcessContext ctx={.outputs=outputs,.output_count=2,.frame_count=2,.valid_frames=2,.epoch=4,.frame_index=93};
     CHECK(api->process(&state,&ctx)==ORPHEUS_OK && state.algorithm.position==2);
     const float expected[]={-1,32767.0f/32768,-1,.5f,-.5f,.5f};
     CHECK(!memcmp(output,expected,sizeof(expected)));
@@ -56,6 +65,14 @@ int main(void) {
     ctx.frame_count=2;
     Capture capture={0};
     OrpheusContinuation continuation={.user=&capture,.emit=fail_delivery};
+    ctx.continuation=&continuation;
+    continuation.emit=ordered_delivery;
+    CHECK(api->process(&state,&ctx)==ORPHEUS_OK && capture.calls==2 && state.algorithm.position==2);
+    CHECK(api->reset(&state)==ORPHEUS_OK);
+    capture.calls=0;tick_fail=true;
+    CHECK(api->process(&state,&ctx)==-88 && capture.calls==2 && state.algorithm.position==2);
+    CHECK(api->reset(&state)==ORPHEUS_OK);
+    capture.calls=0;continuation.emit=fail_delivery;
     ctx.continuation=&continuation;
     CHECK(api->process(&state,&ctx)==ORPHEUS_ERR_PROCESSING && capture.calls==1 && state.algorithm.position==2);
     ctx.continuation=NULL;buffer.data=state.algorithm.samples;

@@ -152,5 +152,6 @@ int orpheus_builtin_wav_in_algorithm(orpheus_builtin_wav_in_State* s,
     if(bytes>copy_bytes) memset((uint8_t*)io->out.samples+copy_bytes,0,bytes-copy_bytes);
     s->algorithm.position+=count;
     io->out.buffer->frame_count=ctx->frame_count;
-    return orpheus_builtin_wav_in_emit_out(ctx,&io->out);
+    int rc=orpheus_builtin_wav_in_emit_out(ctx,&io->out);
+    return rc ? rc : orpheus_builtin_wav_in_emit_tick(ctx,&io->tick);
 }
