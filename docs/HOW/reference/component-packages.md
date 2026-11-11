@@ -254,6 +254,16 @@ elements 保留每通道期望帧数的含义，0 跟随实际音频；不匹配
 快照与输入存储独立，原地及部分重叠拒绝。未连接输出只验证输入，
 零量子不交付，下游错误原样返回，无 process 分配或内部历史。
 
+spatial_enhancer 保留同帧 M/S 分解、三旋钮逐样本平滑、原侧声一阶
+高通系数与递推，以及交叉混合的 f32 运算顺序；每次 in 到达后直接
+交付 1 号 out，不插入块延迟。width/air/mono_mix 更新只改目标值，
+下次样本继续平滑；reset 将平滑值归到当前目标并清高通历史，
+prepare 重载配置及采样率系数。声明为 sample_rate_independent: false，
+不因旧 manifest 的 independent=true 错误标注而绕开计算。
+沿用不支持原地的公开契约并明确拒绝部分重叠；
+不足/缺失载荷与越界或非有限参数在写入前拒绝，不再静默夹参数。
+零量子不交付，下游失败不回滚历史，状态由宿主提供。
+
 complex_power 的 in 驱动逐批功率及能量计算；按实际算法调用点依次交付
 1 号 power、2 号 energy。complex_gain_split 的 in 驱动，
 gain 是不触发运算的 latest 数组；依次交付 1 号 impulse、2 号 reverb。

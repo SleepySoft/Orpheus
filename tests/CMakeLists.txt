@@ -108,6 +108,19 @@ target_include_directories(audio_bulk_snapshot_smoke PRIVATE
 target_compile_definitions(audio_bulk_snapshot_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME audio_bulk_snapshot_smoke COMMAND audio_bulk_snapshot_smoke)
 
+add_executable(spatial_enhancer_smoke spatial_enhancer_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/spatial_enhancer/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/spatial_enhancer/user/algorithm.c)
+target_include_directories(spatial_enhancer_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/spatial_enhancer/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/spatial_enhancer/user)
+target_compile_definitions(spatial_enhancer_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(UNIX)
+    target_link_libraries(spatial_enhancer_smoke PRIVATE m)
+endif()
+add_test(NAME spatial_enhancer_smoke COMMAND spatial_enhancer_smoke)
+
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
 foreach(adapter rational_resample block_split circular_buffer resample)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})

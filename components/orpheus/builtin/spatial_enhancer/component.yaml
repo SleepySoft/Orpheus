@@ -1,56 +1,47 @@
 id: orpheus.builtin.spatial_enhancer
 name: "M/S立体声展宽"
 category: "路由与混音"
-description: 同帧 M/S 空间增强：width=侧声展宽、air=侧声高通清亮、mono_mix=单声兼容；无时域延迟故无梳状/错位
-version: 1.0.0
-abi_version: 6
+description: >-
+  同帧M/S空间增强：侧声展宽、高通清亮和单声混合；三旋钮逐样本平滑，
+  保留原高通递推与float32运算顺序。每次in到达计算后显式交付1号out，
+  不引入时域延迟；不支持原地或部分重叠，参数超范围明确拒绝。
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: SpatialEnhancerState
-sources:
-  - src/spatial_enhancer.c
-headers:
-  - include/orpheus_spatial_enhancer.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: width
+algorithm:
+  lifecycle: [prepare, reset]
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1, drive_divide: 1}
+  width:
     name: 展宽度
     type: float
     default: 1.0
     range: [0.0, 4.0]
     update_policy: smoothed
     widget: slider
-  - id: air
+  air:
     name: 清亮感
     type: float
     default: 0.0
     range: [0.0, 1.0]
     update_policy: smoothed
     widget: slider
-  - id: mono_mix
+  mono_mix:
     name: 单声兼容
     type: float
     default: 1.0
     range: [0.0, 1.0]
     update_policy: smoothed
     widget: slider
-  - id: air_fc
+  air_fc:
     name: 清亮截止频率
     type: float
     default: 6000.0
     range: [500.0, 15000.0]
     unit: Hz
     update_policy: restart_required
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
@@ -62,7 +53,7 @@ memory:
   scratch_size: 0
   alignment: 8
 execution:
-  sample_rate_independent: true
+  sample_rate_independent: false
   latency_samples: 0
   supports_inplace: false
   realtime_safe: true
