@@ -205,6 +205,15 @@ psd 的普通 audio in 按实际交付量子处理，分析后原样交付 1 号
 显式提供 default 时仍严格检查类型及完整数组长度，不接受标量广播；
 其它参数仍必须声明 default。
 
+spectral_reduce 的 in 按实际 audio 量子驱动 1 号 out。
+仍只遍历 num_frames 内每帧前 bin_count 个频点，超出实际交付长度的点跳过；
+短块、尾部不完整帧及额外尾部广播行为保留，不强制完整 FFT 批次。
+bin_count 为 0 或超过 fft_size 时仍使用 fft_size/2+1，
+参数回读保留配置值，不将该有效频点数回写为用户配置。
+sum/mean 保留逐次 f32 累加顺序，min/max 保留 FLT_MAX/-FLT_MAX 初值及
+NaN 比较为假的原语义；结果广播到整个实际输出块。无历史或 process 分配，
+缺失输入/输出、数据不足或重叠明确拒绝；零量子不续调，下游失败原样返回。
+
 complex_power 的 in 驱动逐批功率及能量计算；按实际算法调用点依次交付
 1 号 power、2 号 energy。complex_gain_split 的 in 驱动，
 gain 是不触发运算的 latest 数组；依次交付 1 号 impulse、2 号 reverb。

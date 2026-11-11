@@ -51,6 +51,16 @@ if(UNIX)
 endif()
 add_test(NAME psd_smoke COMMAND psd_smoke)
 
+add_executable(spectral_reduce_smoke spectral_reduce_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/spectral_reduce/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/spectral_reduce/user/algorithm.c)
+target_include_directories(spectral_reduce_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/spectral_reduce/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/spectral_reduce/user)
+target_compile_definitions(spectral_reduce_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME spectral_reduce_smoke COMMAND spectral_reduce_smoke)
+
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
 foreach(adapter rational_resample block_split circular_buffer resample)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})

@@ -1,66 +1,22 @@
 id: orpheus.builtin.spectral_reduce
 name: "频谱聚合统计"
 category: "频域与分析"
-description: "对每通道的频谱帧作求和、均值、最小值或最大值归约，得到一个标量并广播到输出块。不估计噪声、不作谱减降噪。"
-version: 1.0.0
-abi_version: 6
+description: >-
+  对实际交付范围内每通道的频谱帧作求和、均值、最小值或最大值归约，
+  得到一个标量并广播到整个实际输出块。超过实际块长的频点跳过；
+  bin_count为0或超过fft_size时取fft_size/2+1。不估计噪声、不作谱减降噪。
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: SpectralReduceState
-sources:
-  - src/spectral_reduce.c
-headers:
-  - include/orpheus_spectral_reduce.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 64]
-    update_policy: restart_required
-    affects_signature: true
-  - id: fft_size
-    name: FFT 点数
-    type: int
-    default: 128
-    range: [2, 4096]
-    update_policy: restart_required
-    affects_signature: true
-  - id: num_frames
-    name: 每块帧数
-    type: int
-    default: 12
-    range: [1, 256]
-    update_policy: restart_required
-    affects_signature: true
-  - id: bin_count
-    name: 参与运算的 bin 数
-    type: int
-    default: 0
-    range: [0, 4096]
-    update_policy: restart_required
-  - id: operation
-    name: 运算
-    type: string
-    default: "mean"
-    allowed: ["sum", "mean", "min", "max"]
-    update_policy: restart_required
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: true
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+algorithm:
+  lifecycle: [validate]
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1, drive_divide: 1}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  fft_size: {name: FFT 点数, type: int, default: 128, range: [2, 4096], update_policy: restart_required, affects_signature: true}
+  num_frames: {name: 每块帧数, type: int, default: 12, range: [1, 256], update_policy: restart_required, affects_signature: true}
+  bin_count: {name: 参与运算的 bin 数, type: int, default: 0, range: [0, 4096], update_policy: restart_required}
+  operation: {name: 运算, type: string, capacity: 5, default: "mean", widget: select, options: ["sum", "mean", "min", "max"], update_policy: restart_required}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}
