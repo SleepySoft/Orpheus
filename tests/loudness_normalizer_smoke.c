@@ -1,10 +1,53 @@
-#include "orpheus_loudness_normalizer.h"
+#include "component_state.h"
 
 #include <math.h>
 #include <string.h>
 
 #define FRAMES 128
 #define CHANNELS 2
+typedef orpheus_builtin_loudness_normalizer_State LnState;
+
+static int fail_delivery(void* user,uint32_t port,const OrpheusDelivery* delivery) {
+    unsigned* calls=(unsigned*)user;
+    (*calls)++;
+    return port==1 && delivery && delivery->buffer && delivery->buffer->frame_count==2 ?
+        ORPHEUS_ERR_PROCESSING : ORPHEUS_ERR_INVALID_ARG;
+}
+
+static int verify_contract(const OrpheusComponentInterface* iface,LnState* state) {
+    float input[5]={.25f,.5f,-.5f,-.25f,1},output[4]={0};
+    OrpheusBuffer in={input,ORPHEUS_FORMAT_F32,2,2,2,true};
+    OrpheusBuffer out={output,ORPHEUS_FORMAT_F32,2,2,2,true};
+    const OrpheusBuffer* inputs[]={&in};OrpheusBuffer* outputs[]={&out};
+    OrpheusProcessContext ctx={.inputs=inputs,.outputs=outputs,.input_count=1,.output_count=1,
+        .frame_count=0,.sample_rate=48000};
+    if(iface->reset(state)) return 1;
+    LnState before=*state;
+    if(iface->process(state,&ctx) || out.frame_count || memcmp(&before,state,sizeof(before))) return 2;
+    ctx.frame_count=2;out.data=input+1;
+    if(iface->process(state,&ctx)!=ORPHEUS_ERR_INVALID_ARG || memcmp(&before,state,sizeof(before))) return 3;
+    out.data=output;in.frame_count=1;
+    if(iface->process(state,&ctx)!=ORPHEUS_ERR_INVALID_ARG || memcmp(&before,state,sizeof(before))) return 4;
+    in.frame_count=2;out.data=input;
+    if(iface->process(state,&ctx) || state->algorithm.detector_energy<=0) return 5;
+    const char* probes[]={"input_db","gain_db","output_db"};
+    OrpheusValue value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=0};
+    for(unsigned n=0;n<3;n++) if(iface->set_parameter(state,probes[n],&value)!=ORPHEUS_ERR_UNSUPPORTED) return 6;
+    value.value.f32=NAN;
+    if(iface->set_parameter(state,"target_db",&value)!=ORPHEUS_ERR_INVALID_ARG) return 7;
+    if(iface->reset(state)) return 8;
+    unsigned calls=0;
+    OrpheusContinuation continuation={.user=&calls,.emit=fail_delivery};
+    ctx.continuation=&continuation;
+    if(iface->process(state,&ctx)!=ORPHEUS_ERR_PROCESSING || calls!=1 || state->algorithm.detector_energy<=0) return 9;
+    ctx.continuation=NULL;out.data=output;
+    if(iface->reset(state)) return 10;
+    input[0]=NAN;input[1]=INFINITY;input[2]=-INFINITY;input[3]=-0.0f;
+    if(iface->process(state,&ctx) || !isnan(state->algorithm.detector_energy) ||
+       !isnan(state->input_db) || state->gain_db!=0 || state->output_db!=-120 ||
+       !isnan(output[0]) || output[1]!=INFINITY || output[2]!=-INFINITY || !signbit(output[3])) return 11;
+    return 0;
+}
 
 static int read_probe(const OrpheusComponentInterface* iface, void* state,
                       const char* id, float* result) {
@@ -61,13 +104,13 @@ int main(void) {
     values[2].value.f32 = 12.0f;
     values[3].value.f32 = -55.0f;
     values[4].value.f32 = 5.0f;
-    values[5].value.f32 = 10.0f;
+    values[5].value.f32 = 20.0f;
     values[6].value.f32 = 5.0f;
-    values[7].value.f32 = 10.0f;
+    values[7].value.f32 = 50.0f;
     values[8].type = ORPHEUS_VALUE_INT;
     values[8].value.i32 = CHANNELS;
 
-    LoudnessNormalizerState state_memory;
+    orpheus_builtin_loudness_normalizer_State state_memory;
     memset(&state_memory, 0, sizeof(state_memory));
     OrpheusConfig config = {
         .sample_rate = 48000,
@@ -105,5 +148,7 @@ int main(void) {
     for (size_t i = 0; i < FRAMES * CHANNELS; ++i) {
         if (output[i] != 0.0f) return 18;
     }
+    if (verify_contract(iface,state) != 0) return 19;
+    if (iface->destroy(state) != ORPHEUS_OK) return 20;
     return 0;
 }

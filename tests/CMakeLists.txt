@@ -827,11 +827,13 @@ add_test(NAME piecewise_soft_clipper_smoke COMMAND piecewise_soft_clipper_smoke)
 
 add_executable(loudness_normalizer_smoke
 	loudness_normalizer_smoke.c
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_normalizer/src/loudness_normalizer.c
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_normalizer/generated/component_shell.c
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_normalizer/user/algorithm.c
 )
 target_include_directories(loudness_normalizer_smoke PRIVATE
 	${CMAKE_SOURCE_DIR}/orpheus_abi/include
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_normalizer/include
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_normalizer/generated
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_normalizer/user
 )
 target_compile_definitions(loudness_normalizer_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 if(NOT WIN32)

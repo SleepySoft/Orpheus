@@ -4,6 +4,20 @@
 
 它不是 ITU-R BS.1770/EBU R128 LUFS 计量器：没有 K-weighting、门限积分或节目级扫描。它是低延迟、固定内存的实时节目电平器，适合电脑播放和嵌入式监听链路。
 
+接口声明是事实源，独立生成入口：
+
+```powershell
+python scripts\generate_component.py components\orpheus\builtin\loudness_normalizer\component.yaml
+```
+
+每次音频`in`真实到达独立处理，再由算法自主交付1号`out`；
+不按Task去重。检测按交错样本声明顺序逐项累加联合均方，
+保留原f32能量/增益递推及块内线性增益步进：每帧先加一步，再处理所有通道。
+冷启动能量直接建立包络，静音门下只保持增益、检测器仍按释放时间推进。
+精确原地合法；部分重叠、与实例状态重叠和不足载荷拒绝。
+零帧不推进历史，但仍交付零帧事件；reset清历史，保留所有配置。
+下游失败不回滚已处理历史；保留原NaN/Inf信号传播，不添加成功形状的静默修复。
+
 ## 算法
 
 1. 所有通道联合计算块 RMS，保持左右声像不变；
@@ -33,6 +47,9 @@
 - `input_db`：平滑后的输入 RMS；
 - `gain_db`：当前自动增益；
 - `output_db`：`input_db + gain_db` 的估算输出 RMS。
+
+三个探针均只读。`input_db/output_db`声明初值与真实冷启动/reset的
+`-120dB`统一，不再声明为`-96dB`却在prepare中另写一份。
 
 ## 实时约束
 
