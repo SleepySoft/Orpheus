@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
 #define WRITE(n, k, v, c) orpheus_control_write_bulk(n, k, v, c)
 #define WRITE_ID(id, v, c) orpheus_control_write_bulk_id(id, v, c)
 #define READ(n, k, v, c) orpheus_control_get_bulk(n, k, v, c)
-#define PROCESS() (strcmp(mode, "task") == 0 ? orpheus_generated_process_task_default(0) : orpheus_generated_process(32))
+#define PROCESS() (strcmp(mode, "task") == 0 ? orpheus_generated_process_task_task_source(0) : orpheus_generated_process(32))
 #else
     CHECK(argc >= 7);
     orpheus::Runtime runtime;
@@ -32,7 +32,7 @@ int main(int argc, char** argv) {
 #define WRITE(n, k, v, c) runtime.write_bulk(n, k, v, c)
 #define WRITE_ID(id, v, c) runtime.write_bulk_id(id, v, c)
 #define READ(n, k, v, c) runtime.get_bulk(n, k, v, c)
-#define PROCESS() (strcmp(mode, "task") == 0 ? runtime.process_task("default", 0) : runtime.process_block(32))
+#define PROCESS() (strcmp(mode, "task") == 0 ? runtime.process_task("task_source", 0) : runtime.process_block(32))
 #endif
     CHECK((argc-first) % 3 == 0 && (argc-first)/3 <= 4);
     const unsigned blocks[] = {8, 8, 1, 2, 1};

@@ -6,6 +6,7 @@ import copy
 import json
 import math
 import re
+import struct
 from fractions import Fraction
 from pathlib import Path
 
@@ -210,8 +211,43 @@ def component_bulk_resources(interfaces: dict) -> list[dict]:
         bounds = binding.get("range", item.get("range"))
         if bounds is not None:
             resource["range"] = copy.deepcopy(bounds)
+        if "when" in binding:
+            resource["when"] = copy.deepcopy(binding["when"])
         resources.append(resource)
     return resources
+
+
+def validate_configuration_conditions(conditions: dict, parameters: dict, location: str,
+                                      label: str) -> None:
+    if not isinstance(conditions, dict):
+        _fail(f"{label} when 必须是配置参数到标量值的映射", location)
+    for key, value in conditions.items():
+        parameter = parameters.get(key) if isinstance(key, str) else None
+        if (parameter is None or parameter.get("update_policy") != "restart_required"
+                or is_array_parameter(parameter) or "bulk" in parameter
+                or parameter.get("kind") in {"probe", "state"} or "direction" in parameter):
+            _fail(f"{label}条件须引用重启生效的标量配置参数：{key}", location)
+        kind = parameter["type"]
+        if kind == "string":
+            _string(value, location)
+            valid = len(value.encode("utf-8")) < parameter.get("capacity", 256)
+        else:
+            valid = _valid_numeric_element(kind, value)
+        if not valid or "range" in parameter and not parameter["range"][0] <= value <= parameter["range"][1]:
+            _fail(f"{label}条件值不符合配置参数类型或范围：{key}", location)
+
+
+def configuration_conditions_match(conditions: dict, parameters: dict, values: dict) -> bool:
+    for key, expected in conditions.items():
+        actual = values[key]
+        if parameters[key]["type"] == "float":
+            if not _valid_numeric_element("float", actual):
+                _fail(f"条件配置必须是有效f32标量：{key}", f"params.{key}")
+            actual = struct.unpack("<f", struct.pack("<f", actual))[0]
+            expected = struct.unpack("<f", struct.pack("<f", expected))[0]
+        if actual != expected:
+            return False
+    return True
 
 
 def validate_host_bindings(ports: list[dict], parameters: list[dict], resources: list[dict],
@@ -249,24 +285,7 @@ def validate_host_bindings(ports: list[dict], parameters: list[dict], resources:
             _fail("宿主端口的提交状态不可写或不可读", loc + ".status")
         if access == "read" and status_access not in ("read", "read_write"):
             _fail("宿主端口的有效状态不可读", loc + ".status")
-        conditions = binding.get("when", {})
-        if not isinstance(conditions, dict):
-            _fail("宿主绑定 when 必须是配置参数到标量值的映射", loc + ".when")
-        for key, value in conditions.items():
-            condition_loc = loc + ".when"
-            parameter = statuses.get(key) if isinstance(key, str) else None
-            if (parameter is None or parameter.get("update_policy") != "restart_required"
-                    or is_array_parameter(parameter) or "bulk" in parameter
-                    or parameter.get("kind") in {"probe", "state"}):
-                _fail(f"宿主端口条件须引用重启生效的标量配置参数：{key}", condition_loc)
-            kind = parameter["type"]
-            if kind == "string":
-                _string(value, condition_loc)
-                valid = len(value.encode("utf-8")) < parameter.get("capacity", 256)
-            else:
-                valid = _valid_numeric_element(kind, value)
-            if not valid or "range" in parameter and not parameter["range"][0] <= value <= parameter["range"][1]:
-                _fail(f"宿主端口条件值不符合配置参数类型或范围：{key}", condition_loc)
+        validate_configuration_conditions(binding.get("when", {}), statuses, loc + ".when", "宿主端口")
 
 
 def _port_count_bounds(key, port, interfaces):
@@ -534,8 +553,9 @@ def _validate(raw):
                 _fail("数组不能作为签名标量参数", loc)
             if "bulk" in item:
                 bulk = item["bulk"]
-                if not isinstance(bulk, dict) or set(bulk) - {"sample_format", "capacity", "storage", "double_bank", "range", "auto_register", "slot_key"}:
+                if not isinstance(bulk, dict) or set(bulk) - {"sample_format", "capacity", "storage", "double_bank", "range", "auto_register", "slot_key", "when"}:
                     _fail("bulk 只能声明资源键/格式/容量/存储/范围及双 bank、自动注册标志", loc + ".bulk")
+                validate_configuration_conditions(bulk.get("when", {}), interfaces, loc + ".bulk.when", "BULK")
                 if "slot_key" in bulk and (not isinstance(bulk["slot_key"], str) or not re.fullmatch(
                         r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*", bulk["slot_key"])):
                     _fail("slot_key 必须是由字母开头标识符组成的点分资源键", loc + ".bulk.slot_key")
@@ -735,7 +755,9 @@ def _validate(raw):
             value = (1 if dimension == "config:frames" else
                      _parameter_default(interfaces[dimension.split(":")[1]]) if isinstance(dimension, str) else dimension)
             size *= value
-        if size < 1 or size > resource["count"]:
+        active = configuration_conditions_match(resource.get("when", {}), interfaces,
+            {key: _parameter_default(interfaces[key]) for key in resource.get("when", {})})
+        if size < 1 or active and size > resource["count"]:
             _fail("资源默认 shape 的元素数必须在物理容量内", f"interfaces.{resource['id']}.shape")
         if (is_array_parameter(interfaces[resource["id"]]) and
                 not any(isinstance(dimension, str) for dimension in resource["shape"]) and size != resource["count"]):

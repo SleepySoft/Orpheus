@@ -137,6 +137,14 @@ def _render_resource_counts(definition, values):
         key, capacity = resource["id"], resource["count"]
         lines += [f"static int resource_count_{key}(const {values}* p, uint32_t* count) {{",
                   "    (void)p; uint32_t product=1;"]
+        if resource.get("when"):
+            parameters = {p["id"]: p for p in definition["parameters"]}
+            conditions = [
+                f"strcmp(p->{name}, {_quote(value)})==0" if parameters[name]["type"] == "string"
+                else f"p->{name}=={_number(value, parameters[name]['type'])}"
+                for name, value in resource["when"].items()
+            ]
+            lines += [f"    if (!({' && '.join(conditions)})) {{ *count=0; return ORPHEUS_OK; }}"]
         for i, dimension in enumerate(resource["shape"]):
             term = ("p->_orpheus_config_frames" if dimension == "config:frames" else
                     f"p->{dimension.split(':')[1]}" if isinstance(dimension, str) else str(dimension))
@@ -426,8 +434,10 @@ def _render_parameter_shell(definition):
         "    default_parameters(p);",
     ]
     if _uses_config_frames(definition):
-        lines += ["    if (!config->block_size) return ORPHEUS_ERR_INVALID_ARG;",
-                  "    p->_orpheus_config_frames=config->block_size;"]
+        if any("config:frames" in resource["shape"] and not resource.get("when")
+               for resource in definition.get("bulk_bindings", [])):
+            lines += ["    if (!config->block_size) return ORPHEUS_ERR_INVALID_ARG;"]
+        lines += ["    p->_orpheus_config_frames=config->block_size;"]
     for field in task_fields:
         lines += ([f"    if (!config->{field}) return ORPHEUS_ERR_INVALID_ARG;"] if field == "block_size" else [
             f"    if (!isfinite(config->{field}) || config->{field}<1 || config->{field}>UINT32_MAX",
@@ -542,6 +552,8 @@ def _render_parameter_shell(definition):
                 f"    uint32_t count_{key};",
                 f"    if (resource_count_{key}(&current, &count_{key})!=ORPHEUS_OK) return ORPHEUS_ERR_INVALID_ARG;",
             ]
+            if resource.get("when"):
+                body += [f"    if (!count_{key}) return ORPHEUS_OK;"]
             registration = f"ORPHEUS_REG_ARRAY(reg, s, {resource['storage']}, count_{key}, ORPHEUS_SLOT_{slot_kind.upper()}, "
         else:
             body = []

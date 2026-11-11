@@ -128,6 +128,21 @@ def test_host_source_output_can_bind_host_write_storage(host_raw):
     assert normalized["bulk_slots"][0]["id"] == "samples.active"
 
 
+def test_host_binding_rejects_currently_inactive_bulk_storage(package, host_raw):
+    host_raw["interfaces"]["audio_storage"]["bulk"]["when"] = {"mode": 0}
+    path = save(package, host_raw)
+    generate_component(path)
+    registry = Registry([ROOT / "components"])
+    registry.scan()
+    registry.add_manifest(path)
+    project = Project(flow_mode="task_sequence", block_size=8, graph=Graph(nodes={
+        "source": Node("source", "orpheus.builtin.buffer_source"),
+        "host": Node("host", host_raw["id"], params={"mode": 1}),
+    }, connections=[Connection(PortRef("source", "out"), PortRef("host", "in"))]))
+    with pytest.raises(CompileError, match="未启用"):
+        GraphCompiler(registry).compile(project)
+
+
 @pytest.mark.parametrize("mode,access,status,port", [(0, "write", "ready", "in"), (1, "read", "valid", "out")])
 def test_host_binding_survives_registry_and_compilation(package, host_raw, mode, access, status, port):
     path = save(package, host_raw)

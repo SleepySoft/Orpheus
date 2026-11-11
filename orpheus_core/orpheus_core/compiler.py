@@ -1362,6 +1362,9 @@ class GraphCompiler:
                 slot = slots[binding["slot"]]
                 if any(params[key] != value for key, value in binding.get("when", {}).items()):
                     continue
+                active_slots = {point["id"] for point in component_data_points(comp.manifest, params)}
+                if slot["id"] not in active_slots:
+                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 绑定的资源在当前配置中未启用")
                 if binding["slot"] in bound_slots:
                     raise CompileError(f"节点 {node.id} 的宿主端口不能同时占用同一存储：{binding['slot']}")
                 bound_slots.add(binding["slot"])
@@ -1837,6 +1840,11 @@ class GraphCompiler:
                 if src_slot is None or dst_slot is None:
                     missing = src_ref if src_slot is None else dst_ref
                     raise CompileError(f"BULK 控制参数缺少同名 bulk_slots 声明：{missing}")
+                for slot, node, comp, ref in ((src_slot, src_node, src_comp, src_ref),
+                                               (dst_slot, dst_node, dst_comp, dst_ref)):
+                    active = {point["id"] for point in component_data_points(comp.manifest, node.params)}
+                    if slot["id"] not in active:
+                        raise CompileError(f"BULK 控制参数在当前配置中未启用：{ref}")
                 if (src_slot.get("type", "float") != src_type or
                         dst_slot.get("type", "float") != dst_type):
                     raise CompileError(f"BULK 槽元素类型必须与参数类型一致：{src_ref}/{dst_ref}")
@@ -1871,7 +1879,7 @@ class GraphCompiler:
             cfg = plan.node_configs[nid]
             info = self.registry.get(cfg["component"])
             key_index: dict[str, int] = {}
-            for schema in component_data_points(info.manifest if info else {}):
+            for schema in component_data_points(info.manifest if info else {}, cfg["params"]):
                 point = {**schema, "node": nid}
                 if point.get("runtime") and schema.get("shape"):
                     task_cfg = next(

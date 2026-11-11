@@ -48,7 +48,7 @@ def verify_banked_fir(tmp_path, cases):
     with wave.open(str(tmp_path / "input.wav"), "wb") as stream:
         stream.setnchannels(width); stream.setsampwidth(2); stream.setframerate(48000)
         stream.writeframes(b"".join(struct.pack(f"<{width}h", *row) for row in samples))
-    project = Project(metadata={"name": "FIR活动系数集验收"})
+    project = Project(flow_mode="task_sequence", metadata={"name": "FIR活动系数集验收"})
     project.tasks = {"default": Task(id="default", sample_rate=48000, block_size=32)}
     nodes = {"source": Node(id="source", component="orpheus.builtin.wav_in",
                            params={"channels": width, "file_path": "input.wav"})}

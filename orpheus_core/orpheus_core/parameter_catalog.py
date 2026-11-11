@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from .component_definition import configuration_conditions_match
 
 from orpheus_core.project import Graph, Project, Subcomponent
 from orpheus_core.registry import ComponentInfo, Registry
@@ -84,19 +85,19 @@ def id_value(kind: str, module_id: int, slot: int) -> int:
     return (ID_KIND_BITS[kind] << 28) | ((module_id & 0xFF) << 16) | (slot & 0xFFFF)
 
 
-def component_data_points(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+def component_data_points(manifest: dict[str, Any], params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """私有 BULK 初始化接口不是第二份运行数据，保留其设计编辑入口。"""
     parameters = manifest.get("parameters", [])
     slots = manifest.get("bulk_slots", [])
     slot_ids = {slot["id"] for slot in slots}
     initializers = {
-        parameter["bulk"]["slot_key"]: parameter
+        parameter["bulk"].get("slot_key", parameter["id"]): parameter
         for parameter in parameters
         if isinstance(parameter.get("bulk"), dict)
-        and parameter["bulk"].get("slot_key") in slot_ids
+        and parameter["bulk"].get("slot_key", parameter["id"]) in slot_ids
     }
     initialization_ids = {parameter["id"] for parameter in initializers.values()}
-    return [
+    points = [
         *[parameter for parameter in parameters if parameter["id"] not in initialization_ids],
         *[
             {
@@ -107,6 +108,13 @@ def component_data_points(manifest: dict[str, Any]) -> list[dict[str, Any]]:
             for slot in slots
         ],
     ]
+    if params is None:
+        return points
+    values = {parameter["id"]: parameter.get("default") for parameter in parameters}
+    values.update(params)
+    definitions = {parameter["id"]: parameter for parameter in parameters}
+    return [point for point in points
+            if configuration_conditions_match(point.get("when", {}), definitions, values)]
 
 
 def parse_float_list(text: Any) -> list[float]:
@@ -162,7 +170,7 @@ def build_catalog(project: Project, registry: Registry) -> list[CatalogEntry]:
                 continue
             info = registry.get(node.component)
             by_kind: dict[str, list[dict[str, Any]]] = {k: [] for k in KIND_ORDER}
-            for point in component_data_points(info.manifest if info else {}):
+            for point in component_data_points(info.manifest if info else {}, node.params):
                 by_kind.setdefault("bulk" if point.get("runtime") else kind_of(point), []).append(point)
             node_path = [*path, {"id": node.id, "label": node.id}]
             entries.append(

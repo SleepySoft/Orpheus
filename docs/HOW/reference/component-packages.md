@@ -166,6 +166,13 @@ rational_resample则在每次in接收完整input_frames后直接转换并显式�
 显式载荷与处理量子分离，下游必须声明匹配载荷；
 参考[有理倍SRC契约](../../../components/orpheus/builtin/rational_resample/README.md)。
 
+fir_bank每次实际in交付都保留原反向f32卷积，保存历史后显式emit out(1)。
+保留共享/逐通道/系数集三模式、异构抽头、零抽头正零与冻结历史、
+完整原地处理和不清历史的系数/索引双缓冲更新。
+系数资源以bulk.when选择，未启用模式不会阻止共享64通道4096抽头配置；
+活跃逐通道/系数集仍受32768系数容量限制。
+参考[多通道FIR滤波器组](../../../components/orpheus/builtin/fir_bank/README.md)。
+
 iir_bank在每次真实in交付时执行原DF2T级联，保存全部历史后显式emit out(1)，
 同拍重复交付分别推进历史，下游失败不回滚。保留异构有效级数、0级逐位复制、
 停用正零/冻结历史和未用节不读取NaN系数。

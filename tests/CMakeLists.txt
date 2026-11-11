@@ -400,11 +400,12 @@ target_compile_definitions(direct_iir_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME direct_iir_smoke COMMAND direct_iir_smoke)
 
 add_executable(fir_bank_smoke fir_bank_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fir_bank/src/fir_bank.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fir_bank/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fir_bank/user/algorithm.c)
 target_include_directories(fir_bank_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fir_bank/include)
-target_compile_definitions(fir_bank_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fir_bank/generated)
+target_compile_definitions(fir_bank_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT calloc=fir_bank_test_calloc)
 add_test(NAME fir_bank_smoke COMMAND fir_bank_smoke)
 
 add_executable(iir_coefs_runner iir_coefs_runner.cpp)

@@ -1,82 +1,132 @@
 id: orpheus.builtin.fir_bank
 name: 多通道FIR滤波器组
-category: "滤波与均衡"
-description: 共享或每通道独立系数、异构有效抽头数、块边界系数更新；暂停输出正零并冻结历史
+category: 滤波与均衡
+description: 共享、逐通道或按索引选择系数集；保留反向累加与异构有效抽头，完成后显式交付下游
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: FirBankState
-sources: [src/fir_bank.c]
-headers: [include/orpheus_fir_bank.h]
-ports:
-  - id: in
+algorithm:
+  lifecycle: [normalize, validate, prepare, reset, destroy, register_slots]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: channels
+    drive_port_no: 1
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 64]
     update_policy: restart_required
     affects_signature: true
-  - id: num_taps
+  num_taps:
     name: 每通道系数跨度
     type: int
     default: 1
     range: [1, 4096]
     update_policy: restart_required
     affects_signature: true
-  - id: taps_per_channel
+  taps_per_channel:
     name: 每通道有效抽头数（空为统一跨度）
     type: string
+    capacity: 1024
     default: ""
     update_policy: restart_required
-  - id: coefs_mode
+  coefs_mode:
     name: 系数模式
     type: string
+    capacity: 16
     default: shared
     widget: select
     options: [shared, per_channel, banked]
     update_policy: restart_required
     affects_signature: true
-  - id: num_filters
+  num_filters:
     name: 系数集数量（banked模式）
     type: int
     default: 1
     range: [1, 64]
     update_policy: restart_required
     affects_signature: true
-  - id: filter_indices
-    name: 初始系数集索引（空为全0）
+  filter_indices:
+    name: 初始系数集索引（空则使用整数数组）
     type: string
+    capacity: 1024
     default: ""
     update_policy: restart_required
-  - id: filter_indices_i32
+  filter_indices_i32:
     name: 每通道活动系数集索引
     type: int
     kind: bulk
+    count: 64
     shape: [param:channels]
-    bulk_slot: filter_indices_i32
+    default: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     range: [0, 63]
     update_policy: block_boundary
     bindable: true
     control_source: true
     readback: true
-  - id: coefs
+    bulk: {double_bank: true, auto_register: false, when: {coefs_mode: banked}}
+  coefs:
     name: 初始系数（最新样本至最旧样本）
     type: string
+    capacity: 65536
     default: ""
     kind: bulk
+    readback: false
     update_policy: restart_required
-  - id: processing_enabled
+    shape: [param:num_taps]
+    description: 三种模式均可提供初值；空值为每组单位脉冲
+    bulk:
+      sample_format: f32
+      capacity: 4096
+      storage: algorithm.coefficients.shared
+      double_bank: true
+      when: {coefs_mode: shared}
+  initial_coefs_per_channel:
+    name: 逐通道系数初值（空值使用coefs）
+    type: string
+    capacity: 65536
+    default: ""
+    kind: bulk
+    readback: false
+    update_policy: restart_required
+    shape: [param:channels, param:num_taps]
+    bulk:
+      slot_key: coefs_per_channel
+      sample_format: f32
+      capacity: 32768
+      storage: algorithm.coefficients.per_channel
+      double_bank: true
+      when: {coefs_mode: per_channel}
+  initial_coefs_banked:
+    name: 系数集初值（空值使用coefs）
+    type: string
+    capacity: 65536
+    default: ""
+    kind: bulk
+    readback: false
+    update_policy: restart_required
+    shape: [param:num_filters, param:num_taps]
+    bulk:
+      slot_key: coefs_banked
+      sample_format: f32
+      capacity: 32768
+      storage: algorithm.coefficients.banked
+      double_bank: true
+      when: {coefs_mode: banked}
+  processing_enabled:
     name: 处理使能（0输出正零并冻结历史）
     type: int
     default: 1
@@ -86,31 +136,6 @@ parameters:
     control_source: true
     readback: true
     persistent: true
-bulk_slots:
-  - id: coefs
-    name: FIR共享系数
-    type: float
-    count: 4096
-    shape: [param:num_taps]
-    double_bank: true
-  - id: coefs_per_channel
-    name: FIR每通道系数
-    type: float
-    count: 32768
-    shape: [param:channels, param:num_taps]
-    double_bank: true
-  - id: coefs_banked
-    name: FIR系数集
-    type: float
-    count: 32768
-    shape: [param:num_filters, param:num_taps]
-    double_bank: true
-  - id: filter_indices_i32
-    name: 每通道活动系数集索引
-    type: int
-    count: 64
-    shape: [param:channels]
-    double_bank: true
 memory:
   state_size: 0
   scratch_size: 0

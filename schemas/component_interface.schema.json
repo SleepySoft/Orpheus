@@ -98,6 +98,7 @@
         "storage": {"type": "string", "pattern": "^algorithm(?:\\.[A-Za-z][A-Za-z0-9_]*)+$"},
         "double_bank": {"type": "boolean"},
         "auto_register": {"type": "boolean", "default": true},
+        "when": {"type": "object", "additionalProperties": {"type": ["string", "number", "boolean"]}},
         "range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {
           "type": "number", "minimum": -3.4028234663852886e38, "maximum": 3.4028234663852886e38}}
       }
