@@ -4,29 +4,27 @@ category: "输入与输出"
 description: "离线WAV文件音频源，准备阶段读入文件后逐块输出；配置文件路径和通道数。组件自身不执行采样率转换，文件采样率须与图的输入时间线匹配。"
 order: 1
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: WavInState
 clock_source: true
 clock_domain: file
-sources:
-  - src/wav_in.c
-headers:
-  - include/orpheus_wav_in.h
-ports:
-  - id: out
+algorithm:
+  lifecycle: [prepare, reset, destroy]
+interfaces:
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: file_path
+    drive_port_no: 1
+  file_path:
     name: 文件路径
     type: string
+    capacity: 512
     default: ""
     widget: file
     update_policy: restart_required
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2

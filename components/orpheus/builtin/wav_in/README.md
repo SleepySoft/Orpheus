@@ -6,6 +6,17 @@
 
 它是 `clock_source`（时钟源，`clock_domain: file`）：在离线/文件宿主里，整条链路由它驱动的时钟域按块推进。典型用途：离线批处理、算法验证、把参考素材灌入处理链再录回 WAV。
 
+接口声明是事实源，独立生成入口：
+
+```powershell
+python scripts\generate_component.py components\orpheus\builtin\wav_in\component.yaml
+```
+
+Task只调用源，源填好缓冲后自主交付1号`out`并同步完成下游子树，
+不使用旧next续调。尾块仍按请求量子补正零并交付完整块，不隐式改变时间线。
+零帧交付零帧事件但不推进游标；reset只回到文件开头，不重新读盘。
+下游失败不回滚已消费的游标；输出与实例状态或缓存音频重叠时明确拒绝。
+
 ## 端口
 
 | id | 方向 | 类型 | 说明 |
@@ -17,7 +28,7 @@
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `file_path` | string | `""` | WAV 文件路径；空 = 输出静音。restart_required（改后需重启） |
-| `channels` | int | 2 | 输出通道数，1~32；影响端口签名（affects_signature），restart_required |
+| `channels` | int | 2 | 输出通道数，1~64；影响端口签名（affects_signature），restart_required |
 
 ### `file_path` 的路径规则
 
@@ -35,7 +46,12 @@
 ## 注意事项
 
 - **不做重采样**：文件自身的采样率被忽略（代码里读取后丢弃），样本按工程采样率原速逐点播放。文件采样率与工程采样率不一致时会**变速变调**（如 44.1k 文件在 48k 工程里会偏快偏高）。需要正确还原请用 `mp3_in`（它会重采样）或先把文件转成工程采样率。
-- **支持的格式有限**：标准 44 字节头的 RIFF/WAVE，PCM 16-bit、PCM 32-bit、IEEE float 32-bit。**8/24-bit PCM 会输出静音**（未实现解码，样本填 0）；带 LIST/bext 等额外 chunk 的非标准头文件可能解析失败。
+- **支持的格式**：RIFF/WAVE中的PCM 16-bit、PCM 32-bit、IEEE float 32-bit。
+  按块长度和奇数字节填充扫描，允许LIST/JUNK/bext等附加块及带扩展字节的fmt；
+  不再假定数据固定在44字节之后。浮点载荷逐位复制，保留NaN/Inf/负零。
+  8/24-bit PCM、压缩或Extensible等尚未实现的格式明确拒绝，不再成功输出静音。
+  文件截断、零声道/位宽、无效采样率/字节率、块对齐错误、残缺帧及重复fmt/data均报错；
+  所有长度和除数在分配/解码前校验。空data是合法静音文件。
 - **容量上限**：总帧数不得超过 16M（48kHz 下约 5.8 分钟，与 `mp3_in` 口径一致），超出启动报错。
 - **不循环**：播完即静音。需要循环请在工程层重复触发或改用其他源。
 - 所有参数都是 restart_required，运行时 SET 参数会返回不支持。

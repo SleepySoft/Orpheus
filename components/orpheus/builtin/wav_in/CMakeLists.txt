@@ -2,18 +2,25 @@ cmake_minimum_required(VERSION 3.16)
 
 set(COMPONENT_NAME orpheus_builtin_wav_in)
 
-add_library(${COMPONENT_NAME} SHARED)
-
-target_sources(${COMPONENT_NAME}
-    PRIVATE
-        src/wav_in.c
-)
+include("${CMAKE_CURRENT_LIST_DIR}/generated/component_sources.cmake")
+add_library(${COMPONENT_NAME} SHARED ${ORPHEUS_COMPONENT_SOURCES})
 
 target_include_directories(${COMPONENT_NAME}
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+        ${ORPHEUS_COMPONENT_INCLUDE_DIRS}
 )
+if(TARGET orpheus_abi)
+    target_link_libraries(${COMPONENT_NAME} PUBLIC orpheus_abi)
+else()
+    set(ORPHEUS_ABI_INCLUDE_DIR "" CACHE PATH "orpheus_abi.h 所在目录")
+    if(NOT EXISTS "${ORPHEUS_ABI_INCLUDE_DIR}/orpheus_abi.h")
+        message(FATAL_ERROR "请设置 ORPHEUS_ABI_INCLUDE_DIR")
+    endif()
+    target_include_directories(${COMPONENT_NAME} PUBLIC "${ORPHEUS_ABI_INCLUDE_DIR}")
+endif()
+if(MSVC)
+    target_compile_options(${COMPONENT_NAME} PRIVATE /utf-8)
+endif()
 
 target_compile_definitions(${COMPONENT_NAME}
     PRIVATE

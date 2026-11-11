@@ -472,6 +472,15 @@ if(NOT WIN32)
     target_link_libraries(gain_observer_smoke PRIVATE m)
 endif()
 add_test(NAME gain_observer_smoke COMMAND gain_observer_smoke)
+add_executable(wav_in_smoke wav_in_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/wav_in/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/wav_in/user/algorithm.c)
+target_include_directories(wav_in_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/wav_in/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/wav_in/user)
+target_compile_definitions(wav_in_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME wav_in_smoke COMMAND wav_in_smoke)
 add_executable(halfcomplex_smoke halfcomplex_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_decode/generated/component_shell.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/halfcomplex_decode/user/algorithm.c)
