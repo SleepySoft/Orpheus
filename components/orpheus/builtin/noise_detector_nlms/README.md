@@ -1,45 +1,60 @@
-# NLMS残差分析 组件说明
-> 组件 ID `orpheus.builtin.noise_detector_nlms` · 类型：纯观测（直通输出，不处理）
-> 双端 A/B：用 **NLMS 自适应滤波器**学习 `ref → in` 的线性冲击响应，把“线性可解释部分”剥离后剩下的残差就是噪声/失真。
+# NLMS残差分析
 
-## 1. 原理：NLMS 残差
-用一个自适应 FIR `w` 去复现 `ref → in` 的线性传输，预测值 `y = wᵀ x`（`x` 为 `ref` 的延迟信号向量），残差：
-\[ e = in - y = in - wᵀ x \]
-这个 `e` 就是“线性路径无法解释的部分”：非线性失真 + 添加噪声 + 突发杂音。
-更新规则（逐样本、逐通道独立）：
-\[ w \leftarrow leak\cdot w + \mu\frac{e\,x}{\lVert x\rVert^2+\varepsilon} \]
-“归一化”是指除以输入能量 `‖x‖²`，这样对信号幅度不敏感、收敛更稳定；`ε` 避免除零。
+`orpheus.builtin.noise_detector_nlms` 用逐通道 NLMS 学习 `ref → in` 的线性路径。
+残差既可能含噪声/失真，也可能来自模型失配、未收敛或时延超出滤波器长度，
+**不是标准 THD+N**，不能仅凭指标判断被测信号是否干净。
 
-## 2. 端口与参数
-- 端口：`ref`(干净参考) / `in`(被测) / `out`(直通输出)。
-- 参数：
-  - `channels`(默认2)：通道数。
-  - `filter_length`(默认64)：自适应滤波器阶数。越大能复现越长的回声/延迟，但收敛更慢。
-  - `step_size`(默认0.1)：步长，收敛速度 vs 稳定性（过大挥动/发散）。
-  - `leakage`(默认1.0)：泄漏因子，低于1 提升稳定性。
-  - `eps`(默认1e-6)：正则化。
-  - `time_thres`(默认0.02)：时域残差峰值阈值。
-  - `frame_thres_db`(默认-25dB)：帧残差预算阈值，超过则计为噪声帧。
-- readback：`residue_db` / `erle_db` / `noise_frames` / `noise_ratio` / `clicks` / `residue_pk` / `detail`。
-  - `residue_db`：残差/被测能量比(dB)，越小越干净。
-  - `erle_db`：被测能量/残差能量比(dB)，越大越干净。
+## 接口与真实调用
 
-## 3. 用法（怎么接）
-1. `ref` 接干净参考，`in` 接被测信号，`out` 直通输出（可不接）。
-2. 调参：先用小 `step_size`、中等 `filter_length`，给足收敛时间再看 `residue_db`。
-3. 看 readback：`residue_db` / `erle_db` 改善 → 被测路干净；引入相干噪声 / 非线性失真 → 残差上升。
+- `ref` 仅提供参考数据，`process: false`；上游必须先准备参考，再交付 `in`。
+- `in` 是唯一驱动入口，每次正帧调用都处理；不等会合、不合并同拍调用。
+- `out` 的驱动编号为 1，统计提交后直通被测信号并显式 emit。
+  下游失败不回滚已处理的权重、历史和统计。
+- `out` 可不连接，此时仍完整分析、不伪造交付。连接时不支持原地或部分重叠。
+- 输入必须覆盖本次 `ctx.frame_count`；这是流式时域算法，不要求 FFT 窗口或固定批次。
+  零帧不推进；非法入口、缺失/短输入、容量和私有资源别名明确报错。
 
-## 4. 实例（对应 `test_noise_detectors.py` NLMS 用法）
-```yaml
-graph:
-  nodes:
-    - id: wr ; component: orpheus.builtin.wav_in ; params: {file_path: ref.wav, channels: 1}
-    - id: wi ; component: orpheus.builtin.wav_in ; params: {file_path: in.wav, channels: 1}
-    - id: nl ; component: orpheus.builtin.noise_detector_nlms ; params: {channels: 1, filter_length: 64, step_size: 0.1}
-    - id: out; component: orpheus.builtin.wav_out ; params: {file_path: outputs/out.wav, channels: 1, sample_rate: 48000}
-  connections:
-    - {from: wr:out, to: nl:ref}
-    - {from: wi:out, to: nl:in}
-    - {from: nl:out, to: out:in}
+## 参数与数学
+
+`channels` 默认 2（1～32），`filter_length` 默认 64（1～4096）；
+`step_size` 默认 0.1，`leakage` 默认 1，均在 0～1；
+`eps` 默认 1e-6（1e-12～1），`time_thres` 默认 0.02（0～1），
+`frame_thres_db` 默认 -25 dB（-120～0）。设置均需重启。
+
+逐通道、逐样本先以旧权重计算 `y = Σ w[k] * ref_history[k]`，
+再取内部误差 `e = in - y`，更新：
+
+```text
+w[k] = leakage*w[k] + (step_size*e/(Σ ref_history[k]² + eps))*ref_history[k]
 ```
-验证：`in == ref` → `residue_db < -40`；加相干白噪 → 残差上升；非线性失真(幅值三次) 也会被 NLMS 捕获。用法对比见 `docs/HOW.md` §30。
+
+预测、归一化和权重更新保留原 f32 次序；
+误差/输入能量先转 double 再相乘、累计。
+这与使用外部误差输入的 `nlms` 组件不同。
+
+## 观测
+
+- `residue_db`：当前真实调用 `10*log10((Σe²+1e-12)/(Σin²+1e-12))`。
+- `erle_db`：reset 以来累计输入/残差能量比，保留原 f32 `log10f` 计算。
+- `noise_frames`：调用级残差比严格大于 `frame_thres_db` 的次数，
+  判定使用未转 f32 的 double dB；不是样本数，也不表示 Task 拍数。
+- `noise_ratio`：噪声调用数/总正帧调用数。
+- `clicks`：`abs(e)>0.2` 的累计样本数，不是相邻样本差分。
+- `residue_pk`：reset 以来最大绝对残差。
+- `detail`：非实时 getter 生成 JSON，包含当前 dB/ERLE、噪声/总调用数、
+  `abs(e)>time_thres` 的样本数、总样本数、突刺和累计峰值。
+  调用/样本计数为 64 位；两个 int32 计数探针饱和，JSON 保留完整数值。
+  溢出/不变量错误在推进前拒绝，非有限 JSON 指标或格式化失败明确报错。
+
+延续原公式：输入与残差都为零时微量比为 1，`residue_db=0`，
+仍可能超过负 dB 预算；不将这种结果解释为实际检测到了噪声。
+变长调用按实际样本累计能量，不由最后块长反推。
+reset 清权重、历史、位置及所有统计/探针（包括占比），保留配置。
+
+## 独立生成与验证
+
+先保存 `component.yaml`，再由 `scripts/generate_component.py` 独立校验/生成。
+用户算法仅在 `user/`，生成文件不作为手写入口。
+原生冒烟以非环形参考逐位核对权重和指标，覆盖三次分配失败重试、
+3/1/2 帧实际调用、错误后继续、容量/别名/入口、计数边界、纯观测和 reset；
+`test_noise_detector_nlms_interfaces.py` 覆盖五图的动态/生成四入口和最新 JSON 读回。

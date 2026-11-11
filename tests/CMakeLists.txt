@@ -473,6 +473,17 @@ target_compile_definitions(noise_detector_ab_smoke PRIVATE ORPHEUS_BUILDING_COMP
 target_compile_options(noise_detector_ab_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
 add_test(NAME noise_detector_ab_smoke COMMAND noise_detector_ab_smoke)
 
+add_executable(noise_detector_nlms_smoke noise_detector_nlms_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_detector_nlms/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_detector_nlms/user/algorithm.c)
+target_include_directories(noise_detector_nlms_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_detector_nlms/generated)
+target_compile_definitions(noise_detector_nlms_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
+    calloc=noise_detector_nlms_test_calloc free=noise_detector_nlms_test_free snprintf=noise_detector_nlms_test_snprintf)
+target_compile_options(noise_detector_nlms_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+add_test(NAME noise_detector_nlms_smoke COMMAND noise_detector_nlms_smoke)
+
 add_executable(iir_coefs_runner iir_coefs_runner.cpp)
 target_link_libraries(iir_coefs_runner PRIVATE orpheus_runtime_lib)
 
