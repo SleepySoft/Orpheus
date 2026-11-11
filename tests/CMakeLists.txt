@@ -198,10 +198,12 @@ endif()
 add_test(NAME audio_adapters_smoke COMMAND audio_adapters_smoke)
 
 add_executable(integer_delay_smoke integer_delay_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delay_line/src/delay_line.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delay_line/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delay_line/user/algorithm.c)
 target_include_directories(integer_delay_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delay_line/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delay_line/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/delay_line/user)
 target_compile_definitions(integer_delay_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME integer_delay_smoke COMMAND integer_delay_smoke)
 
