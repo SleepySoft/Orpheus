@@ -554,8 +554,10 @@ def _validate(raw):
                 for dimension in item["shape"]:
                     if type(dimension) is int and dimension > 0:
                         continue
+                    if dimension == "config:frames" and (is_array_parameter(item) or "bulk" in item):
+                        continue
                     if not isinstance(dimension, str) or not re.fullmatch(r"param:[A-Za-z][A-Za-z0-9_]*", dimension):
-                        _fail("shape 维度必须是正整数或 param 引用", loc)
+                        _fail("shape 维度必须是正整数、param 引用或资源的 config:frames", loc)
                     references[(key, f"shape{len(references)}")] = dimension
     _validate_port_groups(interfaces)
     _validate_input_alternatives(raw.get("input_alternatives", []), interfaces)
@@ -658,7 +660,8 @@ def _validate(raw):
     for resource in component_bulk_resources(interfaces):
         size = 1
         for dimension in resource["shape"]:
-            value = _parameter_default(interfaces[dimension.split(":")[1]]) if isinstance(dimension, str) else dimension
+            value = (1 if dimension == "config:frames" else
+                     _parameter_default(interfaces[dimension.split(":")[1]]) if isinstance(dimension, str) else dimension)
             size *= value
         if size < 1 or size > resource["count"]:
             _fail("资源默认 shape 的元素数必须在物理容量内", f"interfaces.{resource['id']}.shape")

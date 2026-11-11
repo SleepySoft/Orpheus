@@ -66,7 +66,7 @@
         "function": {"$ref": "#/$defs/identifier"},
         "lifecycle": {
           "type": "array", "uniqueItems": true,
-          "items": {"enum": ["validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook"]}
+          "items": {"enum": ["normalize", "validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook"]}
         }
       }
     },
@@ -219,7 +219,7 @@
           "type": "array",
           "items": {"oneOf": [
             {"type": "integer", "minimum": 1},
-            {"type": "string", "pattern": "^param:[A-Za-z][A-Za-z0-9_]*$"}
+            {"type": "string", "pattern": "^(?:param:[A-Za-z][A-Za-z0-9_]*|config:frames)$"}
           ]}
         },
         "bindable": {"type": "boolean"},

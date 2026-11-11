@@ -88,7 +88,13 @@ def _parameter_declaration(param):
 def _parameter_struct(definition):
     values = f"{definition['algorithm_symbols']['prefix']}_Parameters"
     fields = [f"    {_parameter_declaration(p)}" for p in definition["parameters"]]
+    if _uses_config_frames(definition):
+        fields.append("    uint32_t _orpheus_config_frames;")
     return [f"typedef struct {values} {{", *(fields or ["    unsigned char reserved;"]), f"}} {values};"]
+
+
+def _uses_config_frames(definition):
+    return any("config:frames" in resource["shape"] for resource in definition.get("bulk_bindings", []))
 
 
 def _is_array(param):
@@ -131,7 +137,8 @@ def _render_resource_counts(definition, values):
         lines += [f"static int resource_count_{key}(const {values}* p, uint32_t* count) {{",
                   "    (void)p; uint32_t product=1;"]
         for i, dimension in enumerate(resource["shape"]):
-            term = f"p->{dimension.split(':')[1]}" if isinstance(dimension, str) else str(dimension)
+            term = ("p->_orpheus_config_frames" if dimension == "config:frames" else
+                    f"p->{dimension.split(':')[1]}" if isinstance(dimension, str) else str(dimension))
             lines += [f"    int64_t dimension{i}={term};",
                       f"    if (dimension{i}<1 || (uint64_t)dimension{i}>{capacity}u/product) return ORPHEUS_ERR_INVALID_ARG;",
                       f"    product*=(uint32_t)dimension{i};"]
@@ -196,12 +203,16 @@ def _render_parameter_shell(definition):
         key = p["id"]
         lines.append(f"    memcpy(p->{key}, s->{key}, sizeof(p->{key}));" if p["type"] == "string" or _is_array(p)
                      else f"    p->{key}=s->{key};")
+    if _uses_config_frames(definition):
+        lines.append("    p->_orpheus_config_frames=s->_orpheus_config_frames;")
     lines += ["}", f"static void commit_parameters({state}* s, const {values}* p) {{",
               "    (void)s; (void)p;"]
     for p in params:
         key = p["id"]
         lines.append(f"    memcpy(s->{key}, p->{key}, sizeof(s->{key}));" if p["type"] == "string" or _is_array(p)
                      else f"    s->{key}=p->{key};")
+    if _uses_config_frames(definition):
+        lines.append("    s->_orpheus_config_frames=p->_orpheus_config_frames;")
     lines += ["}", f"static void default_parameters({values}* p) {{", "    memset(p, 0, sizeof(*p));"]
     for p in params:
         key = p["id"]
@@ -304,9 +315,13 @@ def _render_parameter_shell(definition):
         lines += ["        return ORPHEUS_OK;", "    }"]
     lines += ["    return ORPHEUS_ERR_NOT_FOUND;", "}"]
     if "normalize" in hooks:
-        lines += [f"static int normalize_parameters({values}* p, const char* key) {{",
-                  f"    int result={prefix}_normalize(p, key);",
+        lines += [f"static int normalize_parameters({values}* p, const char* key) {{"]
+        if _uses_config_frames(definition):
+            lines.append("    uint32_t frames=p->_orpheus_config_frames;")
+        lines += [f"    int result={prefix}_normalize(p, key);",
                   "    if (result!=ORPHEUS_OK) return result;"]
+        if _uses_config_frames(definition):
+            lines.append("    if (p->_orpheus_config_frames!=frames) return ORPHEUS_ERR_INVALID_ARG;")
         for p in params:
             name, kind = p["id"], p["type"]
             if _is_array(p):
@@ -409,6 +424,9 @@ def _render_parameter_shell(definition):
         "        return ORPHEUS_ERR_INVALID_ARG;",
         "    default_parameters(p);",
     ]
+    if _uses_config_frames(definition):
+        lines += ["    if (!config->block_size) return ORPHEUS_ERR_INVALID_ARG;",
+                  "    p->_orpheus_config_frames=config->block_size;"]
     for field in task_fields:
         lines += ([f"    if (!config->{field}) return ORPHEUS_ERR_INVALID_ARG;"] if field == "block_size" else [
             f"    if (!isfinite(config->{field}) || config->{field}<1 || config->{field}>UINT32_MAX",
@@ -635,6 +653,8 @@ def _render(definition):
             "   不得改写外部状态或保留候选指针；错误原样返回，不调用可变生命周期入口。 */", ""]
     state_header.append(f"typedef struct {state} {{")
     state_header.extend(f"    {_parameter_declaration(p)}" for p in params)
+    if _uses_config_frames(definition):
+        state_header.append("    uint32_t _orpheus_config_frames;")
     state_header.extend(f"    {'uint32_t' if field == 'block_size' else 'double'} _orpheus_task_{field};"
                         for field in _audio_payload_tasks(definition))
     if "get_parameter" in hooks:
