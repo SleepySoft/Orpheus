@@ -214,6 +214,18 @@ sum/mean 保留逐次 f32 累加顺序，min/max 保留 FLT_MAX/-FLT_MAX 初值�
 NaN 比较为假的原语义；结果广播到整个实际输出块。无历史或 process 分配，
 缺失输入/输出、数据不足或重叠明确拒绝；零量子不续调，下游失败原样返回。
 
+window 每次 in 到达均从系数开头加权，显式交付 1 号 out；
+single 超窗长部分仍乘 1，repeat 按 window_size 重复，不跨调用保存窗位置。
+保留 double 解析后转 float 的初值舍入、不足窗长补零及空列表首项 1 的规则；
+支持逗号或空白分隔，非法文本、重复/尾部逗号或超窗长列表明确拒绝，
+不再静默截断。保留 IEEE 系数与乘法，不跳过乘 0 或乘 1。
+支持精确原地，部分重叠在写样本前拒绝。
+reset 仍将实际系数改为首项 1、余项 0，并切回 single，
+不是恢复初始化 CSV；prepare 则重新载入配置。
+coefficients 绑定唯一 f32 BULK 槽，count 为 window_size，支持双 bank 块边界更新；
+window_size 因此声明 affects_signature，不改变 audio 的实际量子。
+初始化 CSV 与运行期系数槽共用一个资源事实源，process 无内存分配。
+
 complex_power 的 in 驱动逐批功率及能量计算；按实际算法调用点依次交付
 1 号 power、2 号 energy。complex_gain_split 的 in 驱动，
 gain 是不触发运算的 latest 数组；依次交付 1 号 impulse、2 号 reverb。

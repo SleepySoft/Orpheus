@@ -61,6 +61,16 @@ target_include_directories(spectral_reduce_smoke PRIVATE
 target_compile_definitions(spectral_reduce_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME spectral_reduce_smoke COMMAND spectral_reduce_smoke)
 
+add_executable(window_smoke window_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/window/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/window/user/algorithm.c)
+target_include_directories(window_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/window/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/window/user)
+target_compile_definitions(window_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME window_smoke COMMAND window_smoke)
+
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
 foreach(adapter rational_resample block_split circular_buffer resample)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})
