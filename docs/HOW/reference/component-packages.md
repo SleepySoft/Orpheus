@@ -166,6 +166,12 @@ rational_resample则在每次in接收完整input_frames后直接转换并显式�
 显式载荷与处理量子分离，下游必须声明匹配载荷；
 参考[有理倍SRC契约](../../../components/orpheus/builtin/rational_resample/README.md)。
 
+sequence_envelope_state以targets为驱动入口，序列、系数和latest反馈仅提供数据。
+先写完所有出口，再显式交付accepted(2)、alpha(3)、freeze(4)、start(1)；
+编号不决定顺序。所有下游成功返回后才提交反馈，不增加块末延迟；
+失败不提交反馈，也不撤销已接受的序列状态。
+参考[序列状态契约](../../../components/orpheus/builtin/sequence_envelope_state/README.md)。
+
 ## 接口化通道选择与索引资源
 
 indexed_tone 的in唯一驱动，每次到达自主处理并交付1号out。

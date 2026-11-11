@@ -180,6 +180,20 @@ if(UNIX)
 endif()
 add_test(NAME mixer_smoke COMMAND mixer_smoke)
 
+set(sequence_state_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sequence_envelope_state)
+add_executable(sequence_envelope_state_smoke sequence_envelope_state_smoke.c
+    ${sequence_state_dir}/generated/component_shell.c ${sequence_state_dir}/user/algorithm.c)
+target_include_directories(sequence_envelope_state_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${sequence_state_dir}/generated ${sequence_state_dir}/user)
+target_compile_definitions(sequence_envelope_state_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(MSVC)
+    target_compile_options(sequence_envelope_state_smoke PRIVATE /utf-8)
+endif()
+if(UNIX)
+    target_link_libraries(sequence_envelope_state_smoke PRIVATE m)
+endif()
+add_test(NAME sequence_envelope_state_smoke COMMAND sequence_envelope_state_smoke)
+
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
 foreach(adapter block_split circular_buffer)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})
