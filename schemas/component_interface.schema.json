@@ -126,6 +126,13 @@
       "type": "string",
       "pattern": "^(param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*)(\\*(param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+$(?![\\s\\S])"
     },
+    "sample_rate": {
+      "description": "采样率引用可乘除正整数常量或影响签名的正整数参数；不创建执行周期。",
+      "oneOf": [
+        {"$ref": "#/$defs/signature"},
+        {"type": "string", "pattern": "^(in|task):sample_rate([*/](param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+$(?![\\s\\S])"}
+      ]
+    },
     "channels": {
       "description": "保留既有通道签名；正整数/param 引用乘法复用签名乘积语法，新通道乘积在声明范围内不得超过 65536。",
       "oneOf": [
@@ -152,7 +159,7 @@
         "sample_format": {"enum": ["f32", "i16", "i24", "i32"]},
         "channels": {"$ref": "#/$defs/channels"},
         "block_size": {"$ref": "#/$defs/payload"},
-        "sample_rate": {"$ref": "#/$defs/signature"},
+        "sample_rate": {"$ref": "#/$defs/sample_rate"},
         "count": {"oneOf": [
           {"type": "integer", "minimum": 0, "maximum": 4294967294},
           {"type": "string", "pattern": "^param:[A-Za-z][A-Za-z0-9_]*$"}
