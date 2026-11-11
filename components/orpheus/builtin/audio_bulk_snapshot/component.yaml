@@ -1,17 +1,18 @@
 id: orpheus.builtin.audio_bulk_snapshot
 name: "音频数据快照"
 category: "数学与控制"
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: AudioBulkSnapshotState
-sources: [src/audio_bulk_snapshot.c]
-headers: [include/orpheus_audio_bulk_snapshot.h]
-description: 显式将同次调用音频块复制为只读计算数据快照，以便ABI6父组件在子调用返回后消费。位型与交错布局不变，无额外块延迟，不是音频时钟或控制参数链。
-ports:
-  - {id: in, direction: input, type: audio, sample_format: f32, channels: "param:channels"}
-  - {id: out, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "in:block_size"}
-parameters:
-  - {id: channels, name: 通道数, type: int, default: 22, range: [1, 128], update_policy: restart_required, affects_signature: true}
-  - {id: elements, name: 期望样本数（0跟随音频）, type: int, default: 0, range: [0, 65536], update_policy: restart_required, affects_signature: true}
-execution: {realtime_safe: true, supports_inplace: false}
+description: >-
+  同次调用将音频块复制为只读计算数据快照，随后显式交付1号out。
+  位型与交错布局不变，不增加块延迟，不是时钟源或控制参数链。
+  elements为每通道期望帧数，0跟随实际音频；不匹配明确拒绝。
+  输出未连接则只验证输入，不续调；不支持原地或部分重叠。
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  out: {direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "in:block_size", drive_port_no: 1, drive_divide: 1}
+  channels: {name: 通道数, type: int, default: 22, range: [1, 128], update_policy: restart_required, affects_signature: true}
+  elements: {name: 期望帧数（0跟随音频）, type: int, default: 0, range: [0, 65536], update_policy: restart_required, affects_signature: true}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {realtime_safe: true, supports_inplace: false, sample_rate_independent: true, latency_samples: 0}

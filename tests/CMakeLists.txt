@@ -99,6 +99,15 @@ target_include_directories(noise_slew_smoke PRIVATE
 target_compile_definitions(noise_slew_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME noise_slew_smoke COMMAND noise_slew_smoke)
 
+add_executable(audio_bulk_snapshot_smoke audio_bulk_snapshot_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/audio_bulk_snapshot/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/audio_bulk_snapshot/user/algorithm.c)
+target_include_directories(audio_bulk_snapshot_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/audio_bulk_snapshot/generated)
+target_compile_definitions(audio_bulk_snapshot_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME audio_bulk_snapshot_smoke COMMAND audio_bulk_snapshot_smoke)
+
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
 foreach(adapter rational_resample block_split circular_buffer resample)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})
