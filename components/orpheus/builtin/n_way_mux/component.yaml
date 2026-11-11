@@ -1,67 +1,20 @@
 id: orpheus.builtin.n_way_mux
-name: "多路音频选择"
-category: "路由与混音"
-description: N 路输入选 1 路输出。输入路数由 inputs 决定（引脚 in0..inN-1）；select 选第几路（1 起），ramp_ms>0 时线性交叉淡化，ramp_ms=0 时立即逐字节拷贝所选输入，不混入未选分支
+name: 多路音频选择
+category: 路由与混音
+description: 每次输入到达按当前位置选择当前可见候选，立即交付下游，不等待或合并多入口；零斜坡逐位拷贝，选择请求钳到实际输入路数。
 version: 1.2.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: NWayMuxState
-sources:
-  - src/n_way_mux.c
-headers:
-  - include/orpheus_n_way_mux.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-    count: param:inputs
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: inputs
-    name: 输入路数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 64]
-    update_policy: restart_required
-    affects_signature: true
-  - id: select
-    name: 选择输入(1=in0, 2=in1...)
-    type: int
-    default: 1
-    range: [1, 32]
-    update_policy: smoothed
-  - id: select_index
-    name: 选择输入索引(0=in0, 1=in1...，-1=使用select)
-    type: int
-    default: -1
-    range: [-1, 31]
-    update_policy: smoothed
-  - id: ramp_ms
-    name: 切换淡化时长
-    type: float
-    default: 20.0
-    range: [0.0, 1000.0]
-    unit: ms
-    update_policy: restart_required
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: true
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+algorithm:
+  lifecycle: [normalize, prepare, reset]
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", count: "param:inputs", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1}
+  inputs: {name: 输入路数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  select: {name: 选择输入（1起，按实际路数钳位）, type: int, default: 1, update_policy: smoothed, persistent: true, readback: true}
+  select_index: {name: 选择输入索引（0起，配置负值使用select）, type: int, default: -1, update_policy: smoothed, persistent: true, readback: true}
+  ramp_ms: {name: 每相邻一路淡化时长, type: float, default: 20.0, range: [0.0, 1000.0], unit: ms, update_policy: restart_required}
+  select_pos: {name: 当前选择位置（0起）, type: float, default: 0.0, kind: probe, readonly: true, readback: true, update_policy: immediate}
+memory: {alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}

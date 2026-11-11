@@ -759,11 +759,13 @@ add_test(NAME spectral_pipeline_smoke COMMAND spectral_pipeline_smoke)
 
 add_executable(n_way_mux_smoke
     n_way_mux_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/n_way_mux/src/n_way_mux.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/n_way_mux/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/n_way_mux/user/algorithm.c
 )
 target_include_directories(n_way_mux_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/n_way_mux/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/n_way_mux/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/n_way_mux/user
 )
 target_compile_definitions(n_way_mux_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME n_way_mux_smoke COMMAND n_way_mux_smoke)

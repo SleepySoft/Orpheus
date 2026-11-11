@@ -81,17 +81,40 @@ def _mux_run(client, name, src_files, select, inputs, ramp_ms=20.0, out_name="ou
     doc = client.get(f"/api/projects/{name}").json()
     doc["sample_rate"] = SR
     doc["block_size"] = BLOCK
+    doc["tasks"] = [{"id": "default", "sample_rate": SR, "block_size": BLOCK}]
     doc["flow_mode"] = "task_sequence"
-    order = ["source", *(f"src{idx}" for idx in src_files), "mux", "wav_out"]
-    doc["drive_connections"] = [
-        {"from": f"{a}:out", "to": f"{b}:in"} for a, b in zip(order, order[1:])
-    ]
+    doc["drive_connections"] = []
     doc["graph"] = {"nodes": nodes, "connections": conns}
     assert client.put(f"/api/projects/{name}", json=doc).status_code == 200
-    rj = client.post(f"/api/projects/{name}/run").json()
+    response = client.post(f"/api/projects/{name}/run")
+    assert response.status_code == 200, response.json()
+    rj = response.json()
     assert rj["status"] == "ok", rj.get("stderr")
     out = _read_wav(ROOT / "workspace" / name / "outputs" / out_name)
-    return out, rj
+    selected = min(inputs - 1, max(0, select_index if select_index is not None and select_index >= 0 else select - 1))
+    routes = list(src_files)
+    assert len(out[0]) % (BLOCK * len(routes)) == 0
+    slot = routes.index(selected) if selected in routes else None
+    for base in range(0, len(out[0]), BLOCK * len(routes)):
+        block = base // (BLOCK * len(routes))
+        for event in range(len(routes)):
+            previous = slot is not None and event < slot
+            start = (block - int(previous)) * BLOCK
+            for n in range(BLOCK):
+                for channel in range(2):
+                    source_index = (start + n) * 2 + channel
+                    value = samples[slot][source_index] / 32768 if (
+                        slot is not None and start >= 0 and source_index < len(samples[slot])) else 0.0
+                    actual = out[channel][base + event * BLOCK + n]
+                    assert abs(actual - int(value * 32767) / 32768) <= 1 / 32768, (
+                        selected, slot, block, event, n, channel, actual, value)
+    # 数值选路断言取每次源调用的最后到达；上面另核验全部中间交付及旧/新数据可见性。
+    final_arrivals = [
+        [sample for base in range(0, len(values), BLOCK * len(routes))
+         for sample in values[base + (len(routes) - 1) * BLOCK:base + len(routes) * BLOCK]]
+        for values in out
+    ]
+    return final_arrivals, rj
 
 
 @pytest.mark.skipif(_SKIP, reason="n_way_mux not built")

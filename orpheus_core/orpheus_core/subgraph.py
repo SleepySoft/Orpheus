@@ -257,7 +257,10 @@ def _expand_graph(
         source = conn.from_ref.node_id
         target = conn.to_ref.node_id
         if conn.from_ref.port_id != "out" or conn.to_ref.port_id != "in":
-            raise CompileError("驱动接口必须使用 node:out → node:in")
+            flat.drive_connections.append(DriveConnection(
+                map_endpoint(conn.from_ref), map_endpoint(conn.to_ref), conn.every, conn.phase,
+            ))
+            continue
         sources = drive_boundaries[source][1] if source in drive_boundaries else [prefix + source]
         targets = drive_boundaries[target][0] if target in drive_boundaries else [prefix + target]
         if not sources or not targets:
