@@ -440,6 +440,17 @@ target_compile_definitions(anc_fxlms_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
 target_compile_options(anc_fxlms_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
 add_test(NAME anc_fxlms_smoke COMMAND anc_fxlms_smoke)
 
+add_executable(coherence_matrix_smoke coherence_matrix_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/coherence_matrix/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/coherence_matrix/user/algorithm.c)
+target_include_directories(coherence_matrix_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/coherence_matrix/generated)
+target_compile_definitions(coherence_matrix_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
+    calloc=coherence_matrix_test_calloc free=coherence_matrix_test_free snprintf=coherence_matrix_test_snprintf)
+target_compile_options(coherence_matrix_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+add_test(NAME coherence_matrix_smoke COMMAND coherence_matrix_smoke)
+
 add_executable(iir_coefs_runner iir_coefs_runner.cpp)
 target_link_libraries(iir_coefs_runner PRIVATE orpheus_runtime_lib)
 

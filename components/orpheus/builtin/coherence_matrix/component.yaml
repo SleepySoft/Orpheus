@@ -1,58 +1,67 @@
 id: orpheus.builtin.coherence_matrix
 name: 相干矩阵
-category: "频域与分析"
-description: 多通道相干矩阵估计（逐块 FFT + 交叉功率谱 EMA，通道间相干平均谱 → N×N 矩阵 readback），音频直通
+category: 频域与分析
+description: 显式fft_size载荷的逐通道FFT与交叉功率谱EMA；音频直通后交付，相干矩阵与历史在非实时getter中读取
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: CoherenceMatrixState
-sources:
-  - src/coherence_matrix.c
-headers:
-  - include/orpheus_coherence_matrix.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [normalize, prepare, reset, destroy, get_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    block_size: param:fft_size
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: channels
+    block_size: param:fft_size
+    drive_port_no: 1
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [2, 10]
     update_policy: restart_required
     affects_signature: true
-  - id: smoothing
+  fft_size:
+    name: FFT点数
+    type: int
+    default: 128
+    range: [4, 4096]
+    update_policy: restart_required
+    affects_signature: true
+  smoothing:
     name: 平滑块数
     type: int
     default: 8
     range: [1, 128]
     update_policy: restart_required
-  - id: coherence
+  coherence:
     name: 相干矩阵
     type: string
     default: "{}"
+    capacity: 2048
+    kind: probe
+    access: read
     readback: true
-    update_policy: immediate
-  - id: history
+  history:
     name: 相干历史
     type: string
     default: "[]"
+    capacity: 1024
+    kind: probe
+    access: read
     readback: true
-    update_policy: immediate
 memory:
-  state_size: 0
-  scratch_size: 0
   alignment: 8
 execution:
-  sample_rate_independent: false
+  sample_rate_independent: true
   latency_samples: 0
   supports_inplace: true
   realtime_safe: true
