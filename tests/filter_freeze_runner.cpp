@@ -18,7 +18,7 @@ int main(int argc, char** argv) {
 #define SET(n, v) orpheus_control_set_value(n, "processing_enabled", v)
 #define SET_ID(id, v) orpheus_control_set_value_id(id, v)
 #define GET(n, v) orpheus_control_get_value(n, "processing_enabled", v)
-#define PROCESS() (strcmp(mode, "task") == 0 ? orpheus_generated_process_task_default(0) : orpheus_generated_process(32))
+#define PROCESS() (strcmp(mode, "task") == 0 ? orpheus_generated_process_task_task_source(0) : orpheus_generated_process(32))
 #else
     CHECK(argc >= 6);
     orpheus::Runtime runtime;
@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
 #define SET(n, v) runtime.set_parameter(n, "processing_enabled", v)
 #define SET_ID(id, v) runtime.write_id(id, v)
 #define GET(n, v) runtime.get_parameter(n, "processing_enabled", v)
-#define PROCESS() (strcmp(mode, "task") == 0 ? runtime.process_task("default", 0) : runtime.process_block(32))
+#define PROCESS() (strcmp(mode, "task") == 0 ? runtime.process_task("task_source", 0) : runtime.process_block(32))
 #endif
     const unsigned blocks[] = {2, 3, 1, 2, 1};
     for (unsigned step = 0; step < 5; ++step) {

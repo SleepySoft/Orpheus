@@ -166,6 +166,13 @@ rational_resample则在每次in接收完整input_frames后直接转换并显式�
 显式载荷与处理量子分离，下游必须声明匹配载荷；
 参考[有理倍SRC契约](../../../components/orpheus/builtin/rational_resample/README.md)。
 
+iir_bank在每次真实in交付时执行原DF2T级联，保存全部历史后显式emit out(1)，
+同拍重复交付分别推进历史，下游失败不回滚。保留异构有效级数、0级逐位复制、
+停用正零/冻结历史和未用节不读取NaN系数。
+共享/逐通道仅注册当前模式的双缓冲槽，分别为80/通道数×80项；
+初始CSV按num_stages紧凑展开，BULK按每通道80项固定跨度，不可混用。
+参考[级联二阶滤波器组](../../../components/orpheus/builtin/iir_bank/README.md)。
+
 sequence_envelope_state以targets为驱动入口，序列、系数和latest反馈仅提供数据。
 先写完所有出口，再显式交付accepted(2)、alpha(3)、freeze(4)、start(1)；
 编号不决定顺序。所有下游成功返回后才提交反馈，不增加块末延迟；

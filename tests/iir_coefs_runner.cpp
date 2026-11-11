@@ -10,8 +10,8 @@
 
 #define CHECK(expr) do { if (!(expr)) { fprintf(stderr, "%d: %s\n", __LINE__, #expr); return 1; } } while (0)
 
-static float initial[8][2112];
-static float zeros[2113];
+static float initial[8][5120];
+static float zeros[5121];
 
 int main(int argc, char** argv) {
 #ifdef ORPHEUS_TEST_GENERATED
@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
 #define WRITE(n, k, v, c) orpheus_control_write_bulk(n, k, v, c)
 #define WRITE_ID(id, v, c) orpheus_control_write_bulk_id(id, v, c)
 #define READ(n, k, v, c) orpheus_control_get_bulk(n, k, v, c)
-#define PROCESS() (strcmp(mode, "task") == 0 ? orpheus_generated_process_task_default(0) : orpheus_generated_process(32))
+#define PROCESS() (strcmp(mode, "task") == 0 ? orpheus_generated_process_task_task_source(0) : orpheus_generated_process(32))
 #else
     CHECK(argc >= 8);
     orpheus::Runtime runtime;
@@ -31,12 +31,12 @@ int main(int argc, char** argv) {
 #define WRITE(n, k, v, c) runtime.write_bulk(n, k, v, c)
 #define WRITE_ID(id, v, c) runtime.write_bulk_id(id, v, c)
 #define READ(n, k, v, c) runtime.get_bulk(n, k, v, c)
-#define PROCESS() (strcmp(mode, "task") == 0 ? runtime.process_task("default", 0) : runtime.process_block(32))
+#define PROCESS() (strcmp(mode, "task") == 0 ? runtime.process_task("task_source", 0) : runtime.process_block(32))
 #endif
     CHECK((argc-first) % 4 == 0 && (argc-first)/4 <= 8);
     for (int i = first; i < argc; i += 4) {
         size_t count = (size_t)strtoul(argv[i+3], NULL, 10);
-        CHECK(count > 0 && count <= 2112);
+        CHECK(count > 0 && count <= 5120);
         CHECK(READ(argv[i], argv[i+2], initial[(i-first)/4], count) == ORPHEUS_OK);
     }
     const unsigned blocks[] = {2, 3, 1, 2, 1};
@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
             const char* key = argv[i+2];
             size_t count = (size_t)strtoul(argv[i+3], NULL, 10);
             const float* next = step % 2 ? zeros : initial[(i-first)/4];
-            float before[2112], after[2112];
+            float before[5120], after[5120];
             CHECK(READ(node, key, before, count) == ORPHEUS_OK);
             if (step % 2) CHECK(WRITE(node, key, next, count) == ORPHEUS_OK);
             else CHECK(WRITE_ID(id, next, count) == ORPHEUS_OK);
@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
         for (unsigned block = 0; block < blocks[step]; ++block) CHECK(PROCESS() == ORPHEUS_OK);
         for (int i = first; i < argc; i += 4) {
             size_t count = (size_t)strtoul(argv[i+3], NULL, 10);
-            float actual[2112];
+            float actual[5120];
             CHECK(READ(argv[i], argv[i+2], actual, count) == ORPHEUS_OK);
             CHECK(memcmp(actual, step % 2 ? zeros : initial[(i-first)/4], count*sizeof(float)) == 0);
         }

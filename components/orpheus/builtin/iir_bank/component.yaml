@@ -1,56 +1,79 @@
 id: orpheus.builtin.iir_bank
-name: "级联二阶滤波器组"
-category: "滤波与均衡"
-description: 可配置级数的级联二阶IIR滤波器组，采用DF2T结构，每节系数顺序为[b0,b1,b2,a1,a2]；与保持完整多项式的直接型iir不同
+name: 级联二阶滤波器组
+category: 滤波与均衡
+description: 可配置级数的DF2T级联，五项系数顺序为[b0,b1,b2,a1,a2]；与直接型多项式iir不同
 version: 1.5.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: IirBankState
-sources:
-  - src/iir_bank.c
-headers:
-  - include/orpheus_iir_bank.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [validate, prepare, reset, register_slots]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: channels
+    drive_port_no: 1
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 64]
     update_policy: restart_required
     affects_signature: true
-  - id: num_stages
+  num_stages:
     name: 级数
     type: int
     default: 4
     range: [1, 16]
     update_policy: restart_required
-  - id: coefs_mode
+  coefs_mode:
     name: 系数模式
     type: string
+    capacity: 16
     default: shared
     widget: select
     options: [shared, per_channel]
     update_policy: restart_required
     affects_signature: true
-  - id: coefs
-    name: IIR系数
+  coefs:
+    name: 初始系数（未提供部分保持单位节）
     type: string
+    capacity: 65536
     default: "1,0,0,0,0"
-    widget: text
+    readback: false
     kind: bulk
     update_policy: restart_required
-  - id: processing_enabled
+    bulk:
+      sample_format: f32
+      capacity: 80
+      storage: algorithm.shared
+      double_bank: true
+      auto_register: false
+  initial_coefs_per_channel:
+    name: 逐通道系数初值（空值使用coefs）
+    type: string
+    capacity: 65536
+    default: ""
+    readback: false
+    kind: bulk
+    update_policy: restart_required
+    shape: [param:channels, 16, 5]
+    description: per_channel模式使用紧凑CSV，按num_stages展开到每通道80项固定跨度；只注册当前模式的BULK槽
+    bulk:
+      slot_key: coefs_per_channel
+      sample_format: f32
+      capacity: 5120
+      storage: algorithm.per_channel
+      double_bank: true
+      auto_register: false
+  processing_enabled:
     name: 处理使能（0输出正零并冻结历史）
     type: int
     default: 1
@@ -60,26 +83,13 @@ parameters:
     control_source: true
     readback: true
     persistent: true
-    description: 关闭时不读取输入、不更新滤波状态；重新启用从原状态继续；reset清历史但保留使能和系数
-  - id: stages_per_channel
+  stages_per_channel:
     name: 每通道实际级数（空值沿用统一级数）
     type: string
+    capacity: 1024
     default: ""
     update_policy: restart_required
-    widget: text
-    description: 非空时必须提供channels项0到num_stages的整数；0级直接复制输入；系数CSV仍按num_stages固定跨度，未用级不执行
-bulk_slots:
-  - id: coefs
-    name: IIR共享系数
-    type: float
-    count: 80
-    double_bank: true
-  - id: coefs_per_channel
-    name: IIR每通道系数
-    type: float
-    count: 5120
-    shape: [param:channels, 16, 5]
-    double_bank: true
+    description: 非空时严格提供channels项0到num_stages的整数；0级逐位复制，未用级不读取系数或更新历史
 memory:
   state_size: 0
   scratch_size: 0

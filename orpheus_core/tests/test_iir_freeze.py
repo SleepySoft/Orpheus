@@ -1,5 +1,6 @@
 """IIR暂停时输出正零且不推进状态；同一输入的四入口参考验收。"""
 from dataclasses import asdict
+from functools import partial
 import json
 from pathlib import Path
 import struct
@@ -15,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BLOCKS = [2, 3, 1, 2, 1]
 
 
-def iir_reference(samples, params):
+def iir_reference(samples, params, *, coefficient_updates=False):
     channels, stages = params["channels"], params["num_stages"]
     flat = [float(v) for v in params["coefs"].split(",")]
     per_channel = params.get("coefs_mode", "shared") == "per_channel"
@@ -26,13 +27,15 @@ def iir_reference(samples, params):
     for step, blocks in enumerate(BLOCKS):
         for n in range(cursor, cursor+32*blocks):
             for c in range(channels):
-                if step % 2:
+                if step % 2 and not coefficient_updates:
                     expected.append(0)
                     continue
                 x = samples[n][c] / 32768
                 for stage in range(counts[c]):
                     start = ((c*stages if per_channel else 0)+stage)*5
                     b0, b1, b2, a1, a2 = flat[start:start+5]
+                    if step % 2 and coefficient_updates:
+                        b0 = b1 = b2 = a1 = a2 = 0.0
                     z1, z2 = memory[c][stage]
                     y = b0*x+z1
                     memory[c][stage] = [b1*x+z2-a1*y, b2*x-a2*y]
@@ -53,7 +56,7 @@ def verify_iir_freeze_cases(tmp_path, cases, *, component="orpheus.builtin.iir_b
         stream.setsampwidth(2)
         stream.setframerate(48000)
         stream.writeframes(b"".join(struct.pack(f"<{width}h", *row) for row in samples))
-    project = Project(metadata={"name": "IIR冻结验收"})
+    project = Project(flow_mode="task_sequence", metadata={"name": "IIR冻结验收"})
     project.tasks = {"default": Task(id="default", sample_rate=48000, block_size=32)}
     nodes = {"source": Node(id="source", component="orpheus.builtin.wav_in",
                            params={"channels": width, "file_path": "input.wav"})}
@@ -142,3 +145,15 @@ def test_iir_freeze_four_entries(tmp_path):
                              "coefs_mode": "per_channel",
                              "coefs": "0.5,0.25,0,-0.5,0,nan,nan,nan,nan,nan,0.25,0.5,0,-0.25,0,0.5,0,0,0,0"},
     })
+
+
+def test_iir_bank_coefficient_swap_four_entries(tmp_path):
+    rows = []
+    for channel in range(64):
+        rows.extend([.125 + (channel % 3) * .125, .0625, 0, -.25, 0, .5, .125, 0, -.25, 0])
+    verify_iir_freeze_cases(tmp_path, {
+        "shared": {"channels": 3, "num_stages": 2, "coefs": "0.5,0.25,0,-0.5,0,0.5,0,0,0,0"},
+        "wide": {"channels": 64, "num_stages": 2, "coefs_mode": "per_channel",
+                 "stages_per_channel": ",".join(str(c % 3) for c in range(64)),
+                 "coefs": ",".join(map(str, rows))},
+    }, coefficient_updates=True, reference=partial(iir_reference, coefficient_updates=True))
