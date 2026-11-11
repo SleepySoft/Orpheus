@@ -295,6 +295,23 @@ sine_mod 保留两种不同的推进语义：AM 按交错样本推进 f32 相位
 精确原地合法，部分重叠与不足/缺失载荷拒绝，零量子不交付；
 每次有效 in 到达后直接交付 1 号 out，下游失败不回滚相位/游标。
 
+bulk_relay 仍是控制数组资源，而非音频/BULK流转发器。
+数值数组 values 保持 2048 项物理存储，逻辑 shape 为 param:count，
+外部槽键由 bulk.slot_key 派生为 values_storage，控制参数与数据目录使用同一映射。
+对外槽和双缓冲提交范围现在严格为逻辑 count，不再将未使用尾部暴露为有效数据。
+初始完整物理数组默认全零；非空 initial_values 覆盖该初值，
+允许不足 count 的逗号/空白分隔数值并补零，超过 count 或非法/非有限数值拒绝。
+validate 与 prepare 共用解析器，纯校验失败保留旧参数和整个数组；
+reset 保留数组。in/out 只有触发语义，每次实际到达同步交付一次，
+包括零帧事件；不分配、不做同拍去重，下游失败不改写或回滚控制数组。
+
+trigger_divider 是纯触发组件：每次实际收到 in 才推进一次计数，
+仅在计数相位匹配 phase 时交付 out，随后按 factor 回绕。
+不借助连线 every/phase 或调度器补调；载荷为空，时间与 epoch 原样交付。
+factor/phase 均重建生效，必须满足 0<=phase<factor；reset 从相位0重新计数，
+下游失败不回滚已消费的触发。factor 可配置，未硬编码一个可能失真的
+drive_divide 绘图倍率。Task顺序示例使用本组件实现二分频。
+
 wav_out 的 in 是处理入口，但它是终点，没有驱动出口，不隐式续调。
 prepare 为会话分配原有的 16M 个 float 缓存，process 只验证并复制，
 不分配、不做文件 IO；destroy 写出 16bit PCM 后释放缓存。

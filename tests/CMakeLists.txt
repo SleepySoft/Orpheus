@@ -147,6 +147,26 @@ if(MSVC)
 endif()
 add_test(NAME wav_out_smoke COMMAND wav_out_smoke)
 
+add_executable(bulk_relay_smoke bulk_relay_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_relay/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_relay/user/algorithm.c)
+target_include_directories(bulk_relay_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_relay/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/bulk_relay/user)
+target_compile_definitions(bulk_relay_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME bulk_relay_smoke COMMAND bulk_relay_smoke)
+
+add_executable(trigger_divider_smoke trigger_divider_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/trigger_divider/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/trigger_divider/user/algorithm.c)
+target_include_directories(trigger_divider_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/trigger_divider/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/trigger_divider/user)
+target_compile_definitions(trigger_divider_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME trigger_divider_smoke COMMAND trigger_divider_smoke)
+
 add_executable(mixer_smoke mixer_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mixer/generated/component_shell.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mixer/user/algorithm.c)

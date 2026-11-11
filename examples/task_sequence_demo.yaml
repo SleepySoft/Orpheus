@@ -1,7 +1,7 @@
 version: 0.1.0
 metadata:
   name: Task顺序调用与无音频参数交付
-  description: 100Hz任务源驱动数组中继；消费者每两次入口执行一次，本次调用前接收源数组。
+  description: 100Hz任务源驱动数组中继；分频组件每两次触发交付一次，消费者调用前接收源数组。
 flow_mode: task_sequence
 sample_rate: 48000
 block_size: 480
@@ -21,10 +21,16 @@ graph:
       component: orpheus.builtin.bulk_relay
       label: 50Hz消费者
       params: {count: 4, initial_values: "0,0,0,0"}
+      position: {x: 940, y: 120}
+    - id: divide
+      component: orpheus.builtin.trigger_divider
+      label: 显式二分频
+      params: {factor: 2, phase: 1}
       position: {x: 640, y: 120}
   connections: []
 drive_connections:
   - {from: "clock:out", to: "values:in"}
-  - {from: "values:out", to: "consumer:in", every: 2, phase: 1}
+  - {from: "values:out", to: "divide:in"}
+  - {from: "divide:out", to: "consumer:in"}
 control_connections:
   - {from: "values:values", to: "consumer:values"}

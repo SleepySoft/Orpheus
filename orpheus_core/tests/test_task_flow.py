@@ -96,12 +96,12 @@ def test_explicit_decimation_phase(registry, every, phase):
     assert plan.node_configs["b"]["frame_origin"] == phase * 480
 
 
-def test_nested_every_composes_period_and_phase(registry):
+def test_nested_every_is_rejected_for_component_owned_delivery(registry):
     source = project()
     source.control_connections = []
     source.drive_connections = [drive("clock", "a", 2, 1), drive("a", "b", 3, 0)]
-    plan = GraphCompiler(registry).compile(source)
-    assert (plan.node_configs["b"]["period"], plan.node_configs["b"]["phase"]) == (6, 1)
+    with pytest.raises(CompileError, match="连接不能再次分频"):
+        GraphCompiler(registry).compile(source)
 
 
 @pytest.mark.parametrize("mutation,error", [
@@ -142,8 +142,10 @@ def test_fanout_keeps_direct_calls_without_join_scheduling(registry):
     assert GraphCompiler(registry).compile(source).execution_order == ["clock", "a", "c", "b"]
     source.drive_connections[1] = drive("clock", "b", 2)
     plan = GraphCompiler(registry).compile(source)
-    assert plan.call_graph["a"] == [{"node": "c", "every": 1, "phase": 0}]
-    assert plan.call_graph["b"] == [{"node": "c", "every": 1, "phase": 0}]
+    edge = {"node": "c", "every": 1, "phase": 0, "output_port": 1, "input_port": 0,
+            "source_interface": "out", "target_interface": "in"}
+    assert plan.call_graph["a"] == [edge]
+    assert plan.call_graph["b"] == [edge]
 
 
 def test_two_sources_have_independent_tasks_and_reject_shared_instance(registry):
@@ -277,17 +279,17 @@ def test_bridge_identity_includes_direct_call_order(registry):
     assert before["id_map_hash"] == after["id_map_hash"]
 
 
-def test_data_binding_does_not_change_call_order_or_cadence(registry):
+def test_data_binding_does_not_repair_invalid_call_cadence_or_entry(registry):
     source = audio_project()
     source.drive_connections[-1] = drive("r", "g")
     with pytest.raises(CompileError, match="交付周期/相位|启动相位"):
         GraphCompiler(registry).compile(source)
     source.drive_connections = [drive("s", "g"), drive("g", "r")]
-    with pytest.raises(CompileError, match="顺序未声明"):
+    with pytest.raises(CompileError, match="已声明的驱动出口和处理入口"):
         GraphCompiler(registry).compile(source)
 
 
-def test_explicit_port_cadence_is_read_from_manifest_not_code(registry):
+def test_interface_outlet_rejects_edge_division_despite_legacy_cadence(registry):
     local = registry.fork()
     info = copy.deepcopy(local.get("orpheus.builtin.gain"))
     info.manifest["ports"][1]["cadence"] = {"period": 2, "phase": 0}
@@ -295,8 +297,8 @@ def test_explicit_port_cadence_is_read_from_manifest_not_code(registry):
     source = audio_project()
     source.graph.nodes["r"] = Node("r", "orpheus.builtin.gain", params={"channels": 1})
     source.drive_connections[-1] = drive("r", "g", 2, 0)
-    plan = GraphCompiler(local).compile(source)
-    assert plan.node_configs["r"]["output_cadences"]["out"] == {"period": 2, "phase": 0}
+    with pytest.raises(CompileError, match="连接不能再次分频"):
+        GraphCompiler(local).compile(source)
 
 
 def test_aggregate_cannot_claim_output_before_startup_data_exists(registry):
@@ -366,9 +368,11 @@ def test_task_sequence_example(registry):
     source = ProjectLoader(registry).load(ROOT / "examples" / "task_sequence_demo.yaml")
     plan = GraphCompiler(registry).compile(flatten_project(source))
     assert plan.tasks[0]["frequency_hz"] == 100
-    assert plan.execution_order == ["clock", "values", "consumer"]
-    assert plan.node_configs["consumer"]["period"] == 2
-    assert plan.node_configs["consumer"]["frame_origin"] == 480
+    assert plan.execution_order == ["clock", "values", "divide", "consumer"]
+    assert plan.node_configs["divide"]["params"]["factor"] == 2
+    assert plan.node_configs["divide"]["params"]["phase"] == 1
+    assert plan.node_configs["consumer"]["period"] == 1
+    assert plan.node_configs["consumer"]["frame_origin"] == 0
 
 
 def test_api_persists_driver_contract(registry):
@@ -489,7 +493,9 @@ def test_dynamic_generated_global_task_entries(registry, tmp_path, kind, phase):
         source.drive_connections = [drive("clock", "a"), drive("other", "b")]
         source.control_connections = []
     else:
-        source.drive_connections[1] = drive("a", "b", 2, phase)
+        source.graph.nodes["divide"] = Node("divide", "orpheus.builtin.trigger_divider",
+                                           params={"factor": 2, "phase": phase})
+        source.drive_connections = [drive("clock", "a"), drive("a", "divide"), drive("divide", "b")]
 
     plan = GraphCompiler(registry).compile(source)
     path = tmp_path / "plan.json"
@@ -526,7 +532,10 @@ def test_dynamic_generated_global_task_entries(registry, tmp_path, kind, phase):
             elif kind in ("independent", "sibling", "split", "history"):
                 samples = [64 * (i + 1) for i in range(128)]
                 expected = samples
-                if kind == "split":
+                if kind == "sibling":
+                    expected = [value for start in range(0,128,64) for _ in range(2)
+                                for value in samples[start:start+64]]
+                elif kind == "split":
                     expected = [0] * 32 + samples[:96]
                 elif kind == "history":
                     expected = [0] * 32 + samples[:32]

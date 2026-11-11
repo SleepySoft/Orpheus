@@ -204,6 +204,7 @@ def test_oversized_bulk_slots_require_bridge_fragmentation(registry: Registry) -
         ("orpheus.builtin.host_audio", "samples", 8192),
         ("orpheus.builtin.buffer_source", "samples", 8192),
         ("orpheus.builtin.bulk_relay", "values_storage", 2048),
+        ("orpheus.builtin.window", "coefficients", 4096),
         ("orpheus.builtin.fir_bank", "coefs", 4096),
         ("orpheus.builtin.fir_bank", "coefs_banked", 32768),
         ("orpheus.builtin.fir_bank", "coefs_per_channel", 32768),

@@ -4228,6 +4228,30 @@ def test_auto_sample_rate_reference_requires_nonnegative_range_and_preserves_inf
     check_generated(path)
 
 
+def test_bulk_slot_key_is_derived_for_control_parameter_and_real_plan(package, raw):
+    from orpheus_core.compiler import GraphCompiler
+    from orpheus_core.project import ControlConnection, Graph, Node, PortRef, Project
+    from orpheus_core.registry import Registry
+
+    raw["interfaces"]["gain"].update(default=[1.0, 2.0], count=2, shape=[2],
+        kind="bulk", bindable=True, control_source=True, readback=True,
+        bulk={"slot_key": "gain_storage", "double_bank": True})
+    before = copy.deepcopy(raw)
+    view = normalize_component_definition(raw)
+    assert raw == before
+    parameter = next(p for p in view["parameters"] if p["id"] == "gain")
+    assert parameter["bulk_slot"] == "gain_storage"
+    registry = Registry()
+    registry.add_manifest(save(package, raw))
+    project = Project(graph=Graph(nodes={
+        "source": Node("source", raw["id"]), "target": Node("target", raw["id"]),
+    }), control_connections=[ControlConnection(PortRef("source", "gain"), PortRef("target", "gain"))])
+    plan = GraphCompiler(registry).compile(project)
+    assert plan.control_links[0]["src_slot"] == "gain_storage"
+    assert plan.control_links[0]["dst_slot"] == "gain_storage"
+    assert plan.control_links[0]["count"] == 2
+
+
 @pytest.mark.parametrize("field,reference", [
     ("channels", "param:rate"), ("block_size", "param:rate"), ("frame_size", "param:rate"),
     ("channels", "in:sample_rate"), ("block_size", "in:sample_rate"),

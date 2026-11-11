@@ -641,6 +641,8 @@ CSV 初始化接口不再生成第二份 BULK 数据点或同名 C 宏。
 全局数据面板将设计初值编辑关联到该槽，仍按初始化接口键保存预设，
 运行期读写只使用真实槽键；编译器与数据目录共享同一投影规则。
 固定数值数组也可直接用 `count` 与等长默认列表声明。
+`bulk.slot_key` 同时派生资源注册键和内部控制参数的 `bulk_slot`，
+不能只重命名注册槽却让控制连接仍按接口名寻找资源。
 生命周期通过 `algorithm.lifecycle` 显式选择，create 只建立状态，不提前执行用户 prepare。
 需要跨参数约束时声明 `validate`，实现
 `int <prefix>_validate(const <prefix>_Parameters* parameters)`。

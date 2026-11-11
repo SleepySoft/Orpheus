@@ -737,6 +737,7 @@ def normalize_component_definition(raw: dict) -> dict:
                 item.setdefault("capacity", 256)
             if is_array_parameter(value) or "bulk" in value:
                 item.setdefault("kind", "bulk")
+                item["bulk_slot"] = value.get("bulk", {}).get("slot_key", key)
             result["parameters"].append(item)
     symbols = component_symbols(raw)
     result.update({"sources": ["generated/component_shell.c", "user/algorithm.c"],

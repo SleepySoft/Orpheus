@@ -1,0 +1,18 @@
+id: orpheus.builtin.trigger_divider
+name: 触发分频器
+category: 驱动与缓冲
+description: >-
+  对实际收到的触发逐次计数，仅在计数相位匹配时同步交付out。
+  无PCM载荷、不推进时间线、不等待会合；下游错误不回滚已消费的触发。
+  factor/phase为重建参数，reset从相位0重新计数。
+version: 1.0.0
+abi_version: 7
+package_type: source
+algorithm: {lifecycle: [validate, reset]}
+interfaces:
+  in: {direction: input, type: trigger, process: true}
+  out: {direction: output, type: trigger, drive_port_no: 1}
+  factor: {name: 分频倍率, type: int, default: 2, range: [1, 192000], update_policy: restart_required}
+  phase: {name: 交付相位, type: int, default: 1, range: [0, 191999], update_policy: restart_required}
+memory: {alignment: 8}
+execution: {sample_rate_independent: true, realtime_safe: true, supports_inplace: false}
