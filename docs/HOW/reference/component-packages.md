@@ -198,6 +198,12 @@ sleeping_beauty仅由in真实交付驱动；每样本先推进四组共享指数
 保留冷启动、冻结、中央/单声道策略和reset选择；
 参考[声道分组平衡渐变](../../../components/orpheus/builtin/sleeping_beauty/README.md)。
 
+input_mixer_3d由in真实交付驱动；按原f32点积后乘共享增益，再显式emit out(1)。
+保留固定32项行步长和完整1024项双缓冲权重槽，紧凑配置CSV仅在prepare展开；
+运行期BULK不能按实际通道数改用紧凑索引。增益按每次实际参数值计算，
+reset保留系数，零帧不交付；
+参考[固定步长矩阵与输出增益](../../../components/orpheus/builtin/input_mixer_3d/README.md)。
+
 sequence_envelope_state以targets为驱动入口，序列、系数和latest反馈仅提供数据。
 先写完所有出口，再显式交付accepted(2)、alpha(3)、freeze(4)、start(1)；
 编号不决定顺序。所有下游成功返回后才提交反馈，不增加块末延迟；

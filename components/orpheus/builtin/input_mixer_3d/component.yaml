@@ -1,67 +1,27 @@
 id: orpheus.builtin.input_mixer_3d
-name: "矩阵混音与输出增益"
-category: "路由与混音"
-description: "按权重矩阵将M路音频混为N路，可附加共享输出增益；BULK权重采用固定行步长布局。没有HRTF或三维空间处理，与matrix_mul的系数布局及增益接口不同。"
+name: 矩阵混音与输出增益
+category: 路由与混音
+description: 固定32项行步长权重混音后施加共享输出增益，再显式交付；没有三维空间或HRTF处理
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: InputMixer3DState
-sources:
-  - src/input_mixer_3d.c
-headers:
-  - include/orpheus_input_mixer_3d.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:input_channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:output_channels
-parameters:
-  - id: input_channels
-    name: 输入通道数
-    type: int
-    default: 8
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: output_channels
-    name: 输出通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: gain_db
-    name: 输出增益
-    type: float
-    default: 0.0
-    range: [-96.0, 24.0]
-    unit: dB
-    update_policy: smoothed
-  - id: weights
+algorithm: {lifecycle: [validate, prepare, reset]}
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:input_channels", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:output_channels", drive_port_no: 1}
+  input_channels: {name: 输入通道数, type: int, default: 8, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  output_channels: {name: 输出通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  gain_db: {name: 输出增益, type: float, default: 0.0, range: [-96.0, 24.0], unit: dB, update_policy: smoothed, bindable: true, readback: true, persistent: true}
+  weights:
     name: 混音权重矩阵
     type: string
     default: "1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0"
+    capacity: 65536
     widget: text
     kind: bulk
+    readback: false
     update_policy: restart_required
-bulk_slots:
-  - id: weights
-    name: 混音权重矩阵
-    type: float
-    count: 1024
-    double_bank: true
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: true
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+    shape: [32, 32]
+    bulk: {sample_format: f32, capacity: 1024, storage: algorithm.weights, double_bank: true}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}

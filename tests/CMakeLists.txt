@@ -551,6 +551,17 @@ if(NOT WIN32)
     target_link_libraries(sleeping_beauty_smoke PRIVATE m)
 endif()
 add_test(NAME sleeping_beauty_smoke COMMAND sleeping_beauty_smoke)
+add_executable(input_mixer_smoke input_mixer_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/input_mixer_3d/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/input_mixer_3d/user/algorithm.c)
+target_include_directories(input_mixer_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/input_mixer_3d/generated)
+target_compile_definitions(input_mixer_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(NOT WIN32)
+    target_link_libraries(input_mixer_smoke PRIVATE m)
+endif()
+add_test(NAME input_mixer_smoke COMMAND input_mixer_smoke)
 add_executable(sequence_matrix_runner sequence_matrix_runner.cpp)
 target_link_libraries(sequence_matrix_runner PRIVATE orpheus_runtime_lib)
 add_executable(block_stats_smoke block_stats_smoke.c
