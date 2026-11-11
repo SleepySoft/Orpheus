@@ -15,6 +15,15 @@
 | `in` | 输入 | audio f32 | param:channels |
 | `out` | 输出 | audio f32 | param:channels |
 
+## 接口交付
+
+落盘接口配置由独立 `scripts/generate_component.py` 校验并生成类型化壳，算法在 `user/algorithm.c`。
+`in` 为唯一驱动入口，每次真实到达逐样本推进四组共享斜坡，处理全部映射通道后显式交付 `out(1)`。
+同组通道共享同一个样本增益，不因重复映射多推进；同拍调用分别处理，下游错误不回滚已完成状态。
+斜坡次数仍按prepare块长换算，每次正帧调用末递减一次，实际样本循环使用本次真实帧数；
+零帧不消费次数、不建立待处理目标、不交付。
+允许完整原地处理，拒绝部分重叠、私有状态别名、缺失及短输入。
+
 ## 参数
 
 | 参数 | 类型 | 默认 | 范围 | 更新策略 | 说明 |
@@ -22,7 +31,7 @@
 | `gain_index` | float | 128.0 | [0, 255] | smoothed | 增益位置（0=最小, 128=中心, 255=最大） |
 | `offset` | float | 128.0 | - | restart | 中心位置 |
 | `mutes_bass` | float | 0.0 | [0, 1] | restart | 极端位置时是否静音低音 |
-| `ramp_ms` | float | 30.0 | [0, 5000] | restart | 斜坡时间（ms） |
+| `ramp_ms` | float | 30.0 | [0, 5000] | block_boundary | 斜坡时间（ms） |
 | `ramp_db_per_s` | float | 0.0 | [0, 50000] | block_boundary | 非零时优先按 dB/s 推导斜坡时长，内部钳到 5~50000 dB/s |
 | `freeze` | bool | false | - | block_boundary | 冻结 current gain 与剩余 frameCount |
 | `center_mono_mode` | string | attenuated | attenuated/mean_lr | restart | 中置/低音跟随衰减侧，或取左右目标均值（Balance） |
@@ -81,6 +90,14 @@ k=\exp\left(\frac{\ln(target/current)}{B N}\right),\qquad g[n]=g_0 k^{n+1}
 $$
 
 每处理一块 `frameCount` 减一，归零时吸附目标；`freeze=true` 时 gain 和 frameCount 均不推进。非零 `ramp_db_per_s` 优先于 `ramp_ms`。同一块边界内收到的 `gain_index`、`ramp_ms`、`ramp_db_per_s` 会在下一次 process 开头统一计算，避免参数写入顺序改变目标斜坡。
+`ramp_ms=0`始终瞬切；其余情形才按非零dB/s推导时长。
+保留同值SET重新建立请求的语义：冷启动保持unity后，再次写入相同索引也能开始渐变。
+待处理请求在实际输入到达前保持；按名称、ID和调用前控制链写入都走同一参数钩子。
+直接改变有效控制值也会在下次真实调用检测到，不依赖只有setter才会更新的dirty标志。
+
+CSV元素必须有限；两张表须等长、非空且不超过30项，索引严格递增。
+映射只接受-1或0～3；缺少通道的部分静音，超过实际通道数的合法尾项忽略。
+非法配置明确拒绝，不再截断文本或静默接受坏数值；参数验证失败不破坏旧状态。
 
 ## 使用示例
 
@@ -101,11 +118,11 @@ $$
 
 | 外部模型源码 | 本组件 |
 |---|---|
-| `Model_1_1.c:13515` calculate_SB_gains | `sb_calculate_gains()` |
-| `Model_1_1.c:13680` calculate_ramp_parameters | `sb_ramper_set_target()` |
-| `Model_1_1.c:13725` control（逐样本 ramper + frameCount/freeze） | `sb_process()` |
+| `Model_1_1.c:13515` calculate_SB_gains | `calculate_gains()` |
+| `Model_1_1.c:13680` calculate_ramp_parameters | `set_target()` |
+| `Model_1_1.c:13725` control（逐样本 ramper + frameCount/freeze） | `orpheus_builtin_sleeping_beauty_algorithm()` |
 | `SleepingBeautyConfig.m` DefaultTaperGainTable | `table_idx`/`table_db` 默认值 |
-| `SleepingBeautyConfig.m` NumRampers=4 | `SB_MAX_RAMPERS=4` |
+| `SleepingBeautyConfig.m` NumRampers=4 | 固定四组共享ramper |
 | `SleepingBeautyConfig.m` ChanToRampMap | `chan_map` 参数 |
 | 参数分区 p12_b0 | 全部参数覆盖 |
 | RTC: PreAmpSleepingBeautyFrSet | `gain_index` smoothed 参数 |

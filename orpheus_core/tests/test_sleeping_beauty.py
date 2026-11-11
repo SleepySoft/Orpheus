@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from test_biquad_forms import Descriptor
+
 ROOT = Path(__file__).resolve().parents[2]
 DLL = ROOT / "build" / "components" / "liborpheus_builtin_sleeping_beauty.dll"
 SR = 48000
@@ -68,6 +70,8 @@ class OrpheusProcessContext(ctypes.Structure):
         ("valid_frames", ctypes.c_uint32),
         ("timeline_flags", ctypes.c_uint32),
         ("continuation", ctypes.c_void_p),
+        ("trigger_input", ctypes.c_uint32),
+        ("delivery", ctypes.c_void_p),
     ]
 
 
@@ -88,7 +92,7 @@ SET_PARAMETER = ctypes.CFUNCTYPE(
 
 class Interface(ctypes.Structure):
     _fields_ = [
-        ("get_descriptor", ctypes.c_void_p),
+        ("get_descriptor", ctypes.CFUNCTYPE(ctypes.POINTER(Descriptor))),
         ("create", CREATE),
         ("destroy", STATE_CALL),
         ("prepare", PREPARE),
@@ -130,10 +134,14 @@ def _load_instance(params: dict[str, object], channels: int):
     dll.orpheus_get_interface.restype = ctypes.POINTER(Interface)
     interface = dll.orpheus_get_interface().contents
     config, ids, values, strings = _config(params, channels)
+    descriptor = interface.get_descriptor().contents
+    memory = ctypes.create_string_buffer(descriptor.state_size + descriptor.alignment)
+    address = ctypes.addressof(memory)
+    config.state_block = (address + descriptor.alignment - 1) & -descriptor.alignment
     state = ctypes.c_void_p()
     assert interface.create(ctypes.byref(state), ctypes.byref(config)) == 0
     assert interface.prepare(state, ctypes.byref(config)) == 0
-    return dll, interface, state, (config, ids, values, strings)
+    return dll, interface, state, (config, ids, values, strings, memory)
 
 
 def _set(interface: Interface, state, key: str, value: float | bool) -> None:

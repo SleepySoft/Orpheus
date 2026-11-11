@@ -192,6 +192,12 @@ slc_matrix_mul由in真实交付驱动，保留内部多表插值和外部奇偶�
 插值位置按实际值变化检测，调用前控制链及槽直写均生效；
 参考[插值与序列平滑矩阵](../../../components/orpheus/builtin/slc_matrix_mul/README.md)。
 
+sleeping_beauty仅由in真实交付驱动；每样本先推进四组共享指数斜坡，再应用到全部映射通道，
+调用末递减次数/吸附目标后显式emit out(1)，下游失败不回滚。
+同值控制SET仍建立请求，零帧不消耗请求；完整原地允许，部分重叠拒绝。
+保留冷启动、冻结、中央/单声道策略和reset选择；
+参考[声道分组平衡渐变](../../../components/orpheus/builtin/sleeping_beauty/README.md)。
+
 sequence_envelope_state以targets为驱动入口，序列、系数和latest反馈仅提供数据。
 先写完所有出口，再显式交付accepted(2)、alpha(3)、freeze(4)、start(1)；
 编号不决定顺序。所有下游成功返回后才提交反馈，不增加块末延迟；
