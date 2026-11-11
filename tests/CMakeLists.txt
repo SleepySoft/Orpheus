@@ -298,10 +298,12 @@ add_executable(fir_bank_indices_runner fir_bank_indices_runner.cpp)
 target_link_libraries(fir_bank_indices_runner PRIVATE orpheus_runtime_lib)
 
 add_executable(direct_iir_smoke direct_iir_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir/src/iir.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir/user/algorithm.c)
 target_include_directories(direct_iir_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/iir/user)
 target_compile_definitions(direct_iir_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME direct_iir_smoke COMMAND direct_iir_smoke)
 
