@@ -45,4 +45,4 @@ graph:
     - {from: "buffer:out", to: "reader:in"}
     - {from: "reader:out", to: "output:in"}
 drive_connections:
-  - {from: "consumer:out", to: "buffer:in"}
+  - {from: "consumer:out", to: "buffer:tick"}

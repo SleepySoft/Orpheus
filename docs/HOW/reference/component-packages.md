@@ -255,6 +255,12 @@ device_in/out沿用宿主借用图端口缓冲的硬件数据面，不另建BULK
 参考[声卡采集边界](../../../components/orpheus/builtin/device_in/README.md)与
 [声卡播放边界](../../../components/orpheus/builtin/device_out/README.md)。
 
+task_source每次调用实际emit一次编号1的out，不分配PCM，0帧上下文仍是一拍。
+频率由宿主Task解释，组件不计时；Delivery透传时间线，不等待会合或去重。
+UI直接显示真实触发出口，同口扇出按保存顺序；实际分频使用trigger_divider，
+连接不再接受every/phase再分频，绘图drive_divide不影响执行。
+参考[纯任务驱动源](../../../components/orpheus/builtin/task_source/README.md)。
+
 sweep_record以in驱动，按实际调用首声道能量/本地时间分箱，保留原f32累计与RMS次序。
 先提交统计再emit out(1)，失败不回滚；完成后继续直通，完整原地允许、部分重叠拒绝。
 512项只读曲线的频率/幅度使用固定256项跨度；reset保留频率轴、清采集状态。

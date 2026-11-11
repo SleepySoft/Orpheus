@@ -36,6 +36,30 @@ const catalog = [{ id: 'test.host', ports, parameters, bulk_slots: [{ id: 'sampl
 const node = { id: 'host', data: { component: 'test.host', ports, parameters,
   bulkSlots: catalog[0].bulk_slots, params: { mode: 0, frames: 16 }, blockSize: 32 } };
 
+test.each([{}, { every: 4, phase: 3 }])('声明式Task驱动连接锁定真实接口并无损往返 %j', (timing) => {
+  const taskCatalog = [
+    { id: 'orpheus.builtin.task_source', declared_interfaces: true, clock_source: true,
+      ports: [{ id: 'out', type: 'trigger', direction: 'output', drive_port_no: 1 }] },
+    { id: 'test.consumer', declared_interfaces: true,
+      ports: [{ id: 'tick', type: 'trigger', direction: 'input', process: true }] },
+  ];
+  const connection = { from: 'timer:out', to: 'consumer:tick', ...timing };
+  const doc = { flow_mode: 'task_sequence', graph: { nodes: [
+    { id: 'timer', component: 'orpheus.builtin.task_source' },
+    { id: 'consumer', component: 'test.consumer' },
+  ], connections: [] }, drive_connections: [connection] };
+  const { views, subsMeta } = docToViews(doc, taskCatalog);
+  const [edge] = views.main.edges;
+  expect(edge.sourceHandle).toBe('out');
+  expect(edge.targetHandle).toBe('tick');
+  const consumer = views.main.nodes.find((item) => item.id === 'consumer');
+  expect(interfaceState(consumer, views.main.edges).lockedPorts).toEqual(['tick']);
+  expect(interfaceState(views.main.nodes[0], views.main.edges).exposedPorts).toEqual(['out']);
+  const saved = viewsToDoc(views, subsMeta, doc);
+  expect(saved.drive_connections).toEqual([connection]);
+  expect(saved.graph.connections).toEqual([]);
+});
+
 let root;
 let container;
 beforeEach(() => {

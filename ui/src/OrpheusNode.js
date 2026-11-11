@@ -226,7 +226,7 @@ const BodyWidget = NODE_WIDGETS[data.component];
   if (data.component === 'orpheus.builtin.task_source') {
     const connectionHint = data.flowMode !== 'task_sequence'
       ? '请在工程设置中启用显式驱动'
-      : driveLinking ? '拖向目标组件本体，松手连接' : '先勾选工具栏「驱动连线」，再拖动本体';
+      : '从 out 触发口连接目标驱动入口';
     return (
       <div className={`drive-source-marker ${selected ? 'selected' : ''}`}
         aria-label={`纯驱动源：${data.label}`}
@@ -237,7 +237,8 @@ const BodyWidget = NODE_WIDGETS[data.component];
           <div className="drive-source-caption">纯触发 · {data.params?.frequency_hz ?? 100} Hz</div>
           <div className="drive-source-caption">{connectionHint}</div>
         </div>
-        {driveRouting}
+        {(data.ports || []).filter((port) => port.direction === 'output')
+          .map((port) => renderRow(port, false))}
       </div>
     );
   }

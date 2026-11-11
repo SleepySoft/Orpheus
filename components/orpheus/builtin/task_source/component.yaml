@@ -1,33 +1,18 @@
 id: orpheus.builtin.task_source
-name: "纯任务驱动源"
-category: "驱动与缓冲"
+name: 纯任务驱动源
+category: 驱动与缓冲
 order: 2
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: TaskSourceState
 clock_source: true
 clock_domain: timer
-description: 仅提供触发，不产生音频或分配PCM端口；在画布显示为紫色驱动标记。勾选工具栏“驱动连线”后，从源本体拖向目标组件本体，不需要连接音频引脚。PC由宿主推进，嵌入式绑定定时器或外部入口，不自行创建线程。
-sources:
-  - src/task_source.c
-headers:
-  - include/orpheus_task_source.h
-ports: []
-parameters:
-  - id: frequency_hz
-    name: 驱动频率
-    type: int
-    default: 100
-    range: [1, 192000]
-    unit: Hz
-    readback: true
-    persistent: true
-    update_policy: restart_required
-execution:
-  realtime_safe: true
-  supports_inplace: false
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
+algorithm: {lifecycle: [set_parameter]}
+description: >-
+  宿主推进一次就真实交付一次out(1)，只有触发、没有PCM缓冲。
+  frequency_hz声明所属Task的频率，组件不计时、不创建线程、不等待下游或自动分频。
+  用显式触发接口连接消费者驱动入口；分频必须使用trigger_divider组件。
+interfaces:
+  out: {direction: output, type: trigger, drive_port_no: 1}
+  frequency_hz: {name: 驱动频率, type: int, default: 100, range: [1, 192000], unit: Hz, readback: true, persistent: true, update_policy: restart_required}
+execution: {sample_rate_independent: true, realtime_safe: true, supports_inplace: false}

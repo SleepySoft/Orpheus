@@ -824,7 +824,7 @@ const { screenToFlowPosition } = useReactFlow();
       if (['orpheus.builtin.task_source', 'orpheus.builtin.buffer_source'].includes(componentId)
         && flowMode !== 'task_sequence') {
         setDoc((previous) => ({ ...previous, flow_mode: 'task_sequence' }));
-        setStatus('已启用显式驱动：紫色箭头指向节点顶部，PCM端口单独连线');
+        setStatus('已启用显式驱动：按接口的驱动入口和编号出口连线');
       }
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       updateView(activeView, (v) => ({

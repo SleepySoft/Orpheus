@@ -1,4 +1,4 @@
-import { isControlHandle, ctlParamId, isDriveEdge, isHostDeliveryStatus } from './graphUtils';
+import { isControlHandle, ctlParamId, isDriveEdge, isDriveHandle, isHostDeliveryStatus } from './graphUtils';
 
 export const accessText = (resource) => ({
   read: '只读', write: '只写', read_write: '可读写',
@@ -36,7 +36,7 @@ export function interfaceState(node, edges = []) {
   const connectedControlTargets = new Set();
   const upstreamPorts = new Set();
   for (const edge of edges) {
-    if (isDriveEdge(edge)) continue;
+    if (isDriveEdge(edge) && (isDriveHandle(edge.sourceHandle) || isDriveHandle(edge.targetHandle))) continue;
     for (const [endpoint, handle, source] of [[edge.source, edge.sourceHandle, true], [edge.target, edge.targetHandle, false]]) {
       if (endpoint !== node.id) continue;
       if (edge.type === 'control' && isControlHandle(handle)) {

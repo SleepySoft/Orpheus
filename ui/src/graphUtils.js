@@ -356,10 +356,14 @@ export function reconnectDriveEdge(edge, params) {
 }
 
 export function flowDriveConnections(edges) {
-  return (edges || []).filter(
-    (edge) => isDriveEdge(edge) && edge.sourceHandle === DRIVE_OUT && edge.targetHandle === DRIVE_IN
-  ).map((edge) => ({
-    from: `${edge.source}:out`, to: `${edge.target}:in`, ...driveTimingFields(edge.data),
+  return (edges || []).filter((edge) => isDriveEdge(edge) && (
+    (edge.sourceHandle === DRIVE_OUT && edge.targetHandle === DRIVE_IN)
+    || (edge.sourceHandle && edge.targetHandle
+      && !isDriveHandle(edge.sourceHandle) && !isDriveHandle(edge.targetHandle))
+  )).map((edge) => ({
+    from: `${edge.source}:${edge.sourceHandle === DRIVE_OUT ? 'out' : edge.sourceHandle}`,
+    to: `${edge.target}:${edge.targetHandle === DRIVE_IN ? 'in' : edge.targetHandle}`,
+    ...driveTimingFields(edge.data),
   }));
 }
 
@@ -622,15 +626,19 @@ export function graphToFlow(graph, catalogById, controlConnections = [], bridges
       type: 'control',
     };
   });
-  const driveEdges = (driveConnections || []).map((connection) => ({
-    id: `ed-${connection.from}-${connection.to}`,
-    source: connection.from.split(':')[0],
-    target: connection.to.split(':')[0],
-    sourceHandle: DRIVE_OUT,
-    targetHandle: DRIVE_IN,
-    type: 'drive',
-    data: driveTimingFields(connection),
-  }));
+  const driveEdges = (driveConnections || []).map((connection) => {
+    const [source, sourcePort] = connection.from.split(':');
+    const [target, targetPort] = connection.to.split(':');
+    const declared = nodes.find((node) => node.id === source)?.data.declaredInterfaces;
+    return {
+      id: `ed-${connection.from}-${connection.to}`,
+      source, target,
+      sourceHandle: declared ? sourcePort : DRIVE_OUT,
+      targetHandle: declared ? targetPort : DRIVE_IN,
+      type: 'drive',
+      data: driveTimingFields(connection),
+    };
+  });
   return { nodes, edges: [...edges, ...controlEdges, ...driveEdges] };
 }
 

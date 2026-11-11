@@ -3,7 +3,7 @@ metadata:
   name: 纯驱动源（无音频）
   description: >-
     紫色胶囊是纯触发标记，不是普通音频节点，没有PCM端口。
-    100Hz源分别驱动100Hz和25Hz控制链；分频只选触发拍，参数数组独立交付。
+    100Hz源通过编号触发口驱动100Hz控制链和显式四分频器；参数数组独立交付。
 flow_mode: task_sequence
 sample_rate: 48000
 block_size: 480
@@ -24,6 +24,11 @@ graph:
       label: 每4拍执行 / 25Hz
       params: {count: 2, initial_values: "3,4"}
       position: {x: 480, y: 430}
+    - id: divide
+      component: orpheus.builtin.trigger_divider
+      label: 显式四分频 / 25Hz
+      params: {factor: 4, phase: 3}
+      position: {x: 250, y: 430}
     - id: consumer
       component: orpheus.builtin.bulk_relay
       label: 慢速控制消费者
@@ -32,7 +37,8 @@ graph:
   connections: []
 drive_connections:
   - {from: "trigger:out", to: "fast:in"}
-  - {from: "trigger:out", to: "slow:in", every: 4, phase: 3}
-  - {from: "trigger:out", to: "consumer:in", every: 4, phase: 3}
+  - {from: "trigger:out", to: "divide:in"}
+  - {from: "divide:out", to: "slow:in"}
+  - {from: "divide:out", to: "consumer:in"}
 control_connections:
   - {from: "slow:values", to: "consumer:values"}

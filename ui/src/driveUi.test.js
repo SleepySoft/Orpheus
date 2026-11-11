@@ -112,29 +112,38 @@ test('纯驱动源是无PCM端口的触发标记，不渲染普通算法节点',
   act(() => root.render(
     <NodeActionsContext.Provider value={{ showControlLinks: false }}>
       <OrpheusNode id="trigger" data={{ label: '100Hz触发', component: 'orpheus.builtin.task_source',
-        flowMode: 'task_sequence', clockSource: true, params: { frequency_hz: 100 }, ports: [] }} />
+        declaredInterfaces: true, flowMode: 'task_sequence', clockSource: true,
+        params: { frequency_hz: 100 }, ports: [
+          { id: 'out', type: 'trigger', direction: 'output', drive_port_no: 1 },
+        ] }} />
     </NodeActionsContext.Provider>
   ));
   expect(container.querySelector('.drive-source-marker').textContent).toContain('纯触发 · 100 Hz');
   expect(container.querySelector('.orpheus-node')).toBeNull();
   expect(container.querySelectorAll('[data-handle]')).toHaveLength(1);
-  expect(container.querySelector('[data-handle="drv:out"]')).not.toBeNull();
-  expect(container.textContent).toContain('先勾选工具栏「驱动连线」');
+  expect(container.querySelector('[data-handle="out"]')).not.toBeNull();
+  expect(container.querySelector('[data-handle="drv:out"]')).toBeNull();
+  expect(container.textContent).toContain('驱动 1');
+  expect(container.textContent).toContain('从 out 触发口连接目标驱动入口');
   expect(container.querySelector('.drive-source-marker').title).not.toContain('锚点');
 });
 
-test('纯驱动源按模式显示真实连线手势或设置入口', () => {
+test('纯驱动源按模式显示接口连线或设置入口，不依赖旧驱动开关', () => {
   const render = (flowMode, driveLinking) => act(() => root.render(
     <NodeActionsContext.Provider value={{ driveLinking }}>
       <OrpheusNode id="trigger" data={{ component: 'orpheus.builtin.task_source',
-        flowMode, clockSource: true }} />
+        declaredInterfaces: true, flowMode, clockSource: true,
+        ports: [{ id: 'out', type: 'trigger', direction: 'output', drive_port_no: 1 }] }} />
     </NodeActionsContext.Provider>
   ));
   render('dataflow', false);
   expect(container.textContent).toContain('请在工程设置中启用显式驱动');
   render('task_sequence', true);
-  expect(container.textContent).toContain('拖向目标组件本体，松手连接');
-  expect(container.querySelector('[data-handle="drv:out"]').dataset.connectable).toBe('true');
+  expect(container.textContent).toContain('从 out 触发口连接目标驱动入口');
+  expect(container.querySelector('[data-handle="out"]')).not.toBeNull();
+  expect(container.querySelector('[data-handle="drv:out"]')).toBeNull();
+  render('task_sequence', false);
+  expect(container.querySelector('[data-handle="out"]')).not.toBeNull();
 });
 
 test('纯宿主Buffer独立于时钟源呈现方向、通道和块长', () => {

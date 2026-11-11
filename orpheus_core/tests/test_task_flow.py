@@ -71,7 +71,9 @@ def test_source_task_has_only_driver_ports_and_before_call_parameters(registry):
     }
     assert plan.buffers == {}
     assert plan.node_configs["clock"]["input_ports"] == []
-    assert plan.node_configs["clock"]["output_ports"] == []
+    assert plan.node_configs["clock"]["output_ports"] == ["out"]
+    assert plan.node_configs["clock"]["output_drive_ports"] == {"out": 1}
+    assert plan.node_configs["clock"]["trigger_output_ports"] == ["out"]
     assert plan.control_links[0]["delivery"] == "before_call"
     assert source.graph.nodes["a"].task == "default"
     assert source.tasks == {}
@@ -87,13 +89,17 @@ def test_driver_order_is_not_node_storage_order(registry):
 def test_explicit_decimation_phase(registry, every, phase):
     source = project()
     source.control_connections = []
-    source.drive_connections = [drive("clock", "a", every, phase), drive("a", "b")]
+    source.graph.nodes["divide"] = Node("divide", "orpheus.builtin.trigger_divider",
+                                       params={"factor": every, "phase": phase})
+    source.drive_connections = [drive("clock", "divide"), drive("divide", "a"), drive("a", "b")]
     plan = GraphCompiler(registry).compile(source)
-    assert plan.tasks[0]["schedule"]["periods"]["b"] == every
-    assert plan.tasks[0]["schedule"]["phases"]["b"] == phase
-    assert (plan.node_configs["b"]["period"], plan.node_configs["b"]["phase"]) == (every, phase)
-    assert plan.node_configs["b"]["frame_step"] == every * 480
-    assert plan.node_configs["b"]["frame_origin"] == phase * 480
+    assert plan.node_configs["divide"]["params"]["factor"] == every
+    assert plan.node_configs["divide"]["params"]["phase"] == phase
+    assert plan.tasks[0]["schedule"]["periods"]["b"] == 1
+    assert plan.tasks[0]["schedule"]["phases"]["b"] == 0
+    assert (plan.node_configs["b"]["period"], plan.node_configs["b"]["phase"]) == (1, 0)
+    assert "frame_step" not in plan.node_configs["b"]
+    assert "frame_origin" not in plan.node_configs["b"]
 
 
 def test_nested_every_is_rejected_for_component_owned_delivery(registry):
@@ -109,8 +115,8 @@ def test_nested_every_is_rejected_for_component_owned_delivery(registry):
     (lambda p: p.drive_connections.append(drive("b", "a")), "循环"),
     (lambda p: p.drive_connections.append(drive("clock", "a")), "重复"),
     (lambda p: p.drive_connections.append(drive("missing", "a")), "不存在"),
-    (lambda p: setattr(p.drive_connections[0], "every", 0), "every"),
-    (lambda p: setattr(p.drive_connections[0], "phase", 1), "phase"),
+    (lambda p: setattr(p.drive_connections[0], "every", 0), "连接不能再次分频"),
+    (lambda p: setattr(p.drive_connections[0], "phase", 1), "连接不能再次分频"),
     (lambda p: setattr(p.drive_connections[0], "every", True), "every"),
 ])
 def test_invalid_driver_contract_rejected(registry, mutation, error):
@@ -125,8 +131,9 @@ def test_parameter_wire_uses_declared_sibling_call_order(registry):
     source.drive_connections = [drive("clock", "a"), drive("clock", "b")]
     plan = GraphCompiler(registry).compile(source)
     assert plan.call_graph["clock"] == [
-        {"node": "a", "every": 1, "phase": 0},
-        {"node": "b", "every": 1, "phase": 0},
+        {"node": node, "every": 1, "phase": 0, "output_port": 1, "input_port": 0,
+         "source_interface": "out", "target_interface": "in"}
+        for node in ("a", "b")
     ]
 
 
@@ -140,7 +147,9 @@ def test_fanout_keeps_direct_calls_without_join_scheduling(registry):
         drive("a", "c"), drive("b", "c"),
     ]
     assert GraphCompiler(registry).compile(source).execution_order == ["clock", "a", "c", "b"]
-    source.drive_connections[1] = drive("clock", "b", 2)
+    source.graph.nodes["divide"] = Node("divide", "orpheus.builtin.trigger_divider",
+                                       params={"factor": 2})
+    source.drive_connections[1:2] = [drive("clock", "divide"), drive("divide", "b")]
     plan = GraphCompiler(registry).compile(source)
     edge = {"node": "c", "every": 1, "phase": 0, "output_port": 1, "input_port": 0,
             "source_interface": "out", "target_interface": "in"}
@@ -176,7 +185,8 @@ def test_cross_task_audio_remains_an_explicit_async_bridge(registry):
     source.graph.connections = [data("audio", "g1"), data("g1", "g2"),
                                 data("g2", "bridge"), data("bridge", "sink")]
     source.drive_connections = [drive("audio", "g1"), drive("g1", "g2"),
-                                drive("clock", "bridge"), drive("bridge", "sink")]
+                                DriveConnection(PortRef("clock", "out"), PortRef("bridge", "tick")),
+                                drive("bridge", "sink")]
     plan = GraphCompiler(registry).compile(source)
     assert plan.node_configs["g2"]["task"] == "task_audio"
     assert plan.node_configs["bridge"]["task"] == "task_clock"
@@ -372,7 +382,7 @@ def test_task_sequence_example(registry):
     assert plan.node_configs["divide"]["params"]["factor"] == 2
     assert plan.node_configs["divide"]["params"]["phase"] == 1
     assert plan.node_configs["consumer"]["period"] == 1
-    assert plan.node_configs["consumer"]["frame_origin"] == 0
+    assert "frame_origin" not in plan.node_configs["consumer"]
 
 
 def test_api_persists_driver_contract(registry):
