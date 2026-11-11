@@ -206,6 +206,12 @@ coherence_matrix以in驱动，显式fft_size载荷独立于Task量子；
 相干矩阵与历史JSON在非实时getter中生成，非法载荷/坏FFT点数不再静默直通；
 参考[相干矩阵与显式FFT规格](../../../components/orpheus/builtin/coherence_matrix/README.md)。
 
+noise_detector以in驱动，输入/输出为显式fft_size*batches载荷；
+保留Hann窗口平坦度、double EMA、原噪声底分支与同通道突刺规则。
+先提交累计样本/削波/突刺与指标，再显式emit out(1)，失败不回滚。
+int32突刺探针饱和、JSON保留64位完整计数；JSON不在实时process格式化。
+参考[单端噪声检测的统计与载荷契约](../../../components/orpheus/builtin/noise_detector/README.md)。
+
 slc_matrix_mul由in真实交付驱动，保留内部多表插值和外部奇偶序列锁存两种目标来源。
 每样本先平滑矩阵再混音，完成后显式emit out(1)，下游失败不回滚。
 序列模式不使用插值模式的近零系数瞬切；三个矩阵BULK槽保持实际rows×cols形状和双缓冲。

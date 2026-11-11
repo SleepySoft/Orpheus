@@ -1,83 +1,100 @@
 id: orpheus.builtin.noise_detector
-name: "单端噪声特征检测"
-category: "频域与分析"
-description: 单端输入：频谱平坦度(噪声类/类音) + 宽带噪声底 + 时域突刺计数 + 削波占比；直通输出，readback 上报 flatness/noise_floor_db/clicks/clip_pct
+name: 单端噪声特征检测
+category: 频域与分析
+description: 显式FFT窗口与批次的频谱平坦度、噪声底、同通道突刺与累计削波比；直通后交付，JSON仅在非实时getter中生成
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: NoiseDetectorState
-sources:
-  - src/noise_detector.c
-headers:
-  - include/orpheus_noise_detector.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [normalize, prepare, reset, destroy, get_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    block_size: param:fft_size*param:batches
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: channels
+    block_size: param:fft_size*param:batches
+    drive_port_no: 1
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: clip_level
+  fft_size:
+    name: FFT窗口点数
+    type: int
+    default: 128
+    range: [4, 4096]
+    update_policy: restart_required
+    affects_signature: true
+  batches:
+    name: 顺序窗口数
+    type: int
+    default: 1
+    range: [1, 64]
+    update_policy: restart_required
+    affects_signature: true
+  clip_level:
     name: 削波阈值
     type: float
     default: 0.999
     range: [0.0, 1.0]
     update_policy: restart_required
-  - id: click_thres
+  click_thres:
     name: 突刺阈值
     type: float
     default: 0.3
     range: [0.0, 1.0]
     update_policy: restart_required
-  - id: flatness
+  flatness:
     name: 频谱平坦度
     type: float
     default: 0.0
+    kind: probe
+    access: read
     readback: true
-    update_policy: immediate
-  - id: noise_floor_db
+  noise_floor_db:
     name: 噪声底
     type: float
     default: 0.0
+    kind: probe
+    access: read
     readback: true
-    update_policy: immediate
-  - id: clicks
+  clicks:
     name: 突刺计数
     type: int
     default: 0
+    kind: probe
+    access: read
     readback: true
-    update_policy: immediate
-  - id: clip_pct
+  clip_pct:
     name: 削波占比
     type: float
     default: 0.0
+    kind: probe
+    access: read
     readback: true
-    update_policy: immediate
-  - id: detail
+  detail:
     name: 明细
     type: string
     default: "{}"
+    capacity: 1024
+    kind: probe
+    access: read
     readback: true
-    update_policy: immediate
-bulk_slots: []
 memory:
-  state_size: 0
-  scratch_size: 0
   alignment: 8
 execution:
-  sample_rate_independent: false
+  sample_rate_independent: true
   latency_samples: 0
   supports_inplace: false
   realtime_safe: true

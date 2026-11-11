@@ -451,6 +451,17 @@ target_compile_definitions(coherence_matrix_smoke PRIVATE ORPHEUS_BUILDING_COMPO
 target_compile_options(coherence_matrix_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
 add_test(NAME coherence_matrix_smoke COMMAND coherence_matrix_smoke)
 
+add_executable(noise_detector_smoke noise_detector_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_detector/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_detector/user/algorithm.c)
+target_include_directories(noise_detector_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_detector/generated)
+target_compile_definitions(noise_detector_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
+    calloc=noise_detector_test_calloc free=noise_detector_test_free snprintf=noise_detector_test_snprintf)
+target_compile_options(noise_detector_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+add_test(NAME noise_detector_smoke COMMAND noise_detector_smoke)
+
 add_executable(iir_coefs_runner iir_coefs_runner.cpp)
 target_link_libraries(iir_coefs_runner PRIVATE orpheus_runtime_lib)
 
