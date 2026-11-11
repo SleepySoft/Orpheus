@@ -186,6 +186,13 @@ nlms仅由ref实际交付驱动；err是可未接的外部误差，不触发计�
 保存状态后显式emit out(1)，下游失败不回滚，同拍重复调用分别处理。
 参考[外部误差NLMS](../../../components/orpheus/builtin/nlms/README.md)。
 
+adaptive_fir以x为唯一驱动入口；deriv/err只提供数据，须由上游先准备完成。
+保留原始参考读出、filtered-x归一化更新及内部误差d-secondary_gain*y，
+不套用NLMS的外部误差语义。权重/历史/位置/RMS提交后显式emit out(1)，下游失败不回滚。
+process不格式化；detail在非实时getter生成，动态/生成的名称、ID及探针枚举都读取最新JSON，
+错误显式传播，reset后的JSON反映零指标；
+参考[FxLMS核心](../../../components/orpheus/builtin/adaptive_fir/README.md)。
+
 slc_matrix_mul由in真实交付驱动，保留内部多表插值和外部奇偶序列锁存两种目标来源。
 每样本先平滑矩阵再混音，完成后显式emit out(1)，下游失败不回滚。
 序列模式不使用插值模式的近零系数瞬切；三个矩阵BULK槽保持实际rows×cols形状和双缓冲。

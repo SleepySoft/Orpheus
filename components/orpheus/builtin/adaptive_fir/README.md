@@ -62,6 +62,25 @@ connections:
 ```
 readback：`conv_metric`（收敛指标，趋零表示正常收敛）与 `detail` JSON。
 
+## 链式接口契约
+
+- `x` 是唯一驱动入口；`deriv` 与 `err` 仅提供数据，不触发、不等待会合。
+  上游必须先完成两者的数据准备，再向 `x` 实际交付。三个输入均须绑定且帧数足够。
+- 每次正帧调用保留逐通道、逐样本、逐tap的f32次序；输出用原始参考历史，
+  归一化与更新用filtered-x历史，误差仍为 **`d-secondary_gain*y`**，
+  不同于直接接收外部误差的 `nlms`。
+- 提交权重、两组历史、位置和本次RMS指标后显式 `emit out(1)`；
+  下游失败不回滚，同拍多次交付分别执行。零帧不推进、不交付。
+  输入/输出别名及私有状态别名拒绝；reset清历史、权重与指标，保留配置。
+- process只计算数值，不格式化JSON。`detail` 在非实时getter中由最新指标生成，
+  名称、ID与生成代码的探针枚举均走同一getter；非有限指标明确报错，不输出无效JSON。
+  prepare/reset后读取的指标为0，不保留旧JSON。
+
 ## 验证
 
-- `orpheus_core/tests/test_anc_decomposed.py`：验证子组件被展开为可见原子链（flatten），且运行后核心收敛（conv_metric 趋零）。
+- `orpheus_core/tests/test_adaptive_fir_interfaces.py`：4图×动态/生成×全局/Task，
+  独立非环形f32参考逐位比较输出与RMS，并验证数据入口不驱动、同拍重复交付和JSON读回。
+- `tests/adaptive_fir_smoke.c`：四次分配失败清理/重试、下游错误后继续、实时路径不格式化、
+  缺失/短输入、容量、别名、零帧、reset、非法配置事务及非有限JSON错误。
+- 原分解工程及其 `test_anc_decomposed.py` 仍待普通工程批次按真实来源顺序整体迁移，
+  不能用旧静态调度的接线顺序作为新链式契约。

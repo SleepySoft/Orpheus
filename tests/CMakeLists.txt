@@ -418,6 +418,16 @@ target_compile_definitions(nlms_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
     calloc=nlms_test_calloc free=nlms_test_free)
 add_test(NAME nlms_smoke COMMAND nlms_smoke)
 
+add_executable(adaptive_fir_smoke adaptive_fir_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/adaptive_fir/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/adaptive_fir/user/algorithm.c)
+target_include_directories(adaptive_fir_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/adaptive_fir/generated)
+target_compile_definitions(adaptive_fir_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
+    calloc=adaptive_fir_test_calloc free=adaptive_fir_test_free snprintf=adaptive_fir_test_snprintf)
+add_test(NAME adaptive_fir_smoke COMMAND adaptive_fir_smoke)
+
 add_executable(iir_coefs_runner iir_coefs_runner.cpp)
 target_link_libraries(iir_coefs_runner PRIVATE orpheus_runtime_lib)
 
