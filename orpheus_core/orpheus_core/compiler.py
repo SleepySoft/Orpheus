@@ -267,10 +267,12 @@ def _resolve_port_signature(
 
     block_size_expr = port_manifest.get(
         "block_size", "task:block_size" if port_type in ("audio", "trigger") else 1)
-    block_size = _resolve_value(block_size_expr, node, task)
+    block_size = _resolve_value(block_size_expr, node, task, exact=True)
     block_size_explicit = port_manifest.get("block_size") is not None
     if block_size is None:
         block_size = task.block_size
+    if Fraction(block_size).denominator != 1:
+        raise CompileError(f"节点 {node.id} 端口 {port_manifest['id']}：载荷块长必须为正整数，比例不得截断")
     if int(channels) <= 0 or int(block_size) <= 0:
         raise CompileError(f"节点 {node.id} 端口 {port_manifest['id']}：通道数与数据长度必须为正整数")
 

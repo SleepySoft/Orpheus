@@ -6,6 +6,7 @@ import copy
 import json
 import math
 import re
+from fractions import Fraction
 from pathlib import Path
 
 import yaml
@@ -47,6 +48,8 @@ _SIGNATURE_PRODUCT = re.compile(
     r"(?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*)(?:\*(?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+")
 _RATE_SCALE = re.compile(
     r"(?:in|task):sample_rate(?:[*/](?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+")
+_PAYLOAD_RATIO = re.compile(
+    r"(?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*)(?:[*/](?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+")
 LIFECYCLE_HOOKS = ("normalize", "validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
         "category", "description", "interfaces", "algorithm", "order", "execution", "memory",
@@ -467,9 +470,10 @@ def _validate(raw):
                 if isinstance(value, str):
                     product = field in {"block_size", "channels"} and _SIGNATURE_PRODUCT.fullmatch(value)
                     rate_scale = field == "sample_rate" and _RATE_SCALE.fullmatch(value)
+                    payload_ratio = field == "block_size" and "/" in value and _PAYLOAD_RATIO.fullmatch(value)
                     pattern = (r"param:[A-Za-z][A-Za-z0-9_]*" if field == "frame_size" else
                                r"(?:param:[A-Za-z][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9_]*:(?:channels|block_size|sample_rate))")
-                    if not product and not rate_scale and not re.fullmatch(pattern, value):
+                    if not product and not rate_scale and not payload_ratio and not re.fullmatch(pattern, value):
                         _fail("签名表达式非法", loc + "." + field)
                     references[(key, field)] = value
                 elif type(value) is not int or not (0 if field == "frame_size" else 1) <= value <= 4294967294:
@@ -703,10 +707,14 @@ def _validate(raw):
                           None if target == "task" else default_signature(target, attr))
             if factor is None:
                 return None
-            result = result / factor if index > 0 and tokens[index * 2 - 1] == "/" else result * factor
+            result = Fraction(result, factor) if index > 0 and tokens[index * 2 - 1] == "/" else result * factor
         return result
 
     for key, item in interfaces.items():
+        if "direction" in item and isinstance(item.get("block_size"), str) and "/" in item["block_size"]:
+            payload = default_signature(key, "block_size")
+            if payload is not None and (payload <= 0 or Fraction(payload).denominator != 1):
+                _fail("默认载荷长度必须为正整数，比例不得截断", f"interfaces.{key}.block_size")
         if item.get("layout") == "halfcomplex" or isinstance(item.get("frame_size"), str):
             size = default_signature(key, "frame_size")
             payload = default_signature(key, "block_size")

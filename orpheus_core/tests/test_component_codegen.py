@@ -3365,7 +3365,7 @@ def test_payload_product_schema_cli_projection_and_large_legal_upper_bound(packa
 
 @pytest.mark.parametrize("expression", [
     "param:bins**2", "*param:bins", "param:bins*", "param:bins*0",
-    "param:bins*-2", "param:bins*1.5", "param:bins/2", "param:bins+2",
+    "param:bins*-2", "param:bins*1.5", "param:bins//2", "param:bins+2",
     "(param:bins)*2", "param:bins * 2", "param:bins*True",
     "param:bins*in:block_size", "param:bins*task:block_size", "param:bins*02",
     "param:bins*__import__('os')", "param:bins*2\n", "param:bins*２",

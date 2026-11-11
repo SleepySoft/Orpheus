@@ -141,10 +141,11 @@
       ]
     },
     "payload": {
-      "description": "块载荷可用无空白的正整数/param 引用乘法链。所有显式 audio 块长均为独立载荷；task 引用固定为准备配置值，仅未声明块长的 audio 继承 ctx 实际量子。",
+      "description": "块载荷可用无空白的正整数/param乘除链，最终值必须为正整数，不截断。显式audio块长为独立载荷；task引用固定为准备配置值，仅未声明块长的audio继承ctx实际量子。",
       "oneOf": [
         {"$ref": "#/$defs/signature"},
-        {"$ref": "#/$defs/product"}
+        {"$ref": "#/$defs/product"},
+        {"type": "string", "pattern": "^(?=.*/)(param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*)([*/](param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+$(?![\\s\\S])"}
       ]
     },
     "port": {
