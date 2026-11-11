@@ -433,10 +433,12 @@ add_test(NAME sequence_matrix_smoke COMMAND sequence_matrix_smoke)
 add_executable(sequence_matrix_runner sequence_matrix_runner.cpp)
 target_link_libraries(sequence_matrix_runner PRIVATE orpheus_runtime_lib)
 add_executable(block_stats_smoke block_stats_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/level_detect/src/level_detect.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/level_detect/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/level_detect/user/algorithm.c)
 target_include_directories(block_stats_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/level_detect/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/level_detect/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/level_detect/user)
 target_compile_definitions(block_stats_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 if(NOT WIN32)
     target_link_libraries(block_stats_smoke PRIVATE m)

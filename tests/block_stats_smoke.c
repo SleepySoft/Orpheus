@@ -1,24 +1,27 @@
-#include "orpheus_level_detect.h"
+#include "component_state.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 #define CHECK(x) do { if (!(x)) { fprintf(stderr,"%d: %s\n",__LINE__,#x); return 1; } } while (0)
 int main(void) {
     const OrpheusComponentInterface* iface=orpheus_get_interface();
-    const char* ids[]={"execution_mode"};
-    OrpheusValue params[]={{.type=ORPHEUS_VALUE_INT,.value.i32=1}};
-    OrpheusConfig config={.sample_rate=48000,.block_size=4,.channels=2,.param_count=1,.param_ids=ids,.param_values=params};
-    LevelDetectState state={0};
+    const char* ids[]={"execution_mode","channels"};
+    OrpheusValue params[]={{.type=ORPHEUS_VALUE_INT,.value.i32=1},{.type=ORPHEUS_VALUE_INT,.value.i32=2}};
+    orpheus_builtin_level_detect_State state={0};
+    OrpheusConfig config={.sample_rate=48000,.block_size=4,.channels=2,.param_count=2,
+        .param_ids=ids,.param_values=params,.state_block=&state};
+    void* instance=NULL;
+    CHECK(iface->create(&instance,&config)==ORPHEUS_OK);
     CHECK(iface->prepare(&state,&config)==ORPHEUS_OK);
     float input[]={.5f,-.25f,.5f,-.25f,.5f,-.25f,.5f,-.25f},rms,peak;
-    OrpheusBuffer in={.data=input,.channels=2,.frame_capacity=4,.format=ORPHEUS_FORMAT_F32};
-    OrpheusBuffer rms_out={.data=&rms,.channels=1,.frame_capacity=1,.format=ORPHEUS_FORMAT_F32};
-    OrpheusBuffer peak_out={.data=&peak,.channels=1,.frame_capacity=1,.format=ORPHEUS_FORMAT_F32};
+    OrpheusBuffer in={.data=input,.channels=2,.frame_count=4,.frame_capacity=4,.format=ORPHEUS_FORMAT_F32,.interleaved=true};
+    OrpheusBuffer rms_out={.data=&rms,.channels=1,.frame_capacity=1,.format=ORPHEUS_FORMAT_F32,.interleaved=true};
+    OrpheusBuffer peak_out={.data=&peak,.channels=1,.frame_capacity=1,.format=ORPHEUS_FORMAT_F32,.interleaved=true};
     const OrpheusBuffer* inputs[]={&in}; OrpheusBuffer* outputs[]={NULL,&rms_out,&peak_out};
     OrpheusProcessContext context={.inputs=inputs,.outputs=outputs,.input_count=1,.output_count=3,.frame_count=4};
     CHECK(iface->process(&state,&context)==ORPHEUS_OK && rms==log10f(.25f+state.db_epsilon)*10 &&
           peak==log10f(.5f+state.db_epsilon)*20 && rms_out.frame_count==1 && peak_out.frame_count==1);
-    LevelDetectState before=state;
+    orpheus_builtin_level_detect_State before=state;
     context.frame_count=0;
     CHECK(iface->process(&state,&context)==ORPHEUS_OK && !memcmp(&before,&state,sizeof(state)));
     context.frame_count=4; rms_out.channels=2;
@@ -40,20 +43,20 @@ int main(void) {
     CHECK(iface->process(&state,&context)==ORPHEUS_ERR_INVALID_ARG && !memcmp(&before,&state,sizeof(state)));
     in.data=input; in.frame_capacity=3;
     CHECK(iface->process(&state,&context)==ORPHEUS_ERR_INVALID_ARG && !memcmp(&before,&state,sizeof(state)));
-    in.frame_capacity=4; context.output_count=0; context.outputs=NULL;
+    in.frame_capacity=4; context.output_count=3; context.outputs=NULL;
     CHECK(iface->process(&state,&context)==ORPHEUS_OK);
-    config.channels=33;
+    params[1].value.i32=33;
     CHECK(iface->prepare(&state,&config)==ORPHEUS_ERR_INVALID_ARG);
-    config.channels=2;
-    config.param_count=0;
+    params[1].value.i32=2;params[0].value.i32=0;
     CHECK(iface->prepare(&state,&config)==ORPHEUS_OK);
     for (unsigned i=0;i<8;++i) input[i]=i%2 ? -.25f : .5f;
     float output[8];
-    OrpheusBuffer out={.data=output,.channels=2,.frame_capacity=4,.format=ORPHEUS_FORMAT_F32};
+    OrpheusBuffer out={.data=output,.channels=2,.frame_capacity=4,.format=ORPHEUS_FORMAT_F32,.interleaved=true};
     outputs[0]=&out; context.output_count=1; context.outputs=outputs;
     CHECK(iface->process(&state,&context)==ORPHEUS_OK && !memcmp(input,output,sizeof(input)) && state.level>0);
     state.mode=1;
     CHECK(iface->reset(&state)==ORPHEUS_OK);
-    CHECK(iface->process(&state,&context)==ORPHEUS_OK && state.level==state.attack_coeff*.5f);
+    CHECK(iface->process(&state,&context)==ORPHEUS_OK && state.level==state.algorithm.attack_coeff*.5f);
+    CHECK(iface->destroy(&state)==ORPHEUS_OK);
     return 0;
 }

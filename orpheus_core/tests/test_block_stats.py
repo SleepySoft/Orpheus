@@ -62,7 +62,21 @@ def verify_block_stats(tmp_path, cases, reference=None, trackers=None, tracker_r
     registry.add_manifest(FIXTURE / "component.yaml")
     plan = GraphCompiler(registry).compile(project)
     assert not plan.warnings
-    use_linear_call_chain(plan)
+    if trackers is None and volume_gains is None:
+        plan.entry_nodes = ["source"]
+        plan.call_graph = {node: [] for node in plan.node_configs}
+        for connection in edges:
+            source, target = connection.from_ref, connection.to_ref
+            config = plan.node_configs[source.node_id]
+            plan.call_graph[source.node_id].append({
+                "node": target.node_id, "every": 1, "phase": 0,
+                "output_port": config.get("output_drive_ports", {}).get(source.port_id, 0),
+                "input_port": plan.node_configs[target.node_id]["input_ports"].index(target.port_id),
+            })
+        for task in plan.tasks:
+            task["entry_nodes"] = ["source"]
+    else:
+        use_linear_call_chain(plan)
     assert plan.schedule["tick"] == 32
     for name in cases:
         for port in ("rms", "peak"):
