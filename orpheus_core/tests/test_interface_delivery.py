@@ -259,6 +259,8 @@ def compile_delivery_backends(directory, registry, project, manifests, harness=H
             'RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components" '
             'LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components")',
         ])
+        if "miniaudio" in info.manifest.get("deps", []):
+            cmake.append(f'target_include_directories({target}_dynamic PRIVATE "{ROOT.as_posix()}/third_party")')
     (directory / "CMakeLists.txt").write_text("\n".join(cmake), encoding="utf-8")
     build = directory / "build"
     configure = ["cmake", "-S", str(directory), "-B", str(build), "-G", "Ninja"]

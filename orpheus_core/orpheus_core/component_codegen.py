@@ -1012,6 +1012,14 @@ def _render(definition):
         f"target_compile_definitions({prefix} PRIVATE ORPHEUS_BUILDING_COMPONENT)",
         "if(MSVC)", f"    target_compile_options({prefix} PRIVATE /utf-8)", "endif()",
     ]
+    if "miniaudio" in definition.get("deps", []):
+        cmake.extend([
+            'set(ORPHEUS_MINIAUDIO_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/third_party" CACHE PATH "miniaudio.h 所在目录")',
+            'if(NOT EXISTS "${ORPHEUS_MINIAUDIO_INCLUDE_DIR}/miniaudio.h")',
+            '    message(FATAL_ERROR "请设置 ORPHEUS_MINIAUDIO_INCLUDE_DIR")',
+            'endif()',
+            f'target_include_directories({prefix} PRIVATE "${{ORPHEUS_MINIAUDIO_INCLUDE_DIR}}")',
+        ])
     generated = dict(zip(("component_api.h", "component_state.h", "component_shell.c", "component_sources.cmake"),
                          ("\n".join(lines).rstrip("\n") + "\n" for lines in (api, state_header, shell, cmake_sources))))
     user = {"user/algorithm.h": "\n".join(user_header).rstrip("\n") + "\n",

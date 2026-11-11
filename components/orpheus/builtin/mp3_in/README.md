@@ -1,59 +1,51 @@
-# orpheus.builtin.mp3_in — MP3 文件输入
+# MP3 文件输入
 
-## 功能
+`orpheus.builtin.mp3_in` 是 `clock_source: true`、`clock_domain: file` 的离线文件源。
+prepare 使用现有 miniaudio 解码器预载 f32，并按图采样率/`channels` 转换；
+process 不读文件、不解码、不分配，只按实际调用拷贝、补零和显式交付。
+不是设备时钟源，接入设备流仍须按工程声明的时间线/桥接关系处理。
 
-把 MP3 文件作为图的音频源：启动（prepare）时用 miniaudio 解码器**一次性把整个文件解码成 f32 存进内存**，之后每块按顺序输出。解码时**按图采样率自动重采样、按 `channels` 自动做声道转换**，所以不存在 `wav_in` 那种变速变调问题。播完不循环，输出静音。
+## 接口
 
-它是 `clock_source`（`clock_domain: file`），用于离线/文件时钟域链路。典型用途：直接拿现成音乐素材做处理链验证，免去先转 WAV 的步骤。
+- `out`：交错 f32、`param:channels`，驱动编号 1。
+- `tick`：纯触发出口，驱动编号 2；`out` 的同步下游子树完成后才 emit。
+  下游音频错误立即返回，不继续触发 tick。
+- 每次正帧调用消费最多 `ctx.frame_count` 个剩余解码帧，尾部补零，
+  整个输出仍交付本次帧数；播完不循环，后续调用继续交付静音。
+- 位置先提交再 emit，下游错误不回滚；零帧不推进、不交付。
+  输出必须绑定且容量足够，不允许与实例状态或私有解码存储重叠。
 
-## 端口
+## 设置与探针
 
-| id | 方向 | 类型 | 说明 |
-|---|---|---|---|
-| out | output | audio | 解码后的音频（interleaved f32），`channels` 通道 |
-
-## 参数
-
-| 参数 | 类型 | 默认值 | 说明 |
-|---|---|---|---|
-| `file_path` | string | `""` | MP3 文件路径（UI 文件选择器按 `.mp3` 过滤）；空 = 输出静音。restart_required |
-| `channels` | int | 2 | 输出通道数，1~32；解码器直接转成该声道数。affects_signature，restart_required |
-| `total_frames` | int | 0 | 解码得到的总帧数（readback 探针，只读） |
-
-### 与 `wav_in` 的关键区别
-
-| | wav_in | mp3_in |
+| 接口 | 默认值 | 规格 |
 |---|---|---|
-| 采样率 | 忽略文件采样率，按工程速率原速播放（会变速变调） | 解码时重采样到图采样率，音调正确 |
-| 声道处理 | 简单映射（少通道重复第 0 通道） | miniaudio 标准声道转换 |
-| 容量上限 | 16M 帧，超出**启动报错**（v1.0.1 起两者口径与行为一致） | 16M 帧（约 48kHz 5.8 分钟），超出**启动报错** |
+| `file_path` | `""` | UTF-8 字符串，512 字节容量含终止符；空路径为显式静音源，重启生效 |
+| `channels` | 2 | 1～32，影响端口签名，重启生效 |
+| `total_frames` | 0 | 只读 int32 探针；转换到图采样率后的实际解码帧数 |
 
-### `total_frames` 探针
+支持中文路径，UI 文件选择器按 `.mp3` 过滤；底层仍支持 miniaudio 可解码的
+WAV/FLAC 等格式。与 `wav_in` 的关键区别是这里在准备期执行采样率与标准声道转换，
+而 `wav_in` 只按声明的时间线读取并做简单通道映射。
+reset 仅将播放位置归零，保留文件、转换结果和总帧数。
 
-启动后可以从该探针读到实际解码帧数，配合工程采样率即可换算时长（`total_frames / sample_rate` 秒）。
+预载上限是 **16M 帧**，恰好上限可用，超出一帧也启动报错，不静默截断。
+预留内存为 `16M*channels*sizeof(float)`；极端 32 通道配置需要约 2GiB。
+打开失败、非法编码/文件、无效采样率、分配失败及解码过程错误明确返回错误，
+不会把损坏文件的部分结果当成功；部分尾块的正常 EOF 仍可用。
 
-## 注意事项
+## 独立生成与依赖
 
-- 路径规则与 `wav_in` 相同：相对路径相对工程目录，支持中文路径。
-- 文件读不开 / 解码失败时 prepare 返回 NOT_FOUND，运行直接失败——先确认文件存在；超过 16M 帧上限同样启动报错（v1.0.1 前为静默截断）。
-- 虽然 UI 按 `.mp3` 过滤，miniaudio 实际也能解码 WAV/FLAC 等格式（并自动重采样），必要时可以当"通用音频文件输入 + 重采样"用。
-- 整个文件解码进内存：16M 帧 × 32 通道 × 4 字节的极端配置会占用大量内存，长素材请控制通道数。
-- 全部可写参数 restart_required，运行时不能换文件。
+先保存 `component.yaml`，再调用 `scripts/generate_component.py` 校验/生成。
+声明 `deps: [miniaudio]`；源码构建从仓库 `third_party` 引用现有头文件，
+独立生成工程复制依赖，不依赖仓库运行。
+默认新建组件 CMake 可通过 `ORPHEUS_MINIAUDIO_INCLUDE_DIR` 指定头文件目录，
+缺失时报错。解码器函数与其原子全局锁均隔离，避免与设备宿主的 miniaudio 重复定义。
 
-## 典型用法
+## 定向验证
 
-```yaml
-component: orpheus.builtin.mp3_in
-params:
-  file_path: demo.mp3
-  channels: 2
-```
-
-```
-mp3_in ──► level_detect ──► device_out     # 把 MP3 灌进实时播放链（注意时钟域：
-                                           # 实时链路以 device 为时钟，文件源可混入）
-```
-
-## 实时安全
-
-manifest 标记 `realtime_safe: false`：解码与内存分配都在 prepare 完成，`process` 只做清零 + 拷贝。语义上属于文件时钟域组件。
+- `mp3_in_smoke`：整文件 API 与分块解码一致；变长调用、错误后继续、尾部补零、
+  out/tick 顺序、零帧、reset、别名/容量、OOM、损坏文件、失败后重试；
+  恰好 16M 帧与多一帧的真实文件边界。
+- `test_mp3_in_interfaces.py`：四图的动态/生成四入口，真实 MP3 的单/双/32 通道、
+  32kHz 重采样、中文路径、总帧数名称/ID读取、同步 tick；
+  独立 PCM16 数值预期及 9 帧文件跨两次 7 帧调用的补零。

@@ -54,7 +54,7 @@ _PAYLOAD_RATIO = re.compile(
 LIFECYCLE_HOOKS = ("normalize", "validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
         "category", "description", "interfaces", "algorithm", "order", "execution", "memory",
-        "platforms", "ui_hidden", "user_owned", "scheduling", "input_alternatives"}
+        "platforms", "ui_hidden", "user_owned", "scheduling", "input_alternatives", "deps"}
 _PORT = {"name", "direction", "type", "sample_format", "channels", "block_size", "sample_rate",
          "process", "drive_port_no", "drive_divide", "count", "description", "layout", "frame_size",
          "timing", "optional", "allow_unready", "host_binding"}
@@ -143,6 +143,15 @@ def _string(value, location, nonempty=False):
 
 
 def _metadata(raw):
+    if "deps" in raw:
+        dependencies = raw["deps"]
+        if not isinstance(dependencies, list):
+            _fail("依赖必须是唯一名称数组", "deps")
+        for index, value in enumerate(dependencies):
+            if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:[.-][A-Za-z0-9_]+)*", value):
+                _fail("依赖必须是组件ID或库名称", f"deps[{index}]")
+        if len(set(dependencies)) != len(dependencies) or raw["id"] in dependencies:
+            _fail("依赖不能重复或引用组件自身", "deps")
     for key in ("clock_source", "ui_hidden", "user_owned"):
         if key in raw and type(raw[key]) is not bool:
             _fail("必须是布尔值", key)

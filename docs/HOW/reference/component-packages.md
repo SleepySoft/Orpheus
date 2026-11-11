@@ -226,6 +226,12 @@ noise_detector_nlms以in驱动，ref只供数据；保持内部误差in-y的NLMS
 残差可能含失配/未收敛误差，不作为标准THD+N。
 参考[NLMS残差与调用统计](../../../components/orpheus/builtin/noise_detector_nlms/README.md)。
 
+mp3_in在prepare通过miniaudio预载并转换到图采样率/声道，process只拷贝/补零。
+每次正帧调用先提交位置，再emit out(1)，成功后emit tick(2)；错误不回滚、不补发。
+独立声明通过deps数组保留组件/库依赖；miniaudio头文件进入独立生成工程，
+缺失明确失败。解码器实现与设备宿主隔离；16M帧上限与解码过程错误都显式拒绝。
+参考[MP3预载源、真实交付与依赖](../../../components/orpheus/builtin/mp3_in/README.md)。
+
 slc_matrix_mul由in真实交付驱动，保留内部多表插值和外部奇偶序列锁存两种目标来源。
 每样本先平滑矩阵再混音，完成后显式emit out(1)，下游失败不回滚。
 序列模式不使用插值模式的近零系数瞬切；三个矩阵BULK槽保持实际rows×cols形状和双缓冲。

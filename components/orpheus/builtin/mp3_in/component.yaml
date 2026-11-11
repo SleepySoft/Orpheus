@@ -1,54 +1,21 @@
 id: orpheus.builtin.mp3_in
 name: MP3 文件输入
-category: "输入与输出"
-description: "离线MP3文件音频源，准备阶段解码后按图块输出；配置文件路径和通道数，不在实时process中解码或读文件。"
+category: 输入与输出
+description: 准备期解码并转换为图采样率/通道数，随后按真实调用输出与尾部补零；不在process读文件或解码
 order: 3
-version: 1.0.1
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: Mp3InState
 clock_source: true
 clock_domain: file
-deps:
-  - miniaudio
-sources:
-  - src/mp3_in.c
-  - src/miniaudio.c
-headers:
-  - include/orpheus_mp3_in.h
-ports:
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: file_path
-    name: MP3 文件
-    type: string
-    default: ""
-    widget: file
-    file_ext: ".mp3"
-    update_policy: restart_required
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: total_frames
-    name: 总帧数
-    type: int
-    default: 0
-    readback: true
-    update_policy: immediate
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: false
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: false
+deps: [miniaudio]
+algorithm:
+  lifecycle: [prepare, reset, destroy]
+interfaces:
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1}
+  tick: {name: 音频交付后触发, direction: output, type: trigger, drive_port_no: 2}
+  file_path: {name: MP3文件, type: string, capacity: 512, default: "", widget: file, file_ext: ".mp3", update_policy: restart_required}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  total_frames: {name: 总帧数, type: int, default: 0, kind: probe, access: read, readback: true}
+memory: {alignment: 8}
+execution: {sample_rate_independent: false, latency_samples: 0, supports_inplace: false, realtime_safe: false}

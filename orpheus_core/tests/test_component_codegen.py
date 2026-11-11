@@ -1168,6 +1168,28 @@ def test_bulk_metadata_has_one_fact_source_and_generated_private_storage(package
         normalize_component_definition(raw)
 
 
+def test_decoder_dependency_survives_normalization_and_cli_generation(package, raw):
+    import jsonschema
+    raw["deps"] = ["miniaudio"]
+    before = copy.deepcopy(raw)
+    normalized = normalize_component_definition(raw)
+    assert normalized["deps"] == ["miniaudio"] and raw == before
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    generate_component(save(package, raw))
+    cmake = (package / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "ORPHEUS_MINIAUDIO_INCLUDE_DIR" in cmake
+    assert 'message(FATAL_ERROR "请设置 ORPHEUS_MINIAUDIO_INCLUDE_DIR")' in cmake
+
+
+@pytest.mark.parametrize("dependencies", ["miniaudio", [1], [True], [None], ["../library"],
+                                         ["lib;other"], [""], ["miniaudio", "miniaudio"]])
+def test_invalid_dependency_declarations_are_rejected(raw, dependencies):
+    raw["deps"] = dependencies
+    with pytest.raises(ComponentDefinitionError, match="依赖"):
+        normalize_component_definition(raw)
+
+
 @pytest.mark.parametrize("field,value", [
     ("storage", "algorithm.values[0]"), ("storage", "algorithm->values"),
     ("storage", "algorithm.values + 1"), ("storage", "user.values"),

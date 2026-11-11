@@ -4,15 +4,12 @@ set(COMPONENT_NAME orpheus_builtin_mp3_in)
 
 add_library(${COMPONENT_NAME} SHARED)
 
-target_sources(${COMPONENT_NAME}
-    PRIVATE
-        src/mp3_in.c
-        src/miniaudio.c
-)
+include("${CMAKE_CURRENT_LIST_DIR}/generated/component_sources.cmake")
+target_sources(${COMPONENT_NAME} PRIVATE ${ORPHEUS_COMPONENT_SOURCES})
 
 target_include_directories(${COMPONENT_NAME}
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${ORPHEUS_COMPONENT_INCLUDE_DIRS}
         ${CMAKE_SOURCE_DIR}/orpheus_abi/include
         ${CMAKE_SOURCE_DIR}/third_party
 )

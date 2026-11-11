@@ -484,6 +484,16 @@ target_compile_definitions(noise_detector_nlms_smoke PRIVATE ORPHEUS_BUILDING_CO
 target_compile_options(noise_detector_nlms_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
 add_test(NAME noise_detector_nlms_smoke COMMAND noise_detector_nlms_smoke)
 
+add_executable(mp3_in_smoke mp3_in_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mp3_in/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mp3_in/user/algorithm.c)
+target_include_directories(mp3_in_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/third_party ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mp3_in/generated)
+target_compile_definitions(mp3_in_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
+    MP3_FIXTURE="${CMAKE_SOURCE_DIR}/examples/test_input.mp3"
+    malloc=mp3_test_malloc realloc=mp3_test_realloc free=mp3_test_free)
+add_test(NAME mp3_in_smoke COMMAND mp3_in_smoke)
+
 add_executable(iir_coefs_runner iir_coefs_runner.cpp)
 target_link_libraries(iir_coefs_runner PRIVATE orpheus_runtime_lib)
 

@@ -20,6 +20,10 @@
     "ui_hidden": {"type": "boolean"},
     "user_owned": {"type": "boolean"},
     "platforms": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "deps": {
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*(?:[.-][A-Za-z0-9_]+)*$"}
+    },
     "input_alternatives": {
       "type": "array", "uniqueItems": true,
       "description": "每组单个输入数据接口恰好连接一个；引用及跨组不交叠由共享校验核心验证。",

@@ -270,8 +270,8 @@ class CodeGenerator:
             # component include dir so generated projects stay self-contained.
             if "miniaudio" in info.manifest.get("deps", []):
                 ma_header = self.project_root / "third_party" / "miniaudio.h"
-                if ma_header.exists():
-                    shutil.copy2(ma_header, comp_out / "include" / "miniaudio.h")
+                (comp_out / "include").mkdir(exist_ok=True)
+                shutil.copy2(ma_header, comp_out / "include" / "miniaudio.h")
 
         # 图实现与宿主解耦：orpheus_graph.c 只放状态/初始化链/调用链；main.c 是最小
         # 集成示例，复杂命令行验证能力独立放在 host_cli.c。
