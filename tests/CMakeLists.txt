@@ -290,6 +290,17 @@ target_include_directories(buffer_source_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/buffer_source/generated)
 target_compile_definitions(buffer_source_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME buffer_source_smoke COMMAND buffer_source_smoke)
+add_executable(downrate_smoke downrate_smoke.c)
+add_library(downrate_test_component OBJECT
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/downrate/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/downrate/user/algorithm.c)
+target_include_directories(downrate_test_component PUBLIC
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/downrate/generated)
+target_compile_definitions(downrate_test_component PRIVATE ORPHEUS_BUILDING_COMPONENT calloc=downrate_test_calloc)
+target_compile_definitions(downrate_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+target_link_libraries(downrate_smoke PRIVATE downrate_test_component)
+add_test(NAME downrate_smoke COMMAND downrate_smoke)
 add_executable(message_bounds_runner message_bounds_runner.cpp)
 target_link_libraries(message_bounds_runner PRIVATE orpheus_runtime_lib)
 

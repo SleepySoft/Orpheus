@@ -1,45 +1,54 @@
 id: orpheus.builtin.downrate
 name: "音频组块器"
 category: "驱动与缓冲"
-description: "连续接收N个音频块并原样拼成一个大块，采样率不变。输出截断驱动传播，消费者由自己的任务入口触发；不分频、不重采样，也不因写满自动调用消费者。"
+description: >-
+  in每次接收一个完整小块并追加到私有存储，不调用下游；
+  tick纯触发入口独立读取完整大块并交付1号out。写满不触发读取，
+  欠载及未读覆盖明确报错，不重采样、不补零、不自动匹配调用频率。
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: DownrateState
-scheduling:
-  divisor: param:factor
-sources:
-  - src/downrate.c
-headers:
-  - include/orpheus_downrate.h
-ports:
-  - id: in
+algorithm: {lifecycle: [normalize, prepare, reset, destroy, set_parameter]}
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    block_size: param:input_frames
+    process: true
+  tick: {name: 读取大块, direction: input, type: trigger, process: true}
+  out:
     direction: output
     type: audio
-    propagate_drive: false
     sample_format: f32
     channels: param:channels
-    block_size: in:block_size*param:factor
-parameters:
-  - id: factor
-    name: 分频比
+    block_size: param:input_frames*param:factor
+    drive_port_no: 1
+  factor:
+    name: 拼接块数
     type: int
     default: 4
     range: [1, 64]
     update_policy: restart_required
     affects_signature: true
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
+  input_frames:
+    name: 每次写入帧数
+    type: int
+    default: 32
+    range: [1, 65536]
+    update_policy: restart_required
+    affects_signature: true
+  available_frames: {name: 已写帧数, type: int, default: 0, kind: probe, access: read, persistent: false}
+  underflows: {name: 欠载次数, type: int, default: 0, kind: probe, access: read, persistent: false}
+  overflows: {name: 未读覆盖次数, type: int, default: 0, kind: probe, access: read, persistent: false}
 memory:
   state_size: 0
   scratch_size: 0

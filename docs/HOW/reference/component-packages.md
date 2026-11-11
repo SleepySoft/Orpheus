@@ -145,6 +145,12 @@ tick才消费并交付。output_frames显式声明读取长度，factor只决定
 不保留按调用次数猜测大块到达及启动补静音的路径。
 具体存储、时间和错误语义见[拆块器](../../../components/orpheus/builtin/block_split/README.md)。
 
+downrate反向组块同样采用两个真实入口：in只追加input_frames帧，
+tick独立读取factor倍完整大块并交付；factor不是调度分频，写满不调用下游。
+部分批次要求时间连续且epoch相同，拒绝中途DISCONTINUITY及部分批次EOS。
+显式端口载荷不覆盖节点处理量子，大块消费者须声明对应的载荷形状。
+具体契约见[组块器](../../../components/orpheus/builtin/downrate/README.md)。
+
 ## 接口化通道选择与索引资源
 
 indexed_tone 的in唯一驱动，每次到达自主处理并交付1号out。
