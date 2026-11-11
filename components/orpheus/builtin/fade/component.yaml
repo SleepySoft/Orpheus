@@ -3,78 +3,107 @@ name: "前后声道平衡"
 category: "增益与动态"
 description: 内部分频前后衰减，或外部分频与四组显式幂次包络混合
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: FadeState
-sources:
-  - src/fade.c
-headers:
-  - include/orpheus_fade.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [validate, prepare, reset, set_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: lpf
+    drive_port_no: 1
+  lpf:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
     count: param:execution_mode
     optional: true
-parameters:
-  - id: fade
+  fade:
     name: 衰减
     type: float
     default: 0.0
     range: [-1.0, 1.0]
     update_policy: smoothed
     widget: slider
-  - id: crossover_hz
+  crossover_hz:
     name: 分频点
     type: float
     default: 400.0
     range: [100.0, 2000.0]
     unit: Hz
     update_policy: restart_required
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 4
     range: [2, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: front_channels
+  front_channels:
     name: 前组通道数
     type: int
     default: 2
     range: [1, 31]
     update_policy: restart_required
-  - id: ramp_ms
+  ramp_ms:
     name: 斜坡时间
     type: float
     default: 50.0
     range: [0.0, 1000.0]
     unit: ms
     update_policy: restart_required
-  - {id: execution_mode, name: 执行模式（0内部分频，1外部分频显式包络）, type: int, default: 0, range: [0, 1], update_policy: restart_required, affects_signature: true}
-  - {id: chan_map, name: 通道到前后组映射（-1正零）, type: string, default: "", widget: text, update_policy: restart_required}
-  - {id: current_gains, name: 高频前后/低频前后当前增益, type: string, default: "", kind: bulk, shape: [4], widget: text, update_policy: restart_required}
-  - {id: target_gains, name: 高频前后/低频前后目标增益, type: string, default: "", kind: bulk, shape: [4], widget: text, update_policy: restart_required}
-  - {id: coefficients, name: 高频前后/低频前后幂次乘数, type: string, default: "", kind: bulk, shape: [4], widget: text, update_policy: restart_required}
-  - {id: remaining_blocks, name: 四组剩余块数（仅前两组驱动）, type: string, default: "", kind: bulk, shape: [4], range: [-2147483648, 2147483647], widget: text, update_policy: restart_required}
-  - {id: freeze, name: 冻结显式包络, type: bool, default: false, persistent: true, readback: true, update_policy: block_boundary}
-bulk_slots:
-  - {id: current_gains, name: 四组当前增益, type: float, count: 4, shape: [4], double_bank: true}
-  - {id: target_gains, name: 四组目标增益, type: float, count: 4, shape: [4], double_bank: true}
-  - {id: coefficients, name: 四组幂次乘数, type: float, count: 4, shape: [4], double_bank: true}
-  - {id: remaining_blocks, name: 四组剩余块数, type: int, count: 4, shape: [4], double_bank: true}
+  execution_mode: {name: 执行模式（0内部分频，1外部分频显式包络）, type: int, default: 0, range: [0, 1], update_policy: restart_required, affects_signature: true}
+  chan_map: {name: 通道到前后组映射（-1正零）, type: string, capacity: 256, default: "", widget: text, update_policy: restart_required}
+  current_gains:
+    name: 高频前后/低频前后当前增益
+    type: string
+    capacity: 4096
+    default: ""
+    kind: bulk
+    shape: [4]
+    widget: text
+    update_policy: restart_required
+    bulk: {sample_format: f32, capacity: 4, storage: algorithm.current_gains, double_bank: true}
+  target_gains:
+    name: 高频前后/低频前后目标增益
+    type: string
+    capacity: 4096
+    default: ""
+    kind: bulk
+    shape: [4]
+    widget: text
+    update_policy: restart_required
+    bulk: {sample_format: f32, capacity: 4, storage: algorithm.target_gains, double_bank: true}
+  coefficients:
+    name: 高频前后/低频前后幂次乘数
+    type: string
+    capacity: 4096
+    default: ""
+    kind: bulk
+    shape: [4]
+    widget: text
+    update_policy: restart_required
+    bulk: {sample_format: f32, capacity: 4, storage: algorithm.coefficients, double_bank: true}
+  remaining_blocks:
+    name: 四组剩余块数（仅前两组驱动）
+    type: string
+    capacity: 256
+    default: ""
+    kind: bulk
+    shape: [4]
+    widget: text
+    update_policy: restart_required
+    bulk: {sample_format: i32, capacity: 4, storage: algorithm.remaining_blocks, double_bank: true, range: [-2147483648, 2147483647]}
+  freeze: {name: 冻结显式包络, type: bool, default: false, persistent: true, readback: true, update_policy: block_boundary}
 memory:
   state_size: 0
   scratch_size: 0

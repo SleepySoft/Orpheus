@@ -415,10 +415,12 @@ add_test(NAME sample_gain_smoke COMMAND sample_gain_smoke)
 add_executable(sample_gain_runner sample_gain_runner.cpp)
 target_link_libraries(sample_gain_runner PRIVATE orpheus_runtime_lib)
 add_executable(explicit_fade_smoke explicit_fade_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fade/src/fade.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fade/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fade/user/algorithm.c)
 target_include_directories(explicit_fade_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fade/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fade/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/fade/user)
 target_compile_definitions(explicit_fade_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 if(NOT WIN32)
     target_link_libraries(explicit_fade_smoke PRIVATE m)

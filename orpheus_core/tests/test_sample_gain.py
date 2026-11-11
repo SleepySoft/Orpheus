@@ -11,7 +11,6 @@ from orpheus_core.compiler import GraphCompiler
 from orpheus_core.generator import CodeGenerator
 from orpheus_core.project import Connection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import Registry
-from array_graph_runner import use_linear_call_chain
 from test_phased_tone import f32
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,7 +67,8 @@ def verify_sample_gains(tmp_path, cases, reference=None, component="gain_ramper"
         node_params = params if component == "gain_ramper" else {k: v for k, v in params.items() if k != "num_rampers"}
         nodes[name] = Node(id=name, component="orpheus.builtin."+component, params=node_params)
         nodes[name+"_out"] = Node(id=name+"_out", component="orpheus.builtin.wav_out", params={"channels": count, "file_path": name+".wav"})
-        for port_index, port in enumerate(input_ports):
+        for port_index in reversed(range(len(input_ports))):
+            port = input_ports[port_index]
             route = name+"_route"+("" if port_index == 0 else "_"+port)
             nodes[route] = Node(id=route, component="orpheus.builtin.channel_router",
                                 params={"channels_in": width, "channels_out": count,
@@ -81,21 +81,11 @@ def verify_sample_gains(tmp_path, cases, reference=None, component="gain_ramper"
     registry = Registry(); registry.add_search_path(ROOT / "components"); registry.scan()
     plan = GraphCompiler(registry).compile(project)
     assert not plan.warnings
-    if component == "gain_ramper":
-        plan.entry_nodes = ["source"]
-        plan.call_graph = {node: [] for node in plan.node_configs}
-        for connection in edges:
-            source, target = connection.from_ref, connection.to_ref
-            config = plan.node_configs[source.node_id]
-            plan.call_graph[source.node_id].append({
-                "node": target.node_id, "every": 1, "phase": 0,
-                "output_port": config.get("output_drive_ports", {}).get(source.port_id, 0),
-                "input_port": plan.node_configs[target.node_id]["input_ports"].index(target.port_id),
-            })
-        for task in plan.tasks:
-            task["entry_nodes"] = ["source"]
-    else:
-        use_linear_call_chain(plan)
+    assert plan.entry_nodes == ["source"]
+    if component == "fade":
+        for name in cases:
+            assert plan.call_graph[name+"_route_lpf0"] == []
+            assert [edge["node"] for edge in plan.call_graph[name+"_route"]] == [name]
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
     generated = tmp_path / "generated"
