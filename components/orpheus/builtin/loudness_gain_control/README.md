@@ -2,6 +2,17 @@
 
 这是 `loudness_normalizer` 内部控制算法的教学原子：输入线性 RMS，输出应施加的 dB 增益。它不测量音频，也不施加增益；音频端口只做逐样本直通，让控制器与检测器、增益器处在同一 Task 和时间线上。
 
+接口声明是事实源，独立生成入口：
+
+```powershell
+python scripts\generate_component.py components\orpheus\builtin\loudness_gain_control\component.yaml
+```
+
+每次音频`in`真实到达独立推进检测/增益状态，然后自主交付1号`out`；
+不按Task去重，不增加额外平滑或隐藏调用。音频逐位直通，包含NaN/Inf/负零；
+精确原地合法，部分重叠、与实例状态重叠及不足载荷拒绝。
+下游错误不回滚已更新的控制状态。
+
 ## 分解连接
 
 ```text
@@ -34,6 +45,11 @@ coefficient = 1 - exp(-frames / (time_ms * 0.001 * sample_rate))
 - 目标增益低于当前增益时使用较快的 `gain_attack_ms`，表示快速压低大声内容；
 - 目标增益高于当前增益时使用较慢的 `gain_release_ms`，表示缓慢抬升小声内容；
 - `level` 低于 `gate_db` 时保持当前增益，避免在静音段继续放大底噪。
+- 保留冷启动首次有效能量直接建立包络、`1e-12`能量下限和逐项f32运算次序。
+  零帧仍按原算法使用系数1推进控制状态，并交付零帧音频；不统一添加早退。
+  reset清检测历史及三个探针，保留所有配置。
+- `input_db`、`gain_db`、`output_db`明确只读；参数通过同一声明约束类型和范围，
+  不再从手写描述符、注册表和参数解析各维护一份元数据。
 
 ## 参数与探针
 

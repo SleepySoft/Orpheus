@@ -841,11 +841,13 @@ add_test(NAME loudness_normalizer_smoke COMMAND loudness_normalizer_smoke)
 
 add_executable(loudness_gain_control_smoke
 	loudness_gain_control_smoke.c
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_gain_control/src/loudness_gain_control.c
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_gain_control/generated/component_shell.c
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_gain_control/user/algorithm.c
 )
 target_include_directories(loudness_gain_control_smoke PRIVATE
 	${CMAKE_SOURCE_DIR}/orpheus_abi/include
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_gain_control/include
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_gain_control/generated
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/loudness_gain_control/user
 )
 target_compile_definitions(loudness_gain_control_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 if(NOT WIN32)

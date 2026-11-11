@@ -1,10 +1,52 @@
-#include "orpheus_loudness_gain_control.h"
+#include "component_state.h"
 
 #include <math.h>
 #include <string.h>
 
 #define FRAMES 128
 #define CHANNELS 2
+typedef orpheus_builtin_loudness_gain_control_State LgcState;
+static int set_level(const OrpheusComponentInterface* iface,void* state,float level);
+
+static int fail_delivery(void* user,uint32_t port,const OrpheusDelivery* delivery) {
+    unsigned* calls=(unsigned*)user;
+    (*calls)++;
+    return port==1 && delivery && delivery->buffer && delivery->buffer->frame_count==2 ?
+        ORPHEUS_ERR_PROCESSING : ORPHEUS_ERR_INVALID_ARG;
+}
+
+static int verify_contract(const OrpheusComponentInterface* iface,LgcState* state) {
+    float input[5]={1,2,3,4,5},output[4]={0};
+    OrpheusBuffer in={input,ORPHEUS_FORMAT_F32,2,2,2,true};
+    OrpheusBuffer out={output,ORPHEUS_FORMAT_F32,2,2,2,true};
+    const OrpheusBuffer* inputs[]={&in};OrpheusBuffer* outputs[]={&out};
+    OrpheusProcessContext ctx={.inputs=inputs,.outputs=outputs,.input_count=1,.output_count=1,
+        .frame_count=2,.sample_rate=48000};
+    if(iface->reset(state) || set_level(iface,state,.05f)) return 1;
+    ctx.frame_count=0;
+    if(iface->process(state,&ctx) || out.frame_count || state->algorithm.detector_energy<=0 ||
+        fabsf(state->output_db+18)>2e-5f) return 2;
+    ctx.frame_count=2;
+    LgcState before=*state;out.data=input+1;
+    if(iface->process(state,&ctx)!=ORPHEUS_ERR_INVALID_ARG || memcmp(&before,state,sizeof(before))) return 3;
+    out.data=output;in.frame_count=1;
+    if(iface->process(state,&ctx)!=ORPHEUS_ERR_INVALID_ARG || memcmp(&before,state,sizeof(before))) return 4;
+    in.frame_count=2;out.data=input;
+    if(iface->process(state,&ctx) || input[0]!=1 || input[3]!=4) return 5;
+    const char* probes[]={"input_db","gain_db","output_db"};
+    OrpheusValue value={.type=ORPHEUS_VALUE_FLOAT,.value.f32=0};
+    for(unsigned n=0;n<3;n++) if(iface->set_parameter(state,probes[n],&value)!=ORPHEUS_ERR_UNSUPPORTED) return 6;
+    value.value.f32=NAN;
+    if(iface->set_parameter(state,"level",&value)!=ORPHEUS_ERR_INVALID_ARG) return 7;
+    if(set_level(iface,state,.5f)) return 8;
+    float previous=state->algorithm.detector_energy;
+    unsigned calls=0;
+    OrpheusContinuation continuation={.user=&calls,.emit=fail_delivery};
+    ctx.continuation=&continuation;
+    if(iface->process(state,&ctx)!=ORPHEUS_ERR_PROCESSING || calls!=1 ||
+        state->algorithm.detector_energy<=previous) return 9;
+    return 0;
+}
 
 static int set_level(const OrpheusComponentInterface* iface, void* state, float level) {
     OrpheusValue value = {.type=ORPHEUS_VALUE_FLOAT, .value.f32=level};
@@ -25,6 +67,8 @@ static int process_blocks(const OrpheusComponentInterface* iface, void* state,
     float input[FRAMES * CHANNELS];
     float output[FRAMES * CHANNELS];
     for (size_t i = 0; i < FRAMES * CHANNELS; ++i) input[i] = (float)i / 1000.0f;
+    const uint32_t bits[]={0x80000000u,0x7fc12345u,0x7f800000u,0xff800000u};
+    memcpy(input,bits,sizeof(bits));
     OrpheusBuffer input_buffer = {
         input, ORPHEUS_FORMAT_F32, CHANNELS, FRAMES, FRAMES, true
     };
@@ -66,13 +110,13 @@ int main(void) {
     values[3].value.f32 = 12.0f;
     values[4].value.f32 = -55.0f;
     values[5].value.f32 = 5.0f;
-    values[6].value.f32 = 10.0f;
+    values[6].value.f32 = 20.0f;
     values[7].value.f32 = 5.0f;
-    values[8].value.f32 = 10.0f;
+    values[8].value.f32 = 50.0f;
     values[9].type = ORPHEUS_VALUE_INT;
     values[9].value.i32 = CHANNELS;
 
-    LoudnessGainControlState memory;
+    orpheus_builtin_loudness_gain_control_State memory;
     memset(&memory, 0, sizeof(memory));
     OrpheusConfig config = {
         .sample_rate=48000, .block_size=FRAMES, .channels=CHANNELS,
@@ -101,5 +145,7 @@ int main(void) {
     if (process_blocks(iface, state, 0.0f, 100) != 0) return 15;
     if (read_float(iface, state, "gain_db", &gain_db) != 0) return 16;
     if (fabsf(gain_db) > 0.001f) return 17;
+    if (verify_contract(iface,state) != 0) return 18;
+    if (iface->destroy(state) != ORPHEUS_OK) return 19;
     return 0;
 }
