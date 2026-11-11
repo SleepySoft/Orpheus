@@ -193,6 +193,13 @@ process不格式化；detail在非实时getter生成，动态/生成的名称、
 错误显式传播，reset后的JSON反映零指标；
 参考[FxLMS核心](../../../components/orpheus/builtin/adaptive_fir/README.md)。
 
+anc_fxlms同样仅由x驱动，d只提供数据；保留原始参考读出负y、filtered-x循环历史移位更新、
+内部误差d-secondary_gain*y和原f32次序，不在迁移中把教学近似改为真实物理次路。
+累计功率按实际交付的总样本数计算，变长调用不再由最后块长反推；
+提交权重/历史/累计指标后显式emit out(1)，下游失败不回滚。
+detail为非实时派生JSON，frames仍表示正帧调用次数；
+参考[整体FxLMS及实现边界](../../../components/orpheus/builtin/anc_fxlms/README.md)。
+
 slc_matrix_mul由in真实交付驱动，保留内部多表插值和外部奇偶序列锁存两种目标来源。
 每样本先平滑矩阵再混音，完成后显式emit out(1)，下游失败不回滚。
 序列模式不使用插值模式的近零系数瞬切；三个矩阵BULK槽保持实际rows×cols形状和双缓冲。

@@ -426,7 +426,19 @@ target_include_directories(adaptive_fir_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/adaptive_fir/generated)
 target_compile_definitions(adaptive_fir_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
     calloc=adaptive_fir_test_calloc free=adaptive_fir_test_free snprintf=adaptive_fir_test_snprintf)
+target_compile_options(adaptive_fir_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
 add_test(NAME adaptive_fir_smoke COMMAND adaptive_fir_smoke)
+
+add_executable(anc_fxlms_smoke anc_fxlms_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/anc_fxlms/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/anc_fxlms/user/algorithm.c)
+target_include_directories(anc_fxlms_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/anc_fxlms/generated)
+target_compile_definitions(anc_fxlms_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
+    calloc=anc_fxlms_test_calloc free=anc_fxlms_test_free snprintf=anc_fxlms_test_snprintf)
+target_compile_options(anc_fxlms_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+add_test(NAME anc_fxlms_smoke COMMAND anc_fxlms_smoke)
 
 add_executable(iir_coefs_runner iir_coefs_runner.cpp)
 target_link_libraries(iir_coefs_runner PRIVATE orpheus_runtime_lib)
