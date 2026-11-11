@@ -1,45 +1,56 @@
 id: orpheus.builtin.block_split
 name: 音频拆块器
 category: "驱动与缓冲"
-description: 同采样率大块转小块；首次完整输入到达前输出零，之后按节拍依次交付，不丢弃或重复样本
+description: >-
+  同采样率大块转小块。in到达只保存完整大块，不调用下游；
+  tick纯触发入口每次消费一小块并交付1号out。水位不改变调用时机，
+  欠载/未读大块被覆盖均明确报错，不预填静音、不自动补调。
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: BlockSplitState
+algorithm: {lifecycle: [normalize, prepare, reset, destroy, set_parameter]}
 scheduling:
   split: true
-sources:
-  - src/block_split.c
-headers:
-  - include/orpheus_block_split.h
-ports:
-  - id: in
+interfaces:
+  in:
     direction: input
     type: audio
-    propagate_drive: false
+    process: true
     sample_format: f32
     channels: param:channels
-  - id: out
+    block_size: param:output_frames*param:factor
+  tick: {name: 读取小块, direction: input, type: trigger, process: true}
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-    block_size: in:block_size/param:factor
-parameters:
-  - id: channels
+    block_size: param:output_frames
+    drive_port_no: 1
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 64]
     update_policy: restart_required
     affects_signature: true
-  - id: factor
+  factor:
     name: 拆分份数
     type: int
     default: 4
     range: [1, 64]
     update_policy: restart_required
     affects_signature: true
+  output_frames:
+    name: 每次读取帧数
+    type: int
+    default: 32
+    range: [1, 65536]
+    update_policy: restart_required
+    affects_signature: true
+  available_frames: {name: 待读帧数, type: int, default: 0, kind: probe, access: read, persistent: false}
+  underflows: {name: 欠载次数, type: int, default: 0, kind: probe, access: read, persistent: false}
+  overflows: {name: 未读覆盖次数, type: int, default: 0, kind: probe, access: read, persistent: false}
 execution:
   sample_rate_independent: true
   supports_inplace: false

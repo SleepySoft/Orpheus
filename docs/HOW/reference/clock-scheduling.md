@@ -99,7 +99,7 @@ buffer；merge 节点在同步点整块读取。约束：桥接源必须是「�
 | 组件 | 输入→输出示例 | 调度与约束 |
 |---|---|---|
 | `rational_resample` | 416帧@48kHz → 96帧@144000/13 Hz | `up=3, down=13`；输入长度乘up须能被down整除。不足先用downrate组块，不截断样本数。 |
-| `block_split` | 128帧 → 4次32帧，同采样率 | `factor=4`；prepare的block_size为128，process的frame_count为32；下游回到小块节拍。 |
+| `block_split` | 发布128帧，另由4次tick读取32帧，同采样率 | `factor=4, output_frames=32`；in只快照，tick显式交付，节点配置/处理量子为32；欠载和未读覆盖报错，水位不触发下游。 |
 | `circular_buffer` | 每128个新样本 → 256点窗 | `hop_size=128, frame_size=256, num_frames=1`；输出容量256，但下游每128点帧移触发一次。 |
 
 ### 有理采样率和ABI

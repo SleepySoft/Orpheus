@@ -183,7 +183,15 @@ add_test(NAME mixer_smoke COMMAND mixer_smoke)
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
 foreach(adapter rational_resample block_split circular_buffer resample)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})
-    add_library(audio_test_${adapter} OBJECT ${adapter_dir}/src/${adapter}.c)
+    if(adapter STREQUAL "block_split")
+        add_library(audio_test_${adapter} OBJECT
+            ${adapter_dir}/generated/component_shell.c ${adapter_dir}/user/algorithm.c)
+        target_include_directories(audio_test_${adapter} PRIVATE ${adapter_dir}/generated)
+        target_compile_definitions(audio_test_${adapter} PRIVATE calloc=block_split_test_calloc)
+        target_include_directories(audio_adapters_smoke PRIVATE ${adapter_dir}/generated)
+    else()
+        add_library(audio_test_${adapter} OBJECT ${adapter_dir}/src/${adapter}.c)
+    endif()
     target_include_directories(audio_test_${adapter} PRIVATE
         ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${adapter_dir}/include)
     target_compile_definitions(audio_test_${adapter} PRIVATE
