@@ -1,48 +1,35 @@
 id: orpheus.builtin.mixer
 name: "双路加权混音"
 category: "路由与混音"
-description: "两路同通道音频分别乘gain0、gain1后相加；这是双输入加权混音，不是任意通道矩阵路由。"
+description: >-
+  两路同通道音频分别乘gain0、gain1后相加；任一输入到达即计算并显式交付1号out，
+  不等待会合或去重。保留原逐样本增益趋近与乘后相加的float32顺序，
+  不支持原地或部分重叠；两输入均必需，不是任意通道矩阵路由。
 order: 2
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: MixerState
-sources:
-  - src/mixer.c
-headers:
-  - include/orpheus_mixer.h
-ports:
-  - id: in0
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: in1
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: gain0
+algorithm:
+  lifecycle: [prepare, reset, set_parameter]
+interfaces:
+  in0: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  in1: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1, drive_divide: 1}
+  gain0:
     name: 增益 0
     type: float
     default: 0.0
     range: [-96.0, 24.0]
     unit: dB
     update_policy: smoothed
-  - id: gain1
+  gain1:
     name: 增益 1
     type: float
     default: 0.0
     range: [-96.0, 24.0]
     unit: dB
     update_policy: smoothed
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2

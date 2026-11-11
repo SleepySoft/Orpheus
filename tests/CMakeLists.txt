@@ -134,6 +134,19 @@ if(UNIX)
 endif()
 add_test(NAME switch_smoke COMMAND switch_smoke)
 
+add_executable(mixer_smoke mixer_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mixer/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mixer/user/algorithm.c)
+target_include_directories(mixer_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mixer/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mixer/user)
+target_compile_definitions(mixer_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(UNIX)
+    target_link_libraries(mixer_smoke PRIVATE m)
+endif()
+add_test(NAME mixer_smoke COMMAND mixer_smoke)
+
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
 foreach(adapter rational_resample block_split circular_buffer resample)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})
