@@ -538,8 +538,8 @@ def _validate(raw):
             if kind == "string":
                 _string(value, loc + ".default")
                 capacity = item.get("capacity", 256)
-                if type(capacity) is not int or not 1 <= capacity <= 65536:
-                    _fail("字符串 capacity 必须是 1..65536 字节（包含 NUL）", loc + ".capacity")
+                if type(capacity) is not int or not 1 <= capacity <= 262144:
+                    _fail("字符串 capacity 必须是 1..262144 字节（包含 NUL）", loc + ".capacity")
                 if len(value.encode("utf-8")) >= capacity:
                     _fail("默认字符串 UTF-8 字节数超过 capacity（需预留 NUL）", loc + ".default")
             elif "capacity" in item:

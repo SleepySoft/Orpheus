@@ -1,4 +1,4 @@
-#include "orpheus_rnc_mimo_nlms.h"
+#include "component_state.h"
 
 #include <math.h>
 #include <string.h>
@@ -7,8 +7,14 @@ static int close_to(float actual, float expected, float tolerance) {
     return fabsf(actual - expected) <= tolerance;
 }
 
+static int emit(void* user,uint32_t port,const OrpheusDelivery* delivery) {
+    (void)user;
+    return port==1 && delivery && delivery->buffer ? ORPHEUS_OK : ORPHEUS_ERR_INVALID_ARG;
+}
+
 static int run_static_weights(const OrpheusComponentInterface* interface) {
-    RncMimoNlmsState state;
+    static orpheus_builtin_rnc_mimo_nlms_State state;
+    OrpheusContinuation continuation={.emit=emit};
     const char* ids[] = {
         "reference_channels", "output_channels", "filter_length", "step_sizes",
         "leakage", "eps", "initial_weights"
@@ -36,7 +42,7 @@ static int run_static_weights(const OrpheusComponentInterface* interface) {
     OrpheusBuffer* outputs[] = {&output_buffer};
     OrpheusProcessContext context = {
         .state=&state, .inputs=inputs, .input_count=2, .outputs=outputs,
-        .output_count=1, .frame_count=3, .sample_rate=48000,
+        .output_count=1, .frame_count=3, .sample_rate=48000,.continuation=&continuation,
     };
     void* state_ptr = NULL;
     if (interface->create(&state_ptr, &config) != ORPHEUS_OK || state_ptr != &state) return 10;
@@ -45,14 +51,15 @@ static int run_static_weights(const OrpheusComponentInterface* interface) {
     if (!close_to(output[0], 31.0f, 1.0e-5f)) return 13;
     if (!close_to(output[1], 104.0f, 1.0e-5f)) return 14;
     if (!close_to(output[2], 177.0f, 1.0e-5f)) return 15;
-    state.weights[0] = 99.0f;
+    state.algorithm.weights[0] = 99.0f;
     if (interface->reset(state_ptr) != ORPHEUS_OK) return 16;
-    if (!close_to(state.weights[0], 1.0f, 1.0e-6f)) return 17;
-    return 0;
+    if (!close_to(state.algorithm.weights[0], 1.0f, 1.0e-6f)) return 17;
+    return interface->destroy(state_ptr);
 }
 
 static int run_adaptation(const OrpheusComponentInterface* interface) {
-    RncMimoNlmsState state;
+    static orpheus_builtin_rnc_mimo_nlms_State state;
+    OrpheusContinuation continuation={.emit=emit};
     const char* ids[] = {
         "reference_channels", "output_channels", "filter_length", "step_sizes", "eps"
     };
@@ -77,7 +84,7 @@ static int run_adaptation(const OrpheusComponentInterface* interface) {
     OrpheusBuffer* outputs[] = {&output_buffer};
     OrpheusProcessContext context = {
         .state=&state, .inputs=inputs, .input_count=2, .outputs=outputs,
-        .output_count=1, .frame_count=2, .sample_rate=48000,
+        .output_count=1, .frame_count=2, .sample_rate=48000,.continuation=&continuation,
     };
     void* state_ptr = NULL;
     if (interface->create(&state_ptr, &config) != ORPHEUS_OK) return 20;
@@ -85,9 +92,9 @@ static int run_adaptation(const OrpheusComponentInterface* interface) {
     if (interface->process(state_ptr, &context) != ORPHEUS_OK) return 22;
     if (!close_to(output[0], 0.0f, 1.0e-6f)) return 23;
     if (!close_to(output[1], 0.499995f, 1.0e-5f)) return 24;
-    if (!close_to(state.weights[0], 0.749994f, 1.0e-5f)) return 25;
-    if (!close_to(state.weights[1], 0.249999f, 1.0e-5f)) return 26;
-    return 0;
+    if (!close_to(state.algorithm.weights[0], 0.749994f, 1.0e-5f)) return 25;
+    if (!close_to(state.algorithm.weights[1], 0.249999f, 1.0e-5f)) return 26;
+    return interface->destroy(state_ptr);
 }
 
 int main(void) {

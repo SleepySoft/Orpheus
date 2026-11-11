@@ -232,6 +232,14 @@ mp3_in在prepare通过miniaudio预载并转换到图采样率/声道，process�
 缺失明确失败。解码器实现与设备宿主隔离；16M帧上限与解码过程错误都显式拒绝。
 参考[MP3预载源、真实交付与依赖](../../../components/orpheus/builtin/mp3_in/README.md)。
 
+rnc_mimo_nlms以ref驱动，filtered_error仅供外部误差；eps先入归一化，
+逐调用轮转泄漏一条参考到输出路径，再按原f32次序卷积/更新。
+weights/step_sizes的BULK数量由shape决定、物理容量12000/8；
+初始权值CSV允许前缀补零但拒绝垃圾/非有限/超额，完整表可显式使用262144字节字符串容量。
+该上限只扩展字符串，不改变65536个BULK元素的上限。
+状态提交后emit out(1)，错误不回滚；reset恢复初始基线、清历史/游标，保留运行期步长。
+参考[多参考多输出NLMS的调用、资源与基线](../../../components/orpheus/builtin/rnc_mimo_nlms/README.md)。
+
 slc_matrix_mul由in真实交付驱动，保留内部多表插值和外部奇偶序列锁存两种目标来源。
 每样本先平滑矩阵再混音，完成后显式emit out(1)，下游失败不回滚。
 序列模式不使用插值模式的近零系数瞬切；三个矩阵BULK槽保持实际rows×cols形状和双缓冲。

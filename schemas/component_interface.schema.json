@@ -243,7 +243,7 @@
         "unit": {"type": "string"},
         "count": {"type": "integer", "minimum": 1, "maximum": 65536},
         "bulk": {"$ref": "#/$defs/bulk_binding"},
-        "capacity": {"type": "integer", "minimum": 1, "maximum": 65536, "description": "UTF-8 字节容量，包含末尾 NUL；默认 256"},
+        "capacity": {"type": "integer", "minimum": 1, "maximum": 262144, "description": "UTF-8 字节容量，包含末尾 NUL；默认 256，大型BULK初始化可显式扩容"},
         "shape": {
           "type": "array",
           "items": {"oneOf": [

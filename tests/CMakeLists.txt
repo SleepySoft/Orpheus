@@ -494,6 +494,14 @@ target_compile_definitions(mp3_in_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
     malloc=mp3_test_malloc realloc=mp3_test_realloc free=mp3_test_free)
 add_test(NAME mp3_in_smoke COMMAND mp3_in_smoke)
 
+add_executable(rnc_mimo_smoke rnc_mimo_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rnc_mimo_nlms/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rnc_mimo_nlms/user/algorithm.c)
+target_include_directories(rnc_mimo_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rnc_mimo_nlms/generated)
+target_compile_definitions(rnc_mimo_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME rnc_mimo_smoke COMMAND rnc_mimo_smoke)
+
 add_executable(iir_coefs_runner iir_coefs_runner.cpp)
 target_link_libraries(iir_coefs_runner PRIVATE orpheus_runtime_lib)
 
@@ -1018,11 +1026,12 @@ add_test(NAME timeline_runtime_smoke
 
 add_executable(rnc_mimo_nlms_smoke
 	rnc_mimo_nlms_smoke.c
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rnc_mimo_nlms/src/rnc_mimo_nlms.c
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rnc_mimo_nlms/generated/component_shell.c
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rnc_mimo_nlms/user/algorithm.c
 )
 target_include_directories(rnc_mimo_nlms_smoke PRIVATE
 	${CMAKE_SOURCE_DIR}/orpheus_abi/include
-	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rnc_mimo_nlms/include
+	${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rnc_mimo_nlms/generated
 )
 target_compile_definitions(rnc_mimo_nlms_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME rnc_mimo_nlms_smoke COMMAND rnc_mimo_nlms_smoke)

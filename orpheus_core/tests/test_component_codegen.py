@@ -662,7 +662,7 @@ def test_invalid_lifecycle_rejected(package, raw, lifecycle):
     {"type": "string", "default": "中文", "capacity": 6},
     {"type": "string", "default": "", "capacity": 0},
     {"type": "string", "default": "", "capacity": True},
-    {"type": "string", "default": "", "capacity": 65537},
+    {"type": "string", "default": "", "capacity": 262145},
     {"type": "float", "default": 1, "capacity": 256},
     {"type": "float", "default": 1, "bindable": True, "update_policy": "transactional"},
     {"type": "float", "default": 1, "control_source": True, "access": "write"},
