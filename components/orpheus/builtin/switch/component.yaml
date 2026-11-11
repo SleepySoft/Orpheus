@@ -2,42 +2,33 @@ id: orpheus.builtin.switch
 name: "通断渐变"
 category: "增益与动态"
 order: 4
-description: 音频开关（enable=1 直通 / 0 静音），斜坡过渡消除咔哒声
-version: 1.0.0
-abi_version: 6
+description: >-
+  音频开关，enable>=0.5为开，低于0.5为关；按交错样本推进原指数斜坡。
+  in到达后计算并显式交付1号out；支持精确原地，拒绝部分重叠。
+  reset恢复使能和单位增益，保留原斜坡系数。
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: SwitchState
-sources:
-  - src/switch.c
-headers:
-  - include/orpheus_switch.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: enable
+algorithm:
+  lifecycle: [prepare, reset]
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1, drive_divide: 1}
+  enable:
     name: 使能
     type: float
     default: 1.0
     range: [0.0, 1.0]
     update_policy: smoothed
     widget: checkbox
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: ramp_ms
+  ramp_ms:
     name: 斜坡时间
     type: float
     default: 20.0
@@ -49,7 +40,7 @@ memory:
   scratch_size: 0
   alignment: 8
 execution:
-  sample_rate_independent: true
+  sample_rate_independent: false
   latency_samples: 0
   supports_inplace: true
   realtime_safe: true

@@ -264,6 +264,16 @@ prepare 重载配置及采样率系数。声明为 sample_rate_independent: fals
 不足/缺失载荷与越界或非有限参数在写入前拒绝，不再静默夹参数。
 零量子不交付，下游失败不回滚历史，状态由宿主提供。
 
+switch 按 enable>=0.5 决定开关目标，保留原指数斜坡的 f32 顺序；
+斜坡按交错样本推进，**不是每音频帧一次**，迁移不调整多通道的斜坡速度。
+每次 in 到达后直接交付 1 号 out，修改 enable 不清当前增益，
+ramp_ms=0 或采样率为 0 时沿用立即变化规则。
+reset 保留原来的特殊语义：恢复 enable=1 和增益=1，保留斜坡系数，
+而非恢复初始化 enable；prepare 才重新加载配置。
+声明为 sample_rate_independent: false；精确原地合法，
+部分重叠、缺失/不足输入输出及非法候选在写入前拒绝。
+零量子不交付，下游错误不回滚当前增益，无隐式堆状态或 process 分配。
+
 complex_power 的 in 驱动逐批功率及能量计算；按实际算法调用点依次交付
 1 号 power、2 号 energy。complex_gain_split 的 in 驱动，
 gain 是不触发运算的 latest 数组；依次交付 1 号 impulse、2 号 reverb。
