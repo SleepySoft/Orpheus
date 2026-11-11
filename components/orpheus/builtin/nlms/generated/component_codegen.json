@@ -1,5 +1,5 @@
 {
-  "configuration_sha256": "a434ace7d014e5955a60e7022adf5ee7d4d7dd31a001d1e0c87114c43c72a4ae",
+  "configuration_sha256": "dc03b2d19d68416c3986cef72843306048b43535eb66fad6d919fb69978b8fad",
   "files": {
     "component_api.h": "55a87f79cca07700001d313533b55e0950d6651207de74292fa498260eb9c70d",
     "component_shell.c": "4a5eba47d8907818ff3513a7fb07265fc9a36a9b9609fe313f567e3ff6a8dfcb",
