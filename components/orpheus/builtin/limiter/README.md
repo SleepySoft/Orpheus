@@ -2,13 +2,13 @@
 
 ## 功能
 
-峰值限幅器：当信号幅度超过设定阈值时，按包络动态降低增益，防止后续环节或 DAC 发生硬削波失真。支持“共享单增益”和“每通道独立”两种模式。
+峰值限幅器：当信号幅度超过设定阈值时，按包络动态降低增益。支持共享包络、逐通道包络和双参数组反馈三种模式；`in` 是驱动入口，每次真实到达后自主交付1号 `out`。
 
 ## 参数
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| `mode` | string | shared | `shared` 全通道共用一组 attack/release；`per_channel` 每通道独立系数。 |
+| `mode` | string | shared | `shared` 共享包络；`per_channel` 逐通道包络；`feedback` 双参数组反馈增益。 |
 | `threshold_db` | float | -6.0 dB | 限幅阈值。超过此电平开始压限。 |
 | `attack_ms` | float | 5.0 ms | shared 模式下的启动时间。 |
 | `release_ms` | float | 100.0 ms | shared 模式下的释放时间。 |
@@ -20,7 +20,7 @@
 
 ### `mode = shared`
 
-所有通道共用同一个包络， gain 同时作用于所有通道。优点是不会因为某一通道突发峰值导致立体声像漂移；缺点是通道间会互相牵制。
+所有通道按交错样本顺序推进同一个包络，每个样本应用其当时的增益；不是先扫描整帧，再对所有通道施加同一帧增益。
 
 ### `mode = per_channel`
 
@@ -32,6 +32,18 @@ gain = max(gain, max_attack[c])
 ```
 
 适合多通道独立保护，例如环绕声各声道单独压限。
+系数列表支持逗号/空白分隔，缺项重复最后一个值；空字符串使用默认系数。
+完整解析并拒绝垃圾、非有限值与超过32项的文本，不再将无效词重复解析为零。
+
+### `mode = feedback`
+
+`feedback_attack`、`feedback_release`、`feedback_k1`、`feedback_min_factor`
+分别声明 `2×channels` 的f32双缓冲资源，物理容量64项。
+初始化字符串为空时使用默认值，非空时必须提供完整两组CSV。
+`parameter_set` 选择1/2组，`disabled` 逐位直通并冻结历史增益、清本块位图。
+`active_mask` 是只读32位通道位图，`gain` 是只读的最后通道/样本增益。
+零帧不推进历史、也不清原位图，但仍交付零帧事件；reset恢复单位反馈增益，
+保留参数组与旁路配置。其它两种模式reset恢复零包络。
 
 ### 系数 vs 时间的换算
 
@@ -57,6 +69,8 @@ tau = time_ms / 1000
 - shared 模式下 `attack_ms` / `release_ms` 是 smoothed 的，可以实时调；per_channel 系数是字符串列表，改后需重新编译。
 - `set_parameter` 中重新计算系数时固定按 48000 Hz 计算，因此运行时改动 attack/release 在 non-48k 工程中会有轻微偏差。
 - 限幅器只限峰值，不限制长期能量；如需控制感知响度，请配合 `level_detect` + `gain` 使用。
+- 精确原地合法；部分重叠、与组件状态重叠及不足载荷拒绝。下游失败不回滚已处理历史。
+- 接口声明是事实源；独立运行 `scripts/generate_component.py` 生成壳，算法只填音频并显式交付，不保留 `next` 入口。
 
 ## 典型用法
 

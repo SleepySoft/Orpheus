@@ -387,10 +387,12 @@ add_test(NAME phased_tone_smoke COMMAND phased_tone_smoke)
 add_executable(phased_tone_runner phased_tone_runner.cpp)
 target_link_libraries(phased_tone_runner PRIVATE orpheus_runtime_lib)
 add_executable(feedback_limiter_smoke feedback_limiter_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/limiter/src/limiter.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/limiter/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/limiter/user/algorithm.c)
 target_include_directories(feedback_limiter_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/limiter/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/limiter/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/limiter/user)
 target_compile_definitions(feedback_limiter_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 if(NOT WIN32)
     target_link_libraries(feedback_limiter_smoke PRIVATE m)

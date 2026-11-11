@@ -3,97 +3,131 @@ name: "峰值增益限幅"
 category: "增益与动态"
 description: 共享/逐通道峰值包络，或双参数组的逐通道反馈增益限幅
 version: 1.2.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: LimiterState
-sources:
-  - src/limiter.c
-headers:
-  - include/orpheus_limiter.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [validate, prepare, reset, set_parameter]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: mode
+    drive_port_no: 1
+  mode:
     name: 模式
     type: string
+    capacity: 16
     default: shared
     widget: select
     options: [shared, per_channel, feedback]
     update_policy: restart_required
-  - id: threshold_db
+  threshold_db:
     name: 阈值
     type: float
     default: -6.0
     range: [-96.0, 24.0]
     unit: dB
     update_policy: smoothed
-  - id: attack_ms
+  attack_ms:
     name: 启动时间
     type: float
     default: 5.0
     range: [0.1, 1000.0]
     unit: ms
     update_policy: smoothed
-  - id: release_ms
+  release_ms:
     name: 释放时间
     type: float
     default: 100.0
     range: [1.0, 5000.0]
     unit: ms
     update_policy: smoothed
-  - id: attack_coeffs
+  attack_coeffs:
     name: 每通道启动系数
     type: string
+    capacity: 4096
     default: "0.0237"
     widget: text
     update_policy: restart_required
-  - id: release_coeffs
+  release_coeffs:
     name: 每通道释放系数
     type: string
+    capacity: 4096
     default: "1.00024"
     widget: text
     update_policy: restart_required
-  - id: k1
+  k1:
     name: 每通道 k1
     type: string
+    capacity: 4096
     default: "0.01185"
     widget: text
     update_policy: restart_required
-  - id: max_attack
+  max_attack:
     name: 每通道最大衰减
     type: string
+    capacity: 4096
     default: "0.31623"
     widget: text
     update_policy: restart_required
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - {id: parameter_set, name: 反馈参数组, type: int, default: 1, range: [1, 2], persistent: true, readback: true, update_policy: block_boundary}
-  - {id: disabled, name: 反馈限幅旁路, type: bool, default: false, persistent: true, readback: true, update_policy: block_boundary}
-  - {id: feedback_attack, name: 反馈启动系数（两组）, type: string, default: "", kind: bulk, shape: [2, "param:channels"], widget: text, update_policy: restart_required}
-  - {id: feedback_release, name: 反馈释放乘数（两组）, type: string, default: "", kind: bulk, shape: [2, "param:channels"], widget: text, update_policy: restart_required}
-  - {id: feedback_k1, name: 反馈检测系数（两组）, type: string, default: "", kind: bulk, shape: [2, "param:channels"], widget: text, update_policy: restart_required}
-  - {id: feedback_min_factor, name: 反馈最小乘数（两组）, type: string, default: "", kind: bulk, shape: [2, "param:channels"], widget: text, update_policy: restart_required}
-  - {id: active_mask, name: 本块限幅通道位图, type: int, default: 0, readback: true, control_source: true, update_policy: immediate}
-  - {id: gain, name: 最后通道当前增益, type: float, default: 1.0, readback: true, control_source: true, update_policy: immediate}
-bulk_slots:
-  - {id: feedback_attack, name: 反馈启动系数, type: float, count: 64, shape: [2, "param:channels"], double_bank: true}
-  - {id: feedback_release, name: 反馈释放乘数, type: float, count: 64, shape: [2, "param:channels"], double_bank: true}
-  - {id: feedback_k1, name: 反馈检测系数, type: float, count: 64, shape: [2, "param:channels"], double_bank: true}
-  - {id: feedback_min_factor, name: 反馈最小乘数, type: float, count: 64, shape: [2, "param:channels"], double_bank: true}
+  parameter_set: {name: 反馈参数组, type: int, default: 1, range: [1, 2], persistent: true, readback: true, update_policy: block_boundary}
+  disabled: {name: 反馈限幅旁路, type: bool, default: false, persistent: true, readback: true, update_policy: block_boundary}
+  feedback_attack:
+    name: 反馈启动系数（两组）
+    type: string
+    capacity: 4096
+    default: ""
+    kind: bulk
+    shape: [2, "param:channels"]
+    widget: text
+    update_policy: restart_required
+    bulk: {sample_format: f32, capacity: 64, storage: algorithm.feedback_attack, double_bank: true}
+  feedback_release:
+    name: 反馈释放乘数（两组）
+    type: string
+    capacity: 4096
+    default: ""
+    kind: bulk
+    shape: [2, "param:channels"]
+    widget: text
+    update_policy: restart_required
+    bulk: {sample_format: f32, capacity: 64, storage: algorithm.feedback_release, double_bank: true}
+  feedback_k1:
+    name: 反馈检测系数（两组）
+    type: string
+    capacity: 4096
+    default: ""
+    kind: bulk
+    shape: [2, "param:channels"]
+    widget: text
+    update_policy: restart_required
+    bulk: {sample_format: f32, capacity: 64, storage: algorithm.feedback_k1, double_bank: true}
+  feedback_min_factor:
+    name: 反馈最小乘数（两组）
+    type: string
+    capacity: 4096
+    default: ""
+    kind: bulk
+    shape: [2, "param:channels"]
+    widget: text
+    update_policy: restart_required
+    bulk: {sample_format: f32, capacity: 64, storage: algorithm.feedback_min_factor, double_bank: true}
+  active_mask: {name: 本块限幅通道位图, type: int, default: 0, kind: probe, access: read, persistent: false, readback: true, control_source: true, update_policy: immediate}
+  gain: {name: 最后通道当前增益, type: float, default: 1.0, kind: probe, access: read, persistent: false, readback: true, control_source: true, update_policy: immediate}
 memory:
   state_size: 0
   scratch_size: 0
