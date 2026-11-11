@@ -274,6 +274,14 @@ target_include_directories(host_audio_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/host_audio/generated)
 target_compile_definitions(host_audio_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME host_audio_smoke COMMAND host_audio_smoke)
+add_executable(buffer_source_smoke buffer_source_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/buffer_source/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/buffer_source/user/algorithm.c)
+target_include_directories(buffer_source_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/buffer_source/generated)
+target_compile_definitions(buffer_source_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME buffer_source_smoke COMMAND buffer_source_smoke)
 add_executable(message_bounds_runner message_bounds_runner.cpp)
 target_link_libraries(message_bounds_runner PRIVATE orpheus_runtime_lib)
 

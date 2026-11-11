@@ -58,9 +58,9 @@ def test_buffer_source_native_contract(tmp_path):
     executable = tmp_path / "buffer_source_smoke.exe"
     result = subprocess.run([match[1], "-std=c11", "-Wall", "-Wextra", "-Werror",
         "-DORPHEUS_BUILDING_COMPONENT", "-I" + str(ROOT / "orpheus_abi/include"),
-        "-I" + str(directory / "include"),
-        "-I" + str(ROOT / "components/orpheus/builtin/host_audio/include"),
-        str(directory / "src/buffer_source.c"), str(ROOT / "tests/buffer_source_smoke.c"), "-o", str(executable)],
+        "-I" + str(directory / "generated"), "-I" + str(directory / "user"),
+        str(directory / "generated/component_shell.c"), str(directory / "user/algorithm.c"),
+        str(ROOT / "tests/buffer_source_smoke.c"), "-o", str(executable)],
         capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
     result = subprocess.run([str(executable)], capture_output=True, text=True, encoding="utf-8")
@@ -277,12 +277,14 @@ def test_buffer_source_does_not_match_consumer_cadence():
     registry = Registry([ROOT / "components"])
     registry.scan()
     project = ProjectLoader(registry).load(ROOT / "examples/buffer_source_demo.yaml")
-    project.drive_connections[0] = DriveConnection(PortRef("source", "out"), PortRef("gain", "in"), 4, 2)
+    project.drive_connections = [DriveConnection(PortRef("source", "out"), PortRef("gain", "in"), 4, 2)]
+    with pytest.raises(CompileError, match="连接不能再次分频"):
+        GraphCompiler(registry).compile(project)
+    project.drive_connections = []
     plan = GraphCompiler(registry).compile(project)
-    assert plan.call_graph["source"] == [{"node": "gain", "every": 4, "phase": 2}]
     assert plan.node_configs["gain"]["frames"] == 32
     assert plan.node_configs["source"]["output_cadences"]["out"]["period"] == 1
-    assert plan.node_configs["gain"]["period"] == 4
+    assert plan.node_configs["gain"]["period"] == 1
     project.flow_mode = "dataflow"
     with pytest.raises(CompileError, match="flow_mode: task_sequence"):
         GraphCompiler(registry).compile(project)

@@ -2,7 +2,8 @@ version: 0.1.0
 metadata:
   name: 音频驱动源（宿主Buffer＋触发）
   description: >-
-    青色音频Buffer与紫色驱动箭头分离；宿主必须先写source.samples并置ready，再推进该入口。
+    宿主必须先写source.samples并置ready，再推进该源的Task入口。
+    source显式交付1号音频out，增益处理完成后继续交付，不使用独立节点级驱动箭头。
     本例不自动生成PCM，不直接连接声卡。无新数据运行会明确报错，不能用静音冒充。
 flow_mode: task_sequence
 sample_rate: 48000
@@ -27,5 +28,3 @@ graph:
   connections:
     - {from: "source:out", to: "gain:in"}
     - {from: "gain:out", to: "capture:in"}
-drive_connections:
-  - {from: "source:out", to: "gain:in"}

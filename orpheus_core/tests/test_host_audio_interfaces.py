@@ -55,22 +55,27 @@ def test_host_buffers_copy_each_arrival_bitwise(tmp_path, channels, frames):
     ])
 
 
-def test_pure_trigger_consumes_submitted_host_blocks_four_entries(tmp_path):
+@pytest.mark.parametrize("component,channels,frames", [("host_audio", 3, 32), ("buffer_source", 64, 128)])
+def test_host_entries_consume_submitted_blocks_four_entries(tmp_path, component, channels, frames):
     registry = Registry([ROOT / "components"])
     registry.scan()
-    clock = add_host_clock(tmp_path, registry)
-    project = Project(flow_mode="task_sequence", block_size=32, graph=Graph(nodes={
-        "clock": Node("clock", clock),
-        "host_in": Node("host_in", "orpheus.builtin.host_audio", params={"channels": 3}),
-        "host_out": Node("host_out", "orpheus.builtin.host_audio", params={"channels": 3, "mode": 1}),
-    }, connections=[
-        Connection(PortRef("clock", "out"), PortRef("host_in", "tick")),
-        Connection(PortRef("host_in", "out"), PortRef("host_out", "in")),
-    ]))
+    nodes = {
+        "host_in": Node("host_in", f"orpheus.builtin.{component}", params={"channels": channels}),
+        "host_out": Node("host_out", "orpheus.builtin.host_audio", params={"channels": channels, "mode": 1}),
+    }
+    connections = [Connection(PortRef("host_in", "out"), PortRef("host_out", "in"))]
+    if component == "host_audio":
+        nodes["clock"] = Node("clock", add_host_clock(tmp_path, registry))
+        connections.insert(0, Connection(PortRef("clock", "out"), PortRef("host_in", "tick")))
+    project = Project(flow_mode="task_sequence", block_size=frames, graph=Graph(nodes=nodes, connections=connections))
     plan = GraphCompiler(registry).compile(project)
-    assert plan.node_configs["clock"]["output_drive_ports"] == {"out": 1}
+    if component == "host_audio":
+        assert plan.node_configs["clock"]["output_drive_ports"] == {"out": 1}
+    else:
+        assert plan.tasks[0]["source"] == "host_in"
+        assert plan.node_configs["host_in"]["input_ports"] == []
     assert plan.node_configs["host_in"]["host_ports"][0]["connected"] is False
-    result = execute_host_graph(tmp_path, registry, plan, {"host_in": 3}, {"host_out": 3})
+    result = execute_host_graph(tmp_path, registry, plan, {"host_in": channels}, {"host_out": channels})
     expected = [(((block * 17 + frame * 3 + channel * 13) % 257) - 128) * .0009765625
-                for block in range(24) for frame in range(32) for channel in range(3)]
+                for block in range(24) for frame in range(frames) for channel in range(channels)]
     assert result == struct.pack("<" + str(len(expected)) + "f", *expected)
