@@ -2,21 +2,17 @@ id: orpheus.builtin.one_pole_envelope
 name: "逐样本增益包络"
 category: "数学与控制"
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: OnePoleEnvelopeState
-sources: [src/one_pole_envelope.c]
-headers: [include/orpheus_one_pole_envelope.h]
 description: 无跨调用状态；显式起始值按每样本(1-alpha)*target+alpha*gain递推，冻结时保持起始值；音频参考决定帧长和采样率，同时透明传递原音频，发布同速率包络及末样本增益。
-ports:
-  - {id: start, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1}
-  - {id: target, direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1}
-  - {id: alpha, direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1}
-  - {id: freeze, direction: input, type: bulk, sample_format: i32, channels: 1, block_size: 1}
-  - {id: in, direction: input, type: audio, sample_format: f32, channels: "param:channels"}
-  - {id: out, direction: output, type: audio, sample_format: f32, channels: "param:channels"}
-  - {id: gains, direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1}
-  - {id: audio, direction: output, type: audio, sample_format: f32, channels: "param:channels"}
-parameters:
-  - {id: channels, name: 包络通道数, type: int, default: 20, range: [1, 128], update_policy: restart_required, affects_signature: true}
+interfaces:
+  start: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1}
+  target: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1}
+  alpha: {direction: input, type: bulk, sample_format: f32, channels: 1, block_size: 1}
+  freeze: {direction: input, type: bulk, sample_format: i32, channels: 1, block_size: 1}
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1}
+  gains: {direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: 1, drive_port_no: 2}
+  audio: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 3}
+  channels: {name: 包络通道数, type: int, default: 20, range: [1, 128], update_policy: restart_required, affects_signature: true}
 execution: {realtime_safe: true, supports_inplace: false}
