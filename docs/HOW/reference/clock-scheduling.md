@@ -99,7 +99,7 @@ buffer；merge 节点在同步点整块读取。约束：桥接源必须是「�
 
 | 组件 | 输入→输出示例 | 调度与约束 |
 |---|---|---|
-| `rational_resample` | 416帧@48kHz → 96帧@144000/13 Hz | `up=3, down=13`；输入长度乘up须能被down整除。不足先用downrate组块，不截断样本数。 |
+| `rational_resample` | 416帧@48kHz → 96帧@144000/13 Hz | `input_frames=416, up=3, down=13`；in完整转换后直接emit，无独立tick。输入长度乘up须能被down整除。不足先用downrate组块，不截断样本数。 |
 | `block_split` | 发布128帧，另由4次tick读取32帧，同采样率 | `factor=4, output_frames=32`；in只快照，tick显式交付，节点配置/处理量子为32；欠载和未读覆盖报错，水位不触发下游。 |
 | `downrate` | 写入4个32帧小块，另由tick读取128帧，同采样率 | `factor=4, input_frames=32`；in只追加，tick显式交付；factor仅决定形状，不再生成调度divisor，写满不触发下游。 |
 | `resample` | 写入2个32帧@48kHz小块，另由tick读取32帧@24kHz | `factor=2, input_frames=output_frames=32`；平均/选点状态跨写入连续，tick显式交付低速域绝对时间；采样率签名不决定调用节拍。 |

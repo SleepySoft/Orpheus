@@ -292,7 +292,7 @@ def test_fractional_rate_constraints_compare_exact_values_not_json_float_roundin
     project = nested_project()
     body = project.subcomponents[0].graph.nodes["body"]
     body.component = "orpheus.builtin.rational_resample"
-    body.params.update({"up": 1, "down": 3})
+    body.params.update({"up": 1, "down": 3, "input_frames": 96})
     project.subcomponents[1].ports[1].signature = {"sample_rate": "task:sample_rate/3"}
     result = preview_interfaces(project, registry)
     assert result["diagnostics"] == []

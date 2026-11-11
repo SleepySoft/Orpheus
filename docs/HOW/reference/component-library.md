@@ -111,7 +111,7 @@ ready/valid 是交付协议状态，界面展示实际观测，不作为设计�
 | downrate | 音频组块器 | in只追加小块，tick独立读取完整大块并交付；采样率不变，欠载/未读覆盖明确报错 |
 | block_split | 音频拆块器 | in只发布大块，tick独立读取小块并交付；不预填静音，欠载/未读覆盖明确报错 |
 | resample | 整数倍降采样 | in按N:1平均或选点写入，tick独立读取交付；跨调用分组，选点需外置抗混叠 |
-| rational_resample | 有理倍采样率转换 | L/M多相FIR；不能以组块替代重采样 |
+| rational_resample | 有理倍采样率转换 | L/M多相FIR；in完整转换后显式交付1号out，载荷/采样率均为up/down；不能以组块替代重采样 |
 | rate_sync | 双路缓冲合流 | 同采样率FIFO对齐后相加，不是异步Task桥 |
 | matrix_mul | 系数矩阵混音 | 紧凑BULK矩阵乘音频向量，无内置系数渐变 |
 | input_mixer_3d | 矩阵混音与输出增益 | BULK固定行步长32，加共享输出增益，无3D处理 |

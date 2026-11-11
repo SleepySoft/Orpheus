@@ -1,4 +1,3 @@
-#include "orpheus_rational_resample.h"
 #include "component_state.h"
 #include "orpheus_circular_buffer.h"
 
@@ -7,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-const OrpheusComponentInterface* test_rational_resample(void);
 const OrpheusComponentInterface* test_block_split(void);
 const OrpheusComponentInterface* test_circular_buffer(void);
 
@@ -18,99 +16,6 @@ const OrpheusComponentInterface* test_circular_buffer(void);
 static OrpheusValue integer(int value) {
     OrpheusValue result = {.type=ORPHEUS_VALUE_INT, .value.i32=value};
     return result;
-}
-
-static int test_src(uint32_t up, uint32_t down, uint32_t frames, double rate) {
-    const OrpheusComponentInterface* api = test_rational_resample();
-    RationalResampleState state = {0};
-    const char* ids[] = {"up", "down", "taps"};
-    OrpheusValue values[] = {integer((int)up), integer((int)down), integer(128)};
-    OrpheusConfig cfg = {.sample_rate=rate, .block_size=frames, .channels=2,
-        .param_ids=ids, .param_values=values, .param_count=3, .state_block=&state};
-    void* handle = NULL;
-    CHECK(api->create(&handle, &cfg) == ORPHEUS_OK && handle == &state);
-    CHECK(api->prepare(handle, &cfg) == ORPHEUS_OK);
-    float input[2048], output[2048], first[2048];
-    const uint32_t produced = frames * up / down;
-    CHECK(frames <= 1024 && produced <= 1024);
-    OrpheusBuffer in = {.data=input, .format=ORPHEUS_FORMAT_F32, .channels=2,
-        .frame_capacity=frames, .frame_count=frames, .interleaved=true};
-    OrpheusBuffer out = {.data=output, .format=ORPHEUS_FORMAT_F32, .channels=2,
-        .frame_capacity=produced, .interleaved=true};
-    const OrpheusBuffer* inputs[] = {&in};
-    OrpheusBuffer* outputs[] = {&out};
-    OrpheusProcessContext ctx = {.inputs=inputs, .outputs=outputs,
-        .input_count=1, .output_count=1, .frame_count=frames, .sample_rate=rate};
-    const double pi = 3.14159265358979323846;
-    double error = 0.0, energy = 0.0;
-    for (uint32_t block = 0; block < 16; ++block) {
-        for (uint32_t f = 0; f < frames; ++f) {
-            input[2*f] = (float)sin(2.0*pi*1000.0*(block*frames+f)/rate);
-            input[2*f+1] = 0.0f;
-        }
-        CHECK(api->process(handle, &ctx) == ORPHEUS_OK);
-        CHECK(out.frame_count == produced);
-        if (block == 0) memcpy(first, output, produced*2*sizeof(float));
-        for (uint32_t f = 0; f < produced; ++f) {
-            CHECK(output[2*f+1] == 0.0f);
-            if (block > 2) {
-                const double position = (double)(block*produced+f)*down/up -
-                    (up == down ? 0.0 : 63.5);
-                const double expected = sin(2.0*pi*1000.0*position/rate);
-                error += (output[2*f]-expected)*(output[2*f]-expected);
-                energy += expected*expected;
-            }
-        }
-    }
-    CHECK(sqrt(error/energy) < 0.005);
-    CHECK(api->reset(handle) == ORPHEUS_OK);
-    for (uint32_t f = 0; f < frames; ++f) {
-        input[2*f] = (float)sin(2.0*pi*1000.0*f/rate);
-        input[2*f+1] = 0.0f;
-    }
-    CHECK(api->process(handle, &ctx) == ORPHEUS_OK);
-    CHECK(memcmp(first, output, produced*2*sizeof(float)) == 0);
-    if (frames % 2 == 0 && ((frames/2)*up) % down == 0) {
-        CHECK(api->reset(handle) == ORPHEUS_OK);
-        ctx.frame_count = frames/2;
-        const uint32_t half_output = produced/2;
-        CHECK(api->process(handle, &ctx) == ORPHEUS_OK);
-        in.data = input + frames;
-        out.data = output + half_output*2;
-        CHECK(api->process(handle, &ctx) == ORPHEUS_OK);
-        CHECK(memcmp(first, output, produced*2*sizeof(float)) == 0);
-        in.data = input;
-        out.data = output;
-        ctx.frame_count = frames;
-    }
-
-    CHECK(api->reset(handle) == ORPHEUS_OK);
-    for (uint32_t f = 0; f < frames*2; ++f) input[f] = 1.0f;
-    for (uint32_t block = 0; block < 8; ++block)
-        CHECK(api->process(handle, &ctx) == ORPHEUS_OK);
-    for (uint32_t f = 0; f < produced*2; ++f) CHECK(fabs(output[f]-1.0f) < 1e-5);
-
-    if (up == 3 && down == 13) {
-        CHECK(api->reset(handle) == ORPHEUS_OK);
-        energy = 0.0;
-        for (uint32_t block = 0; block < 16; ++block) {
-            for (uint32_t f = 0; f < frames; ++f) {
-                input[2*f] = (float)sin(2.0*pi*16000.0*(block*frames+f)/rate);
-                input[2*f+1] = 0.0f;
-            }
-            CHECK(api->process(handle, &ctx) == ORPHEUS_OK);
-            if (block > 2)
-                for (uint32_t f = 0; f < produced; ++f) energy += output[2*f]*output[2*f];
-        }
-        CHECK(sqrt(energy/(13*produced)) < 0.001);
-    }
-    out.frame_capacity = produced - 1;
-    CHECK(api->process(handle, &ctx) == ORPHEUS_ERR_INVALID_ARG);
-    CHECK(api->destroy(handle) == ORPHEUS_OK);
-    cfg.block_size = 1;
-    if (up % down != 0) CHECK(api->prepare(handle, &cfg) == ORPHEUS_ERR_INVALID_ARG);
-    CHECK(api->destroy(handle) == ORPHEUS_OK);
-    return 0;
 }
 
 static unsigned split_emits;
@@ -279,10 +184,6 @@ static int test_window(void) {
 }
 
 int main(void) {
-    CHECK(test_src(3, 13, 416, 48000.0) == 0);
-    CHECK(test_src(13, 3, 96, 144000.0/13.0) == 0);
-    CHECK(test_src(160, 147, 147, 44100.0) == 0);
-    CHECK(test_src(1, 1, 32, 48000.0) == 0);
     CHECK(test_split() == 0);
     CHECK(test_window() == 0);
     return 0;

@@ -159,6 +159,13 @@ WAV源在音频out子树成功后发出2号纯触发tick，可经触发分频器
 参考[整数抽取契约](../../../components/orpheus/builtin/resample/README.md)及
 [WAV示例](../../../examples/wav_resample.yaml)；采样率表达式不替代真实触发。
 
+rational_resample则在每次in接收完整input_frames后直接转换并显式交付1号out，
+没有独立tick或水位等待。输出长度为input_frames×up/down，须精确为正整数；
+采样率使用相同比例。FIR历史跨调用保留，等比例逐位透传；
+实际Delivery的绝对帧先约分再映射，epoch/标志保留。
+显式载荷与处理量子分离，下游必须声明匹配载荷；
+参考[有理倍SRC契约](../../../components/orpheus/builtin/rational_resample/README.md)。
+
 ## 接口化通道选择与索引资源
 
 indexed_tone 的in唯一驱动，每次到达自主处理并交付1号out。

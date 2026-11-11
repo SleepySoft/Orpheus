@@ -1,56 +1,64 @@
 id: orpheus.builtin.rational_resample
 name: "有理倍采样率转换"
 category: "驱动与缓冲"
-description: "L/M多相FIR采样率转换，输入批次须使输出样本数为整数；不满足时先用音频组块器形成合适批次。与只拼块的downrate及整数倍抽取的resample不同。"
+description: >-
+  L/M多相FIR转换，in每次接收完整input_frames载荷后显式交付1号out；
+  输出长度为input_frames×up/down，须为正整数，不截断、不等待会合。
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: RationalResampleState
-sources:
-  - src/rational_resample.c
-headers:
-  - include/orpheus_rational_resample.h
-ports:
-  - id: in
+algorithm: {lifecycle: [normalize, prepare, reset, destroy, set_parameter]}
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    block_size: param:input_frames
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
     sample_rate: in:sample_rate*param:up/param:down
-    block_size: in:block_size*param:up/param:down
-parameters:
-  - id: channels
+    block_size: param:input_frames*param:up/param:down
+    drive_port_no: 1
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 64]
     update_policy: restart_required
     affects_signature: true
-  - id: up
+  up:
     name: 插值因子
     type: int
     default: 3
     range: [1, 512]
     update_policy: restart_required
     affects_signature: true
-  - id: down
+  down:
     name: 抽取因子
     type: int
     default: 13
     range: [1, 512]
     update_policy: restart_required
     affects_signature: true
-  - id: taps
+  taps:
     name: 每相滤波抽头数
     type: int
     default: 128
     range: [16, 1024]
     update_policy: restart_required
+  input_frames:
+    name: 每次输入帧数
+    type: int
+    default: 416
+    range: [1, 65536]
+    update_policy: restart_required
+    affects_signature: true
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
 execution:
   sample_rate_independent: false
   supports_inplace: false
