@@ -3,54 +3,52 @@ name: "系数矩阵混音"
 category: "路由与混音"
 description: "以行优先BULK系数矩阵乘每帧音频向量，将cols路混为rows路；不内置系数渐变或额外输出增益，也不是任意两个数据矩阵相乘。"
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: MatrixMulState
-sources:
-  - src/matrix_mul.c
-headers:
-  - include/orpheus_matrix_mul.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [validate, prepare, reset]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:cols
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:rows
-parameters:
-  - id: rows
+    drive_port_no: 1
+  rows:
     name: 输出行数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: cols
+  cols:
     name: 输入列数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: matrix
+  matrix:
     name: 矩阵系数
     type: string
     default: "1, 0, 0, 1"
+    capacity: 32768
     widget: text
     kind: bulk
+    readback: false
     update_policy: restart_required
-    shape: [param:rows, param:cols]  # 维度声明：rows×cols（供控制连接形状校验）
-bulk_slots:
-  - id: matrix
-    name: 矩阵系数
-    type: float
-    count: 1024
     shape: [param:rows, param:cols]
-    double_bank: true
+    bulk:
+      sample_format: f32
+      capacity: 1024
+      storage: algorithm.matrix
+      double_bank: true
 memory:
   state_size: 0
   scratch_size: 0

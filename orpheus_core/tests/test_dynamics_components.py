@@ -154,6 +154,7 @@ def test_matrix_mul_scales_channels(client) -> None:
         {"rows": 2, "cols": 2, "matrix": "2.0, 0.0, 0.0, 2.0"},
         ch=2,
     )
+    del nodes[1]["params"]["channels"]
     samples = [0.3, 0.5] * 128
     vals, _ = _run(client, nodes, _chain([n["id"] for n in nodes]), samples, ch=2)
     assert abs(vals[0] - 0.6) < 5e-3
