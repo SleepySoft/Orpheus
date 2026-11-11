@@ -1,59 +1,20 @@
 id: orpheus.builtin.ifft
 name: 实数IFFT
 category: "频域与分析"
-description: 实数IFFT，支持独立FFT点数和多帧批次，含1/N归一化。优先使用半复数spectrum数据输入；旧音频in保留，二者必须且只能连接一个。
-version: 1.1.0
-abi_version: 6
+description: >-
+  显式fft_size和batches的半复数实数IFFT，含1/N归一化。
+  in音频视图与spectrum半复数BULK视图必须且只能连接一个；有效输入驱动一次并显式交付1号out。
+version: 1.2.0
+abi_version: 7
 package_type: source
-state_type: IfftState
-sources:
-  - src/ifft.c
-headers:
-  - include/orpheus_ifft.h
-input_alternatives:
-  - [in, spectrum]
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: spectrum
-    description: 每N槽半复数谱；批次帧顺排、通道交织。与旧音频in互斥；NULL才表示未连接，已连接的零谱仍为有效输入。
-    direction: input
-    type: bulk
-    sample_format: f32
-    channels: param:channels
-    block_size: in:block_size
-    layout: halfcomplex
-    frame_size: param:fft_size
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-    block_size: in:block_size
-parameters:
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: fft_size
-    name: FFT点数（0为单帧自动）
-    type: int
-    default: 0
-    range: [0, 1024]
-    update_policy: restart_required
-    affects_signature: true
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: true
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+algorithm: {lifecycle: [normalize, prepare]}
+input_alternatives: [[in, spectrum]]
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", process: true}
+  spectrum: {direction: input, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", layout: halfcomplex, frame_size: "param:fft_size", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", drive_port_no: 1}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  fft_size: {name: 每帧FFT点数, type: int, default: 256, range: [4, 1024], update_policy: restart_required, affects_signature: true}
+  batches: {name: 顺序批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+memory: {alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}

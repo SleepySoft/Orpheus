@@ -1,75 +1,33 @@
-# ifft - 实数IFFT
+# 实数 IFFT
 
-> Orpheus 专用扩展组件（L1），对应外部模型的 FDP `rifft` 块（overlap-add 重建）。
+`in` 音频视图与 `spectrum` 半复数BULK视图必须且只能连接一个；
+两者均为驱动入口。连接的全零谱仍是有效输入，不能被当成未连接。
+每次接收 `fft_size * batches` 帧，按每帧N槽半复数布局还原实数音频，
+由算法显式交付1号 `out`，含 `1/N` 归一化。
 
-## 功能
+`fft_size` 默认256，必须为4～1024之间的2次幂；
+`batches` 默认1，范围1～64；通道数1～32，默认2。
+均须重启后生效。点数/批次显式声明，不再使用旧 `fft_size=0` 自动推断。
+输入BULK的halfcomplex/frame_size标签必须匹配，不做隐式布局转换。
 
-实数逆快速傅里叶变换。将半复数（half-complex）格式频域信号还原为 N 点实数时域信号。与 `rfft` 严格配对，FFT 点数等于图块长。
+保留原Hermitian展开、共轭FFT及缩放顺序；每批各自转换，无跨批滤波历史。
+显式载荷独立于ctx处理量子，继承实际Delivery时间和质量标志，
+不以Task调用次数推断输入时间，不加等待或同拍去重。
+零处理量子不计算、不交付；悬空输出仍可完成调用。
+输入/输出及与State的存储重叠拒绝，process不分配资源。
+下游错误直接返回，不回滚已计算结果。
 
-是 FDP 频域环绕解码器的重建原语（IFFT 后接 overlap-add 完美重构）。
+事实源为 [component.yaml](component.yaml)，手写算法位于
+[user/algorithm.c](user/algorithm.c)，独立生成命令：
 
-## 端口
-
-| 端口 | 方向 | 类型 | 通道 |
-|------|------|------|------|
-| `in` | 输入 | audio f32 | param:channels |
-| `out` | 输出 | audio f32 | param:channels |
-
-## 参数
-
-| 参数 | 类型 | 默认 | 范围 | 更新策略 | 说明 |
-|------|------|------|------|----------|------|
-| `channels` | int | 2 | [1, 32] | restart | 通道数（影响签名） |
-
-> FFT 点数无独立参数，固定 = `block_size`（须为 2 的幂，4~1024）。
-
-## BULK 槽
-
-无 BULK 槽。twiddle 因子在 `prepare` 阶段预计算。
-
-## 算法
-
-利用 `IFFT(X) = (1/N) * conj(FFT(conj(X)))` 公式，复用正向 FFT 核：
-
-```
-process (每通道 c):
-  解包半复数 -> 完整复数（Hermitian 对称）:
-    R(0)=hc[0], I(0)=0
-    R(k)=hc[k], I(k)=hc[N-k]          for k=1..N/2-1
-    R(N/2)=hc[N/2], I(N/2)=0
-    R(N-k)=R(k), I(N-k)=-I(k)          // Hermitian
-  conj(X): 虚部取反
-  fft_forward(scratchR, scratchI, N, cosT, sinT)
-  conj(result)/N: 虚部取反并缩放 1/N
-  输出实部 scratchR[]
+```powershell
+python scripts\generate_component.py components\orpheus\builtin\ifft\component.yaml
 ```
 
-- 输入须为 `rfft` 的半复数输出格式
-- 输出帧数 = N
-- `rfft -> ifft` 为恒等变换（数值精度内）
+原生测试验证两种输入视图、互斥/缺失/容量保护、独立DFT往返误差及错误传播；
+图级测试通过带标签BULK路径验证动态/生成代码的global/Task四个入口。
 
-## 使用示例
+## 外部模型映射
 
-```yaml
-# rfft -> ifft 完美重构（round-trip 恒等）
-- id: fft
-  component: orpheus.builtin.rfft
-  params: {channels: 2}
-- id: ifft
-  component: orpheus.builtin.ifft
-  params: {channels: 2}
-```
-
-## 源码映射
-
-| 外部模型源码 | 本组件 |
-|---|---|
-| `Model_1_1.c` FDP `rifft`（256 点，6ch） | `ifft` 256 点半复数输入 |
-| FDP IFFT + OverlapAdd（InputOverlap 叠加） | `ifft` 仅做逆变换；overlap-add 由下游 `delay`+`mixer` 组合实现 |
-| conj-FFT 逆变换公式 | `conj(FFT(conj(X)))/N` |
-
-## 限制
-
-- 仅 radix-2（点数须 2 的幂），最大 1024 点
-- 不含 overlap-add（需配合 `delay` + `mixer` 在图中搭建）
-- FFT 点数 = block_size，无独立 fft_size 参数
+对应FDP的实数逆变换原语，采用 `conj(FFT(conj(X)))/N`。
+本组件只做逆变换，不包含overlap-add；重建可连接独立overlap_add组件。

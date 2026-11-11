@@ -1,62 +1,20 @@
 id: orpheus.builtin.rfft
 name: 实数FFT
 category: "频域与分析"
-description: 实数FFT，支持独立FFT点数和多帧批次。spectrum为未归一化的半复数计算数据；旧音频out仍由output_mode选择半复数/幅度/功率。
-version: 1.1.0
-abi_version: 6
+description: >-
+  显式fft_size和batches的实数FFT；in完整载荷驱动一次，全部结果写完后依次交付out(1)、spectrum(2)。
+  spectrum始终为未归一化半复数数据，out按output_mode选择半复数/对称幅度/对称功率。
+version: 1.2.0
+abi_version: 7
 package_type: source
-state_type: RfftState
-sources:
-  - src/rfft.c
-headers:
-  - include/orpheus_rfft.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: spectrum
-    description: 每N槽半复数谱，hc[0]=Re(0)，hc[N/2]=Re(N/2)，hc[k]=Re(k)，hc[N-k]=Im(k)；批次帧顺排、通道交织。不受output_mode影响，不是Re/Im交织布局。
-    direction: output
-    type: bulk
-    sample_format: f32
-    channels: param:channels
-    block_size: in:block_size
-    layout: halfcomplex
-    frame_size: param:fft_size
-parameters:
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: fft_size
-    name: FFT 点数
-    type: int
-    default: 0
-    range: [0, 1024]
-    update_policy: restart_required
-    affects_signature: true
-  - id: output_mode
-    name: 输出模式
-    type: string
-    default: "halfcomplex"
-    allowed: ["halfcomplex", "magnitude", "power"]
-    update_policy: restart_required
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: true
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true
+algorithm: {lifecycle: [normalize, prepare]}
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", drive_port_no: 1}
+  spectrum: {direction: output, type: bulk, sample_format: f32, channels: "param:channels", block_size: "param:fft_size*param:batches", layout: halfcomplex, frame_size: "param:fft_size", drive_port_no: 2}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  fft_size: {name: 每帧FFT点数, type: int, default: 256, range: [4, 1024], update_policy: restart_required, affects_signature: true}
+  batches: {name: 顺序批次数, type: int, default: 1, range: [1, 64], update_policy: restart_required, affects_signature: true}
+  output_mode: {name: 输出模式, type: string, capacity: 12, default: halfcomplex, widget: select, options: [halfcomplex, magnitude, power], update_policy: restart_required}
+memory: {alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: false, realtime_safe: true}

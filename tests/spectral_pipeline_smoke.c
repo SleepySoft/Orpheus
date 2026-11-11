@@ -1,9 +1,8 @@
-#include "orpheus_rfft.h"
-#include "orpheus_ifft.h"
 #include "orpheus_overlap_add.h"
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 const OrpheusComponentInterface* spectral_test_rfft(void);
@@ -20,20 +19,40 @@ static OrpheusBuffer buffer(float* data, uint32_t frames, uint32_t channels) {
     return result;
 }
 
+static unsigned fft_calls, fail_fft_port;
+static OrpheusBuffer* fft_outputs[2];
+static int fft_delivery(void* user,uint32_t port,const OrpheusDelivery* delivery) {
+    (void)user;
+    if (port!=++fft_calls || port>2 || !delivery || delivery->buffer!=fft_outputs[port-1] ||
+        delivery->frame_index!=42 || delivery->epoch!=19 ||
+        delivery->timeline_flags!=ORPHEUS_TIMELINE_DISCONTINUITY ||
+        fft_outputs[0]->frame_count!=768 || fft_outputs[1]->frame_count!=768)
+        return ORPHEUS_ERR_PROCESSING;
+    return port==fail_fft_port ? -77 : ORPHEUS_OK;
+}
+
 static int fft_batches(void) {
     const OrpheusComponentInterface* fft = spectral_test_rfft();
     const OrpheusComponentInterface* inverse = spectral_test_ifft();
-    RfftState fs = {0};
-    IfftState is = {0};
-    const char* ids[] = {"fft_size", "output_mode"};
+    void* fs = NULL;
+    void* is = NULL;
+    const char* ids[] = {"fft_size", "batches", "output_mode"};
     OrpheusValue values[] = {
         {.type=ORPHEUS_VALUE_INT, .value.i32=256},
+        {.type=ORPHEUS_VALUE_INT, .value.i32=3},
         {.type=ORPHEUS_VALUE_STRING, .value.str="power"}
     };
-    OrpheusConfig config = {.channels=2, .block_size=768, .sample_rate=48000,
-        .param_count=2, .param_ids=ids, .param_values=values};
-    CHECK(fft->prepare(&fs, &config) == ORPHEUS_OK);
-    CHECK(inverse->prepare(&is, &config) == ORPHEUS_OK);
+    OrpheusConfig config = {.channels=2, .block_size=7, .sample_rate=48000,
+        .param_count=3, .param_ids=ids, .param_values=values};
+    void* fs_storage = calloc(1,fft->get_descriptor()->state_size);
+    void* is_storage = calloc(1,inverse->get_descriptor()->state_size);
+    CHECK(fs_storage && is_storage);
+    config.state_block=fs_storage;
+    CHECK(fft->create(&fs, &config) == ORPHEUS_OK);
+    CHECK(fft->prepare(fs, &config) == ORPHEUS_OK);
+    config.param_count=2;config.state_block=is_storage;
+    CHECK(inverse->create(&is, &config) == ORPHEUS_OK);
+    CHECK(inverse->prepare(is, &config) == ORPHEUS_OK);
     float input[1536], power[1536], spectrum[1536], restored[1536];
     for (uint32_t frame = 0; frame < 768; ++frame) {
         input[2 * frame] = 0.1f * (float)(frame / 256 + 1)
@@ -46,10 +65,13 @@ static int fft_batches(void) {
     OrpheusBuffer spec = buffer(spectrum, 768, 2), out = buffer(restored, 768, 2);
     const OrpheusBuffer* inputs[] = {&in};
     OrpheusBuffer* outputs[] = {&old, &spec};
+    fft_outputs[0]=&old;fft_outputs[1]=&spec;
+    OrpheusContinuation continuation={.emit=fft_delivery};
     OrpheusProcessContext ctx = {.inputs=inputs, .input_count=1,
-        .outputs=outputs, .output_count=2, .frame_count=768};
-    CHECK(fft->process(&fs, &ctx) == ORPHEUS_OK);
-    CHECK(spec.frame_count == 768 && old.frame_count == 768);
+        .outputs=outputs, .output_count=2, .frame_count=7,.frame_index=42,.epoch=19,
+        .timeline_flags=ORPHEUS_TIMELINE_DISCONTINUITY,.continuation=&continuation};
+    CHECK(fft->process(fs, &ctx) == ORPHEUS_OK);
+    CHECK(spec.frame_count == 768 && old.frame_count == 768 && fft_calls==2);
     /* 独立DFT检查布局、虚部符号、DC和Nyquist，不仅依赖互逆抵消。 */
     for (uint32_t batch = 0; batch < 3; ++batch) {
         for (uint32_t channel = 0; channel < 2; ++channel) {
@@ -68,46 +90,76 @@ static int fft_batches(void) {
             }
         }
     }
+    fft_calls=0;fail_fft_port=1;
+    CHECK(fft->process(fs,&ctx)==-77 && fft_calls==1);
+    fft_calls=0;fail_fft_port=0;old.data=input;
+    CHECK(fft->process(fs,&ctx)==ORPHEUS_ERR_INVALID_ARG && fft_calls==0);
+    old.data=spectrum;
+    CHECK(fft->process(fs,&ctx)==ORPHEUS_ERR_INVALID_ARG && fft_calls==0);
+    old.data=power;in.data=fs_storage;
+    CHECK(fft->process(fs,&ctx)==ORPHEUS_ERR_INVALID_ARG && fft_calls==0);
+    in.data=input;ctx.frame_count=0;
+    CHECK(fft->process(fs,&ctx)==ORPHEUS_OK && fft_calls==0);
+    ctx.frame_count=7;ctx.continuation=NULL;
+    config.param_count=3;values[2].value.str="unknown";
+    CHECK(fft->prepare(fs,&config)==ORPHEUS_ERR_INVALID_ARG);
+    values[2].value.str="power";config.param_count=2;
     const OrpheusBuffer* inverse_inputs[] = {NULL, &spec};
     OrpheusBuffer* inverse_outputs[] = {&out};
     ctx.inputs = inverse_inputs;
     ctx.input_count = 2;
     ctx.outputs = inverse_outputs;
     ctx.output_count = 1;
-    ctx.frame_count = 128;
-    CHECK(inverse->process(&is, &ctx) == ORPHEUS_OK);
+    ctx.trigger_input = 1;
+    CHECK(inverse->process(is, &ctx) == ORPHEUS_OK);
     CHECK(out.frame_count == 768);
     for (uint32_t i = 0; i < 1536; ++i) CHECK(fabsf(restored[i] - input[i]) < 0.000002f);
+    fft_outputs[0]=&out;fft_outputs[1]=&out;
+    fft_calls=0;fail_fft_port=1;ctx.continuation=&continuation;
+    CHECK(inverse->process(is,&ctx)==-77 && fft_calls==1);
+    ctx.continuation=NULL;fail_fft_port=0;
+    out.data=spectrum;
+    CHECK(inverse->process(is,&ctx)==ORPHEUS_ERR_INVALID_ARG);
+    out.data=restored;
     inverse_inputs[0] = &spec;
-    CHECK(inverse->process(&is, &ctx) == ORPHEUS_ERR_INVALID_ARG);
+    CHECK(inverse->process(is, &ctx) == ORPHEUS_ERR_INVALID_ARG);
     inverse_inputs[0] = NULL;
     spec.frame_count = 767;
-    CHECK(inverse->process(&is, &ctx) == ORPHEUS_ERR_INVALID_ARG);
+    CHECK(inverse->process(is, &ctx) == ORPHEUS_ERR_INVALID_ARG);
     spec.frame_count = 768;
     out.frame_capacity = 767;
-    CHECK(inverse->process(&is, &ctx) == ORPHEUS_ERR_INVALID_ARG);
+    CHECK(inverse->process(is, &ctx) == ORPHEUS_ERR_INVALID_ARG);
     out.frame_capacity = 768;
     in.frame_count = 767;
     ctx.inputs = inputs;
     ctx.input_count = 1;
     ctx.outputs = outputs;
     ctx.output_count = 2;
-    CHECK(fft->process(&fs, &ctx) == ORPHEUS_ERR_INVALID_ARG);
+    ctx.trigger_input = 0;
+    CHECK(fft->process(fs, &ctx) == ORPHEUS_ERR_INVALID_ARG);
     config.block_size = 767;
-    CHECK(fft->prepare(&fs, &config) == ORPHEUS_ERR_INVALID_ARG);
+    CHECK(fft->prepare(fs, &config) == ORPHEUS_OK);
     values[0].value.i32 = 255;
-    CHECK(inverse->prepare(&is, &config) == ORPHEUS_ERR_INVALID_ARG);
+    CHECK(inverse->prepare(is, &config) == ORPHEUS_ERR_INVALID_ARG);
     values[0].value.i32 = 0;
-    config.block_size = 128;
-    CHECK(inverse->prepare(&is, &config) == ORPHEUS_OK);
+    CHECK(inverse->prepare(is, &config) == ORPHEUS_ERR_INVALID_ARG);
+    values[0].value.i32 = 256;
+    values[1].value.i32 = 1;
+    CHECK(inverse->prepare(is, &config) == ORPHEUS_OK);
     spec.frame_count = 256;
     ctx.inputs = inverse_inputs;
     ctx.input_count = 2;
     ctx.outputs = inverse_outputs;
     ctx.output_count = 1;
-    CHECK(inverse->process(&is, &ctx) == ORPHEUS_OK);
+    ctx.trigger_input = 1;
+    CHECK(inverse->process(is, &ctx) == ORPHEUS_OK);
     CHECK(out.frame_count == 256);
     for (uint32_t i = 0; i < 512; ++i) CHECK(fabsf(restored[i] - input[i]) < 0.000002f);
+    inverse_inputs[0] = &spec; inverse_inputs[1] = NULL; ctx.trigger_input = 0;
+    CHECK(inverse->process(is, &ctx) == ORPHEUS_OK);
+    for (uint32_t i = 0; i < 512; ++i) CHECK(fabsf(restored[i] - input[i]) < 0.000002f);
+    CHECK(fft->destroy(fs) == ORPHEUS_OK && inverse->destroy(is) == ORPHEUS_OK);
+    free(fs_storage);free(is_storage);
     return 0;
 }
 

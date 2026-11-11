@@ -828,7 +828,14 @@ add_test(NAME indexed_gain_smoke COMMAND indexed_gain_smoke)
 add_executable(spectral_pipeline_smoke spectral_pipeline_smoke.c)
 foreach(component rfft ifft overlap_add)
     set(component_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${component})
-    add_library(spectral_test_${component} OBJECT ${component_dir}/src/${component}.c)
+    if(component STREQUAL "overlap_add")
+        add_library(spectral_test_${component} OBJECT ${component_dir}/src/${component}.c)
+    else()
+        add_library(spectral_test_${component} OBJECT
+            ${component_dir}/generated/component_shell.c ${component_dir}/user/algorithm.c)
+        target_include_directories(spectral_test_${component} PRIVATE
+            ${component_dir}/generated ${component_dir}/user)
+    endif()
     target_include_directories(spectral_test_${component} PRIVATE
         ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${component_dir}/include)
     target_compile_definitions(spectral_test_${component} PRIVATE

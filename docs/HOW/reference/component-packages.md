@@ -172,6 +172,14 @@ sequence_envelope_state以targets为驱动入口，序列、系数和latest反�
 失败不提交反馈，也不撤销已接受的序列状态。
 参考[序列状态契约](../../../components/orpheus/builtin/sequence_envelope_state/README.md)。
 
+rfft/ifft显式声明fft_size（4～1024的2次幂）和batches（1～64），
+载荷为二者乘积，不从Task量子自动推断点数。
+RFFT先写完全部结果，再按out(1)、spectrum(2)交付；
+频谱BULK始终为未归一化halfcomplex，与音频视图的输出模式无关。
+IFFT的音频/BULK输入视图互斥，有效输入驱动一次并交付out(1)，含1/N归一化。
+参考[FFT](../../../components/orpheus/builtin/rfft/README.md)与
+[IFFT](../../../components/orpheus/builtin/ifft/README.md)。
+
 ## 接口化通道选择与索引资源
 
 indexed_tone 的in唯一驱动，每次到达自主处理并交付1号out。
