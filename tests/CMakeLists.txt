@@ -134,6 +134,19 @@ if(UNIX)
 endif()
 add_test(NAME switch_smoke COMMAND switch_smoke)
 
+add_executable(wav_out_smoke wav_out_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/wav_out/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/wav_out/user/algorithm.c)
+target_include_directories(wav_out_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/wav_out/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/wav_out/user)
+target_compile_definitions(wav_out_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+if(MSVC)
+    target_compile_options(wav_out_smoke PRIVATE /utf-8)
+endif()
+add_test(NAME wav_out_smoke COMMAND wav_out_smoke)
+
 add_executable(mixer_smoke mixer_smoke.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mixer/generated/component_shell.c
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/mixer/user/algorithm.c)

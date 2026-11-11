@@ -295,6 +295,24 @@ sine_mod 保留两种不同的推进语义：AM 按交错样本推进 f32 相位
 精确原地合法，部分重叠与不足/缺失载荷拒绝，零量子不交付；
 每次有效 in 到达后直接交付 1 号 out，下游失败不回滚相位/游标。
 
+wav_out 的 in 是处理入口，但它是终点，没有驱动出口，不隐式续调。
+prepare 为会话分配原有的 16M 个 float 缓存，process 只验证并复制，
+不分配、不做文件 IO；destroy 写出 16bit PCM 后释放缓存。
+保持 [-1,1] 限幅、乘 32767 后向零截断，Inf 按限幅处理；
+NaN 在缓存写入前拒绝，避免未定义的浮点到整数转换。
+reset 仅清计数，下一段重新收集；空 file_path 不写文件。
+单层父目录按原行为创建，路径超过 511 UTF-8 字节、输入不足、
+容量不足或 WAV 字节率不能用 uint32 表示时明确失败。
+溢出不再截断为成功；fopen/fwrite/fclose 错误返回失败，
+destroy 同时写 stderr 生命周期诊断，避免宿主忽略返回值时静默丢失文件。
+sample_rate=0 回读配置值 0，文件头使用输入配置的有效采样率；
+没有输入采样率时保持 48000 fallback，正值按声明并接受图签名校验。
+
+独立接口校验仅允许 sample_rate 引用显式 range 最小值为 0 的
+int 签名参数，以 0 表示跟随；采样率接口间引用可传递这一语义。
+channels、block_size、frame_size、shape 等尺寸仍须为正数，
+包括间接引用可为 0 的 sample_rate；不会将“自动采样率”变成零长度载荷。
+
 complex_power 的 in 驱动逐批功率及能量计算；按实际算法调用点依次交付
 1 号 power、2 号 energy。complex_gain_split 的 in 驱动，
 gain 是不触发运算的 latest 数组；依次交付 1 号 impulse、2 号 reverb。

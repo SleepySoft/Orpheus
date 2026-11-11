@@ -4209,6 +4209,56 @@ def test_readonly_probe_zero_inference_never_broadcasts_or_bypasses_default_vali
     assert snapshot(package) == before
 
 
+@pytest.mark.parametrize("default", [0, 48000])
+def test_auto_sample_rate_reference_requires_nonnegative_range_and_preserves_inference(package, raw, default):
+    import jsonschema
+    raw["interfaces"]["rate"] = {"type": "int", "default": default, "range": [0, 192000],
+                                 "affects_signature": True, "update_policy": "restart_required"}
+    raw["interfaces"]["in"]["sample_rate"] = "param:rate"
+    raw["interfaces"]["out"]["sample_rate"] = "in:sample_rate"
+    before = copy.deepcopy(raw)
+    schema = json.loads((ROOT / "schemas" / "component_interface.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(raw, schema)
+    view = normalize_component_definition(raw)
+    assert raw == before
+    assert view["ports"][0]["sample_rate"] == "param:rate"
+    assert view["ports"][1]["sample_rate"] == "in:sample_rate"
+    path = save(package, raw)
+    generate_component(path)
+    check_generated(path)
+
+
+@pytest.mark.parametrize("field,reference", [
+    ("channels", "param:rate"), ("block_size", "param:rate"), ("frame_size", "param:rate"),
+    ("channels", "in:sample_rate"), ("block_size", "in:sample_rate"),
+])
+def test_auto_sample_rate_cannot_become_zero_payload_size(package, raw, field, reference):
+    raw["interfaces"]["rate"] = {"type": "int", "default": 0, "range": [0, 192000],
+                                 "affects_signature": True, "update_policy": "restart_required"}
+    raw["interfaces"]["in"]["sample_rate"] = "param:rate"
+    raw["interfaces"]["out"]["type"] = "bulk"
+    raw["interfaces"]["out"][field] = reference
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError, match="正数|载荷尺寸"):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
+@pytest.mark.parametrize("default,bounds", [(0, None), (-1, [-1, 192000]), (1, [-1, 192000])])
+def test_auto_sample_rate_rejects_negative_or_unbounded_zero_parameter(package, raw, default, bounds):
+    raw["interfaces"]["rate"] = {"type": "int", "default": default,
+                                 "affects_signature": True, "update_policy": "restart_required"}
+    if bounds is not None:
+        raw["interfaces"]["rate"]["range"] = bounds
+    raw["interfaces"]["in"]["sample_rate"] = "param:rate"
+    path = save(package, raw)
+    before = snapshot(package)
+    with pytest.raises(ComponentDefinitionError, match="正数"):
+        generate_component(path)
+    assert snapshot(package) == before
+
+
 def test_readonly_probe_explicit_defaults_and_signature_reference_validation_remain_strict(package, raw):
     import jsonschema
     raw["interfaces"] = {

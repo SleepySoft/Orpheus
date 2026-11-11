@@ -1,42 +1,39 @@
 id: orpheus.builtin.wav_out
 name: WAV 文件输出
 category: "输入与输出"
-description: "离线WAV文件输出端，缓存输入音频并在宿主收尾阶段写文件；文件路径、通道数和采样率可配置，不作为实时声卡输出。"
+description: >-
+  离线WAV终点，in到达仅缓存音频，不续调；宿主收尾调用destroy时落盘。
+  保留16M样本会话容量，超容量明确报错，不静默截断；process不分配或写文件。
+  sample_rate=0跟随输入，空路径只收集后释放，不生成文件。
 order: 2
-version: 1.1.0
-abi_version: 6
+version: 1.2.0
+abi_version: 7
 package_type: source
-state_type: WavOutState
-sources:
-  - src/wav_out.c
-headers:
-  - include/orpheus_wav_out.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-    sample_rate: param:sample_rate
-parameters:
-  - id: file_path
+algorithm:
+  lifecycle: [prepare, destroy, reset]
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", sample_rate: "param:sample_rate", process: true}
+  file_path:
     name: 文件路径
     type: string
+    capacity: 512
     default: ""
     widget: file
     update_policy: restart_required
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 64]
     update_policy: restart_required
     affects_signature: true
-  - id: sample_rate
+  sample_rate:
     name: 采样率（0=跟随输入）
     type: int
     default: 0
+    range: [0, 2147483647]
     update_policy: restart_required
+    affects_signature: true
 memory:
   state_size: 0
   scratch_size: 0

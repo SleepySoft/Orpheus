@@ -563,6 +563,7 @@ def _validate(raw):
                         if "direction" in item and isinstance(item.get("count"), str)}
     visiting, done = set(), set()
     product_bounds = {}
+    automatic_rates = set()
 
     def check_ref(node):
         if node in visiting:
@@ -591,14 +592,24 @@ def _validate(raw):
                 if (parameter.get("type") != "int" or is_array_parameter(parameter) or
                         not (parameter.get("affects_signature") or field in count_parameters)):
                     _fail("签名参数引用必须指向 affects_signature 的 int 参数", f"interfaces.{node[0]}.{node[1]}")
-                if _parameter_default(parameter) < 1 or ("range" in parameter and parameter["range"][0] < 1):
+                automatic_rate = (node[1] == "sample_rate" and "range" in parameter
+                                  and parameter["range"][0] == 0)
+                minimum = 0 if automatic_rate else 1
+                if (_parameter_default(parameter) < minimum or
+                        ("range" in parameter and parameter["range"][0] < minimum)):
                     _fail("签名参数必须保持正数", f"interfaces.{target}.{field}")
+                if automatic_rate:
+                    automatic_rates.add(node)
                 maximum *= parameter.get("range", [1, 2147483647])[1]
             else:
                 other = interfaces.get(target, {})
                 if other.get("direction") not in {"input", "output"} or other.get("type") == "trigger":
                     _fail("签名引用不存在", f"interfaces.{node[0]}.{node[1]}")
                 inherited_product = check_ref((target, field))
+                if (target, field) in automatic_rates:
+                    if node[1] != "sample_rate":
+                        _fail("可跟随输入的采样率不能用作载荷尺寸", f"interfaces.{node[0]}.{node[1]}")
+                    automatic_rates.add(node)
             if len(atoms) > 1 and maximum > limit:
                 _fail(f"签名乘积在声明参数范围内超出上限 {limit}", f"interfaces.{node[0]}.{node[1]}")
         visiting.remove(node)
