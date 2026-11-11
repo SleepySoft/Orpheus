@@ -251,10 +251,12 @@ endif()
 add_test(NAME bulk_math_smoke COMMAND bulk_math_smoke)
 
 add_executable(pool_delay_smoke pool_delay_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/pool_delay/src/pool_delay.c)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/pool_delay/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/pool_delay/user/algorithm.c)
 target_include_directories(pool_delay_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/pool_delay/include)
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/pool_delay/generated
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/pool_delay/user)
 target_compile_definitions(pool_delay_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME pool_delay_smoke COMMAND pool_delay_smoke)
 

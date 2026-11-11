@@ -57,9 +57,11 @@ def test_catalog_hierarchy_and_kinds(model, registry: Registry) -> None:
     bq = entries["front__eq_bank__bq"]
     assert [x["id"] for x in bq.path] == ["front", "eq_bank", "bq"]
 
-    # FIR 系数 = bulk（工程参数）；biquad_bank 系数 = 运行期 Bulk 槽
-    fir_bulk = [p for p in entries["post__fir"].params_of("bulk") if not p.get("runtime")]
-    assert [p["id"] for p in fir_bulk] == ["coefficients"]
+    # FIR 系数是初始化文本；只有真实注册的系数资源属于运行期 BULK。
+    assert entries["post__fir"].params_of("bulk") == []
+    fir_settings = {p["id"]: p for p in entries["post__fir"].params_of("setting")}
+    assert fir_settings["coefficients"]["type"] == "string"
+    assert fir_settings["coefficients"]["update_policy"] == "restart_required"
     bank_bulk = entries["front__eq_bank__bq"].params_of("bulk")
     assert {p["id"] for p in bank_bulk} == {"bq0.coefs", "bq1.coefs"}
     assert all(p.get("runtime") for p in bank_bulk)
@@ -79,7 +81,8 @@ def test_export_readable_and_roundtrip(model, registry: Registry) -> None:
     assert "双段二阶滤波器" in text
     assert payload["nodes"][0]["node"] == "wav_in"
     fir = next(n for n in payload["nodes"] if n["node"] == "post__fir")
-    assert fir["bulk"]["coefficients"] == [0.5, 0.25, -0.1, 0.05, 0.02]
+    assert fir["bulk"] == {}
+    assert fir["values"]["coefficients"] == "0.5, 0.25, -0.1, 0.05, 0.02"
     assert fir["values"]["channels"] == 2
     bank = next(n for n in payload["nodes"] if n["node"] == "front__eq_bank__bq")
     assert bank["values"]["gain_db1"] == 1.5

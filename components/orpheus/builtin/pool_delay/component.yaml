@@ -6,50 +6,54 @@ description: >-
   enabled默认true保持原行为；false时逐字节输出干声且冻结整个池/游标，重新启用从旧历史继续。
   reset清池及游标但保留延迟和enabled配置；不是永远运行延迟再选择干声。
 version: 1.1.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: PoolDelayState
-sources:
-  - src/pool_delay.c
-headers:
-  - include/orpheus_pool_delay.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [validate, prepare, reset, destroy, register_slots]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: channels
+    drive_port_no: 1
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 64]
     update_policy: restart_required
     affects_signature: true
-  - id: pool_size_samples
+  pool_size_samples:
     name: 共享池样本容量
     type: int
     default: 600
     range: [1, 192000]
     update_policy: restart_required
-  - id: delays_i32
+  delays_i32:
     name: 各通道整数延迟
     type: int
     kind: bulk
     shape: [param:channels]
-    bulk_slot: delays_i32
+    count: 64
+    default: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    range: [0, 192000]
+    bulk: {double_bank: true, auto_register: false}
     bindable: true
     control_source: true
     readback: true
     update_policy: block_boundary
     description: 初始全零；int32数组，逐项0到池容量。允许池地址重叠，不自动整理旧历史
-  - id: enabled
+  enabled:
     name: 启用延迟（停用冻结历史并走干声）
     type: bool
     default: true
@@ -57,13 +61,6 @@ parameters:
     bindable: true
     readback: true
     persistent: true
-bulk_slots:
-  - id: delays_i32
-    name: 各通道整数延迟
-    type: int
-    count: 64
-    shape: [param:channels]
-    double_bank: true
 memory:
   state_size: 0
   scratch_size: 0
