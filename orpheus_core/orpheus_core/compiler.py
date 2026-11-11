@@ -1404,26 +1404,29 @@ class GraphCompiler:
                 nt = node_task(graph.nodes[node_id])
                 period, phase = task_flow.cadences[node_id]
                 intervals[node_id] = nt.block_size * period
-                step = Fraction(intervals[node_id], task_rate) * rate_n
-                if step.denominator != 1:
-                    raise CompileError(f"节点 {node_id} 的显式调用时间线步长不是整数样本：{step}")
-                cfg["frame_step"] = int(step)
-                origin = Fraction((phase + 1) * nt.block_size, task_rate) * rate_n - frames_n
                 history = max(
                     (output_history[str(conn.from_ref)] for conn in rate_inputs[node_id]
                      if graph.nodes[conn.from_ref.node_id].task == graph.nodes[node_id].task),
                     default=Fraction(0),
                 )
-                if origin < 0 and origin.denominator == 1 and -origin <= history * rate_n:
-                    cfg["initial_padding_frames"] = int(-origin)
-                    origin = Fraction(0)
-                if origin < 0 or origin.denominator != 1:
-                    raise CompileError(
-                        f"节点 {node_id} 的启动相位无法提供完整输入数据："
-                        f"块起点={origin}，每次处理={frames_n}；"
-                        "请声明足够的启动相位/交付节拍，不隐式预填充或截断时间线"
-                    )
-                cfg["frame_origin"] = int(origin)
+                if "interfaces" in comp.manifest and not comp.manifest.get("clock_source"):
+                    cfg["timeline_from_delivery"] = True
+                else:
+                    step = Fraction(intervals[node_id], task_rate) * rate_n
+                    if step.denominator != 1:
+                        raise CompileError(f"节点 {node_id} 的显式调用时间线步长不是整数样本：{step}")
+                    cfg["frame_step"] = int(step)
+                    origin = Fraction((phase + 1) * nt.block_size, task_rate) * rate_n - frames_n
+                    if origin < 0 and origin.denominator == 1 and -origin <= history * rate_n:
+                        cfg["initial_padding_frames"] = int(-origin)
+                        origin = Fraction(0)
+                    if origin < 0 or origin.denominator != 1:
+                        raise CompileError(
+                            f"节点 {node_id} 的启动相位无法提供完整输入数据："
+                            f"块起点={origin}，每次处理={frames_n}；"
+                            "请声明足够的启动相位/交付节拍，不隐式预填充或截断时间线"
+                        )
+                    cfg["frame_origin"] = int(origin)
                 cfg["output_cadences"] = {}
                 for pm in expanded_ports[node_id]:
                     if pm["direction"] != "output":

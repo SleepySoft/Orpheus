@@ -591,6 +591,18 @@ complementary_coefficients 保留每行前 N 通道的原始位型，
 显式声明的 audio 载荷也与调用量子分离；普通没有显式载荷的 audio 接口仍按调用量子处理。
 布局标签属于静态接口契约，不通过不同出口的编号推断调用先后。
 
+采样率支持 `in:sample_rate/param:factor`、
+`in:sample_rate*param:up/param:down` 或从 `task:sample_rate` 开始的乘除链。
+乘除项只能是正整数常量或影响签名的正整数参数，除数不得声明零下界；
+这只是采样率签名，不推断调用频率，`drive_divide` 也仍仅供绘图。
+独立CLI与公开Schema共同校验，图编译使用有理数保持精确比例。
+
+Task顺序链中，已迁移的非源组件以实际Delivery提供的帧位置、epoch和标志为准，
+plan标记 `timeline_from_delivery`，不再由Task静态节拍推断frame_origin/frame_step。
+因此局部速率对应每Task拍的非整数帧数、大于Task量子的载荷均可合法交付；
+不补静音，不增加等待。Runtime和生成代码在缺少Delivery时明确报错，
+不得用节点调用计数伪造时间。源仍从自身Task/外部触发取得时间根。
+
 ## 统一组件定义
 
 所有定义使用组件 manifest。实现差异只体现在 `package_type`：

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -177,7 +178,7 @@ def _audio_payload_tasks(definition):
         value = port.get(field)
         if value is None:
             return {field} if field in {"block_size", "sample_rate"} else set()
-        if not isinstance(value, str) or "*" in value:
+        if not isinstance(value, str) or "*" in value or "/" in value:
             return set()
         target, attr = value.split(":")
         if target == "task":
@@ -726,6 +727,13 @@ def _render(definition):
         value = port.get(field, f"task:{field}" if frozen and field in {"block_size", "sample_rate"} else 0)
         if isinstance(value, int):
             return str(value)
+        if "/" in value:
+            if not context:
+                return "0"
+            return "(" + " ".join(
+                atom if atom in {"*", "/"} else
+                f"(double)({expression({'term': atom}, 'term', context, frozen) if ':' in atom else atom})"
+                for atom in re.split(r"([*/])", value)) + ")"
         if "*" in value:
             return "(" + " * ".join(
                 f"(double)({expression({'term': atom}, 'term', context) if ':' in atom else atom})"
@@ -743,8 +751,8 @@ def _render(definition):
         value = port.get(field, 0)
         if not isinstance(value, str):
             return None
-        if "*" in value:
-            return list(dict.fromkeys(atom[6:] for atom in value.split("*") if atom.startswith("param:")))
+        if "*" in value or "/" in value:
+            return list(dict.fromkeys(atom[6:] for atom in re.split(r"[*/]", value) if atom.startswith("param:")))
         target, attr = value.split(":")
         return product_parameters(by_id[target], attr) if target not in {"param", "task"} else None
 

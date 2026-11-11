@@ -1645,7 +1645,7 @@ class CodeGenerator:
                 frame_step = int(cfg.get("frame_step", 0))
                 step_expr = str(frame_step) if frame_step else "ctx.frame_count"
                 origin_expr = f' + UINT64_C({int(cfg.get("frame_origin", 0))})' if task_sequence else ''
-                if external_trigger and task_sequence:
+                if external_trigger and task_sequence and not cfg.get("timeline_from_delivery"):
                     quantum = (
                         Fraction(str(node_sr)) * int(task.get("block_size", plan.block_size))
                         / Fraction(str(task.get("sample_rate", plan.sample_rate)))
@@ -1679,7 +1679,7 @@ class CodeGenerator:
                         f'* (uint64_t){step_expr}{origin_expr};'
                     )
                     lines.append(f'{indent}}}')
-                elif external_trigger:
+                elif external_trigger and not cfg.get("timeline_from_delivery"):
                     lines.append(
                         f'{indent}ctx.frame_index = trigger != NULL ? trigger->frame_index : '
                         f'(g_task_counter_{task_sym} / {period}u) * (uint64_t){step_expr};'
@@ -1846,6 +1846,10 @@ class CodeGenerator:
                 '    ctx.trigger_input = UINT32_MAX;',
                 '    ctx.delivery = run->delivery;',
             ])
+            if cfg.get("timeline_from_delivery"):
+                definitions.append(
+                    f'    if (!run->delivery) return orpheus_graph_fail("delivery", '
+                    f'"{self._c_escape(nid)}", "{self._c_escape(cfg["component"])}", ORPHEUS_ERR_INVALID_ARG);')
             input_count = len(cfg.get("input_ports", []))
             if input_count:
                 definitions.append(f'    const OrpheusBuffer* delivery_inputs[{input_count}];')

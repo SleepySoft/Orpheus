@@ -41,6 +41,7 @@ struct NodeConfig {
     double sample_rate = 0;  // 节点采样率，支持有理SRC；0继承图速率
     uint32_t frame_step = 0;  // 窗口重叠时的时间线步长；0使用frames
     uint64_t frame_origin = 0;  // task_sequence 首次调用消费块的绝对帧起点
+    bool timeline_from_delivery = false;  // 接口消费者必须由真实交付提供时间，不推断调用节拍
 };
 
 struct BufferConfig {

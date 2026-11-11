@@ -45,6 +45,8 @@ _POLICIES = {"immediate", "block_boundary", "smoothed", "transactional", "restar
 F32_MAX = float.fromhex("0x1.fffffep+127")
 _SIGNATURE_PRODUCT = re.compile(
     r"(?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*)(?:\*(?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+")
+_RATE_SCALE = re.compile(
+    r"(?:in|task):sample_rate(?:[*/](?:param:[A-Za-z][A-Za-z0-9_]*|[1-9][0-9]*))+")
 LIFECYCLE_HOOKS = ("normalize", "validate", "prepare", "reset", "destroy", "set_parameter", "get_parameter", "register_slots", "hook")
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
         "category", "description", "interfaces", "algorithm", "order", "execution", "memory",
@@ -464,9 +466,10 @@ def _validate(raw):
                 value = item[field]
                 if isinstance(value, str):
                     product = field in {"block_size", "channels"} and _SIGNATURE_PRODUCT.fullmatch(value)
+                    rate_scale = field == "sample_rate" and _RATE_SCALE.fullmatch(value)
                     pattern = (r"param:[A-Za-z][A-Za-z0-9_]*" if field == "frame_size" else
                                r"(?:param:[A-Za-z][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9_]*:(?:channels|block_size|sample_rate))")
-                    if not product and not re.fullmatch(pattern, value):
+                    if not product and not rate_scale and not re.fullmatch(pattern, value):
                         _fail("签名表达式非法", loc + "." + field)
                     references[(key, field)] = value
                 elif type(value) is not int or not (0 if field == "frame_size" else 1) <= value <= 4294967294:
@@ -630,13 +633,17 @@ def _validate(raw):
         visiting.add(node)
         maximum = 1
         inherited_product = None
-        atoms = references[node].split("*")
+        rate_scale = node[1] == "sample_rate" and _RATE_SCALE.fullmatch(references[node])
+        tokens = re.split(r"([*/])", references[node])
+        atoms = tokens[::2]
         limit = 65536 if node[1] == "channels" and len(atoms) > 1 else 4294967295
-        for atom in atoms:
+        for index, atom in enumerate(atoms):
+            divisor = index > 0 and tokens[index * 2 - 1] == "/"
             if atom.isdecimal():
                 if len(atom) > 10 or (len(atom) == 10 and atom > "4294967295"):
                     _fail("签名乘数超出 uint32 上限", f"interfaces.{node[0]}.{node[1]}")
-                maximum *= int(atom)
+                if not divisor:
+                    maximum *= int(atom)
                 if maximum > limit:
                     _fail(f"签名乘积在声明参数范围内超出上限 {limit}", f"interfaces.{node[0]}.{node[1]}")
                 continue
@@ -649,7 +656,7 @@ def _validate(raw):
                 if (parameter.get("type") != "int" or is_array_parameter(parameter) or
                         not (parameter.get("affects_signature") or field in count_parameters)):
                     _fail("签名参数引用必须指向 affects_signature 的 int 参数", f"interfaces.{node[0]}.{node[1]}")
-                automatic_rate = (node[1] == "sample_rate" and "range" in parameter
+                automatic_rate = (not rate_scale and node[1] == "sample_rate" and "range" in parameter
                                   and parameter["range"][0] == 0)
                 minimum = 0 if automatic_rate else 1
                 if (_parameter_default(parameter) < minimum or
@@ -657,7 +664,8 @@ def _validate(raw):
                     _fail("签名参数必须保持正数", f"interfaces.{target}.{field}")
                 if automatic_rate:
                     automatic_rates.add(node)
-                maximum *= parameter.get("range", [1, 2147483647])[1]
+                if not divisor:
+                    maximum *= parameter.get("range", [1, 2147483647])[1]
             else:
                 other = interfaces.get(target, {})
                 if other.get("direction") not in {"input", "output"} or other.get("type") == "trigger":
@@ -685,7 +693,8 @@ def _validate(raw):
         if not isinstance(value, str):
             return value
         result = 1
-        for atom in value.split("*"):
+        tokens = re.split(r"([*/])", value)
+        for index, atom in enumerate(tokens[::2]):
             if atom.isdecimal():
                 factor = int(atom)
             else:
@@ -694,7 +703,7 @@ def _validate(raw):
                           None if target == "task" else default_signature(target, attr))
             if factor is None:
                 return None
-            result *= factor
+            result = result / factor if index > 0 and tokens[index * 2 - 1] == "/" else result * factor
         return result
 
     for key, item in interfaces.items():

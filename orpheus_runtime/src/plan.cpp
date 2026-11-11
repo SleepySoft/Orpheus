@@ -147,6 +147,7 @@ Plan Plan::load_from_file(const std::string& path) {
         cfg.frames = it.value().value("frames", 0u);
         cfg.frame_step = it.value().value("frame_step", 0u);
         cfg.frame_origin = it.value().value("frame_origin", UINT64_C(0));
+        cfg.timeline_from_delivery = it.value().value("timeline_from_delivery", false);
         cfg.sample_rate = it.value().value("sample_rate", 0.0);
         p.node_configs[it.key()] = cfg;
         } catch (const std::exception& e) {

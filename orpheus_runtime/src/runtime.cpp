@@ -1550,6 +1550,10 @@ int Runtime::invoke_chain(OrpheusChainNode* node, const OrpheusChainRun* run) {
     Runtime& runtime = *binding.runtime;
     const std::string& node_id = binding.instance->node_id;
     const NodeConfig& cfg = *binding.config;
+    if (cfg.timeline_from_delivery && !run->delivery) {
+        std::cerr << "[Runtime] 接口消费者缺少交付时间：" << node_id << std::endl;
+        return ORPHEUS_ERR_INVALID_ARG;
+    }
     OrpheusProcessContext ctx{};
     OrpheusChainCall call{node, run};
     OrpheusContinuation continuation{
