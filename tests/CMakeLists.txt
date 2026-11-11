@@ -71,6 +71,24 @@ target_include_directories(window_smoke PRIVATE
 target_compile_definitions(window_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME window_smoke COMMAND window_smoke)
 
+add_executable(observation_probes_smoke observation_probes_smoke.c)
+foreach(probe probe_waveform probe_spectrum)
+    set(probe_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${probe})
+    add_library(observation_test_${probe} OBJECT
+        ${probe_dir}/generated/component_shell.c ${probe_dir}/user/algorithm.c)
+    target_include_directories(observation_test_${probe} PRIVATE
+        ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${probe_dir}/generated ${probe_dir}/user)
+    target_compile_definitions(observation_test_${probe} PRIVATE
+        ORPHEUS_BUILDING_COMPONENT ORPHEUS_ENTRY_NAME=test_${probe})
+    target_sources(observation_probes_smoke PRIVATE $<TARGET_OBJECTS:observation_test_${probe}>)
+endforeach()
+target_include_directories(observation_probes_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${CMAKE_SOURCE_DIR}/components)
+if(UNIX)
+    target_link_libraries(observation_probes_smoke PRIVATE m)
+endif()
+add_test(NAME observation_probes_smoke COMMAND observation_probes_smoke)
+
 add_executable(audio_adapters_smoke audio_adapters_smoke.c)
 foreach(adapter rational_resample block_split circular_buffer resample)
     set(adapter_dir ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/${adapter})

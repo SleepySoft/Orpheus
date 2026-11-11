@@ -1,55 +1,18 @@
 id: orpheus.builtin.probe_spectrum
 name: "FFT频谱观察"
 category: "频域与分析"
-description: "对音频窗口作FFT并读回观察频谱，音频直通；用于界面观测，不向下游提供频域算法数据端口。"
+description: "累积第0通道的Hann窗口并读回1023点幅度频谱，观测后显式交付直通音频；仅用于界面观测，不提供频域算法数据端口。"
 order: 4
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: SpectrumState
-sources:
-  - src/probe_spectrum.c
-headers:
-  - include/orpheus_probe_spectrum.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: window_size
-    name: FFT 窗口
-    type: int
-    default: 1024
-    range: [64, 4096]
-    update_policy: restart_required
-  - id: spectrum
-    name: 频谱
-    type: float
-    count: 1023
-    default: 0.0
-    kind: probe
-    readback: true
-    update_policy: immediate
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: true
-  latency_samples: 0
-  supports_inplace: true
-  realtime_safe: true
+algorithm:
+  lifecycle: [prepare, reset, destroy]
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1, drive_divide: 1}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  window_size: {name: FFT 窗口, type: int, default: 1024, range: [64, 4096], update_policy: restart_required}
+  spectrum: {name: 频谱, type: float, count: 1023, kind: probe, access: read, readback: true, persistent: false, update_policy: immediate}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: true, realtime_safe: true}

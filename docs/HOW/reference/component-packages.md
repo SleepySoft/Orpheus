@@ -226,6 +226,17 @@ coefficients 绑定唯一 f32 BULK 槽，count 为 window_size，支持双 bank 
 window_size 因此声明 affects_signature，不改变 audio 的实际量子。
 初始化 CSV 与运行期系数槽共用一个资源事实源，process 无内存分配。
 
+probe_waveform/probe_spectrum 也在观测完成后显式交付 1 号直通 audio，
+不因累积窗口未满就阻断音频，不增加频域算法数据端口。
+waveform 仍是第 0 通道的原始 1023 槽环形数组，不按读取时刻重排；
+prepare 清空，reset 保留原历史和游标。spectrum 保留向上取 2 的幂的
+64..4096 窗长、Hann 窗、满窗才更新观测、幅度 FFT 及 1023 点线性映射；
+reset 清历史及探针，prepare 重建私有资源，destroy 释放。
+两组件均先观测后 memmove，支持精确原地/部分重叠；无输出连接仍更新观测，
+下游失败不回滚历史，零量子不续调。
+只读 PROBE 的整组读取使用 form=BULK，Runtime 与生成代码均支持名称和数据 ID，
+不能因 kind=PROBE 而拒绝读取；整组写入与普通参数写入仍拒绝。
+
 complex_power 的 in 驱动逐批功率及能量计算；按实际算法调用点依次交付
 1 号 power、2 号 energy。complex_gain_split 的 in 驱动，
 gain 是不触发运算的 latest 数组；依次交付 1 号 impulse、2 号 reverb。

@@ -3449,7 +3449,7 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         c.append('int orpheus_control_get_bulk(const char* node, const char* key, void* out, size_t count) {')
         c.append('    if (!orpheus_control_resource_readable(node, key)) return ORPHEUS_ERR_UNSUPPORTED;')
         c.append('    OrpheusGenSlot* s = orpheus_control_find(node, key);')
-        c.append('    if (!s || s->kind != ORPHEUS_SLOT_BULK || !out) return -1;')
+        c.append('    if (!s || (s->kind != ORPHEUS_SLOT_BULK && s->kind != ORPHEUS_SLOT_PROBE) || !out) return -1;')
         c.append('    if (count > s->count) return -1;')
         c.append('    memcpy(out, (const char*)s->state + s->offset, count * s->size);')
         c.append('    return 0;')

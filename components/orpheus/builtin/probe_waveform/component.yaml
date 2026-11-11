@@ -1,49 +1,17 @@
 id: orpheus.builtin.probe_waveform
 name: "波形观察"
 category: "频域与分析"
-description: "保存音频块波形供界面观察，音频直通；不是文件录制、延迟线或算法反馈存储。"
+description: "逐次保存第0通道的1023槽环形波形，观测后显式交付直通音频；不是文件录制、延迟线或算法反馈存储。reset保留观测，prepare清空。"
 order: 3
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: ProbeWaveformState
-sources:
-  - src/probe_waveform.c
-headers:
-  - include/orpheus_probe_waveform.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: channels
-    name: 通道数
-    type: int
-    default: 2
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: waveform
-    name: 波形
-    type: float
-    count: 1023
-    default: 0.0
-    kind: probe
-    update_policy: immediate
-    readback: true
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: true
-  latency_samples: 0
-  supports_inplace: true
-  realtime_safe: true
+algorithm:
+  lifecycle: [prepare, reset]
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1, drive_divide: 1}
+  channels: {name: 通道数, type: int, default: 2, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  waveform: {name: 波形, type: float, count: 1023, kind: probe, access: read, update_policy: immediate, readback: true, persistent: false}
+memory: {state_size: 0, scratch_size: 0, alignment: 8}
+execution: {sample_rate_independent: true, latency_samples: 0, supports_inplace: true, realtime_safe: true}
