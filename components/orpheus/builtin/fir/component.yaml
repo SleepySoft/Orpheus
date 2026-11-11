@@ -1,46 +1,49 @@
 id: orpheus.builtin.fir
 name: FIR 滤波器
 category: "滤波与均衡"
-description: "所有通道使用同一组系数的FIR卷积，保存各通道历史；taps确定抽头数。需要逐通道系数或异构抽头数时使用fir_bank。"
+description: "所有通道使用同一组系数的FIR卷积，保存各通道历史；系数数量决定抽头数，taps只读。需要逐通道系数或异构抽头数时使用fir_bank。"
 order: 2
 version: 1.0.0
-abi_version: 6
+abi_version: 7
 package_type: source
-state_type: FirState
-sources:
-  - src/fir.c
-headers:
-  - include/orpheus_fir.h
-ports:
-  - id: in
+algorithm:
+  lifecycle: [validate, prepare, reset, destroy]
+interfaces:
+  in:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+    process: true
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: coefficients
+    drive_port_no: 1
+  coefficients:
     name: 系数
     type: string
     default: "1.0"
     widget: text
-    kind: bulk
+    capacity: 32768
+    readback: false
     update_policy: restart_required
-  - id: channels
+  channels:
     name: 通道数
     type: int
     default: 2
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: taps
-    name: 阶数
+  taps:
+    name: 抽头数
     type: int
     default: 0
+    kind: probe
+    access: read
+    persistent: false
+    range: [0, 1024]
     readback: true
     update_policy: immediate
 memory:
