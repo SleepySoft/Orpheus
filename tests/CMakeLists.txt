@@ -408,6 +408,16 @@ target_include_directories(fir_bank_smoke PRIVATE
 target_compile_definitions(fir_bank_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT calloc=fir_bank_test_calloc)
 add_test(NAME fir_bank_smoke COMMAND fir_bank_smoke)
 
+add_executable(nlms_smoke nlms_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/nlms/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/nlms/user/algorithm.c)
+target_include_directories(nlms_smoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/nlms/generated)
+target_compile_definitions(nlms_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
+    calloc=nlms_test_calloc free=nlms_test_free)
+add_test(NAME nlms_smoke COMMAND nlms_smoke)
+
 add_executable(iir_coefs_runner iir_coefs_runner.cpp)
 target_link_libraries(iir_coefs_runner PRIVATE orpheus_runtime_lib)
 

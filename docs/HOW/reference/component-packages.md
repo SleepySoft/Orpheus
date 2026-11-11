@@ -180,6 +180,12 @@ iir_bank在每次真实in交付时执行原DF2T级联，保存全部历史后显
 初始CSV按num_stages紧凑展开，BULK按每通道80项固定跨度，不可混用。
 参考[级联二阶滤波器组](../../../components/orpheus/builtin/iir_bank/README.md)。
 
+nlms仅由ref实际交付驱动；err是可未接的外部误差，不触发计算、不在内部减去输出。
+按原通道/样本/抽头顺序先计算旧权重的输出，再依据误差更新权重；
+未接err时完全冻结权重（包括泄漏），参考历史仍推进。
+保存状态后显式emit out(1)，下游失败不回滚，同拍重复调用分别处理。
+参考[外部误差NLMS](../../../components/orpheus/builtin/nlms/README.md)。
+
 sequence_envelope_state以targets为驱动入口，序列、系数和latest反馈仅提供数据。
 先写完所有出口，再显式交付accepted(2)、alpha(3)、freeze(4)、start(1)；
 编号不决定顺序。所有下游成功返回后才提交反馈，不增加块末延迟；
