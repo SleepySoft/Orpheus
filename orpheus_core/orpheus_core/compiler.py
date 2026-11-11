@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 from orpheus_core.project import Connection, ControlConnection, Graph, Node, PortRef, Project, Task
 from orpheus_core.registry import ComponentInfo, Registry
-from orpheus_core.component_definition import ComponentDefinitionError, encode_array_initializer
+from orpheus_core.component_definition import ComponentDefinitionError, encode_array_initializer, validate_host_bindings
 from orpheus_core.parameter_catalog import component_data_points, id_form_of, id_kind_of, id_value
 from orpheus_core.bridge.identity import build_identity
 from orpheus_core.placeholder import COMPONENT_ID as PLACEHOLDER_ID, placeholder_ports, validate_routes
@@ -1348,28 +1348,16 @@ class GraphCompiler:
                 for p in comp.manifest.get("parameters", [])
             }
             slots = {s["id"]: s for s in comp.manifest.get("bulk_slots", [])}
-            statuses = {p["id"]: p for p in comp.manifest.get("parameters", [])}
+            try:
+                validate_host_bindings(port_manifests, comp.manifest.get("parameters", []), list(slots.values()))
+            except ComponentDefinitionError as exc:
+                raise CompileError(f"节点 {node.id} {exc}") from exc
             bound_slots: set[str] = set()
             for pm in port_manifests:
                 binding = pm.get("host_binding")
                 if not binding:
                     continue
-                for key in binding.get("when", {}):
-                    if key not in statuses or statuses[key].get("update_policy") != "restart_required":
-                        raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 条件须引用重启生效参数：{key}")
-                slot = slots.get(binding["slot"])
-                status = statuses.get(binding["status"])
-                if slot is None or slot.get("type", "float") != "float":
-                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 缺少 float BULK 存储声明")
-                permitted = ("write", "read_write") if binding["access"] == "write" else ("read", "read_write")
-                if slot.get("access") not in permitted:
-                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 的存储访问权限不允许 {binding['access']}")
-                if status is None or status["type"] != "bool":
-                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 缺少 bool 交付状态声明")
-                if binding["access"] == "write" and status.get("access") != "read_write":
-                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 的提交状态不可写或不可读")
-                if binding["access"] == "read" and status.get("access") not in ("read", "read_write"):
-                    raise CompileError(f"节点 {node.id} 宿主端口 {pm['id']} 的有效状态不可读")
+                slot = slots[binding["slot"]]
                 if any(params[key] != value for key, value in binding.get("when", {}).items()):
                     continue
                 if binding["slot"] in bound_slots:

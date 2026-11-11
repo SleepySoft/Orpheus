@@ -102,6 +102,18 @@
           "type": "number", "minimum": -3.4028234663852886e38, "maximum": 3.4028234663852886e38}}
       }
     },
+    "host_binding": {
+      "type": "object",
+      "required": ["slot", "access", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "slot": {"type": "string", "minLength": 1},
+        "access": {"enum": ["write", "read"]},
+        "status": {"$ref": "#/$defs/identifier"},
+        "when": {"type": "object", "additionalProperties": {"type": ["integer", "boolean", "string", "number"]}}
+      },
+      "description": "引用外部BULK资源键及bool交付状态；when仅引用重启生效的标量配置，独立工具与编译器共用静态契约校验。"
+    },
     "identifier": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
     "positive": {"type": "integer", "minimum": 1, "maximum": 4294967294},
     "signature": {
@@ -147,6 +159,7 @@
         ]},
         "process": {"type": "boolean"},
         "optional": {"type": "boolean"},
+        "host_binding": {"$ref": "#/$defs/host_binding"},
         "timing": {"enum": ["sync", "latest"]},
         "allow_unready": {
           "type": "boolean",
@@ -164,6 +177,9 @@
         }
       },
       "allOf": [
+        {"if": {"required": ["host_binding"]}, "then": {
+          "properties": {"type": {"const": "audio"}, "sample_format": {"const": "f32"}}
+        }},
         {"if": {"required": ["layout"], "properties": {"layout": {"const": "halfcomplex"}}}, "then": {
           "required": ["block_size", "frame_size"],
           "properties": {"type": {"const": "bulk"}, "sample_format": {"const": "f32"},

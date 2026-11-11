@@ -51,7 +51,7 @@ _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", 
         "platforms", "ui_hidden", "user_owned", "scheduling", "input_alternatives"}
 _PORT = {"name", "direction", "type", "sample_format", "channels", "block_size", "sample_rate",
          "process", "drive_port_no", "drive_divide", "count", "description", "layout", "frame_size",
-         "timing", "optional", "allow_unready"}
+         "timing", "optional", "allow_unready", "host_binding"}
 _PARAM = {"name", "type", "default", "range", "update_policy", "affects_signature", "readback",
           "persistent", "unit", "count", "shape", "capacity", "bindable", "control_source",
           "kind", "description", "widget", "options", "options_source", "readonly", "file_ext",
@@ -207,6 +207,61 @@ def component_bulk_resources(interfaces: dict) -> list[dict]:
             resource["range"] = copy.deepcopy(bounds)
         resources.append(resource)
     return resources
+
+
+def validate_host_bindings(ports: list[dict], parameters: list[dict], resources: list[dict],
+                           *, location: str = "ports") -> None:
+    """独立声明工具与图编译共用宿主端口的静态存储契约。"""
+    slots = {resource.get("slot_key", resource["id"]): resource for resource in resources}
+    statuses = {parameter["id"]: parameter for parameter in parameters}
+    for port in ports:
+        if "host_binding" not in port:
+            continue
+        loc = f"{location}.{port['id']}.host_binding"
+        binding = port["host_binding"]
+        if (not isinstance(binding, dict) or set(binding) - {"slot", "access", "status", "when"}
+                or not {"slot", "access", "status"} <= set(binding)):
+            _fail("宿主绑定必须声明 slot/access/status，且不能包含未知字段", loc)
+        if port.get("type") != "audio" or port.get("sample_format", "f32") != "f32":
+            _fail("宿主端口当前只支持交错 f32 音频", loc)
+        for key in ("slot", "status"):
+            _string(binding[key], loc + "." + key, True)
+        access = binding["access"]
+        if access not in ("write", "read"):
+            _fail("宿主访问方向必须是 write/read", loc + ".access")
+        slot = slots.get(binding["slot"])
+        if slot is None or slot.get("type", "float") != "float":
+            _fail("宿主端口缺少 float BULK 存储声明", loc + ".slot")
+        permitted = ("write", "read_write") if access == "write" else ("read", "read_write")
+        if slot.get("access", "read_write") not in permitted:
+            _fail(f"宿主端口的存储访问权限不允许 {access}", loc + ".slot")
+        status = statuses.get(binding["status"])
+        if status is None or status["type"] != "bool" or is_array_parameter(status):
+            _fail("宿主端口缺少 bool 标量交付状态声明", loc + ".status")
+        status_access = status.get(
+            "access", "read" if status.get("kind") in {"probe", "state"} or status.get("readonly") else "read_write")
+        if access == "write" and (status_access != "read_write" or status.get("readonly")):
+            _fail("宿主端口的提交状态不可写或不可读", loc + ".status")
+        if access == "read" and status_access not in ("read", "read_write"):
+            _fail("宿主端口的有效状态不可读", loc + ".status")
+        conditions = binding.get("when", {})
+        if not isinstance(conditions, dict):
+            _fail("宿主绑定 when 必须是配置参数到标量值的映射", loc + ".when")
+        for key, value in conditions.items():
+            condition_loc = loc + ".when"
+            parameter = statuses.get(key) if isinstance(key, str) else None
+            if (parameter is None or parameter.get("update_policy") != "restart_required"
+                    or is_array_parameter(parameter) or "bulk" in parameter
+                    or parameter.get("kind") in {"probe", "state"}):
+                _fail(f"宿主端口条件须引用重启生效的标量配置参数：{key}", condition_loc)
+            kind = parameter["type"]
+            if kind == "string":
+                _string(value, condition_loc)
+                valid = len(value.encode("utf-8")) < parameter.get("capacity", 256)
+            else:
+                valid = _valid_numeric_element(kind, value)
+            if not valid or "range" in parameter and not parameter["range"][0] <= value <= parameter["range"][1]:
+                _fail(f"宿主端口条件值不符合配置参数类型或范围：{key}", condition_loc)
 
 
 def _port_count_bounds(key, port, interfaces):
@@ -684,6 +739,10 @@ def _validate(raw):
                 parameter = interfaces.get(name, {})
                 if parameter.get("type") != "int" or is_array_parameter(parameter) or parameter.get("default", 0) < 1:
                     _fail("调度引用必须指向正整数标量参数", f"scheduling.{key}")
+    validate_host_bindings(
+        [{"id": key, **item} for key, item in interfaces.items() if "direction" in item],
+        [{"id": key, **item} for key, item in interfaces.items() if "direction" not in item],
+        component_bulk_resources(interfaces), location="interfaces")
 
 
 def load_component_definition(path: Path) -> dict:
