@@ -1,94 +1,24 @@
 id: orpheus.builtin.sweep_record
-name: "扫频响应记录"
-category: "频域与分析"
-description: "按配置的扫频时间线将首通道输入的RMS分配到频率箱并记录响应曲线；须由上游提供匹配的扫频激励，本组件不产生激励。音频直通，不是WAV文件录制或标准传递函数测量。"
+name: 扫频响应记录
+category: 频域与分析
+description: 按配置时间线将每次真实交付首通道的RMS分箱，音频直通；不产生激励，不是标准传递函数或WAV录制
 order: 6
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: SweepRecordState
-sources:
-  - src/sweep_record.c
-headers:
-  - include/orpheus_sweep_record.h
-ports:
-  - id: in
-    direction: input
-    type: audio
-    sample_format: f32
-    channels: param:channels
-  - id: out
-    direction: output
-    type: audio
-    sample_format: f32
-    channels: param:channels
-parameters:
-  - id: start_freq
-    name: 起始频率
-    type: float
-    default: 20.0
-    range: [1.0, 20000.0]
-    unit: Hz
-    update_policy: restart_required
-  - id: end_freq
-    name: 结束频率
-    type: float
-    default: 20000.0
-    range: [1.0, 20000.0]
-    unit: Hz
-    update_policy: restart_required
-  - id: duration_s
-    name: 扫频时长
-    type: float
-    default: 0.0
-    range: [0.0, 300.0]
-    unit: s
-    update_policy: restart_required
-    description: 0=自动跟随扫频发生器；手动设置可提前截断
-  - id: log_scale
-    name: 对数扫频
-    type: bool
-    default: true
-    update_policy: restart_required
-  - id: bins
-    name: 记录点数
-    type: int
-    default: 64
-    range: [8, 256]
-    update_policy: restart_required
-  - id: channels
-    name: 通道数
-    type: int
-    default: 1
-    range: [1, 32]
-    update_policy: restart_required
-    affects_signature: true
-  - id: sweep
-    name: 扫频曲线
-    type: float
-    count: 512
-    default: 0.0
-    kind: probe
-    readback: true
-    update_policy: immediate
-  - id: progress
-    name: 扫频进度
-    type: float
-    default: 0.0
-    readback: true
-    update_policy: immediate
-  - id: current_freq
-    name: 当前频率
-    type: float
-    default: 0.0
-    readback: true
-    update_policy: immediate
-memory:
-  state_size: 0
-  scratch_size: 0
-  alignment: 8
-execution:
-  sample_rate_independent: false
-  latency_samples: 0
-  supports_inplace: true
-  realtime_safe: true
+algorithm:
+  lifecycle: [prepare, reset]
+interfaces:
+  in: {direction: input, type: audio, sample_format: f32, channels: "param:channels", process: true}
+  out: {direction: output, type: audio, sample_format: f32, channels: "param:channels", drive_port_no: 1}
+  start_freq: {name: 起始频率, type: float, default: 20.0, range: [1.0, 20000.0], unit: Hz, update_policy: restart_required}
+  end_freq: {name: 结束频率, type: float, default: 20000.0, range: [1.0, 20000.0], unit: Hz, update_policy: restart_required}
+  duration_s: {name: 扫频时长, type: float, default: 0.0, range: [0.0, 300.0], unit: s, update_policy: restart_required}
+  log_scale: {name: 对数扫频, type: bool, default: true, update_policy: restart_required}
+  bins: {name: 记录点数, type: int, default: 64, range: [8, 256], update_policy: restart_required}
+  channels: {name: 通道数, type: int, default: 1, range: [1, 32], update_policy: restart_required, affects_signature: true}
+  sweep: {name: 扫频曲线, type: float, count: 512, kind: probe, access: read, readback: true, persistent: false, update_policy: immediate}
+  progress: {name: 扫频进度, type: float, default: 0.0, kind: probe, access: read, readback: true, persistent: false, update_policy: immediate}
+  current_freq: {name: 当前频率, type: float, default: 0.0, kind: probe, access: read, readback: true, persistent: false, update_policy: immediate}
+memory: {alignment: 8}
+execution: {sample_rate_independent: false, latency_samples: 0, supports_inplace: true, realtime_safe: true}

@@ -502,6 +502,14 @@ target_include_directories(rnc_mimo_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_ab
 target_compile_definitions(rnc_mimo_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME rnc_mimo_smoke COMMAND rnc_mimo_smoke)
 
+add_executable(sweep_record_smoke sweep_record_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sweep_record/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sweep_record/user/algorithm.c)
+target_include_directories(sweep_record_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/sweep_record/generated)
+target_compile_definitions(sweep_record_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME sweep_record_smoke COMMAND sweep_record_smoke)
+
 add_executable(iir_coefs_runner iir_coefs_runner.cpp)
 target_link_libraries(iir_coefs_runner PRIVATE orpheus_runtime_lib)
 

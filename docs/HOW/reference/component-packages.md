@@ -240,6 +240,13 @@ weights/step_sizes的BULK数量由shape决定、物理容量12000/8；
 状态提交后emit out(1)，错误不回滚；reset恢复初始基线、清历史/游标，保留运行期步长。
 参考[多参考多输出NLMS的调用、资源与基线](../../../components/orpheus/builtin/rnc_mimo_nlms/README.md)。
 
+sweep_record以in驱动，按实际调用首声道能量/本地时间分箱，保留原f32累计与RMS次序。
+先提交统计再emit out(1)，失败不回滚；完成后继续直通，完整原地允许、部分重叠拒绝。
+512项只读曲线的频率/幅度使用固定256项跨度；reset保留频率轴、清采集状态。
+恒频明确落首箱，静音收尾至少0.25秒，64位样本计数在溢出前拒绝；
+无发生器注入的0时长没有可推断扫频轨迹，仍固定起始频率。
+参考[扫频响应记录的真实交付与测量边界](../../../components/orpheus/builtin/sweep_record/README.md)。
+
 slc_matrix_mul由in真实交付驱动，保留内部多表插值和外部奇偶序列锁存两种目标来源。
 每样本先平滑矩阵再混音，完成后显式emit out(1)，下游失败不回滚。
 序列模式不使用插值模式的近零系数瞬切；三个矩阵BULK槽保持实际rows×cols形状和双缓冲。
