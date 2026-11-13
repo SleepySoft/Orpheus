@@ -2,6 +2,14 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-11-12（uart_link声明迁入interfaces声明）
+
+- uart_link迁入interfaces声明，累计 **125/126 包**，剩余 **1 包**（placeholder）。
+  codegen_template/ui_hidden/execution.none原样保留；duplex的widget/options
+  界面元数据保留。legacy自动迁移为顶层bridges的语义不变。
+- 验证：validate_component.py校验通过；test_uart_link 12项通过
+  （含生成工程构建、探针泵、--link-stdio全链路e2e）。
+
 ## 2026-11-12（访问桥声明迁入interfaces声明）
 
 - access_bridge迁入interfaces声明，累计 **124/126 包**，剩余 **2 包**。
