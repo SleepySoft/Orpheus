@@ -44,8 +44,16 @@ def _read_configuration(path: Path) -> bytes:
 
 def _quote(value) -> str:
     escapes = {"\\": "\\\\", '"': '\\"', "?": "\\?"}
-    return '"' + "".join(escapes.get(c, f"\\{ord(c):03o}" if ord(c) < 32 or ord(c) == 127 else c)
-                         for c in str(value)) + '"'
+
+    def chunk(text: str) -> str:
+        return '"' + "".join(escapes.get(c, f"\\{ord(c):03o}" if ord(c) < 32 or ord(c) == 127 else c)
+                              for c in text) + '"'
+
+    text = str(value)
+    if len(text) <= 4096:
+        return chunk(text)
+    # MSVC 单字符串字面量上限 16380 字节；长默认值拆为相邻字面量（C 标准保证拼接等价）
+    return "\n        ".join(chunk(text[i:i + 4096]) for i in range(0, len(text), 4096))
 
 
 def _number(value, kind):
