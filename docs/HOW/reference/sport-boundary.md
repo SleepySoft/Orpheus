@@ -286,7 +286,11 @@ const OrpheusTriggerStats* stats = orpheus_generated_trigger_stats_audio();
 生成 wrapper 的固定顺序是：
 
 ```text
-DMA RX -> slot gather / 定点转 f32 -> graph task _at -> f32 转定点 / slot scatter -> DMA TX
+DMA RX -> slot gather / 定点转 f32 -> 提交 host_binding -> graph task _at
+       -> read host_binding -> f32 转定点 / slot scatter -> DMA TX
 ```
 
-输入组件消费 adapter 准备好的 `src`；输出组件把图结果交给 `dst`。Orpheus 只保证生成的静态映射和格式转换，不生成跨 callback barrier；多个 follower 需要板级 adapter 收齐同一 sequence 后调用。
+输入组件经 `out` 的宿主音频绑定（`orpheus_audio_submit`）消费 adapter 准备好的完整块；
+输出组件把图结果经 `in` 的 read 绑定（`orpheus_audio_read`）交给 adapter。
+不再读写组件私有 State 的 `src/dst` 指针；缺块/未捕获按边界契约报错并计欠载，
+不补零、不静默丢弃。Orpheus 只保证生成的静态映射和格式转换，不生成跨 callback barrier；多个 follower 需要板级 adapter 收齐同一 sequence 后调用。

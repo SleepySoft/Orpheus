@@ -267,6 +267,14 @@ rate_sync双输入均不驱动，由静态调度表在同步点以合流块长(L
 否则准备期拒绝；单块超容量、别名前置拒绝，溢出不改状态，零帧不推进，reset清FIFO。
 参考[双路缓冲合流](../../../components/orpheus/builtin/rate_sync/README.md)。
 
+sport_tdm_in/out经宿主音频绑定交付数据面（与embed边界同一host_binding契约）：
+adapter解码slot后orpheus_audio_submit提交完整块并置ready，组件消费后emit out(1)；
+输出端每次到达复制完整块置valid，adapter推进后orpheus_audio_read取走。
+缺块/未捕获按边界契约报错并计欠载，不补零冒充采集、不静默丢弃；
+不再暴露旧State的src/dst指针，触发上下文经Task入口透传时间线。
+参考[SPORT输入边界](../../../components/orpheus/builtin/sport_tdm_in/README.md)与
+[SPORT输出边界](../../../components/orpheus/builtin/sport_tdm_out/README.md)。
+
 sweep_record以in驱动，按实际调用首声道能量/本地时间分箱，保留原f32累计与RMS次序。
 先提交统计再emit out(1)，失败不回滚；完成后继续直通，完整原地允许、部分重叠拒绝。
 512项只读曲线的频率/幅度使用固定256项跨度；reset保留频率轴、清采集状态。

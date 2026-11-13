@@ -99,6 +99,7 @@ class CodeGenerator:
             if (cfg := plan.node_configs[nid])["component"] in (
                 "orpheus.builtin.host_audio", "orpheus.builtin.buffer_source",
                 "orpheus.builtin.embed_in", "orpheus.builtin.embed_out",
+                "orpheus.builtin.sport_tdm_in", "orpheus.builtin.sport_tdm_out",
             )
             for binding in cfg.get("host_ports", [])
         ]
@@ -810,20 +811,6 @@ class CodeGenerator:
             lines.append(f'float g_sport_{kind}_{s}[{frames * channels}];')
         if embed_in_nodes or embed_out_nodes or sport_in_nodes or sport_out_nodes:
             lines.append('')
-        for nid in sport_in_nodes:
-            s = self._sanitized_node_id(nid)
-            lines.append(
-                f'SportTdmInState* orpheus_sport_tdm_in_state_{s}(void) '
-                f'{{ return {self._state_ref(nid, plan)}; }}'
-            )
-        for nid in sport_out_nodes:
-            s = self._sanitized_node_id(nid)
-            lines.append(
-                f'SportTdmOutState* orpheus_sport_tdm_out_state_{s}(void) '
-                f'{{ return {self._state_ref(nid, plan)}; }}'
-            )
-        if embed_in_nodes or embed_out_nodes or sport_in_nodes or sport_out_nodes:
-            lines.append('')
 
         for operation, is_input in (("submit", True), ("read", False)):
             lines.extend([
@@ -1376,18 +1363,6 @@ class CodeGenerator:
                     f'    if (rc != ORPHEUS_OK) return orpheus_graph_init_fail("host_ports", '
                     f'"{self._c_escape(node_id)}", "{self._c_escape(cfg["component"])}", rc);',
                 ])
-        for nid in sport_in_nodes:
-            s = self._sanitized_node_id(nid)
-            ref = self._state_ref(nid, plan)
-            lines.append(f'    ({ref})->src = g_sport_in_{s};')
-            lines.append(f'    ({ref})->src_frames = 0;')
-        for nid in sport_out_nodes:
-            s = self._sanitized_node_id(nid)
-            cfg = plan.node_configs[nid]
-            frames = cfg.get("frames") or plan.block_size
-            ref = self._state_ref(nid, plan)
-            lines.append(f'    ({ref})->dst = g_sport_out_{s};')
-            lines.append(f'    ({ref})->dst_capacity = {frames};')
         if embed_in_nodes or embed_out_nodes:
             lines.append('    rc = orpheus_platform_io_init();')
             lines.append('    if (rc != ORPHEUS_OK) return orpheus_graph_init_fail("platform_io:init", "", "", rc);')
@@ -2463,8 +2438,6 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
         ]
         source = [
             '#include "orpheus_sport.h"',
-            '#include "orpheus_sport_tdm_in.h"',
-            '#include "orpheus_sport_tdm_out.h"',
             '',
             'static float orpheus_decode_q31(int32_t value) {',
             '    return (float)value * (1.0f / 2147483648.0f);',
@@ -2502,14 +2475,8 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
             node_sym = self._sanitized_node_id(binding["node"])
             if binding["direction"] == "input":
                 source.append(f'extern float g_sport_in_{node_sym}[];')
-                source.append(
-                    f'extern SportTdmInState* orpheus_sport_tdm_in_state_{node_sym}(void);'
-                )
             else:
                 source.append(f'extern float g_sport_out_{node_sym}[];')
-                source.append(
-                    f'extern SportTdmOutState* orpheus_sport_tdm_out_state_{node_sym}(void);'
-                )
         source.append('')
 
         type_for = lambda fmt: 'float' if fmt == 'f32' else 'int32_t'
@@ -2554,7 +2521,6 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
                 node_sym = self._sanitized_node_id(binding["node"])
                 channels = int(plan.node_configs[binding["node"]]["params"]["channels"])
                 if binding["direction"] == "input":
-                    source.append(f'    SportTdmInState* state_{node_sym} = orpheus_sport_tdm_in_state_{node_sym}();')
                     source.append('    for (frame = 0; frame < trigger->frames; ++frame) {')
                     for stream in binding["streams"]:
                         field = self._sanitized_node_id(stream["resource"])
@@ -2572,7 +2538,12 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
                                 f'        g_sport_in_{node_sym}[frame * {channels}u + {int(channel)}u] = {expr};'
                             )
                     source.append('    }')
-                    source.append(f'    state_{node_sym}->src_frames = trigger->frames;')
+                    # 经宿主音频绑定提交完整块并置 ready；不再直接读写组件私有 State
+                    source.append(
+                        f'    result = orpheus_audio_submit("{binding["node"]}", "out", '
+                        f'g_sport_in_{node_sym}, trigger->frames * {channels}u);'
+                    )
+                    source.append('    if (result != ORPHEUS_OK) return result;')
             source.append(
                 f'    result = orpheus_generated_process_task_{task_sym}_at(trigger->frames, trigger);'
             )
@@ -2582,6 +2553,11 @@ static int orpheus_cli_read_bulk(const OrpheusIdEntry* entry, int by_id) {
                     continue
                 node_sym = self._sanitized_node_id(binding["node"])
                 channels = int(plan.node_configs[binding["node"]]["params"]["channels"])
+                source.append(
+                    f'    result = orpheus_audio_read("{binding["node"]}", "in", '
+                    f'g_sport_out_{node_sym}, trigger->frames * {channels}u);'
+                )
+                source.append('    if (result != ORPHEUS_OK) return result;')
                 source.append('    for (frame = 0; frame < trigger->frames; ++frame) {')
                 for stream in binding["streams"]:
                     field = self._sanitized_node_id(stream["resource"])

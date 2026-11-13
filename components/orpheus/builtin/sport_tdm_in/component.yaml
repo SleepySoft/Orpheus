@@ -1,26 +1,28 @@
 id: orpheus.builtin.sport_tdm_in
 name: SPORT/TDM 输入
 category: "平台与通信"
-description: SPORT/TDM DMA slot 到图内交错 f32 的输入边界；物理 slot 映射和格式由工程顶层 sport_bindings 配置
+description: >-
+  SPORT/TDM DMA slot 到图内交错 f32 的输入边界；物理 slot 映射和格式由工程顶层
+  sport_bindings 配置。生成的 SPORT adapter 解码 slot 后经 out 的 samples 绑定
+  提交完整块并置 ready，再推进所属 Task。消费一次后清 ready 并真实交付 out；
+  不重复旧块、不补零冒充采集，缺块饱和累计 underruns 并报错。
 platforms: [adsp21593]
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: SportTdmInState
 clock_source: true
-sources:
-  - src/sport_tdm_in.c
-headers:
-  - include/orpheus_sport_tdm_in.h
-ports:
-  - id: out
+algorithm:
+  lifecycle: [normalize, prepare, reset, set_parameter]
+interfaces:
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
     sample_rate: param:sample_rate
-parameters:
-  - id: channels
+    drive_port_no: 1
+    host_binding: {slot: samples, access: write, status: ready}
+  channels:
     name: 逻辑通道数
     description: 图内逻辑通道数；与 SPORT TDM slot 总数无关，slot 映射由顶层 sport_bindings 声明
     type: int
@@ -28,14 +30,48 @@ parameters:
     range: [1, 64]
     update_policy: restart_required
     affects_signature: true
-  - id: sample_rate
+  sample_rate:
     name: 采样率
     description: 图端口采样率；必须与其所属时钟域和 Task 一致
     type: int
     default: 48000
     range: [1000, 384000]
+    unit: Hz
     update_policy: restart_required
     affects_signature: true
+  clock_domain:
+    name: 时钟域
+    description: 节点所属时钟域标识；编译器用于时钟链分组，组件不解释其取值
+    type: string
+    default: ""
+    capacity: 64
+    update_policy: restart_required
+  ready:
+    name: 宿主已提交完整新块
+    type: bool
+    default: false
+    kind: setting
+    access: read_write
+    update_policy: immediate
+    readback: true
+    persistent: false
+  underruns:
+    name: 欠载次数
+    type: int
+    default: 0
+    kind: probe
+    access: read
+    update_policy: immediate
+    readback: true
+    persistent: false
+  audio_storage:
+    name: SPORT 输入存储
+    type: string
+    default: ""
+    capacity: 1
+    persistent: false
+    shape: ["config:frames", "param:channels"]
+    bulk: {sample_format: f32, capacity: 65536, storage: algorithm.data, slot_key: samples, double_bank: true}
 memory:
   state_size: 0
   scratch_size: 0

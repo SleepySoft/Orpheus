@@ -2,6 +2,23 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-11-12（SPORT/TDM边界迁入宿主音频绑定）
+
+- sport_tdm_in/out迁入接口声明/生成壳，累计 **122/126 包**，剩余 **4 包**。
+  与embed边界同一host_binding契约：adapter解码slot后经orpheus_audio_submit
+  提交完整块并置ready，输入组件消费后emit out(1)；输出端每次到达复制完整块
+  置valid，adapter推进后经orpheus_audio_read取走并编码slot。
+  缺块饱和计underruns并报错，不补零冒充采集、不因dst缺失静默丢弃；
+  不再暴露旧State的src/dst指针（生成器的State访问器与init指针接线已删除）。
+  clock_domain作为节点参数显式声明（编译器时钟链分组用，组件不解释）。
+- 生成器_sport_adapter改为经公开控制面供数/取数，_host_audio_nodes纳入
+  sport边界；sport-boundary文档数据路径更新为submit/read两段式。
+- **2项原生冒烟与1项生成工程逐位验证通过**：原生覆盖缺块计欠载/饱和、
+  ready消费时序、别名/短块/速率拒绝、零帧、reset清零、prepare采样率校验、
+  形状上限拒绝与重新prepare；生成工程以8次触发×32帧×32通道q1_31
+  逐位验证slot解码→增益→编码回环与触发统计（calls/sequence/frame）。
+  test_sport_integration三项（roundtrip/s24_left/多时钟域）保持通过。
+
 ## 2026-11-12（跨速率双路FIFO合流迁入接口声明）
 
 - rate_sync迁入接口声明/生成壳，累计 **120/126 包**，剩余 **6 包**。
