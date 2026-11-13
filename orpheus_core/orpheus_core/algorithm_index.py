@@ -440,7 +440,7 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
             "implementation": definition["implementation"],
         }
         path = components_dir / manifest_paths[definition["id"]]
-        path.write_text(yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        path.write_text(yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8", newline="\n")
         for child in children:
             child_def = definitions[child]
             node_notes[f"sub:{definition['component_id']}/{child_def['node_id']}"] = (
@@ -595,14 +595,14 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "project.yaml").write_text(
-        yaml.safe_dump(project, sort_keys=False, allow_unicode=True), encoding="utf-8"
+        yaml.safe_dump(project, sort_keys=False, allow_unicode=True), encoding="utf-8", newline="\n"
     )
     (output_dir / "algorithm-index.yaml").write_text(
         yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=120),
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )
     (output_dir / "node-notes.json").write_text(
-        json.dumps(node_notes, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps(node_notes, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
     leaves = [definition for definition in document["definitions"] if not definition["children"]]
     coverage_report = {
@@ -623,7 +623,7 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
     }
     (output_dir / "coverage-report.json").write_text(
         json.dumps(coverage_report, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )
     (output_dir / "README.md").write_text(
         "# Algorithm IR 全量研究图\n\n"
@@ -640,5 +640,5 @@ def emit_structural_project(document: dict[str, Any], output_dir: Path) -> None:
         "[`TODO.md`](TODO.md)；重新生成工程时这两个手工维护文件会保留。\n\n"
         "叶节点为 placeholder 时表示算法尚未完成 golden 或运行时能力仍缺失，编译器会主动拒绝；"
         "这张图用于完整分析和逐模块替换，不得宣称可执行或数值等价。\n",
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )

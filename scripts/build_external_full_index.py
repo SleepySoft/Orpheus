@@ -662,7 +662,7 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=120),
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )
     print(f"wrote {len(document['definitions'])} definitions to {args.output}")
     return 0
