@@ -92,7 +92,7 @@ cd ui; npm start                      # 前端热更新（:3000，代理到 :800
 
 1. **实时路径禁令**：组件 `process` 中禁止 malloc/free/new/delete、阻塞锁、文件/网络 IO、printf、异常传播。日志只在 create/prepare/destroy/set_parameter 中输出；实时线程内输出走 PROBE 上报。
 2. **编码**：源码一律 UTF-8 无 BOM + LF。禁止用 PowerShell `Get-Content`/`Set-Content` 改写源码（默认 GBK 会毁中文注释/字符串）；Python 子进程管道必须 `encoding="utf-8"`。
-3. **工具链**：PATH 里 Perl 自带的 gcc 4.9.2 不可用；用 Strawberry GCC（以 `build/CMakeCache.txt` 的 `CMAKE_C_COMPILER` 为准；生成工程 configure 需显式传编译器）。
+3. **工具链**：首选 MSVC（`cli build`/builder 自动定位 vcvars64；以 `build/CMakeCache.txt` 的 `CMAKE_C_COMPILER` 为准；生成工程 configure 需显式传编译器）。PATH 里 Perl 自带的 gcc 4.9.2 不可用。MSVC C 模式无 C11 `_Atomic` 关键字：C 源码用 atomics 需照抄 `orpheus_abi/src/bridge_bulk.c` 的 Interlocked 兼容层；强制包含头文件 MSVC 用 `/FI`（cl 忽略 `-include`）。
 4. **组件入口符号**：组件 .c 的 ABI 入口必须用 `ORPHEUS_ENTRY_NAME` 宏包裹（缺省 `orpheus_get_interface`），否则静态链接多组件符号冲突崩溃。新组件照抄现有组件写法。
 5. **设备回调周期 ≠ 图块长**：rt_host 回调里必须按 block_size 分块处理（参考 `rt_host.cpp`），设备周期请求下限 10ms。
 6. **编码中文注释**：所有新代码注释/字符串按仓库惯例用中文。

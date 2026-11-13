@@ -3,6 +3,15 @@ cmake_minimum_required(VERSION 3.16)
 # 基础版本测试目录：先建立空壳，后续填充 GoogleTest 用例
 enable_testing()
 
+# 强制包含 printf_hook.h：MSVC 用 /FI，GCC/Clang 用 -include（cl 会忽略 -include）
+function(orpheus_force_include_printf_hook target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE "/FI${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+    else()
+        target_compile_options(${target} PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+    endif()
+endfunction()
+
 add_executable(bridge_bulk_smoke bridge_bulk_smoke.c)
 target_link_libraries(bridge_bulk_smoke PRIVATE orpheus_bridge_endpoint)
 add_test(NAME bridge_bulk_smoke COMMAND bridge_bulk_smoke)
@@ -379,6 +388,13 @@ target_include_directories(task_source_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/task_source/generated)
 target_compile_definitions(task_source_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME task_source_smoke COMMAND task_source_smoke)
+add_executable(rate_sync_smoke rate_sync_smoke.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rate_sync/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rate_sync/user/algorithm.c)
+target_include_directories(rate_sync_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/rate_sync/generated)
+target_compile_definitions(rate_sync_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
+add_test(NAME rate_sync_smoke COMMAND rate_sync_smoke)
 add_executable(downrate_smoke downrate_smoke.c)
 add_library(downrate_test_component OBJECT
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/downrate/generated/component_shell.c
@@ -461,7 +477,7 @@ target_include_directories(adaptive_fir_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/adaptive_fir/generated)
 target_compile_definitions(adaptive_fir_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
     calloc=adaptive_fir_test_calloc free=adaptive_fir_test_free snprintf=adaptive_fir_test_snprintf)
-target_compile_options(adaptive_fir_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+orpheus_force_include_printf_hook(adaptive_fir_smoke)
 add_test(NAME adaptive_fir_smoke COMMAND adaptive_fir_smoke)
 
 add_executable(anc_fxlms_smoke anc_fxlms_smoke.c
@@ -472,7 +488,7 @@ target_include_directories(anc_fxlms_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/anc_fxlms/generated)
 target_compile_definitions(anc_fxlms_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
     calloc=anc_fxlms_test_calloc free=anc_fxlms_test_free snprintf=anc_fxlms_test_snprintf)
-target_compile_options(anc_fxlms_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+orpheus_force_include_printf_hook(anc_fxlms_smoke)
 add_test(NAME anc_fxlms_smoke COMMAND anc_fxlms_smoke)
 
 add_executable(coherence_matrix_smoke coherence_matrix_smoke.c
@@ -483,7 +499,7 @@ target_include_directories(coherence_matrix_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/coherence_matrix/generated)
 target_compile_definitions(coherence_matrix_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
     calloc=coherence_matrix_test_calloc free=coherence_matrix_test_free snprintf=coherence_matrix_test_snprintf)
-target_compile_options(coherence_matrix_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+orpheus_force_include_printf_hook(coherence_matrix_smoke)
 add_test(NAME coherence_matrix_smoke COMMAND coherence_matrix_smoke)
 
 add_executable(noise_detector_smoke noise_detector_smoke.c
@@ -494,7 +510,7 @@ target_include_directories(noise_detector_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_detector/generated)
 target_compile_definitions(noise_detector_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
     calloc=noise_detector_test_calloc free=noise_detector_test_free snprintf=noise_detector_test_snprintf)
-target_compile_options(noise_detector_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+orpheus_force_include_printf_hook(noise_detector_smoke)
 add_test(NAME noise_detector_smoke COMMAND noise_detector_smoke)
 
 add_executable(noise_detector_ab_smoke noise_detector_ab_smoke.c
@@ -505,7 +521,7 @@ target_include_directories(noise_detector_ab_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_detector_ab/generated)
 target_compile_definitions(noise_detector_ab_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
     calloc=noise_detector_ab_test_calloc free=noise_detector_ab_test_free snprintf=noise_detector_ab_test_snprintf)
-target_compile_options(noise_detector_ab_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+orpheus_force_include_printf_hook(noise_detector_ab_smoke)
 add_test(NAME noise_detector_ab_smoke COMMAND noise_detector_ab_smoke)
 
 add_executable(noise_detector_nlms_smoke noise_detector_nlms_smoke.c
@@ -516,7 +532,7 @@ target_include_directories(noise_detector_nlms_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/noise_detector_nlms/generated)
 target_compile_definitions(noise_detector_nlms_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT
     calloc=noise_detector_nlms_test_calloc free=noise_detector_nlms_test_free snprintf=noise_detector_nlms_test_snprintf)
-target_compile_options(noise_detector_nlms_smoke PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/printf_hook.h")
+orpheus_force_include_printf_hook(noise_detector_nlms_smoke)
 add_test(NAME noise_detector_nlms_smoke COMMAND noise_detector_nlms_smoke)
 
 add_executable(mp3_in_smoke mp3_in_smoke.c
@@ -580,7 +596,7 @@ foreach(component balance mute square saturation soft_clipper exponential_gain)
     target_include_directories(delivery_test_${component} PRIVATE
         ${CMAKE_SOURCE_DIR}/orpheus_abi/include ${component_dir}/generated)
     target_compile_definitions(delivery_test_${component} PRIVATE
-        ORPHEUS_ENTRY_NAME=delivery_${component})
+        ORPHEUS_BUILDING_COMPONENT ORPHEUS_ENTRY_NAME=delivery_${component})
     target_sources(common_components_delivery_smoke PRIVATE $<TARGET_OBJECTS:delivery_test_${component}>)
 endforeach()
 target_include_directories(common_components_delivery_smoke PRIVATE ${CMAKE_SOURCE_DIR}/orpheus_abi/include)

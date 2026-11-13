@@ -1,52 +1,53 @@
 id: orpheus.builtin.rate_sync
 name: "双路缓冲合流"
 category: "驱动与缓冲"
-description: "对两路已处于同一采样率的音频作FIFO缓冲，在可用时对齐读取并相加；缓冲长度可按块长公倍数推导或显式设置。不是采样率转换，也不是跨Task异步桥。"
-version: 1.0.0
-abi_version: 6
+description: >-
+  对两路已处于同一采样率的音频作FIFO缓冲，在可用时对齐读取并相加；缓冲长度按块长公倍数推导或显式设置。
+  不是采样率转换，也不是跨Task异步桥。显式缓冲长度必须不小于合流块长，否则准备期拒绝。
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: RateSyncState
-sources:
-  - src/rate_sync.c
-headers:
-  - include/orpheus_rate_sync.h
-ports:
-  - id: in0
+algorithm:
+  lifecycle: [prepare, reset, destroy, set_parameter]
+interfaces:
+  in0:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: in1
+  in1:
     direction: input
     type: audio
     sample_format: f32
     channels: param:channels
-  - id: out
+  out:
     direction: output
     type: audio
     sample_format: f32
     channels: param:channels
-parameters:
-  - id: channels
+    drive_port_no: 1
+  channels:
     name: 通道数
     type: int
     default: 1
     range: [1, 32]
     update_policy: restart_required
     affects_signature: true
-  - id: mode
-    name: 缓冲模式
-    type: string
-    default: "auto"
-    allowed: ["auto", "fixed"]
+  mode:
+    name: 缓冲模式（0=自动，1=固定）
+    type: int
+    default: 0
+    range: [0, 1]
     update_policy: restart_required
-  - id: buffer_length
+    description: 0=自动（对齐窗口=合流块长），1=固定（用buffer_length，必须不小于合流块长）
+  buffer_length:
     name: 缓冲长度
     type: int
     default: 0
     range: [0, 131072]
     update_policy: restart_required
     affects_signature: true
+    description: mode=1时手动指定对齐窗口（帧），0=自动；必须不小于合流块长
 memory:
   state_size: 0
   scratch_size: 0

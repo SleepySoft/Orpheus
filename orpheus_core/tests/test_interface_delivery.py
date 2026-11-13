@@ -235,6 +235,10 @@ def compile_delivery_backends(directory, registry, project, manifests, harness=H
         "cmake_minimum_required(VERSION 3.16)", "project(delivery_backends C CXX)",
         "set(CMAKE_C_STANDARD 11)", "set(CMAKE_CXX_STANDARD 11)",
         "find_package(Threads REQUIRED)",
+        # MSVC 必须按 UTF-8 读取组件源码（中文注释/字符串），与主构建保持一致
+        "if(MSVC)", "add_compile_options(/utf-8 /EHsc)", "endif()",
+        # 运行时在 Windows 按 lib<name>.dll 加载组件；MSVC 默认不加 lib 前缀，统一之
+        "if(WIN32)", "set(CMAKE_SHARED_LIBRARY_PREFIX lib)", "endif()",
         "add_subdirectory(generated)",
         "add_executable(generated_backend harness.c)",
         "target_link_libraries(generated_backend PRIVATE orpheus_graph)",
@@ -257,13 +261,18 @@ def compile_delivery_backends(directory, registry, project, manifests, harness=H
             + " ".join(f'"{p.as_posix()}"' for p in registry.include_dirs(info)) + ")",
             f"set_target_properties({target}_dynamic PROPERTIES OUTPUT_NAME {target} "
             'RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components" '
-            'LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components")',
+            'LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components" '
+            # MSVC 的 DLL 导入库走 ARCHIVE 输出目录；不设置会落到构建根目录，
+            # 与子目录静态库的便捷目标重名冲突（multiple rules generate ...lib）。
+            'ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/components")',
         ])
         if "miniaudio" in info.manifest.get("deps", []):
             cmake.append(f'target_include_directories({target}_dynamic PRIVATE "{ROOT.as_posix()}/third_party")')
     (directory / "CMakeLists.txt").write_text("\n".join(cmake), encoding="utf-8")
     build = directory / "build"
-    configure = ["cmake", "-S", str(directory), "-B", str(build), "-G", "Ninja"]
+    # 与预构建 runtime/abi 库保持一致：MSVC 下默认 Debug(MDd) 与主构建的 Release(MD) 冲突
+    configure = ["cmake", "-S", str(directory), "-B", str(build), "-G", "Ninja",
+                 "-DCMAKE_BUILD_TYPE=Release"]
     for line in (ROOT / "build" / "CMakeCache.txt").read_text(encoding="utf-8").splitlines():
         if line.startswith(("CMAKE_C_COMPILER:", "CMAKE_CXX_COMPILER:")):
             configure.append(f"-D{line.split(':', 1)[0]}={line.split('=', 1)[1]}")

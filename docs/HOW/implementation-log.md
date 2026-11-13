@@ -2,6 +2,41 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-11-12（跨速率双路FIFO合流迁入接口声明）
+
+- rate_sync迁入接口声明/生成壳，累计 **120/126 包**，剩余 **6 包**。
+  in0/in1均不驱动（无process声明），由静态调度表在同步点以合流块长(LCM)整点调用，
+  每次两路整块追加进各自FIFO，都达到对齐窗口后整块读出相加，
+  每次调用显式交付1号out；攒不够窗口交付0帧。生成图中sync为调度驱动入口
+  （period=合流周期），不再作为生产者的调用链子节点。
+- FIFO容量=对齐窗口+一个合流块（旧实现容量=窗口，跨调用余量会覆盖未消费数据）；
+  任一FIFO装不下本次整块在**准备期/运行期前置拒绝**，不部分写入、不回滚。
+  显式buffer_length必须不小于合流块长，否则prepare拒绝；mode由旧manifest的
+  string声明（C实现实际按int 0/1）更正为int，与持久化工程及README一致。
+  全部参数restart_required，运行期改参显式UNSUPPORTED（宿主重启实例）。
+  保留channels的config回退、别名/通道/容量校验、零帧不推进、reset清FIFO。
+- **打通Windows/MSVC全量构建**（此前runtime库停留在8月旧产物）：顶层补NOMINMAX
+  （windows.h宏与std::min/max冲突）；bridge_bulk.c增加MSVC兼容层
+  （C模式无C11 _Atomic，以Interlocked实现等价uint原子语义）；
+  测试printf_hook.h改用push/pop_macro先完成UCRT snprintf声明再恢复宏映射，
+  强制包含在MSVC用/FI（cl忽略-include）；
+  delivery_test_*对象库补ORPHEUS_BUILDING_COMPONENT（dllimport下定义入口C2491）；
+  compile_delivery_backends补/utf-8、CMAKE_SHARED_LIBRARY_PREFIX lib、
+  DLL导入库ARCHIVE输出目录与CMAKE_BUILD_TYPE=Release（对齐预构建库）。
+- **1项原生冒烟与2项双后端图验证通过**：原生覆盖描述符/双bank求和/固定模式
+  0帧与96帧交替/容量与别名拒绝/溢出前置拒绝不改状态/零帧/reset/拒绝后实例
+  不可运行但可销毁/提交前越界不触碰既有状态/config->channels回退/状态块对齐。
+  新test_rate_sync_interfaces两图（100/300Hz、24/32块、tidA/tidB两Task）
+  以capture逐位复现signal_gen验证A+B对齐求和、frame_index步长96、首拍
+  DISCONTINUITY、epoch=1，动态/生成双后端各25次同步点、2400帧逐位一致；
+  修正B路产量假设（每量子3×32=96=桥深度，无回绕，两路窗口同为[96k,96k+96)）。
+  test_generated_task_entries断言改为调度驱动入口契约（period/phase节点式）。
+- 既有test_single_rate_schedule_matches_legacy失败为HEAD遗留
+  （gen:out(128)->dr:in(32)块长不匹配，与rate_sync无关），未处理。
+- test_device_interfaces两例在MSVC Release下暴露潜伏崩溃（harness首块写入即
+  访问违例，/Od与改写布局后不现；定位为runtime加载路径的布局敏感未初始化/UB读取，
+  与rate_sync无关，device边界批次遗留），未在本批修复，待专项排查。
+
 ## 2026-11-11（纯Task源与真实触发端口）
 
 - task_source迁入接口声明/生成壳，累计 **119/126 包**，剩余 **7 包**。

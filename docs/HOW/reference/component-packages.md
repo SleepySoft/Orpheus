@@ -261,6 +261,12 @@ UI直接显示真实触发出口，同口扇出按保存顺序；实际分频使
 连接不再接受every/phase再分频，绘图drive_divide不影响执行。
 参考[纯任务驱动源](../../../components/orpheus/builtin/task_source/README.md)。
 
+rate_sync双输入均不驱动，由静态调度表在同步点以合流块长(LCM)整点调用；
+每次两路整块追加进各自FIFO（容量=对齐窗口+一个合流块），都达到窗口后整块读出相加，
+每次调用显式交付1号out，攒不够窗口交付0帧。显式buffer_length必须不小于合流块长，
+否则准备期拒绝；单块超容量、别名前置拒绝，溢出不改状态，零帧不推进，reset清FIFO。
+参考[双路缓冲合流](../../../components/orpheus/builtin/rate_sync/README.md)。
+
 sweep_record以in驱动，按实际调用首声道能量/本地时间分箱，保留原f32累计与RMS次序。
 先提交统计再emit out(1)，失败不回滚；完成后继续直通，完整原地允许、部分重叠拒绝。
 512项只读曲线的频率/幅度使用固定256项跨度；reset保留频率轴、清采集状态。

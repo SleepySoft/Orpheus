@@ -3,7 +3,37 @@
 #endif
 #include "orpheus_bridge_bulk.h"
 
+#ifdef _MSC_VER
+/* MSVC C 模式无 C11 _Atomic 关键字：以 Interlocked 实现本文件用到的 uint 原子语义。
+   只覆盖实际使用的操作；memory_order 参数由全屏障操作自然满足（x86/x64 上
+   Interlocked 均含完整屏障）。 */
+#include <windows.h>
+typedef enum {
+    memory_order_relaxed, memory_order_consume, memory_order_acquire,
+    memory_order_release, memory_order_acq_rel, memory_order_seq_cst
+} memory_order;
+typedef struct { volatile LONG value; } atomic_uint;
+#define atomic_init(p, v) ((p)->value = (LONG)(v))
+#define atomic_is_lock_free(p) 1
+static unsigned atomic_load_explicit(const atomic_uint* p, memory_order order) {
+    (void)order;
+    return (unsigned)InterlockedCompareExchange((volatile LONG*)&p->value, 0, 0);
+}
+static void atomic_store_explicit(atomic_uint* p, unsigned v, memory_order order) {
+    (void)order;
+    InterlockedExchange(&p->value, (LONG)v);
+}
+static int atomic_compare_exchange_strong_explicit(atomic_uint* p, unsigned* expected,
+        unsigned desired, memory_order success, memory_order failure) {
+    (void)success; (void)failure;
+    const LONG prev = InterlockedCompareExchange(&p->value, (LONG)desired, (LONG)*expected);
+    if ((unsigned)prev == *expected) return 1;
+    *expected = (unsigned)prev;
+    return 0;
+}
+#else
 #include <stdatomic.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
