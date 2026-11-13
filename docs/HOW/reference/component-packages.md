@@ -281,6 +281,10 @@ access_bridge以bridge_config: true声明保存为工程顶层bridges，widget/o
 等界面元数据原样保留；codegen_template显式声明生成模板，
 归一化不再为它们登记生成物路径，builder/generator的生成物校验对它们豁免。
 
+placeholder以dynamic_interface: interface声明可变签名：端口由interface JSON
+参数逐实例声明（编译器展开并校验routes），生成壳只透传位置化缓冲数组，
+描述符端口为空、由运行时按位置绑定；显式路由允许输出与输入共享缓冲。
+
 sweep_record以in驱动，按实际调用首声道能量/本地时间分箱，保留原f32累计与RMS次序。
 先提交统计再emit out(1)，失败不回滚；完成后继续直通，完整原地允许、部分重叠拒绝。
 512项只读曲线的频率/幅度使用固定256项跨度；reset保留频率轴、清采集状态。

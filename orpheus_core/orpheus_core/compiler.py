@@ -178,7 +178,7 @@ def _expand_port_manifests(
     e.g. deinterleave outputs).
     """
     expanded: list[dict[str, Any]] = []
-    if node.component == PLACEHOLDER_ID:
+    if node.component == PLACEHOLDER_ID or comp.manifest.get("dynamic_interface"):
         try:
             ports = placeholder_ports(node.params)
             validate_routes(node.params, ports)

@@ -1,25 +1,23 @@
 id: orpheus.builtin.placeholder
 name: "音频占位桩"
 category: "输入与输出"
-description: 可运行的音频骨架桩；没有模型算法。通过接口编辑器配置端口，并在节点 TODO 中记录源码索引、下一步和验收条件。
-version: 1.0.0
-abi_version: 6
+description: 可运行的音频骨架桩；没有模型算法。端口签名由 interface JSON 参数逐实例声明（可变签名），编译器展开为真实端口；通过节点 TODO 记录源码索引、下一步和验收条件。
+version: 1.1.0
+abi_version: 7
 package_type: source
-state_type: PlaceholderState
-sources: [src/placeholder.c]
-headers: [include/orpheus_placeholder.h]
-ports:
-  - {id: in, direction: input, type: audio, sample_format: f32, channels: 2}
-  - {id: out, direction: output, type: audio, sample_format: f32, channels: 2}
-parameters:
-  - id: interface
+dynamic_interface: interface
+algorithm:
+  lifecycle: [prepare, reset, set_parameter]
+interfaces:
+  interface:
     name: 占位接口
     type: string
     widget: placeholder_ports
     default: '[{"id":"in","direction":"input","channels":2},{"id":"out","direction":"output","channels":2}]'
+    capacity: 4096
     update_policy: restart_required
     affects_signature: true
-  - id: mode
+  mode:
     name: 桩行为
     type: string
     widget: select
@@ -28,7 +26,7 @@ parameters:
       - {value: silence, label: 全部输出置零}
     default: passthrough
     update_policy: restart_required
-  - id: routes
+  routes:
     name: 输出路由（按输出顺序填输入序号，逗号分隔；-1 置零）
     type: string
     default: "0"

@@ -55,7 +55,7 @@ LIFECYCLE_HOOKS = ("normalize", "validate", "prepare", "reset", "destroy", "set_
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
         "category", "description", "interfaces", "algorithm", "order", "execution", "memory",
         "platforms", "ui_hidden", "user_owned", "scheduling", "input_alternatives", "deps",
-        "codegen_template", "bridge_config"}
+        "codegen_template", "bridge_config", "dynamic_interface"}
 _PORT = {"name", "direction", "type", "sample_format", "channels", "block_size", "sample_rate",
          "process", "drive_port_no", "drive_divide", "count", "description", "layout", "frame_size",
          "timing", "optional", "allow_unready", "host_binding"}
@@ -851,6 +851,11 @@ def normalize_component_definition(raw: dict) -> dict:
                 item["bulk_slot"] = value.get("bulk", {}).get("slot_key", key)
             result["parameters"].append(item)
     symbols = component_symbols(raw)
+    dynamic = raw.get("dynamic_interface")
+    if dynamic is not None:
+        target = raw["interfaces"].get(dynamic)
+        if target is None or target.get("type") != "string" or "direction" in target:
+            _fail("dynamic_interface 必须引用字符串参数", "dynamic_interface")
     result.update({"sources": ["generated/component_shell.c", "user/algorithm.c"],
                    "headers": ["generated/component_api.h", "generated/component_state.h", "user/algorithm.h"],
                    "include_dirs": [".", "generated", "user"], "state_type": symbols["state_type"],

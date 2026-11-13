@@ -1062,11 +1062,12 @@ add_test(NAME n_way_mux_smoke COMMAND n_way_mux_smoke)
 
 add_executable(placeholder_smoke
     placeholder_smoke.c
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/placeholder/src/placeholder.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/placeholder/generated/component_shell.c
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/placeholder/user/algorithm.c
 )
 target_include_directories(placeholder_smoke PRIVATE
     ${CMAKE_SOURCE_DIR}/orpheus_abi/include
-    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/placeholder/include
+    ${CMAKE_SOURCE_DIR}/components/orpheus/builtin/placeholder/generated
 )
 target_compile_definitions(placeholder_smoke PRIVATE ORPHEUS_BUILDING_COMPONENT)
 add_test(NAME placeholder_smoke COMMAND placeholder_smoke)

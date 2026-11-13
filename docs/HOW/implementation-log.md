@@ -2,6 +2,20 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-11-12（可变签名占位桩迁入接口声明，126/126收口）
+
+- placeholder迁入接口声明/生成壳，累计 **126/126 包**，分批迁移收口。
+  新增manifest关键字`dynamic_interface: <字符串参数>`：端口签名由该参数逐实例
+  JSON声明（1..64端口、每方向≤32、通道1..64），编译器按此展开端口并校验
+  routes（保留按组件id的兼容判定）；生成壳为位置化数组透传（描述符端口为空、
+  运行时按位置绑定），接口JSON上限显式扩至4096字节以容纳64端口声明。
+  桩语义不变：passthrough按routes显式路由（允许输出输入共享缓冲，memmove）、
+  silence置零、路由数必须等于输出数、被路由输入断线报错不静默置零；
+  prepare输出占位日志到stderr；mode/routes接受运行期设置，interface重启生效。
+- 验证：原生冒烟（透传/置零/断线报错/容量拒绝/坏routes拒绝/空routes）通过；
+  test_placeholder 18项通过（含动态/生成逐字节一致e2e与bridge会话）；
+  test_component_codegen与normalization共522项通过；validate_component.py通过。
+
 ## 2026-11-12（uart_link声明迁入interfaces声明）
 
 - uart_link迁入interfaces声明，累计 **125/126 包**，剩余 **1 包**（placeholder）。

@@ -59,6 +59,13 @@ def _number(value, kind):
 
 
 def _check_features(definition):
+    dynamic = definition.get("dynamic_interface")
+    if dynamic is not None:
+        param = next((p for p in definition["parameters"] if p["id"] == dynamic), None)
+        if param is None or param["type"] != "string":
+            _error("dynamic_interface 必须引用字符串参数", "invalid_declaration")
+        if definition["ports"]:
+            _error("dynamic_interface 组件不能再声明静态端口", "invalid_declaration")
     for port in definition["ports"]:
         if port["type"] == "trigger":
             continue
@@ -592,6 +599,7 @@ def _render(definition):
         symbols[k] for k in ("prefix", "state_type", "io_type", "private_type", "function"))
     upper = prefix.upper()
     ports, params = definition["ports"], definition["parameters"]
+    dynamic = definition.get("dynamic_interface")
     hooks = set(definition.get("algorithm", {}).get("lifecycle", []))
     inputs = [p for p in ports if p["direction"] == "input"]
     outputs = [p for p in ports if p["direction"] == "output"]
@@ -628,16 +636,24 @@ def _render(definition):
     # UINT32_MAX-1 超过 C11 enum 的 int 范围，使用强类型常量宏。
     api.extend(f"#define {upper}_DRIVE_{p['id'].upper()}{'_BASE' if 'count' in p else ''} "
                f"UINT32_C({p['drive_port_no']})" for p in driven)
-    api += [f"typedef struct {io} {{"]
-    for port in ports:
-        array = f"[{max(1, port['count_max'])}]" if "count" in port else ""
-        api.append(f"    {prefix}_{'Input' if port['direction'] == 'input' else 'Output'}"
-                   f"{_port_suffix(port)} {port['id']}{array};")
-        if "count" in port:
-            api.append(f"    uint32_t {port['id']}_count;")
-    if not ports:
-        api.append("    unsigned char reserved;")
-    api += [f"}} {io};", ""]
+    if dynamic:
+        # 可变签名组件：端口由 dynamic_interface 指向的 JSON 参数逐实例声明，
+        # 壳只透传位置化缓冲数组，签名展开与路由校验在编译器/算法侧完成。
+        api += [f"typedef struct {io} {{",
+                "    const OrpheusBuffer* const* inputs;", "    uint32_t input_count;",
+                "    OrpheusBuffer** outputs;", "    uint32_t output_count;",
+                f"}} {io};", ""]
+    else:
+        api += [f"typedef struct {io} {{"]
+        for port in ports:
+            array = f"[{max(1, port['count_max'])}]" if "count" in port else ""
+            api.append(f"    {prefix}_{'Input' if port['direction'] == 'input' else 'Output'}"
+                       f"{_port_suffix(port)} {port['id']}{array};")
+            if "count" in port:
+                api.append(f"    uint32_t {port['id']}_count;")
+        if not ports:
+            api.append("    unsigned char reserved;")
+        api += [f"}} {io};", ""]
     for port in driven:
         name = port["id"]
         end = port["drive_port_no"] + port.get("count_max", 1) - 1
@@ -837,6 +853,9 @@ def _render(definition):
               "static int process(void* state, const OrpheusProcessContext* ctx) {",
               f"    {state}* s=({state}*)state;", f"    {io} io={{0}};",
               "    if (!s || !s->_orpheus_alive || !ctx) return ORPHEUS_ERR_INVALID_ARG;"]
+    if dynamic:
+        shell += ["    io.inputs=ctx->inputs; io.input_count=ctx->input_count;",
+                  "    io.outputs=ctx->outputs; io.output_count=ctx->output_count;"]
     if definition.get("input_alternatives"):
         shell += ["    if (!ctx->frame_count) return ORPHEUS_OK;"]
     if grouped:

@@ -1,4 +1,4 @@
-#include "orpheus_placeholder.h"
+#include "component_state.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -9,7 +9,7 @@ extern const OrpheusComponentInterface* orpheus_get_interface(void);
 
 int main(void) {
     const OrpheusComponentInterface* api = orpheus_get_interface();
-    PlaceholderState arena;
+    orpheus_builtin_placeholder_State arena;
     void* state = NULL;
     OrpheusConfig config = {0};
     float data[] = {0.25f, -0.5f, 0.75f, -1.0f};
