@@ -2,6 +2,18 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-11-12（声明式平台节点迁入interfaces声明）
+
+- platform_hook迁入interfaces声明，累计 **123/126 包**，剩余 **3 包**。
+  execution.none节点不生成也不编译组件壳：归一化对它们不再登记
+  generated/user源路径与state_type（此前会指向不存在的生成物），
+  builder的生成物校验对execution.none豁免；codegen_template补进
+  schema与_TOP白名单（uart_link已在用，此前schema漏登）。
+  声明语义不变：不进执行计划、不约束平台可达、连线报错、
+  生成init/read/write USER CODE钩子。
+- 验证：test_platform_nodes三项（计划排除/平台可达/钩子生成）通过，
+  validate_component.py校验通过，归一化参数与端口结构断言通过。
+
 ## 2026-11-12（SPORT/TDM边界迁入宿主音频绑定）
 
 - sport_tdm_in/out迁入接口声明/生成壳，累计 **122/126 包**，剩余 **4 包**。

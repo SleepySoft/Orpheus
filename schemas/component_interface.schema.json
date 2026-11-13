@@ -15,6 +15,7 @@
     "clock_domain": {"type": "string", "minLength": 1},
     "abi_version": {"const": 7},
     "package_type": {"const": "source"},
+    "codegen_template": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
     "clock_source": {"type": "boolean"},
     "order": {"type": "integer"},
     "ui_hidden": {"type": "boolean"},

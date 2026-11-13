@@ -189,7 +189,7 @@ class ComponentBuilder:
         info = self.registry.get(component_id)
         if info is None:
             raise BuildError(f"component not in registry: {component_id}")
-        if "interfaces" in info.manifest:
+        if "interfaces" in info.manifest and not info.manifest.get("execution", {}).get("none"):
             from orpheus_core.component_codegen import check_generated
             from orpheus_core.component_definition import ComponentDefinitionError
             try:
