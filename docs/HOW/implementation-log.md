@@ -2,6 +2,16 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-11-12（访问桥声明迁入interfaces声明）
+
+- access_bridge迁入interfaces声明，累计 **124/126 包**，剩余 **2 包**。
+  bridge_config: true补进schema与_TOP白名单（编译器声明分发与UI依赖的
+  既有字段，此前schema漏登）；transport/codec/duplex/enabled/resource/baud/
+  probe_interval_ms/note八项参数的widget/options界面元数据原样保留。
+  声明语义不变：保存为工程顶层bridges、不进执行计划、legacy uart_link自动迁移。
+- 验证：validate_component.py校验通过；test_uart_link（含生成工程构建与
+  stdio全链路e2e）与test_subgraph共27项通过。
+
 ## 2026-11-12（声明式平台节点迁入interfaces声明）
 
 - platform_hook迁入interfaces声明，累计 **123/126 包**，剩余 **3 包**。

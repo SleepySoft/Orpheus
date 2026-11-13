@@ -3,12 +3,18 @@ name: 访问桥
 category: "平台与通信"
 order: 10
 description: 无音频端口的外部访问桥配置入口；保存为工程顶层 bridges，不参与音频执行
-version: 1.0.0
-abi_version: 6
+version: 1.1.0
+abi_version: 7
 package_type: source
 bridge_config: true
-parameters:
-  - id: transport
+execution:
+  none: true
+  sample_rate_independent: true
+  latency_samples: 0
+  supports_inplace: false
+  realtime_safe: true
+interfaces:
+  transport:
     name: 传输类型
     type: string
     default: uart
@@ -16,7 +22,7 @@ parameters:
     options:
       - {value: uart, label: UART / 串口}
     update_policy: restart_required
-  - id: codec
+  codec:
     name: 成帧协议
     type: string
     default: olink
@@ -24,7 +30,7 @@ parameters:
     options:
       - {value: olink, label: OLINK (COBS + CRC16)}
     update_policy: restart_required
-  - id: duplex
+  duplex:
     name: 双工能力
     description: 半双工使用单请求和主机轮询；全双工允许主动观测与请求流水化
     type: string
@@ -34,26 +40,26 @@ parameters:
       - {value: half, label: 半双工（兼容基线）}
       - {value: full, label: 全双工}
     update_policy: restart_required
-  - id: enabled
+  enabled:
     name: 启用
     type: bool
     default: true
     widget: checkbox
     update_policy: restart_required
-  - id: resource
+  resource:
     name: 平台资源
     description: 逻辑资源名，例如 uart2；实际驱动由目标平台 Adapter 绑定
     type: string
     default: uart0
     update_policy: restart_required
-  - id: baud
+  baud:
     name: 波特率
     type: int
     default: 921600
     range: [9600, 10000000]
     unit: bps
     update_policy: restart_required
-  - id: probe_interval_ms
+  probe_interval_ms:
     name: 观测周期
     description: 半双工为主机轮询周期，全双工为设备主动上报周期；0 表示关闭周期观测
     type: float
@@ -61,14 +67,8 @@ parameters:
     range: [0.0, 10000.0]
     unit: ms
     update_policy: restart_required
-  - id: note
+  note:
     name: 备注
     type: string
     default: ""
     update_policy: restart_required
-execution:
-  none: true
-  sample_rate_independent: true
-  latency_samples: 0
-  supports_inplace: false
-  realtime_safe: true

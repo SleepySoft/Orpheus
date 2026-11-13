@@ -16,6 +16,7 @@
     "abi_version": {"const": 7},
     "package_type": {"const": "source"},
     "codegen_template": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
+    "bridge_config": {"type": "boolean"},
     "clock_source": {"type": "boolean"},
     "order": {"type": "integer"},
     "ui_hidden": {"type": "boolean"},

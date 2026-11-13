@@ -55,7 +55,7 @@ LIFECYCLE_HOOKS = ("normalize", "validate", "prepare", "reset", "destroy", "set_
 _TOP = {"id", "name", "version", "abi_version", "package_type", "clock_source", "clock_domain",
         "category", "description", "interfaces", "algorithm", "order", "execution", "memory",
         "platforms", "ui_hidden", "user_owned", "scheduling", "input_alternatives", "deps",
-        "codegen_template"}
+        "codegen_template", "bridge_config"}
 _PORT = {"name", "direction", "type", "sample_format", "channels", "block_size", "sample_rate",
          "process", "drive_port_no", "drive_divide", "count", "description", "layout", "frame_size",
          "timing", "optional", "allow_unready", "host_binding"}
