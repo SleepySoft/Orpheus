@@ -16,7 +16,7 @@
 |---|---|
 | UI | TypeScript 风格 React 18 + React Flow 11（CRA，`ui/`） |
 | 后端/编排 | Python 3.10+，FastAPI + uvicorn（`orpheus_core/`） |
-| 实时运行时 | C++11，CMake + Ninja + MinGW GCC（`orpheus_runtime/`） |
+| 实时运行时 | C++11，CMake + Ninja + MSVC（`orpheus_runtime/`；builder 自动定位 vcvars64） |
 | 组件 | C11（入口经 `ORPHEUS_ENTRY_NAME` 宏导出 C ABI），允许 C++11 |
 | 音频后端 | miniaudio（vendored，`third_party/`） |
 | 工程格式 | 目录工程（`project.yaml` + imports + 组件定义 + assets）+ JSON Schema 校验 |
