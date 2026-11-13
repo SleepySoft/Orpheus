@@ -2,6 +2,32 @@
 
 > 本文按时间追加，旧条目中的“待实现”、旧路径和已删除中间文件保留为历史现场；当前能力与待办请看 `docs/HOW/roadmap.md`，不要把旧条目当作现状。
 
+## 2026-11-13（分批迁移收口与全量回归盘点）
+
+- **126/126 内置包全部迁入接口声明/生成壳或声明式 interfaces 清单**（rate_sync、
+  sport_tdm_in/out、platform_hook、access_bridge、uart_link、placeholder 六批收尾）。
+  修复生成壳长字符串字面量在 MSVC 超限（C2026）：_quote 按 ≤4KB 相邻字面量分块，
+  196KB 频谱 CSV 默认值验证通过（fft_interfaces 5/5）。
+- **全量回归盘点**：MSVC 全量构建 0 错误；ctest 99/99；
+  pytest 全量 2097 通过 / 150 失败 / 64 错误（分块串行，无并发干扰）。
+  失败全部定性为**既有问题或环境差异，非本迁移引入**（抽样均在迁移前 HEAD
+  worktree 复现同等或更多失败）：
+  - 11-11 迁移日遗留：task_flow/drive_propagation/frame_energy 时序校验、
+    clock_rate 有理 SRC 端口分数块长、bulk 数值家族、interfaces、data_ports、
+    audio_adapters、external_model 家族（另含 external_model_full 已迁独立仓库）、
+    static_schedule 单速率表、noise_detectors 的 task_sequence 顺序校验；
+  - 本机工具链差异（仅 MSVC、无 Strawberry GCC）：GCC 严格告警标志的
+    原生契约测试（embed/scalar_primitives/host_audio 等）、
+    test_component_codegen harness 按设计跳过（522 过 225 跳）；
+  - 潜伏运行时 UB（device_interfaces 两例，布局敏感，/O2 暴露，待专项排查）。
+- **BAF 工程（workspace/ExperimentalModel/baf_skeleton，独立研究仓库）评估**：
+  主工程与 smoke 工程均不能编译（驱动连接引用未展平节点名，如
+  `front__select__body`，其在自身最后提交 8aec7e1 的配套主仓库 805184d 上
+  同样失败，早于本次迁移）；工程私有 21 个旧式组件（9 个 components/ 原子、
+  10 个 hf_remaining 叶子、2 个 native/ 协议组件，C 源码共约 1340 行）。
+  迁移前提：先修复驱动连接/flatten 语义或更新工程持久化格式，
+  再逐包迁入；属 roadmap 阶段 5 范围，建议单独立项处理。
+
 ## 2026-11-12（可变签名占位桩迁入接口声明，126/126收口）
 
 - placeholder迁入接口声明/生成壳，累计 **126/126 包**，分批迁移收口。
